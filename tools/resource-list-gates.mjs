@@ -103,11 +103,14 @@ const SEVEN = [
     row(5, 'practice', 'Practice set'),
     row(6, 'link', 'Reference page'),
     row(7, 'book', 'Textbook'),
+    // A type no form offers (an older version's): drawn, counted and filtered as a link.
+    row(8, 'podcast', 'Weekly podcast'),
 ];
+const updates = [];
 globalThis.__setState({
     resources: SEVEN,
     nodes: [], projects: [], accentColor: '#0e7490', theme: 'light',
-    createResource: async () => { }, updateResource: async () => { }, deleteResource: async () => { }, reorderResources: async () => { },
+    createResource: async () => { }, updateResource: async (id, patch) => { updates.push({ id, ...patch }); }, deleteResource: async () => { }, reorderResources: async () => { },
     loadResources: async () => { }, addToast: () => { },
 });
 const listRoot = createRoot(host);
@@ -121,18 +124,33 @@ const shownTitles = () => SEVEN.map(r => r.title).filter(t => [...host.querySele
 section('one "Course", in the filter and in both forms');
 const pills = labels('resource-filter');
 check('the filter shows one Course pill, counting both kinds of course row', pills.filter(l => /^Course/.test(l)).length === 1 && pills.includes('Course (2)'), JSON.stringify(pills));
+check('an unknown type is counted under Link, not as a second Link pill', pills.filter(l => /^Link/.test(l)).length === 1 && pills.includes('Link (2)'), JSON.stringify(pills));
 click([...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add'));
 const addKinds = labels('resource-type');
 check('the add form offers each kind once', addKinds.length > 0 && new Set(addKinds).size === addKinds.length, JSON.stringify(addKinds));
 check('…Practice and Link among them', addKinds.includes('Practice') && addKinds.includes('Link'), JSON.stringify(addKinds));
 click([...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Cancel'));
-// Row 4 is the course_link row: its Edit is the fourth on screen.
-const edits = [...host.querySelectorAll('button[aria-label="Edit"]')];
-click(edits[3]);
+// The Edit button in the card that carries this title.
+const editOf = (title) => {
+    const titleEl = [...host.querySelectorAll('a, span')].find(e => e.textContent.trim() === title);
+    let card = titleEl;
+    while (card && !card.querySelector('button[aria-label="Edit"]')) card = card.parentElement;
+    return card?.querySelector('button[aria-label="Edit"]') ?? null;
+};
+const pressedKinds = () => chips('resource-type').filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent.trim());
+click(editOf('Older course link'));
 const editKinds = labels('resource-type');
 check('the edit form offers exactly the kinds the add form does', JSON.stringify(editKinds) === JSON.stringify(addKinds), `${JSON.stringify(editKinds)} vs ${JSON.stringify(addKinds)}`);
-const pressed = chips('resource-type').filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent.trim());
-check('a legacy course_link row opens with Course selected', JSON.stringify(pressed) === '["Course"]', JSON.stringify(pressed));
+check('a legacy course_link row opens with Course selected', JSON.stringify(pressedKinds()) === '["Course"]', JSON.stringify(pressedKinds()));
+const titleField = host.querySelector('input[aria-label="Title"]');
+if (titleField) act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(titleField, 'Older course, renamed');
+    titleField.dispatchEvent(new window.Event('input', { bubbles: true }));
+});
+await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save')?.click(); });
+check('renaming it keeps its stored type (no silent rewrite)', updates.length === 1 && updates[0].type === 'course_link' && updates[0].title === 'Older course, renamed', JSON.stringify(updates));
+click(editOf('Weekly podcast'));
+check('a row of an unknown type opens with Link selected', JSON.stringify(pressedKinds()) === '["Link"]', JSON.stringify(pressedKinds()));
 click([...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Cancel'));
 
 section('a filter applies only while it can be seen');
@@ -140,14 +158,22 @@ click(chips('resource-filter').find(b => /^Course/.test(b.textContent.trim())));
 check('Course shows both course rows', JSON.stringify(shownTitles()) === '["Open course","Older course link"]', JSON.stringify(shownTitles()));
 click(chips('resource-filter').find(b => /^Video/.test(b.textContent.trim())));
 check('Video shows its one row', JSON.stringify(shownTitles()) === '["Lecture video"]', JSON.stringify(shownTitles()));
-// Two rows deleted: five left, so the pills go.
-act(() => globalThis.__setState({ resources: SEVEN.filter(r => r.id !== 6 && r.id !== 7) }));
+click(chips('resource-filter').find(b => /^Link/.test(b.textContent.trim())));
+check('Link shows the link and the unknown-type row', JSON.stringify(shownTitles()) === '["Reference page","Weekly podcast"]', JSON.stringify(shownTitles()));
+click(chips('resource-filter').find(b => /^Video/.test(b.textContent.trim())));
+// Three rows deleted: five left, so the pills go.
+const allPressed = () => chips('resource-filter').find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim().startsWith('All');
+act(() => globalThis.__setState({ resources: SEVEN.filter(r => ![6, 7, 8].includes(r.id)) }));
 check('down to five rows the pills are gone', chips('resource-filter').length === 0, JSON.stringify(labels('resource-filter')));
 check('…and every row is listed, not only the videos', shownTitles().length === 5, JSON.stringify(shownTitles()));
-// Back to a long list with the video gone: the pick has no rows left.
-act(() => globalThis.__setState({ resources: SEVEN.filter(r => r.id !== 2) }));
-check('a long list whose picked kind has no rows left lists every row', shownTitles().length === 6, JSON.stringify(shownTitles()));
-check('…and "All" is the pill that reads as pressed', chips('resource-filter').find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim().startsWith('All'), JSON.stringify(chips('resource-filter').map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])));
+// Rows added back past the threshold: the old pick does not come back by itself.
+act(() => globalThis.__setState({ resources: SEVEN }));
+check('a list that grows long again lists every row, the old pick dropped', shownTitles().length === 8 && allPressed(), JSON.stringify(shownTitles()));
+// A pick whose kind loses its last row, on a list still long enough for pills.
+click(chips('resource-filter').find(b => /^Book/.test(b.textContent.trim())));
+act(() => globalThis.__setState({ resources: SEVEN.filter(r => r.id !== 7) }));
+check('a long list whose picked kind has no rows left lists every row', shownTitles().length === 7, JSON.stringify(shownTitles()));
+check('…and "All" is the pill that reads as pressed', allPressed(), JSON.stringify(chips('resource-filter').map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])));
 
 act(() => listRoot.unmount());
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }

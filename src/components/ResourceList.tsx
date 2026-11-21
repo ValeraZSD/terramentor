@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { api } from '../api';
 import {
   DndContext, DragEndEvent, closestCenter,
@@ -240,6 +240,11 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
   // What the list is filtered by: never a filter whose pills are gone or
   // whose kind has no rows left.
   const activeFilter = effectiveTypeFilter(typeFilter, resources);
+  // A pick that stopped applying is dropped, so it does not come back by
+  // itself when the list grows past the pill threshold again.
+  useEffect(() => {
+    if (typeFilter && !activeFilter) setTypeFilter(null);
+  }, [typeFilter, activeFilter]);
 
   const completedCount = useMemo(() => resources.filter(r => r.completed).length, [resources]);
 
@@ -280,7 +285,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
     setEditingId(resource.id);
     setEditTitle(resource.title);
     setEditUrl(resource.url);
-    setEditType(canonicalResourceType(resource.type));
+    // The stored type, kept as it is unless the learner picks another kind;
+    // the chips compare it as the kind it is shown as.
+    setEditType(resource.type);
   }, []);
 
   const saveEdit = useCallback(async () => {
@@ -522,7 +529,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                     <div className="flex flex-wrap gap-1">
                       {SELECTABLE_RESOURCE_TYPES.map(t => {
                         const c = TYPE_CONFIG[t];
-                        const active = editType === t;
+                        const active = canonicalResourceType(editType) === t;
                         return (
                           <button
                             key={t}
