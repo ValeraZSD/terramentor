@@ -8,7 +8,7 @@ import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import {
     applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
-    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting,
+    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting, provenanceModel,
 } from '../courseFiles.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -37,6 +37,9 @@ app.get('/api/export/:projectId', (req, res) => {
                     // Only when it is not a topic: a re-imported deck's stage
                     // must not come back as something to teach.
                     role: n.role && n.role !== 'topic' ? n.role : undefined,
+                    // The model that wrote the topic's title and Overview, as
+                    // its questions and cards name theirs (courseFiles.js).
+                    generated_by: provenanceModel(n.generated_by) || undefined,
                     questions: exportedQuestions(n.id),
                     flashcards: exportedFlashcards(n.id),
                 };

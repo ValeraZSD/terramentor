@@ -391,8 +391,8 @@ export function commitImport(parsed, {
     );
     const insertCard = db.prepare(`
         INSERT INTO flashcards (node_id, front, back, extra, extra_front, difficulty, last_interval, ease_factor,
-                                review_count, lapses, next_review, last_reviewed, media)
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+                                review_count, lapses, next_review, last_reviewed, media, generated_by)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertMedia = db.prepare(`
         INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by)
@@ -549,6 +549,9 @@ export function commitImport(parsed, {
                 nextReview,
                 s?.reps ? new Date().toISOString() : null,
                 media,
+                // A deck our own export tagged `ai-written::<model>` keeps that
+                // as the file's claim, as a course file's card does (courseFiles.js).
+                card.generated_by ? JSON.stringify({ model: card.generated_by, via: 'import' }) : null,
             );
             written++;
             if (s?.ankiCardId) idOfAnkiCard.set(s.ankiCardId, Number(info.lastInsertRowid));

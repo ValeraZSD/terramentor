@@ -17,7 +17,7 @@ import { queueRecovery } from '../pdfRecovery.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import {
     applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
-    insertImportedTree, newPerDaySetting, projectMediaNames,
+    insertImportedTree, newPerDaySetting, projectMediaNames, provenanceModel,
 } from '../courseFiles.js';
 import { BUNDLE_ZIP_LIMITS, BundleRefusal, readBundleCourse, restoreCardMedia, underlying } from '../bundleCourse.js';
 import { wrap } from './request.js';
@@ -110,6 +110,8 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
             completed_at: includeProgress && n.status === 'completed' && n.completed_at ? n.completed_at : undefined,
             is_note: n.is_note ? true : undefined,
             role: n.role && n.role !== 'topic' ? n.role : undefined,
+            // As the JSON export: the model that wrote the topic, by id alone.
+            generated_by: provenanceModel(n.generated_by) || undefined,
             questions: exportedQuestions(n.id),
             flashcards: exportedFlashcards(n.id, media.names),
         };

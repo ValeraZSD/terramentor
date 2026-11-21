@@ -143,10 +143,11 @@ export const READ_RESOURCE_FIELDS = ['title', 'url', 'type', 'completed', 'uuid'
  * "Stage 1" back into a topic and started teaching it. `learning_language` is
  * derived when a course is created (server/learningLanguage.js), never typed.
  * `search_words` are the learner's own (server/searchWords.js); a model's are
- * not exported, the importing app's model writes its own.
+ * not exported, the importing app's model writes its own. A topic's
+ * `generated_by` names the model that wrote it, as a question's and a card's do.
  */
 export const ROUND_TRIP_PROJECT_FIELDS = ['teaches', 'learning_language', 'search_words'];
-export const ROUND_TRIP_NODE_FIELDS = ['role'];
+export const ROUND_TRIP_NODE_FIELDS = ['role', 'generated_by'];
 
 /** `nodes.role`, as server/nodeRole.js names it (that module opens the database, so it is not imported here). */
 const NODE_ROLES = ['topic', 'pagination'];
@@ -399,6 +400,8 @@ export function normalizeImportTree(nodes, deps = {}) {
                 is_note: isNote,
                 uuid,
                 role,
+                // The model the file says wrote the topic, kept as its claim.
+                generated_by: declaredModel(node.generated_by, at, warnings) || undefined,
                 resources: normalizeResources(node.resources, at, warnings),
                 questions: normalizeImportQuestions(node.questions, at, warnings, deps, questionBudget, isNote),
                 flashcards: normalizeImportFlashcards(node.flashcards, at, warnings, cardBudget, isNote),
