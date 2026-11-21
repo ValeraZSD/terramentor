@@ -16,8 +16,10 @@
  * What it guards, because a model translating 1,600 strings gets a few wrong in
  * the same three ways every time: a `{{placeholder}}` dropped or renamed (the
  * app would print `{{count}}` literally — rejected, retried once, then left
- * for English); a key answered that was never asked (ignored); a value that is
- * the English unchanged (kept out, so the coverage table stays honest). Every
+ * missing, which tools/i18n-gates.mjs fails on until someone writes it by
+ * hand); a key answered that was never asked (ignored). A value the model
+ * returns unchanged is written (a word both languages share is still a
+ * translation); the gates' coverage table counts it as identical. Every
  * batch is written as it lands, so an interrupted run keeps its progress.
  *
  * This is a FIRST PASS. Native speakers correct it in place — `en.json` is the
@@ -191,12 +193,12 @@ for (const code of codes) {
             const v = answers[String(j + 1)];
             if (typeof v !== 'string' || !v.trim()) { rejected++; continue; }
             if (placeholders(v) !== placeholders(it.english)) { rejected++; continue; }
-            if (v.trim() === it.english.trim()) { unchanged++; continue; }
+            if (v.trim() === it.english.trim()) unchanged++;
             current[it.key] = v.trim();
         }
         const sorted = Object.fromEntries(Object.keys(current).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, current[k]]));
         writeFileSync(file, `${JSON.stringify(sorted, null, 2)}\n`);
         process.stdout.write(`  ${Math.min(i + BATCH, todo.length)}/${todo.length}\r`);
     }
-    console.log(`\n${code}: ${Object.keys(current).length} entries now; ${rejected} rejected (placeholder or empty), ${unchanged} left in English`);
+    console.log(`\n${code}: ${Object.keys(current).length} entries now; ${rejected} rejected (placeholder or empty: still missing, write them by hand), ${unchanged} kept identical to the English`);
 }

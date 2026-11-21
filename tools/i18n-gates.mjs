@@ -14,8 +14,8 @@
  * A key MISSING from a locale fails: every key en.json holds is in every
  * locale, and a plural key carries each form its language selects. "Falls back
  * to English" was the reason this was once only reported, and it is the defect:
- * 155 keys a learner reads (Recall target, Course name, the whole model-per-job
- * screen) sat in English inside every other interface for weeks (21 Nov 2026).
+ * keys a learner reads (Recall target, Course name, the whole model-per-job
+ * screen) sat in English inside every other interface for weeks (Nov 2026).
  * A new key is translated in the change that adds it. How WELL a locale reads
  * is still reported, never asserted: a value left identical to the English is
  * counted in the table, and `i18n-audit.mjs` judges wording.
