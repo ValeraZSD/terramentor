@@ -133,11 +133,12 @@ export default function ConnectModel({ onStatus }: {
         if (apiKey.trim()) await api.setAIKey(apiKey.trim(), url);
         setApiKey('');
         // An OpenRouter address typed here belongs to the OpenRouter card,
-        // which is where it is then shown as connected.
+        // which is where it is then shown as connected; one that did not
+        // answer keeps the learner beside the fields they typed.
         const toOpenRouter = isOpenRouter(url);
         const s = await refresh(toOpenRouter ? 'openrouter' : 'key');
-        if (toOpenRouter) setWay('openrouter');
         if (s && !s.available) throw new Error(s.error || t("The provider did not answer at that address."));
+        if (toOpenRouter && s) setWay('openrouter');
     });
 
     const checkLocal = () => run(async () => {

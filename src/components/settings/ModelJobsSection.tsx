@@ -99,8 +99,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         return () => { live = false; };
     }, [active, namingSaved]);
     const { embStatus, embModelInput, setEmbModelInput, loadEmbStatus } = emb;
-    // A refused embedding setting is said; the status read after it puts the
-    // controls back on what is stored.
+    // A refused embedding setting is said. The switch and the provider are
+    // drawn from the status, so they never moved; the model field is put back.
     const embSaveFailed = (e: any) => { addToast('error', tr("Failed to save"), e?.message); };
     const [embReindexing, setEmbReindexing] = useState(false);
     // What the endpoint serving embeddings lists as embedding models — asked
@@ -169,7 +169,10 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     // the pair was written, that is neither the old mode nor the new one, so the
     // pair is read back.
     const recoverySaver = useRef(valueSaver<RecoveryMode>()).current;
+    // The newest press; a read-back answering after a later press is dropped.
+    const recoveryPress = useRef(0);
     const saveRecoveryMode = async (mode: RecoveryMode) => {
+        const press = ++recoveryPress.current;
         const recovery = mode === 'off' ? 'off' : 'auto';
         const vision = mode === 'ocr' ? 'never' : mode === 'vision' ? 'always' : 'auto';
         let partly = false;
@@ -189,7 +192,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             addToast('error', tr("Failed to save"), e?.message);
             if (partly) {
                 api.getSettings()
-                    .then(s => setRecoveryMode(recoveryModeOf(s.pdf_math_recovery, s.pdf_recovery_vision)))
+                    .then(s => {
+                        if (press === recoveryPress.current) setRecoveryMode(recoveryModeOf(s.pdf_math_recovery, s.pdf_recovery_vision));
+                    })
                     .catch(() => { /* the control already shows the last mode that was written whole */ });
             }
         }
@@ -548,7 +553,11 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         onChange={async next => {
                                             setEmbModelInput(next);
                                             if (next.trim() && next.trim() !== embStatus?.config.model) {
-                                                await api.setEmbeddingSettings({ model: next.trim() }).catch(embSaveFailed);
+                                                await api.setEmbeddingSettings({ model: next.trim() }).catch((e) => {
+                                                    embSaveFailed(e);
+                                                    // The status read below may fail too; the field is put back now.
+                                                    setEmbModelInput(embStatus?.config.model ?? '');
+                                                });
                                                 loadEmbStatus({ force: true });
                                             }
                                         }}

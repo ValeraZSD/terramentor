@@ -731,6 +731,8 @@ section('welcome: the "another hosted provider" card does not claim an OpenRoute
             hasApiKey: true, model: 'some/model',
         }),
         getModels: async () => ({ success: true, models: [] }),
+        setSetting: async () => { },
+        setAIKey: async () => { },
     };
     await mounted('ConnectModel', () => h(ConnectModel, { onStatus() { } }), async (el) => {
         await flush();
@@ -750,6 +752,18 @@ section('welcome: the "another hosted provider" card does not claim an OpenRoute
         if (!anthropic) { check('the Anthropic preset is found', false); return; }
         await press(anthropic);
         check('the saved-key hint is gone once another address is typed', !hint());
+
+        // An OpenRouter address saved from this card lands on the OpenRouter card.
+        const openrouter = buttonNamed(el, /^OpenRouter$/);
+        const key = el.querySelector('input[type="password"]');
+        const save = buttonNamed(el, /^Save and connect$/);
+        if (!openrouter || !key || !save) { check('the preset, key field and save button are found', false); return; }
+        await press(openrouter);
+        await setInput(key, 'sk-or-test');
+        await press(save);
+        await flush();
+        check('saving an OpenRouter address moves to the OpenRouter card', way('openrouter').checked && /Connected to OpenRouter/.test(el.textContent),
+            ['openrouter', 'key', 'local'].filter((v) => way(v).checked).join(','));
     });
     globalThis.__api = undefined;
 }
