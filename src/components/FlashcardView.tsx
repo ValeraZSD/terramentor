@@ -12,9 +12,10 @@ import ProgressBar from './ui/ProgressBar';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, keepsItsDate, daysUntilDue, ReviewRating, UnsentRating } from '../utils/srs';
+import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, keepsItsDate, ReviewRating, UnsentRating } from '../utils/srs';
 import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
+import { dayLabel } from '../utils/locale';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
 import { useConfirmPress } from '../hooks/useConfirmPress';
@@ -275,9 +276,14 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                                 key={rating}
                                 rating={rating}
                                 label={notDueYet && rating === 'good' ? t("Knew it") : undefined}
-                                when={formatInterval(keepsItsDate(currentCard, rating)
-                                    ? daysUntilDue(currentCard)
-                                    : computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
+                                when={notDueYet
+                                    // In words here: "<10m" beside "3.3mo" read as the
+                                    // run's own verdict, when one is the run re-asking
+                                    // and the other is the date the card already had.
+                                    ? (rating === 'again'
+                                        ? t("Back in this run")
+                                        : t("Still due {{day}}", { day: dayLabel(currentCard.next_review ?? '') }))
+                                    : formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
                                 onClick={() => confirmRate.press(rating, () => handleRate(rating))}
                                 armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}

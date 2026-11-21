@@ -691,12 +691,6 @@ export function isReportedCard(card: { next_review?: string | null }): boolean {
     return !!card.next_review && card.next_review.startsWith('9999-');
 }
 
-/** Days until a card's stored due date (0 when it has none or is past due). */
-export function daysUntilDue(card: { next_review?: string | null }, now: number = Date.now()): number {
-    const due = card.next_review ? Date.parse(card.next_review) : NaN;
-    return Number.isFinite(due) ? Math.max(0, (due - now) / MS_PER_DAY) : 0;
-}
-
 /**
  * The ladder starts at minutes because (re)learning steps are 1, 6 or 10 minutes out.
  *

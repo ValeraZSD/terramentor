@@ -282,6 +282,11 @@ console.log('--- the tab: sets by their size, no sitting ---');
     const tiles = [...m.el.querySelectorAll('[data-rating]')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
     check('a card not due yet offers two tiles, Again and Knew it (Hard, Good and Easy would all keep its date)',
         tiles.length === 2 && /^Again/.test(tiles[0]) && /^Knew it/.test(tiles[1]), JSON.stringify(tiles));
+    // In words, not "<10m" beside "20d": Again re-asks in this run, Knew it names the date it had.
+    const d = new Date(later);
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+    check('...Again says the card comes back in this run, Knew it names the date it keeps',
+        /Back in this run/.test(tiles[0]) && [`Still due ${d.getDate()} ${mon}`, `Still due ${mon} ${d.getDate()}`].some(s => tiles[1].includes(s)) &&!/<\d|\dmo\b|\dd\b/.test(tiles.join(' ')), JSON.stringify(tiles));
     // Key 3 (Good on a due card) is Knew it here, as are 2 and 4.
     await act(async () => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: '3', bubbles: true })); });
     await flush();
