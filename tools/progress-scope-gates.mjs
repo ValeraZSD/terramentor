@@ -85,9 +85,10 @@ for (const [label, id] of [['a course', course], ['a deck', deck], ['card-order 
 check('the course counts its own four topics, none of the deck\'s', projectProgress(course).totalTopics === 4,
     `got ${projectProgress(course).totalTopics}`);
 
+// Read through the live_nodes view, the plan names the table, not the alias.
 const plan = db.prepare(`EXPLAIN QUERY PLAN ${projectProgressSource()}`).all(course).map((r) => r.detail);
-check('the single-project query searches the project index', plan.some((d) => /SEARCH n USING (COVERING )?INDEX \S*project/i.test(d)), plan.join(' | '));
-check('…and never scans every node', !plan.some((d) => /^SCAN n\b/.test(d)), plan.join(' | '));
+check('the single-project query searches the project index', plan.some((d) => /SEARCH (n|nodes) USING (COVERING )?INDEX \S*project/i.test(d)), plan.join(' | '));
+check('…and never scans every node', !plan.some((d) => /^SCAN (n|nodes)\b/.test(d)), plan.join(' | '));
 
 db.close();
 rmSync(scratch, { recursive: true, force: true });
