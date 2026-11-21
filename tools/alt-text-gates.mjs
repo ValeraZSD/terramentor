@@ -41,10 +41,14 @@ const check = (label, ok, extra = '') => {
 const section = (name) => console.log(`\n${name}`);
 
 // A vision model that answers whatever `visionSays` holds; nothing else reaches it.
+// `visionAsked` keeps the last request body, to read the prompt it was sent.
 let visionSays = 'UNREADABLE';
+let visionAsked = '';
 const visionStub = createServer((req, res) => {
-    req.resume();
+    let body = '';
+    req.on('data', (c) => { body += c; });
     req.on('end', () => {
+        visionAsked = body;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: visionSays }, finish_reason: 'stop' }], usage: { completion_tokens: 20 } }));
     });
@@ -211,7 +215,9 @@ const cleanedHash = modelRow('schoon.png');
 const cleanedRes = await describeMedia(cleanedHash);
 check('a model\'s reply is cleaned like a learner\'s: control and direction marks dropped',
     cleanedRes.ok && row(cleanedHash).description === 'A cat on a mat' && row(cleanedHash).described_by === 'vision', JSON.stringify([cleanedRes, row(cleanedHash)]));
-visionSays = '\u{1F600}'.repeat(700);
+// Words first: a reply of nothing but emoji describes nothing, and the gate
+// below refuses it. The cut is what this checks.
+visionSays = 'A row of smiling faces: ' + '\u{1F600}'.repeat(700);
 const longHash = modelRow('lang.png');
 await describeMedia(longHash);
 const longText = row(longHash).description || '';
@@ -219,6 +225,87 @@ check('...and a long one is cut by characters, never through a pair', [...longTe
 visionSays = 'UNREADABLE';
 const blankHash = modelRow('leeg.png');
 check('...and "UNREADABLE" stores nothing', (await describeMedia(blankHash)).ok === false && row(blankHash).description === null);
+
+section('the gate a model\'s description passes (descriptionCheck.js)');
+const { checkDescription, descriptionLanguage } = await import(S('descriptionCheck.js'));
+const verdict = (text, language = '') => checkDescription(text, { language });
+const refusedAs = (code, text, language = '') => {
+    const v = verdict(text, language);
+    return v.ok === false && v.code === code && /^Description refused: /.test(v.reason);
+};
+for (const text of ['An image.', 'A bar chart.', 'A diagram with boxes and arrows.', 'This image shows a chart.',
+    'A picture of something', 'Een afbeelding.', 'Ein Diagramm.', 'Изображение.']) {
+    check(`says only what kind of picture it is: refused (${text})`, refusedAs('generic', text), JSON.stringify(verdict(text)));
+}
+for (const text of ['A cat', 'A bar chart of rainfall by month, highest in October', 'Text: "Ik ben moe"',
+    'Two red circles', '3 apples']) {
+    check(`says what is in it: kept (${text})`, verdict(text).ok === true, JSON.stringify(verdict(text)));
+}
+for (const text of ["I'm sorry, but I can't see images.", 'As an AI, I cannot view pictures.',
+    'No image was provided.', 'I cannot describe this image.', 'None']) {
+    check(`a model declining is refused (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
+}
+check('...but a sign in the picture that says sorry is content', verdict('A shop sign that reads "I\'m sorry, we are closed"').ok === true);
+check('nothing at all is refused as empty', refusedAs('empty', '   '));
+check('the preamble the prompt forbids is dropped, the rest kept',
+    verdict('This image shows a red apple on a table.').text === 'A red apple on a table.', JSON.stringify(verdict('This image shows a red apple on a table.')));
+check('the refusal names its reason, for the sweep and the Describe route',
+    verdict('A chart.').reason.includes('nothing in it') && verdict('The dog is on the sofa with the cat', 'nl').reason.includes('English, not Dutch'),
+    JSON.stringify([verdict('A chart.'), verdict('The dog is on the sofa with the cat', 'nl')]));
+
+check('a Dutch course: an English description is refused',
+    refusedAs('language', 'A dog sleeping on the sofa in the living room', 'nl'), JSON.stringify(verdict('A dog sleeping on the sofa in the living room', 'nl')));
+check('...a Dutch one is kept', verdict('Een hond die op de bank slaapt', 'nl').ok === true, JSON.stringify(verdict('Een hond die op de bank slaapt', 'nl')));
+check('...and Dutch text QUOTED in an English description does not make it Dutch',
+    refusedAs('language', 'A shop window with the words "Het is de uitverkoop van het jaar"', 'nl'));
+check('...nor English quoted in a Dutch one make it English',
+    verdict('Een bord met de tekst "The end of the road is here"', 'nl').ok === true, JSON.stringify(verdict('Een bord met de tekst "The end of the road is here"', 'nl')));
+check('an English course: a Dutch description is refused', refusedAs('language', 'Een hond die op de bank slaapt', 'en'));
+check('too short to tell: kept, never guessed at', verdict('Een kat', 'en').ok === true && verdict('A cat', 'nl').ok === true);
+check('Norwegian, which the detector reads as Danish: kept',
+    verdict('En hund som sover på sofaen og er glad', 'nb').ok === true, JSON.stringify(verdict('En hund som sover på sofaen og er glad', 'nb')));
+check('...but English in a Norwegian course is refused', refusedAs('language', 'A dog sleeping on the sofa with the cat', 'nb'));
+check('a Russian course: English refused, Russian kept',
+    refusedAs('language', 'A dog sleeping on the sofa with the cat', 'ru') && verdict('Собака спит на диване', 'ru').ok === true);
+check('no language known: any language kept', verdict('A dog sleeping on the sofa with the cat').ok === true && verdict('Een hond die op de bank slaapt').ok === true);
+check('the language asked for: a region dropped, an unknown or "auto" one is none',
+    descriptionLanguage('pt-BR') === 'pt' && descriptionLanguage('auto') === '' && descriptionLanguage('xx') === '' && descriptionLanguage(null) === '');
+
+section('the gate in the describe call');
+const dutchProject = db.prepare("INSERT INTO projects (name, content_language) VALUES ('Plaatjes', 'nl')").run().lastInsertRowid;
+const dutchRow = (name) => {
+    const h = store.put(Buffer.from(`plaatje ${name}`)).hash;
+    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', 8)").run(dutchProject, h, name);
+    return h;
+};
+const promptOf = () => { try { return JSON.stringify(JSON.parse(visionAsked)); } catch { return visionAsked; } };
+visionSays = 'A dog sleeping on the sofa in the living room';
+const englishHash = dutchRow('hond.png');
+const englishRes = await describeMedia(englishHash);
+check('a picture in a Dutch course: the model is asked for Dutch', promptOf().includes('Write the description in Dutch'), promptOf().slice(0, 200));
+check('...and its English answer is refused and nothing is stored, so the picture stays pending',
+    englishRes.ok === false && englishRes.refused === 'language' && row(englishHash).description === null
+    && pendingDescriptions(dutchProject).some(p => p.hash === englishHash), JSON.stringify(englishRes));
+visionSays = 'Een hond die op de bank slaapt';
+const dutchRes = await describeMedia(englishHash);
+check('...a Dutch answer is stored, as the model\'s', dutchRes.ok && row(englishHash).description === 'Een hond die op de bank slaapt' && row(englishHash).described_by === 'vision', JSON.stringify(dutchRes));
+visionSays = 'Een grafiek.';
+const vagueHash = dutchRow('grafiek.png');
+const vagueRes = await describeMedia(vagueHash);
+check('a description of nothing is refused with its reason and not stored',
+    vagueRes.ok === false && vagueRes.refused === 'generic' && /nothing in it/.test(vagueRes.reason) && row(vagueHash).description === null, JSON.stringify(vagueRes));
+visionSays = 'This image shows a cat on a mat';
+const preambleHash = modelRow('preambule.png');
+await describeMedia(preambleHash);
+check('a course with no language: the prompt is unchanged and the preamble goes',
+    !promptOf().includes('Write the description in') && row(preambleHash).description === 'A cat on a mat', JSON.stringify(row(preambleHash)));
+db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ui_language', 'de')").run();
+visionSays = 'Eine Katze auf einer Matte';
+const germanHash = modelRow('katze.png');
+await describeMedia(germanHash);
+check('...unless the learner chose an interface language: then that one is asked for',
+    promptOf().includes('Write the description in German') && row(germanHash).description === 'Eine Katze auf einer Matte', promptOf().slice(0, 200));
+db.prepare("DELETE FROM settings WHERE key = 'ui_language'").run();
 await new Promise(ok => visionStub.close(ok));
 
 section('what the card says');

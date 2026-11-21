@@ -37,6 +37,9 @@ import { mediaStorage } from './vaultStorage.js';
 import { transcribeImageToText, aiProvenance, withAnswerScope } from './ai.js';
 import { decidePaperVision } from './paper.js';
 import * as tasks from './tasks.js';
+import { getSetting } from './settingsStore.js';
+import { catalogLanguage } from './creationLanguage.js';
+import { checkDescription, descriptionLanguage } from './descriptionCheck.js';
 
 /** Kept short on purpose: this is read aloud and pasted into prompts. */
 const DESCRIBE_PROMPT = `Describe this image in one or two plain sentences, for someone who cannot see it.
@@ -46,6 +49,34 @@ Rules:
 - If it contains text, quote the text exactly — that is usually the most important thing in it.
 - No preamble ("This image shows..."), no markdown, no bullet points. Just the description.
 - If the image is blank, corrupt, or you cannot make anything out, reply with exactly: UNREADABLE`;
+
+/**
+ * The prompt, told which language to write in when one is known. A card's text
+ * carries its course's `lang`, and a screen reader picks its voice from it, so
+ * a description in another language is read out in the wrong voice.
+ */
+export function describePrompt(language) {
+    const name = catalogLanguage(language)?.name;
+    return name
+        ? `${DESCRIBE_PROMPT}\n- Write the description in ${name}. Text in the image is still quoted exactly as written, in its own language.`
+        : DESCRIBE_PROMPT;
+}
+
+/**
+ * The language a picture's description is written in: the declared language
+ * of the course it was imported into (its first row, as in the review list),
+ * else the interface language when the learner chose one; '' when neither is
+ * known, which keeps the prompt as it was and skips the language check.
+ */
+let languageStmt = null;
+export function describeLanguageFor(hash) {
+    // Prepared once: the sweep asks this for every picture.
+    languageStmt ??= db.prepare(`SELECT p.content_language AS lang FROM media_files m
+        LEFT JOIN projects p ON p.id = m.project_id
+        WHERE m.hash = ? ORDER BY m.id LIMIT 1`);
+    const row = languageStmt.get(hash);
+    return descriptionLanguage(row?.lang) || descriptionLanguage(getSetting('ui_language', ''));
+}
 
 const MAX_DESCRIPTION = 600;
 
@@ -186,10 +217,11 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
         return { ok: false, reason: 'the file is missing from the media store' };
     }
 
+    const language = describeLanguageFor(hash);
     let text;
     try {
         text = await transcribeImageToText(bytes, {
-            prompt: DESCRIBE_PROMPT,
+            prompt: describePrompt(language),
             mime: row.mime,
             model,
             timeout: 90_000,
@@ -204,10 +236,15 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
 
     // The same cleaning a learner's edit gets: this is read aloud and pasted into
     // prompts, so control and direction marks go, and the cut is by characters.
-    const clean = cleanDescription(text);
-    if (!clean || /^unreadable$/i.test(clean)) {
+    const cleaned = cleanDescription(text);
+    if (!cleaned || /^unreadable$/i.test(cleaned)) {
         return { ok: false, reason: 'the model could not make out this image' };
     }
+    // Then the gate (descriptionCheck.js): a refusal, a description of nothing
+    // or one in the wrong language is not stored, and the picture stays pending.
+    const verdict = checkDescription(cleaned, { language });
+    if (!verdict.ok) return { ok: false, reason: verdict.reason, refused: verdict.code };
+    const clean = verdict.text;
 
     // `described_by` stays the mechanism the stats query counts; `generated_by`
     // names the model, which is the part a blind learner's screen reader and the
