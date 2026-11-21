@@ -12,7 +12,7 @@ import ProgressBar from './ui/ProgressBar';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
+import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, keepsItsDate, daysUntilDue, ReviewRating, UnsentRating } from '../utils/srs';
 import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER } from './flashcards/ratingStyles';
@@ -36,7 +36,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
      * (re)learning steps a card is rated more than once per session, and a map
      * lets the second snapshot overwrite the first.
      */
-    const undoSnapshots = useRef<{ index: number; snapshot: Record<string, unknown> }[]>([]);
+    // `snapshot: null` = a rating that wrote nothing (a card you knew before
+    // its day), so undoing it only steps back.
+    const undoSnapshots = useRef<{ index: number; snapshot: Record<string, unknown> | null }[]>([]);
     const [undoing, setUndoing] = useState(false);
     const addToast = useStore(s => s.addToast);
     /**
@@ -68,6 +70,11 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
 
     const handleRate = async (rating: ReviewRating) => {
         if (!currentCard || writing.current) return;
+        if (keepsItsDate(currentCard, rating)) {
+            undoSnapshots.current.push({ index: queue.index, snapshot: null });
+            queue.advance(null);
+            return;
+        }
         writing.current = true;
         setSaving(true);
         try {
@@ -106,7 +113,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         writing.current = true;
         setUndoing(true);
         try {
-            if (card) {
+            if (card && step.snapshot) {
                 const restored = await api.updateFlashcard(card.id, step.snapshot as Partial<Flashcard>);
                 setEdits(prev => ({ ...prev, [card.id]: { ...card, ...(prev[card.id] ?? {}), ...restored } }));
             }
@@ -247,13 +254,19 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             {/* Actions */}
             {queue.flipped && (
                 <div className="space-y-3">
-                    <p className="text-center text-sm text-slate-500">{t("How well did you know this?")}</p>
+                    <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+                        {keepsItsDate(currentCard, 'good')
+                            ? t("Not due yet: if you knew it, it keeps its date.")
+                            : t("How well did you know this?")}
+                    </p>
                     <div className="flex gap-2">
                         {RATING_ORDER.map(rating => (
                             <RatingButton
                                 key={rating}
                                 rating={rating}
-                                when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
+                                when={formatInterval(keepsItsDate(currentCard, rating)
+                                    ? daysUntilDue(currentCard)
+                                    : computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
                                 onClick={() => confirmRate.press(rating, () => handleRate(rating))}
                                 armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}

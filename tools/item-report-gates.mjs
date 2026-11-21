@@ -855,7 +855,7 @@ const feedFlags = ['QuestionCard', 'LessonCard', 'PracticeCard', 'FlashcardFeedC
     .filter(f => !/<ReportItem[\s\S]{0,400}?\binStream\b/.test(readFileSync(join(ROOT, `src/components/feed/${f}.tsx`), 'utf8')));
 ok('a feed card joins the list without claiming the screen until it is answered',
     feedFlags.length === 0 && /const current = !listed && \(!inStream \|\| !!answer \|\| typeof correct === 'boolean'\)/.test(storeSrc), feedFlags.join(', '));
-const resultLists = ['src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx', 'src/components/drills/DrillPlayer.tsx']
+const resultLists = ['src/components/MasteryGateModal.tsx', 'src/components/drills/DrillPlayer.tsx']
     .filter(f => !/<ReportItem[\s\S]{0,400}?\blisted\b/.test(readFileSync(join(ROOT, f), 'utf8')));
 ok('a results list names no item "on screen now", and sends the key only as shown (hideKey)',
     resultLists.length === 0 && /keyShown: !hideKey/.test(storeSrc), resultLists.join(', '));
@@ -921,7 +921,7 @@ ok('the drawer sends the items on screen with its context', /items:\s*screenItem
 // ---- 11. one control on every surface ------------------------------------------------------------------
 section('11. one shared control on every surface that tests the learner');
 const SURFACES = [
-    'src/components/feed/QuestionCard.tsx', 'src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx',
+    'src/components/feed/QuestionCard.tsx', 'src/components/MasteryGateModal.tsx',
     'src/components/PlacementModal.tsx', 'src/components/drills/DrillPlayer.tsx', 'src/components/feed/FlashcardFeedCard.tsx',
     'src/components/GlobalFlashcardReview.tsx', 'src/components/feed/LessonCard.tsx', 'src/components/feed/PracticeCard.tsx',
 ];
