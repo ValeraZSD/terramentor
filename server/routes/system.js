@@ -167,7 +167,7 @@ app.post('/api/updates/result/dismiss', wrap(async (req, res) => {
     res.json(withInstall(req, readUpdateState()));
 }));
 
-// Health check (no DB dependency)
+// Health check: always answers, and says "degraded" when the database does not
 app.get('/api/health', (req, res) => {
     let dbOk = false;
     try {
