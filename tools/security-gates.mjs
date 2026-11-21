@@ -855,12 +855,35 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         ok('a wrong or missing code is refused', !auth.checkSetupCode('0000-0000-0000') && !auth.checkSetupCode(undefined) && !auth.checkSetupCode(''));
         auth.clearSetupCode();
         ok('a spent code no longer works', !auth.checkSetupCode(code));
+
+        // The lock screen asks for its status every 10 s, and each ask
+        // announces the code: the log says it once a minute, not each time.
+        const lines = [];
+        console.log = (...a) => {
+            const line = a.join(' ');
+            if (line.startsWith('[security]')) lines.push(line); else quiet(...a);
+        };
+        const realNow = Date.now;
+        let at = realNow();
+        Date.now = () => at;
+        try {
+            const asked = [auth.announceSetupCode(), auth.announceSetupCode(), auth.announceSetupCode()];
+            const said = () => lines.filter(l => l.includes('setup code: ')).length;
+            ok('three asks in a row print the code once, and return it each time',
+                said() === 1 && asked.every(c => c && c === asked[0]), JSON.stringify({ lines, asked }));
+            at += 61_000;
+            ok('…and a minute later it is printed again', auth.announceSetupCode() === asked[0] && said() === 2, JSON.stringify(lines));
+            auth.clearSetupCode();
+            const next = auth.announceSetupCode();
+            ok('…and a new code is printed at once', next !== asked[0] && said() === 3 && lines.at(-1).includes(next), JSON.stringify(lines));
+            auth.clearSetupCode();
+        } finally { Date.now = realNow; }
     } finally { console.log = quiet; }
 
     // The routes: status tells a remote device to set up, setup demands the
     // code from anything but this machine, and the throttle applies to it.
     const setupRoute = indexSrc.slice(indexSrc.indexOf("app.post('/api/auth/setup'"), indexSrc.indexOf("app.post('/api/auth/change'"));
-    ok('setup from another machine checks the code', /if \(!isLocalRequest\(req\)\)[\s\S]*checkSetupCode\(/.test(setupRoute));
+    ok('setup from another machine checks the code', /if \(!isLocalRequest\(req\) && !req\.remoteAccess\)[\s\S]*checkSetupCode\(/.test(setupRoute));
     ok('...under the login throttle', setupRoute.includes('loginBlocked(') && setupRoute.includes('recordLoginFailure('));
     ok('...and a set password spends the code', setupRoute.includes('clearSetupCode()'));
     const statusRoute = indexSrc.slice(indexSrc.indexOf("app.get('/api/auth/status'"), indexSrc.indexOf("app.post('/api/auth/login'"));

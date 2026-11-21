@@ -606,6 +606,21 @@ console.log('\n--- with a password set ---');
     auth.clearAuth();
 }
 
+// ── the first password, set from a connected device ───────────────────────────
+// A device connected while there is no password reaches the whole app; the
+// first password set from it needs no code from the server log, which only
+// the computer's owner can read. Anything else from elsewhere still does.
+console.log('\n--- the first password from a connected device ---');
+{
+    const stranger = await call('/api/auth/setup', { method: 'POST', from: '192.168.1.90', body: { password: 'stranger pass' } });
+    ok('another machine without the code is refused', stranger.status === 403 && stranger.body?.setupRequired === true, JSON.stringify(stranger.body));
+    ok('…and no password is set', !auth.isAuthEnabled());
+    const set = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: 'phone pass' } });
+    ok('the connected phone sets the first password without a code', set.status === 200 && auth.isAuthEnabled(), `${set.status} ${JSON.stringify(set.body)}`);
+    ok('…and is still let in once it is set', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
+    auth.clearAuth();
+}
+
 // ── removing a device ──────────────────────────────────────────────────────────
 console.log('\n--- removing a device ends it ---');
 {
