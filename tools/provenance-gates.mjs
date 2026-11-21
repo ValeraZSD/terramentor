@@ -308,8 +308,8 @@ await new Promise(r => server.close(r));
 // --- 6. the flag says it -----------------------------------------------------
 //
 // The real ReportItem, bundled and rendered with the store holding the
-// server's answer. Every surface that teaches or tests mounts this one control
-// (CLAUDE.md "One flag, one endpoint"); that each passes its item's ref is
+// server's answer. Every surface that teaches or tests mounts this one
+// control; that each passes its item's ref is
 // report-link-gates' and item-report-gates' to check, not this section's.
 
 const { JSDOM } = await import('jsdom');

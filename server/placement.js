@@ -714,7 +714,7 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
                 temperature: 0.4, signal, operation: 'questions',
             });
             // Read now, before the verifier answers: the model that wrote it.
-            writer = aiProvenanceFields().model ?? null;
+            writer = aiProvenanceFields({ job: 'questions' }).model ?? null;
             if (!/\{[\s\S]*\}/.test(resp)) { priorFault = 'the reply contained no JSON object'; continue; }
             parsed = parseQuestionReply(resp);
         } catch (err) {
