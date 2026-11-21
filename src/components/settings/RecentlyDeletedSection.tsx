@@ -50,7 +50,8 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
             addToast('success', tr("Restored “{{title}}”", { title: item.title }));
             await Promise.all([load(), loadProjects({ silent: true })]);
         } catch (e: any) {
-            addToast('error', tr("Could not restore “{{title}}”", { title: item.title }), e?.message);
+            addToast('error', tr("Could not restore “{{title}}”", { title: item.title }),
+                e?.data?.code === 'parent_deleted' ? tr("What it was in is deleted too. Restore that first.") : e?.message);
             void load();
         } finally {
             setRestoring(null);
@@ -68,6 +69,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
         setEmptying(true);
         try {
             await api.emptyDeleted();
+            addToast('success', tr("Recently deleted is empty"));
             await load();
         } catch (e: any) {
             addToast('error', tr("Could not empty Recently deleted"), e?.message);
@@ -104,7 +106,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
                                     <Button
                                         className="shrink-0"
                                         busy={restoring === key}
-                                        disabled={restoring !== null && restoring !== key}
+                                        disabled={emptying || (restoring !== null && restoring !== key)}
                                         onClick={() => void restore(item)}
                                         icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
                                     >
@@ -134,7 +136,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
                         variant="danger"
                         className="ml-auto shrink-0"
                         busy={emptying}
-                        disabled={!items?.length}
+                        disabled={!items?.length || restoring !== null}
                         onClick={() => void empty()}
                         icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
                     >
