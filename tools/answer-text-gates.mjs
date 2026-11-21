@@ -322,6 +322,10 @@ done.`);
     check('a tight list has no paragraph margins inside its items',
         tight.querySelectorAll('li').length === 3 && tight.querySelectorAll('li p').length === 0, tight.innerHTML);
     check('a top-level paragraph is still a paragraph', blocks('Just a line.').querySelectorAll('p').length === 1);
+    // A loose item's paragraph above a nested list gets an item-sized gap, not
+    // a paragraph's (jsdom computes no styles: the class that does it is read).
+    const titled = blocks('1. **First**\n\n   - a\n   - b\n2. **Second**').querySelector('li');
+    check('a loose item\'s paragraphs take the list\'s spacing', !!titled && titled.querySelector(':scope > p') && /\[&>p\]:mb-2/.test(titled.className), String(titled?.className));
     rmSync(mdScratch, { recursive: true, force: true });
 }
 

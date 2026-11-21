@@ -367,7 +367,9 @@ const htmlComponents: Components = {
     // The `marker:` prefix must be repeated per variant — `dark:text-slate-400`
     // (without it) greyed the whole item's TEXT in dark mode, not just the
     // bullet, costing contrast on every list the tutor writes.
-    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed">{children}</li>,
+    // `[&>p]:mb-2`: a loose item's paragraphs sit as close as the items do,
+    // not a full paragraph gap apart (a title line above a nested list).
+    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed [&>p]:mb-2">{children}</li>,
 
     /**
      * A collapsible step (see utils/details.ts). Native `<details>`, so the
