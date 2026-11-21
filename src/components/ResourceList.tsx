@@ -25,6 +25,10 @@ import { useDragA11y, useDragKeyboard, useMovedSay, resourceTitle } from '../hoo
 import { Button, IconButton, IconLink } from './ui/Button';
 import { TextInput } from './ui/Field';
 import ProgressBar from './ui/ProgressBar';
+import {
+  SELECTABLE_RESOURCE_TYPES, TYPE_FILTER_AFTER,
+  canonicalResourceType, countResourceTypes, effectiveTypeFilter,
+} from '../utils/resourceTypes';
 
 // Type configuration
 
@@ -45,13 +49,13 @@ const TYPE_CONFIG: Record<string, TypeConfig> = {
   tutorial: { icon: GraduationCap, label: k("Tutorial"), accent: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20', border: 'border-violet-200 dark:border-violet-800/40', dot: '#8b5cf6' },
   tool: { icon: Wrench, label: k("Tool"), accent: 'text-slate-700 dark:text-slate-200', bg: 'bg-slate-100 dark:bg-slate-600/50', border: 'border-slate-300 dark:border-slate-500/50', dot: '#94a3b8' },
   course: { icon: Globe, label: k("Course"), accent: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20', border: 'border-indigo-200 dark:border-indigo-800/40', dot: '#6366f1' },
-  course_link: { icon: Globe, label: k("Course"), accent: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20', border: 'border-indigo-200 dark:border-indigo-800/40', dot: '#6366f1' },
   practice: { icon: Keyboard, label: k("Practice"), accent: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/20', border: 'border-cyan-200 dark:border-cyan-800/40', dot: '#06b6d4' },
   link: { icon: Link2, label: k("Link"), accent: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-900/20', border: 'border-sky-200 dark:border-sky-800/40', dot: '#0ea5e9' },
 };
 
+// A legacy `course_link` row is drawn as a course, an unknown type as a link.
 function getTypeConfig(type: string): TypeConfig {
-  return TYPE_CONFIG[type] || TYPE_CONFIG.link;
+  return TYPE_CONFIG[canonicalResourceType(type)] || TYPE_CONFIG.link;
 }
 
 // URL helpers
@@ -205,8 +209,6 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
 
 // Main component
 
-const ALL_TYPES = Object.keys(TYPE_CONFIG);
-
 export default function ResourceList({ nodeId }: { nodeId: number }) {
   const { t: tr } = useTranslation();
   const resources = useStore(s => s.resources);
@@ -233,20 +235,18 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
   const sayMoved = useMovedSay();
 
   // Derived
-  const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const r of resources) {
-      counts[r.type] = (counts[r.type] || 0) + 1;
-    }
-    return counts;
-  }, [resources]);
+  const typeCounts = useMemo(() => countResourceTypes(resources), [resources]);
+  const showTypeFilter = resources.length > TYPE_FILTER_AFTER;
+  // What the list is filtered by: never a filter whose pills are gone or
+  // whose kind has no rows left.
+  const activeFilter = effectiveTypeFilter(typeFilter, resources);
 
   const completedCount = useMemo(() => resources.filter(r => r.completed).length, [resources]);
 
   const filteredResources = useMemo(() => {
-    if (!typeFilter) return resources;
-    return resources.filter(r => r.type === typeFilter);
-  }, [resources, typeFilter]);
+    if (!activeFilter) return resources;
+    return resources.filter(r => canonicalResourceType(r.type) === activeFilter);
+  }, [resources, activeFilter]);
 
   const handleQuickAdd = useCallback(async () => {
     const text = quickAddText.trim();
@@ -280,7 +280,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
     setEditingId(resource.id);
     setEditTitle(resource.title);
     setEditUrl(resource.url);
-    setEditType(resource.type);
+    setEditType(canonicalResourceType(resource.type));
   }, []);
 
   const saveEdit = useCallback(async () => {
@@ -423,7 +423,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
           <div>
             <label className="block text-2xs font-medium text-slate-500 dark:text-slate-400 mb-1">{tr("Type")}</label>
             <div className="flex flex-wrap gap-1.5">
-              {ALL_TYPES.map(t => {
+              {SELECTABLE_RESOURCE_TYPES.map(t => {
                 const c = TYPE_CONFIG[t];
                 const Icon = c.icon;
                 const active = addType === t;
@@ -454,15 +454,15 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
       )}
 
       {/* Type filter pills */}
-      {resources.length > 5 && (
+      {showTypeFilter && (
         <div className="flex items-center gap-1 mb-3 flex-wrap">
           <button
             type="button"
             data-chip="resource-filter"
-            aria-pressed={!typeFilter}
+            aria-pressed={!activeFilter}
             onClick={() => setTypeFilter(null)}
             className={`px-2 py-0.5 rounded text-3xs font-medium transition-colors
-                            ${!typeFilter ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                            ${!activeFilter ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
           >
             {tr("All ({{length}})", { length: resources.length })}
           </button>
@@ -473,10 +473,10 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                 key={type}
                 type="button"
                 data-chip="resource-filter"
-                aria-pressed={typeFilter === type}
-                onClick={() => setTypeFilter(typeFilter === type ? null : type)}
+                aria-pressed={activeFilter === type}
+                onClick={() => setTypeFilter(activeFilter === type ? null : type)}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-3xs font-medium transition-colors
-                                    ${typeFilter === type ? `${c.bg} ${c.accent}` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                    ${activeFilter === type ? `${c.bg} ${c.accent}` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
               >
                 {tr(c.label)} ({count})
               </button>
@@ -520,7 +520,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                       placeholder={tr("URL")}
                     />
                     <div className="flex flex-wrap gap-1">
-                      {ALL_TYPES.slice(0, 7).map(t => {
+                      {SELECTABLE_RESOURCE_TYPES.map(t => {
                         const c = TYPE_CONFIG[t];
                         const active = editType === t;
                         return (
