@@ -676,7 +676,8 @@ let announced = { line: '', at: -Infinity };
 const ANNOUNCE_EVERY_MS = 60_000;
 function logOnce(line) {
     const now = Date.now();
-    if (line === announced.line && now - announced.at < ANNOUNCE_EVERY_MS) return;
+    // A clock set back counts as a minute gone, so the line is never held back for long.
+    if (line === announced.line && now >= announced.at && now - announced.at < ANNOUNCE_EVERY_MS) return;
     announced = { line, at: now };
     console.log(line);
 }
