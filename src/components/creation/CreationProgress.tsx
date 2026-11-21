@@ -25,6 +25,7 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { durationParts } from '../../utils/taskPlace';
 import type { CreationTrack } from '../../api';
 import { plainCause } from '../../utils/failureCause';
+import { storedError } from '../../utils/serverText';
 import ProgressBar from '../ui/ProgressBar';
 import { type CreationRun, isRunLive } from './creationRuns';
 
@@ -186,10 +187,10 @@ export function RunStatus({ run }: { run: CreationRun }) {
                     {run.status === 'error' && run.error && (cause ? (
                         <>
                             <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{t(cause.messageKey, cause.params)}</p>
-                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>
+                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{storedError(run)}</p>
                         </>
                     ) : (
-                        <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{run.error}</p>
+                        <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{storedError(run)}</p>
                     ))}
                     {run.status === 'error' && run.projectId != null && (
                         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{track && track.topicsDone > 0

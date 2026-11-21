@@ -45,6 +45,7 @@ import { Chip } from './ui/Chip';
 import type { TFunction } from 'i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
+import { serverText, storedError } from '../utils/serverText';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import ReadAloudButton from './ui/ReadAloudButton';
 import { speechAvailable } from '../utils/readAloud';
@@ -831,7 +832,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     setStreamed(full);
                 }
                 if (evt.error) {
-                    failed = evt.error;
+                    failed = serverText(evt) || evt.error;
                     throw new Error(evt.error);
                 }
             }
@@ -1006,7 +1007,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         created_at: new Date().toISOString(),
                     } as ChatMessage]);
                 }
-                setTurnError({ message: failed.error || 'Generation failed', text: question, keptIn: 'chat' });
+                setTurnError({ message: storedError(failed) || 'Generation failed', text: question, keptIn: 'chat' });
             });
     }, [open, streaming, aiTasks, loadHistory, conversationId]);
 

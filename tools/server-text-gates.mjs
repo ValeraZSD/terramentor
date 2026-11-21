@@ -148,7 +148,7 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
             `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
         ];
         const payload = Buffer.concat([Buffer.from(parts.join('')), bytes, Buffer.from(`\r\n--${boundary}--\r\n`)]);
-        return send('POST', path, { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, payload);
+        return send('POST', path, { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': payload.length }, payload);
     };
     const frames = (text) => text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => { try { return JSON.parse(l.slice(6)); } catch { return null; } }).filter(Boolean);
     const taskList = async () => { const b = (await call('GET', '/api/tasks')).body; return Array.isArray(b) ? b : b?.tasks || []; };
@@ -195,11 +195,11 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
         // A file the vault cannot read, then read back on a later visit.
         const notPdf = Buffer.from('plain words, not a PDF');
         const uploaded = await upload('/api/documents/upload', { projectId: project.id }, 'notes.pdf', notPdf);
-        STORED.push(['a file the vault could not read, as answered', 'body', uploaded.body?.documents?.[0], 'File does not look like a valid PDF.']);
+        STORED.push(['a file the vault could not read, as answered', 'body', uploaded.body?.documents?.[0] ?? uploaded.body,'File does not look like a valid PDF.']);
         const listed = (await call('GET', `/api/documents?projectId=${project.id}`)).body;
         STORED.push(['…and on a later visit', 'body', (Array.isArray(listed) ? listed : listed?.documents || []).find((d) => d.status === 'failed'), 'File does not look like a valid PDF.']);
         const staged = await upload('/api/documents/staged', {}, 'notes.pdf', notPdf);
-        STORED.push(['a file dropped into New course that cannot be read', 'body', staged.body?.documents?.[0], 'File does not look like a valid PDF.']);
+        STORED.push(['a file dropped into New course that cannot be read', 'body', staged.body?.documents?.[0] ?? staged.body,'File does not look like a valid PDF.']);
 
         // The last update check's failure, as the poll stores it.
         setSettingValue('update_last_error', 'GitHub responded 403');
@@ -237,10 +237,19 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
         const { updateErrorBody } = await import(B + 'updatePoll.js');
         const versionSrc = readFileSync(join(repo, 'server/version.js'), 'utf8');
         const fetchSrc = versionSrc.slice(versionSrc.indexOf('function fetchLatestRelease'));
-        const forms = [...fetchSrc.slice(0, fetchSrc.indexOf('\n}\n')).matchAll(/error:\s*(['"`])((?:(?!\1).)*)\1/g)].map((m) => m[2].replace(/\$\{[^}]*\}/g, '403'));
+        const fetchBody = fetchSrc.slice(0, fetchSrc.search(/\r?\n\}\r?\n/));
+        // Every literal after `error:` on its line: `e.name === 'AbortError' ? 'Timed out' : (e.message || 'Network error')`
+        // is two (a literal compared with `===` is not one).
+        const forms = fetchBody.split(/\r?\n/).filter((line) => /\berror:/.test(line))
+            .flatMap((line) => {
+                const tail = line.slice(line.search(/\berror:/));
+                return [...tail.matchAll(/(['"`])((?:(?!\1).)*)\1/g)]
+                    .filter((m) => !/[=!]==\s*$/.test(tail.slice(0, m.index)))
+                    .map((m) => m[2].replace(/\$\{[^}]*\}/g, '403'));
+            });
         const offline = /fetch failed|timed out|ENOTFOUND|ECONN|EAI_AGAIN|network/i; // src/components/update/updateView.ts isOfflineError
         const unkeyed = forms.filter((text) => { const b = typeof updateErrorBody === 'function' ? updateErrorBody(text) : {}; return !(b.messageKey && inEn(b.messageKey) && b.error === text) && !offline.test(text); });
-        ok(`every update-check failure in version.js is keyed or said as offline (${forms.length} read)`, forms.length >= 4 && unkeyed.length === 0, unkeyed.join(' | '));
+        ok(`every update-check failure in version.js is keyed or said as offline (${forms.length} read)`, forms.length >= 6 && unkeyed.length === 0, `${unkeyed.join(' | ')} of ${forms.join(' | ')}`);
     } finally {
         server.close();
         try { db.close(); } catch { /* closing a closed handle */ }

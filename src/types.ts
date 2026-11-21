@@ -652,6 +652,9 @@ export interface AITaskProgress {
  */
 export interface AITaskFailure {
     message: string;
+    /** The key `message` was filled from, and its values: shown with failureMessage() (src/utils/serverText.ts). */
+    messageKey?: string | null;
+    params?: Record<string, unknown> | null;
     name: string;
     at: string;
     kind: string;
@@ -712,6 +715,9 @@ export interface AITaskSummary {
     /** 1-based position while queued, null once running/finished. */
     queuePosition: number | null;
     error: string | null;
+    /** The key `error` was filled from, and its values: shown with storedError() (src/utils/serverText.ts). */
+    errorKey?: string | null;
+    errorParams?: Record<string, unknown> | null;
     /** The full record behind `error` — present only when status is 'error'. */
     failure?: AITaskFailure | null;
     /** Where it was started from; null from a server that predates the field. */
@@ -763,7 +769,7 @@ export interface BulkJobStatus {
     /** Milliseconds left, from this run's own measurements. Null until it has any. */
     etaMs: number | null;
     status: 'running' | 'done' | 'failed' | 'cancelled';
-    failures: Array<{ nodeId: number; title: string; kind: BulkKind; error: string }>;
+    failures: Array<{ nodeId: number; title: string; kind: BulkKind; error: string; messageKey?: string; params?: Record<string, unknown> }>;
     startedAt: string;
     finishedAt: string | null;
 }
@@ -1942,7 +1948,10 @@ export interface Document {
     file_hash?: string | null;
     file_size?: number | null;
     status?: 'ready' | 'failed' | string;
+    /** Why a failed file could not be read, with the key and values it was filled from (serverText()). */
     error?: string | null;
+    messageKey?: string;
+    params?: Record<string, unknown>;
     page_count?: number | null;
     // Semantic-search indexing state: null/'pending' = queued/in-flight,
     // 'indexed' = vectors written, 'unavailable' = no embedding model reachable,
@@ -2015,6 +2024,8 @@ export interface UploadedDocument {
     status: 'ready' | 'failed' | string;
     chunks?: number;
     error?: string;
+    messageKey?: string;
+    params?: Record<string, unknown>;
 }
 
 /**
@@ -2494,6 +2505,9 @@ export interface UpdateStatus {
     ahead: boolean;
     checkedAt: string | null;
     error: string | null;
+    /** The key `error` was filled from, and its values: shown with storedError() (src/utils/serverText.ts). */
+    errorKey?: string | null;
+    errorParams?: Record<string, unknown> | null;
     repoUrl: string;
     deployment: 'docker' | 'git' | 'source' | 'desktop';
     updateCommand: string | null;

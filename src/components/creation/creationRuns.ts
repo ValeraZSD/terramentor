@@ -21,6 +21,7 @@ import { api, type AIProjectProgress, type CreationTrack } from '../../api';
 import type { AITaskSummary, StagedDocument } from '../../types';
 import type { FailureFacts } from '../../utils/failureCause';
 import i18n from '../../i18n';
+import { storedError } from '../../utils/serverText';
 import { useStore } from '../../store';
 import {
     type LiveNode, addCategories, addElements, addSubElements, markSubElementDone,
@@ -84,6 +85,9 @@ export interface CreationRun {
     thinking: string;
     totalResources: number;
     error: string | null;
+    /** The key `error` was filled from, and its values: drawn with storedError(). */
+    errorKey: string | null;
+    errorParams: Record<string, unknown> | null;
     /** The part of the server's failure record the screen names the cause from
      *  (utils/failureCause.ts); screenFailure in createProject.js picks it. */
     failure: FailureFacts | null;
@@ -183,7 +187,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
         tree: [], log: [], model: '', summary: '', thinking: '', totalResources: 0,
-        error: null, failure: null, startedAt: Date.now(), finishedAt: null,
+        error: null, errorKey: null, errorParams: null, failure: null, startedAt: Date.now(), finishedAt: null,
         attempt: 0, inputKnown: true,
         ...over,
     };
@@ -259,7 +263,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
         }
         if (f.phase === 'complete') log = settleLog(log, 'success');
         if (f.phase === 'cancelled') log = settleLog(log, 'warning');
-        if (f.error) { next.error = f.error; log = settleLog(log, 'error'); }
+        if (f.error) { Object.assign(next, errorOf(f)); log = settleLog(log, 'error'); }
         if (f.failure) next.failure = f.failure;
         if (log !== run.log) next.log = log;
         return next;
@@ -267,14 +271,23 @@ function applyFrame(key: string, f: AIProjectProgress) {
     if (f.phase !== 'thinking') saveLogsSoon();
 }
 
-function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: string | null = null) {
+type RunError = Pick<CreationRun, 'error' | 'errorKey' | 'errorParams'>;
+
+/** A frame's or snapshot's failure line with its key; a line the client wrote is already in the interface language. */
+function errorOf(src: { error?: string | null; errorKey?: string | null; errorParams?: Record<string, unknown> | null } | string): RunError {
+    if (typeof src === 'string') return { error: src, errorKey: null, errorParams: null };
+    return { error: src.error ?? null, errorKey: src.errorKey ?? null, errorParams: src.errorParams ?? null };
+}
+
+function settle(key: string, status: 'complete' | 'cancelled' | 'error', failed: RunError | null = null) {
     // Once only: a local cancel and the server's own "cancelled" frame both
     // arrive here, and the toast must not.
     if (!isRunLive(useCreationRuns.getState().runs[key])) return;
+    const said = failed?.error ? failed : null;
     patch(key, run => ({
         status,
         finishedAt: run.finishedAt ?? Date.now(),
-        error: error ?? run.error,
+        ...(said ?? {}),
         tree: status === 'complete' ? markAllCreated(run.tree) : status === 'cancelled' ? markStoppedAsCancelled(run.tree) : markStoppedAsFailed(run.tree),
         log: settleLog(run.log, status === 'complete' ? 'success' : status === 'cancelled' ? 'warning' : 'error'),
         queuePosition: null,
@@ -290,7 +303,7 @@ function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: 
     if (!run || useCreationRuns.getState().viewing === key) return;
     if (status === 'complete') addToast('success', i18n.t("Project \"{{newName}}\" created with AI!", { newName: run.name }));
     else if (status === 'cancelled') addToast('info', i18n.t("AI creation cancelled"), run.projectId ? i18n.t("Partial project saved.") : i18n.t("No project was created."));
-    else addToast('error', i18n.t("AI creation failed"), error ?? run.error ?? undefined);
+    else addToast('error', i18n.t("AI creation failed"), storedError(said ?? run));
 }
 
 // ---- starting and stopping -------------------------------------------------
@@ -333,7 +346,7 @@ async function consume(key: string, open: Stream) {
             }
             if (frame.phase === 'complete' || frame.done) { settle(key, 'complete'); return; }
             if (frame.phase === 'cancelled') { settle(key, 'cancelled'); return; }
-            if (frame.phase === 'error' || frame.error) { settle(key, 'error', frame.error || null); return; }
+            if (frame.phase === 'error' || frame.error) { settle(key, 'error', frame.error ? errorOf(frame) : null); return; }
         }
         // The stream ended without an outcome: the socket dropped, not the run.
         // Follow it on the server's snapshot instead.
@@ -349,7 +362,7 @@ async function consume(key: string, open: Stream) {
             if (run && isRunLive(run)) settle(key, 'cancelled');
             return;
         }
-        settle(key, 'error', e?.message || i18n.t("Something went wrong"));
+        settle(key, 'error', errorOf(e?.message || i18n.t("Something went wrong")));
     } finally {
         controllers.delete(key);
     }
@@ -392,7 +405,7 @@ export async function continueCreationRun(key: string) {
         phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
-        thinking: '', error: null, failure: null, startedAt: Date.now(), finishedAt: null,
+        thinking: '', error: null, errorKey: null, errorParams: null, failure: null, startedAt: Date.now(), finishedAt: null,
     }));
     // Stopped again while the outline loaded, or stopped and continued anew:
     // only the latest attempt draws its outline and opens a stream.
@@ -537,7 +550,7 @@ function applySnapshot(key: string, g: Snapshot) {
         model: g.model || run.model,
         summary: run.summary || g.summary,
         totalResources: g.resourceTotal || run.totalResources,
-        error: g.error ?? run.error,
+        ...(g.error ? errorOf(g) : {}),
         failure: g.failure ?? run.failure,
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
@@ -567,11 +580,11 @@ async function pollOnce() {
         const g = generations.find(x => x.runId === run.runId);
         if (!g) {
             // Neither running nor recently settled: the server restarted under it.
-            settle(run.key, 'error', i18n.t("The generation stopped when the server restarted."));
+            settle(run.key, 'error', errorOf(i18n.t("The generation stopped when the server restarted.")));
             continue;
         }
         applySnapshot(run.key, g);
-        if (g.outcome !== 'running') settle(run.key, g.outcome, g.error);
+        if (g.outcome !== 'running') settle(run.key, g.outcome, errorOf(g));
     }
     if (!Object.values(useCreationRuns.getState().runs).some(r => r.status === 'reattached')) stopPolling();
 }
@@ -629,7 +642,7 @@ export async function reattachCreationRuns() {
             order: [...s.order, key],
         }));
         applySnapshot(key, g);
-        if (g.outcome !== 'running') settle(key, g.outcome, g.error);
+        if (g.outcome !== 'running') settle(key, g.outcome, errorOf(g));
     }
     if (Object.values(useCreationRuns.getState().runs).some(r => r.status === 'reattached')) startPolling();
 }
