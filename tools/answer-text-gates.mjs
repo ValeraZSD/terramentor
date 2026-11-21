@@ -300,6 +300,28 @@ done.`);
     fromField.clipboardData = { setData() {} };
     field.dispatchEvent(fromField);
     check('a copy inside a text field is left to the browser', !fromField.defaultPrevented);
+
+    // A blank line inside a quote or a list item starts a new paragraph. The
+    // paragraph renderer used to drop its <p> for any paragraph not starting
+    // in the first column, taking that for a list item's, so the two halves
+    // of a quote ran together as one line. A TIGHT list has no paragraphs to
+    // render at all, so its items stay bare text.
+    const blocks = (md) => {
+        const box = doc.createElement('div');
+        box.innerHTML = render(md);
+        return box;
+    };
+    const quote = blocks('> First thought.\n>\n> Second thought.').querySelector('blockquote');
+    check('a quote with a blank line in it keeps two paragraphs',
+        !!quote && quote.querySelectorAll('p').length === 2
+        && quote.querySelectorAll('p')[1].textContent.trim() === 'Second thought.', JSON.stringify(quote?.innerHTML));
+    const loose = blocks('1. Step one.\n\n   Why it matters.\n2. Step two.').querySelector('li');
+    check('a list item with a second paragraph keeps both',
+        !!loose && loose.querySelectorAll('p').length === 2, JSON.stringify(loose?.innerHTML));
+    const tight = blocks('- one\n- two\n- three');
+    check('a tight list has no paragraph margins inside its items',
+        tight.querySelectorAll('li').length === 3 && tight.querySelectorAll('li p').length === 0, tight.innerHTML);
+    check('a top-level paragraph is still a paragraph', blocks('Just a line.').querySelectorAll('p').length === 1);
     rmSync(mdScratch, { recursive: true, force: true });
 }
 
