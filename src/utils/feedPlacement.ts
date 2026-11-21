@@ -88,8 +88,9 @@ export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[], slotTopic:
             continue;
         }
         // Flashcards are skipped here as in the lookup above: a pulled card of
-        // topic 1 must not send checkpoint-1 below topic 2's cards.
-        if (c.kind === 'flashcard' || topic == null) { out.push(c); continue; }
+        // topic 1 must not send checkpoint-1 below topic 2's cards. So is a
+        // recall card: it opens its course's round, never goes into a chapter.
+        if (c.kind === 'flashcard' || topic == null || chapterTopicOf(c) == null) { out.push(c); continue; }
         pulledTopics.add(topic);
         const end = out.findIndex(o => o.kind === 'checkpoint' && o.nodeId === topic);
         if (end >= 0) out.splice(end, 0, c);
