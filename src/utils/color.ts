@@ -206,7 +206,6 @@ export function accentFgTriplet(hex: string | null | undefined, isDark: boolean,
         : adjustForContrastAll(rgb, checks, -1).join(' ');
 }
 
-/** Convert a hex colour to an rgba() string at the given alpha (0..1). */
 /**
  * Read a colour the way a person writes one.
  *
@@ -261,6 +260,7 @@ export function parseCssColor(input: string | null | undefined): string | null {
     return null;
 }
 
+/** Convert a hex colour to an rgba() string at the given alpha (0..1). */
 export function hexToRgba(hex: string, alpha: number): string {
     const rgb = hexToRgb(hex);
     if (!rgb) return `rgba(0, 0, 0, ${alpha})`;
