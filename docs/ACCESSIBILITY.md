@@ -171,7 +171,7 @@ the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 
 Today, Projects, a new course, a course's dashboard, its outline, a topic with its questions and
 cards tab, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
 General, Accessibility, Learning, AI & Models and Web & research sections of Settings. Each is
-scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 76 scans. The
+scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 72 scans. The
 allowed failures are listed in `tools/axe-allowlist.json`, which may only shrink; it is empty,
 so one failure on any screen fails the gate. Before trusting a scan, the gate shows axe a
 broken button and checks that axe reports it. It runs in `npm test` and on the Windows leg of
