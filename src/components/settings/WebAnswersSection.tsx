@@ -129,6 +129,8 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
 
     const handleSearxngSave = async () => {
         if (searxngSkipBlurRef.current) return;
+        // Leaving the field without changing it saves nothing and says nothing.
+        if (searxngUrl.trim() === savedSearxngRef.current.trim()) return;
         searxngSkipBlurRef.current = true;
         const sent = searxngUrl;
         try {

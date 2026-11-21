@@ -24,3 +24,27 @@ export function switchSaver() {
         }
     };
 }
+
+/**
+ * The same for a control with more than two values (a choice, a model name):
+ * it shows the new value at once, and once the last answer is in it shows the
+ * last value that was written. A switch can work out what was there before a
+ * press; here the caller passes it.
+ *
+ *   const saveModel = useRef(valueSaver<string>()).current;
+ *   await saveModel(next, model, setModel, () => api.setSetting(...));  // rejects when the write failed
+ */
+export function valueSaver<T>() {
+    let pending = 0;
+    let stored: T;
+    return async function save(next: T, previous: T, show: (value: T) => void, write: () => Promise<unknown>): Promise<void> {
+        if (pending++ === 0) stored = previous;
+        show(next);
+        try {
+            await write();
+            stored = next;
+        } finally {
+            if (--pending === 0) show(stored);
+        }
+    };
+}
