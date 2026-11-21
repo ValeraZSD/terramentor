@@ -309,7 +309,6 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                                 className="flex-1"
                                 onClick={handleGenerateQuiz}
                                 busy={generating === 'questions'}
-                                icon={<Plus className="w-4 h-4" />}
                             >
                                 {t("Generate {{count}} questions", { count: questionCount })}
                             </Button>
