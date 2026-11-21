@@ -38,6 +38,7 @@ export default function SpellingOffer({ question, answer, projectId, className =
             {t("Only a letter or two off.")}{' '}
             <button
                 type="button"
+                data-link="forgive-spelling"
                 onClick={() => { setTurnedOn(true); void setOn(true); }}
                 className={cx('-my-0.5 inline-block rounded py-0.5 font-medium text-accent-fg underline underline-offset-2 can-hover:hover:decoration-2 touch:-my-3 touch:py-3', FOCUS_RING)}
             >
