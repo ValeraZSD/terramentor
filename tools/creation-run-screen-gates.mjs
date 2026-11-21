@@ -1,5 +1,6 @@
 // tools/creation-run-screen-gates.mjs — what the creation run screen shows once
-// a run has stopped, and how it finds the runs the server is still writing.
+// a run has stopped, how it finds the runs the server is still writing, and
+// which foot it draws (Start Studying once the course's first lesson exists).
 //
 // Run:  node tools/creation-run-screen-gates.mjs          (the working tree)
 //       node tools/creation-run-screen-gates.mjs --head   (the creation store and its tree
@@ -148,7 +149,7 @@ section('a failed first status request is asked again');
     check('once it has answered it does not ask again', calls === 2, `${calls} call(s)`);
 }
 
-section("Start studying is offered once the course's first lesson is written");
+section("Start Studying is offered once the course's first lesson is written");
 {
     // The foot the screen draws for a run, given whether the topic the course's
     // Study opens on has a written lesson (GET /api/feed/projects/:id/first-lesson).
@@ -162,7 +163,9 @@ section("Start studying is offered once the course's first lesson is written");
         ['still planning, no course yet', run('starting', null), true, 'live'],
         ['finished, written', run('complete', 7), true, 'finished-study'],
         ['finished, not written', run('complete', 7), false, 'finished'],
+        ['finished with no course to open', run('complete', null), true, 'close'],
         ['stopped with a course, written: carrying on comes first', run('cancelled', 7), true, 'continue'],
+        ['stopped with a course, not written', run('cancelled', 7), false, 'continue'],
         ['failed with a course, written', run('error', 7), true, 'continue'],
         ['failed before it made a course', run('error', null), false, 'setup'],
         ['stopped before it made a course', run('cancelled', null), false, 'close'],
@@ -171,11 +174,29 @@ section("Start studying is offered once the course's first lesson is written");
         const got = client.runFoot?.(r, written);
         check(`${label}: ${want}`, got === want, String(got));
     }
+    // When the screen asks at all: only where a foot could offer Study.
+    const asks = [
+        ['live with a course', run('live', 7), true],
+        ['picked up after a reload', run('reattached', 7), true],
+        ['finished', run('complete', 7), true],
+        ['still planning, no course yet', run('starting', null), false],
+        ['stopped with a course', run('cancelled', 7), false],
+        ['failed with a course', run('error', 7), false],
+        ['no run on screen', undefined, false],
+    ];
+    for (const [label, r, want] of asks) {
+        const got = client.footOffersStudy?.(r);
+        check(`asks whether the lesson is written: ${label}: ${want}`, got === want, String(got));
+    }
+    // Shape checks of the wiring (the hook itself needs a renderer this gate
+    // does not have): the view feeds the answer to runFoot and asks through
+    // footOffersStudy, and the label is drawn only in the two feet.
     const view = read('src/components/creation/CreationRunView.tsx');
     check('the screen picks its foot with the first-lesson answer', /runFoot\(run, firstLesson\)/.test(view));
-    check('...and asks only while a foot could offer Study', /useFirstLessonWritten\(/.test(view));
-    check('Start studying is drawn in exactly the two feet that offer it', (view.match(/t\("Start studying"\)/g) || []).length === 2,
-        String((view.match(/t\("Start studying"\)/g) || []).length));
+    check('...and asks only while a foot could offer Study',
+        /useFirstLessonWritten\(run\?\.projectId \?\? null, footOffersStudy\(run\)\)/.test(view));
+    const drawn = (view.match(/t\("Start Studying"\)/g) || []).length;
+    check('Start Studying is drawn in exactly the two feet that offer it', drawn === 2, String(drawn));
     check("...and opens the course's Study", /studyProject\(/.test(view));
 }
 

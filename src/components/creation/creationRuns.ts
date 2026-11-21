@@ -443,11 +443,11 @@ export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
  * opens on has a written lesson (GET /api/feed/projects/:id/first-lesson).
  *
  *  - `live`: Stop creating, and Close, which says the creation carries on.
- *  - `live-study`: Stop creating, and Start studying in Close's place (the
+ *  - `live-study`: Stop creating, and Start Studying in Close's place (the
  *    head's ✕ closes then): the course can be studied while it is written.
  *  - `continue`: stopped with a course; carrying on comes first, and the
  *    course as it is can be opened. Not Study as well: a third button.
- *  - `finished` / `finished-study`: Go to Project, with Start studying as the
+ *  - `finished` / `finished-study`: Go to Project, with Start Studying as the
  *    way on once the lesson is there, so a button offered mid-run stays put
  *    when the run ends.
  *  - `setup`: failed before it made a course; `close`: nothing more to do.
@@ -455,12 +455,17 @@ export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
 export type RunFoot = 'live' | 'live-study' | 'continue' | 'finished' | 'finished-study' | 'setup' | 'close';
 
 export function runFoot(run: Pick<CreationRun, 'status' | 'projectId' | 'inputKnown'>, firstLesson: boolean): RunFoot {
-    const study = firstLesson && run.projectId != null;
+    const study = firstLesson && footOffersStudy(run);
     if (isRunLive(run)) return study ? 'live-study' : 'live';
     if (stoppedWithCourse(run)) return 'continue';
     if (run.status === 'complete' && run.projectId != null) return study ? 'finished-study' : 'finished';
     return run.status === 'error' && run.projectId == null ? 'setup' : 'close';
 }
+
+/** Could this run's foot offer Study: a course, live or finished. The screen
+ *  asks whether the first lesson is written only then. */
+export const footOffersStudy = (run: Pick<CreationRun, 'status' | 'projectId'> | undefined | null): boolean =>
+    !!run && run.projectId != null && (isRunLive(run) || run.status === 'complete');
 
 /** Start a run that failed before it made a project again, from the same
  *  input. Its files are still staged: no project claimed them. */

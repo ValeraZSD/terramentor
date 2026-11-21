@@ -16,7 +16,7 @@
  *    what the log already told.
  *  - the FOOT: Stop (which asks first) and Close while it runs, the way on
  *    once it has stopped. Once the topic the course's Study opens on has a
- *    written lesson, Start studying takes Close's place, and stays as the way
+ *    written lesson, Start Studying takes Close's place, and stays as the way
  *    on when the run finishes (`runFoot`).
  *
  * The box is the New course form's own (`COURSE_DIALOG_SIZE`): Create swaps
@@ -40,7 +40,7 @@ import { useFirstLessonWritten } from './useFirstLesson';
 import { retryMayHelp } from '../../utils/failureCause';
 import {
     COURSE_DIALOG_SIZE, canRetry, cancelCreationRun, closeCreationView, continueCreationRun,
-    isRunLive, reopenFormFrom, retryCreationRun, runFoot, useCreationRuns,
+    footOffersStudy, isRunLive, reopenFormFrom, retryCreationRun, runFoot, useCreationRuns,
 } from './creationRuns';
 
 type View = 'outline' | 'log';
@@ -77,8 +77,8 @@ export default function CreationRunView() {
     const run = useCreationRuns(s => (s.viewing ? s.runs[s.viewing] : undefined));
 
     const live = isRunLive(run);
-    // Asked only where a foot can offer Study: live, or finished.
-    const firstLesson = useFirstLessonWritten(run?.projectId ?? null, live || run?.status === 'complete');
+    // Asked only where a foot can offer Study: a course, live or finished.
+    const firstLesson = useFirstLessonWritten(run?.projectId ?? null, footOffersStudy(run));
     // The topic in hand — or, once a run has failed or been stopped, the one it
     // stopped on (marked error or cancelled in the tree; the outline draws it
     // as stopped, not busy). The outline opens there: a failure opened at the
@@ -284,7 +284,7 @@ export default function CreationRunView() {
                         // and leaving for it stops nothing. The head's ✕ closes.
                         <>
                             <Button variant="danger" block={stacked} onClick={stop}>{t("Stop creating")}</Button>
-                            <Button variant="primary" block={stacked} onClick={() => startStudying(run.projectId!)}>{t("Start studying")}</Button>
+                            <Button variant="primary" block={stacked} onClick={() => startStudying(run.projectId!)}>{t("Start Studying")}</Button>
                         </>
                     ) : foot === 'continue' ? (
                         // Stopped with a course half written: finishing it is
@@ -296,10 +296,10 @@ export default function CreationRunView() {
                     ) : foot === 'finished' ? (
                         <Button variant="primary" block={stacked} onClick={() => goToProject(run.projectId!)}>{t("Go to Project")}</Button>
                     ) : foot === 'finished-study' ? (
-                        // Start studying keeps the place it had while the run went on.
+                        // Start Studying keeps the place it had while the run went on.
                         <>
                             <Button variant="neutral" block={stacked} onClick={() => goToProject(run.projectId!)}>{t("Go to Project")}</Button>
-                            <Button variant="primary" block={stacked} onClick={() => startStudying(run.projectId!)}>{t("Start studying")}</Button>
+                            <Button variant="primary" block={stacked} onClick={() => startStudying(run.projectId!)}>{t("Start Studying")}</Button>
                         </>
                     ) : foot === 'setup' ? (
                         // A run that stopped before it made a project: send it
