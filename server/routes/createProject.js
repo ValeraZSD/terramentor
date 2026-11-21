@@ -459,11 +459,14 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
                             // leaves the row as it was.
                             clearGeneratingStmt.run(projectId);
                             savePending();
+                            // The note is part of the course (exported with it), so it
+                            // says the error in the words a learner may see, paths
+                            // removed; it stays in English, like the course text.
                             if (run.leavesNotice) markProjectAsUnfinished(
                                 projectId,
                                 wasCancelled
                                     ? 'AI creation was cancelled.'
-                                    : `AI creation failed: ${error.message}`
+                                    : `AI creation failed: ${publicBody(error).error}`
                             );
                         } catch (cleanupError) {
                             console.error('[Cleanup] Failed:', cleanupError);

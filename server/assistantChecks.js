@@ -211,7 +211,15 @@ export function peekLink(rawUrl) {
  */
 export async function checkLink(rawUrl, { fetchImpl = safeFetch } = {}) {
     const checked = sanitizeUrl(rawUrl);
-    if (!checked.ok) return { verdict: 'disputed', reason: `not a link the app can open (${checked.reason})` };
+    // `refusal` is the whole sentence a learner reads when Save is refused
+    // (urlSafety.js keys one per reason); `reason` stays the fragment the
+    // preview and the model read.
+    if (!checked.ok) {
+        return {
+            verdict: 'disputed', reason: `not a link the app can open (${checked.reason})`,
+            refusal: { messageKey: checked.messageKey, params: checked.params ?? null },
+        };
+    }
     const url = checked.url;
     const key = linkCheckKey(url);
     const stored = storedVerdict(key);

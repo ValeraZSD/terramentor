@@ -191,7 +191,7 @@ function storedReason({ error_key: key, error_params: values, ...row }) {
     if (!key) return row;
     let params = null;
     try { params = values ? JSON.parse(values) : null; } catch { params = null; }
-    return { ...row, messageKey: key, ...(params && typeof params === 'object' ? { params } : {}) };
+    return { ...row, messageKey: key, ...(params && typeof params === 'object' && !Array.isArray(params) ? { params } : {}) };
 }
 
 app.get('/api/documents', (req, res) => {

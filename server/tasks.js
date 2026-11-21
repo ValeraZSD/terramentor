@@ -227,9 +227,11 @@ function describeFailure(err, task) {
     const started = task.startedAt ? Date.parse(task.startedAt) : null;
     return {
         // --- the sentence a person reads, and the key it was filled from: the
-        // record is shown long after, in whatever language the screen is in
+        // record is shown long after, in whatever language the screen is in.
+        // A sentence cut to the cap is no longer the key filled in, so it
+        // keeps no key (and its values, which may be what made it long).
         message: String(e.message || 'Generation failed').slice(0, CAP.message),
-        ...keyOf(e),
+        ...(String(e.message || '').length <= CAP.message ? keyOf(e) : {}),
         name: e.name || 'Error',
         at: new Date().toISOString(),
 

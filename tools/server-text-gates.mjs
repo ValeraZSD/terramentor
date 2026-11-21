@@ -142,7 +142,7 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
     const call = (method, path, body) => send(method, path, { 'Content-Type': 'application/json' }, body ? JSON.stringify(body) : null);
     // One file, as the vault's upload field sends it.
     const upload = (path, fields, filename, bytes) => {
-        const boundary = `----gate${Date.now()}`;
+        const boundary = '----server-text-gate-boundary';
         const parts = [
             ...Object.entries(fields).map(([name, value]) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`),
             `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
@@ -231,6 +231,25 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
             ok('…and en.json holds the key', inEn(key));
         }
 
+        // The assistant's Save on a link that runs script: the whole sentence
+        // for that reason, not "Not saved: <an English fragment>".
+        const linkSave = await call('POST', '/api/assistant/links', { projectId: project.id, nodeId: node.id, url: 'javascript:alert(1)' });
+        ok(`the assistant's Save on a link that runs script is refused with "${URL_SCHEME}"`,
+            linkSave.status === 409 && linkSave.body?.messageKey === URL_SCHEME && linkSave.body?.error === fill(URL_SCHEME, linkSave.body?.params || {}) && !('refusal' in (linkSave.body?.check || {})),
+            `${linkSave.status} ${show(linkSave.body)}`);
+
+        // A failure record cuts its sentence at 500 characters; a cut sentence
+        // is no longer the key filled in, so it keeps no key. A long list of
+        // installed models is what makes one that long.
+        const { registerExternal } = await import(B + 'tasks.js');
+        const many = Array.from({ length: 60 }, (_, i) => `model-number-${i}:latest`).join(', ');
+        const longFail = registerExternal({ kind: 'embed', label: 'Long failure', origin: { surface: 'app', job: 'embed' } })
+            .fail('Model "m" is not installed.', new KeyedError('Model "{{model}}" is not installed. Available: {{available}}', { model: 'm', available: many }));
+        ok('a failure record whose sentence was cut keeps no key', !!longFail && longFail.message.length === 500 && !longFail.messageKey && !longFail.params, show(longFail && { message: longFail.message.length, messageKey: longFail.messageKey }));
+        const shortFail = registerExternal({ kind: 'embed', label: 'Short failure', origin: { surface: 'app', job: 'embed' } })
+            .fail('Model "m" is not installed.', new KeyedError('Model "{{model}}" is not installed. Available: {{available}}', { model: 'm', available: 'llama3' }));
+        ok('…and one that fits keeps its key', shortFail?.messageKey === 'Model "{{model}}" is not installed. Available: {{available}}', show(shortFail && { messageKey: shortFail.messageKey }));
+
         // Every form the update check can fail in (server/version.js, which may
         // import Node built-ins only) is keyed where it is read, or is one the
         // panel already says as "could not reach GitHub".
@@ -247,9 +266,9 @@ const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first
                     .filter((m) => !/[=!]==\s*$/.test(tail.slice(0, m.index)))
                     .map((m) => m[2].replace(/\$\{[^}]*\}/g, '403'));
             });
-        const offline = /fetch failed|timed out|ENOTFOUND|ECONN|EAI_AGAIN|network/i; // src/components/update/updateView.ts isOfflineError
+        const offline = /fetch failed|timed out|ENOTFOUND|ECONN|EAI_AGAIN|network/i; // src/components/update/updateView.ts isOfflineError (a copy: keep the two in step)
         const unkeyed = forms.filter((text) => { const b = typeof updateErrorBody === 'function' ? updateErrorBody(text) : {}; return !(b.messageKey && inEn(b.messageKey) && b.error === text) && !offline.test(text); });
-        ok(`every update-check failure in version.js is keyed or said as offline (${forms.length} read)`, forms.length >= 6 && unkeyed.length === 0, `${unkeyed.join(' | ')} of ${forms.join(' | ')}`);
+        ok(`every update-check failure version.js writes as a literal is keyed or said as offline (${forms.length} read)`, forms.length >= 6 && unkeyed.length === 0, `${unkeyed.join(' | ')} of ${forms.join(' | ')}`);
     } finally {
         server.close();
         try { db.close(); } catch { /* closing a closed handle */ }

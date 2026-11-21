@@ -97,8 +97,8 @@ export function readWordsReply(raw) {
             return null;
         } catch { /* a fragment: the key below */ }
     }
-    const keyed = text.match(/"words"\s*:\s*"([^"\n]{0,80})"/);
-    if (keyed) return keyed[1];
+    const quoted = text.match(/"words"\s*:\s*"([^"\n]{0,80})"/);
+    if (quoted) return quoted[1];
     // A small local model answering with the bare words on one line.
     if (!/[{}]/.test(text) && !text.includes('\n')) return text;
     return null;

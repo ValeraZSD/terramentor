@@ -97,7 +97,11 @@ app.post('/api/assistant/links', async (req, res) => {
     const { projectId, nodeId, url, title, source } = req.body || {};
     try {
         const check = await checkLink(String(url ?? ''));
-        if (check.verdict === 'disputed') return res.status(409).json({ ...keyed('Not saved: {{reason}}.', { reason: check.reason }), check });
+        if (check.verdict === 'disputed') {
+            const { refusal, ...rest } = check;
+            const said = refusal?.messageKey ? keyed(refusal.messageKey, refusal.params ?? undefined) : keyed('Not saved: {{reason}}.', { reason: check.reason });
+            return res.status(409).json({ ...said, check: rest });
+        }
         res.json({ ...saveAssistantLink({ projectId, nodeId, url, title: check.detail?.title || title, source }), check });
     } catch (e) {
         sendEditError(res, e);
