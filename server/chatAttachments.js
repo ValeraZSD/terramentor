@@ -39,7 +39,7 @@ import { getAISettings, visionAvailability } from './ai.js';
 import { firstChoice } from './aiJobs.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
 import { promptTitle } from './citations.js';
-import { k, keyed } from './clientError.js';
+import { k, keyed, publicBody } from './clientError.js';
 
 /** Files one message (and one upload request) may carry. */
 export const ATTACH_MAX_FILES = 10;
@@ -162,8 +162,12 @@ export async function stageAttachment(buffer, originalname, now = Date.now()) {
         try {
             extracted = await extractText(buffer, originalname);
         } catch (err) {
-            const message = String(err?.message || 'This file could not be read.');
-            return refuse(name, /no extractable text/i.test(message) ? 'no_text' : 'unsupported', message.slice(0, 300));
+            // The extractor's own words, with paths removed (a parser's
+            // TypeError becomes the referenced sentence); not a key.
+            const reason = /no extractable text/i.test(String(err?.message)) ? 'no_text' : 'unsupported';
+            if (!err?.message) return refuse(name, reason, k('This file could not be read.'));
+            const said = publicBody(err);
+            return { ok: false, name, reason, ...said, error: String(said.error).slice(0, 300) };
         }
         const { text, kind, meta } = extracted;
         if (!text) return refuse(name, 'unsupported', k('This file could not be read.'));
