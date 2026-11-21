@@ -155,9 +155,10 @@ export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElemen
         };
         document.addEventListener('keydown', onKey);
 
-        // Back is Escape's twin: whatever Escape would do here (close, step
-        // back, answer no, or refuse), the system's Back does, and the page
-        // under the dialog stays where it is.
+        // The system's Back does what Escape would do here (close, answer no,
+        // or refuse), or `onBack` when the dialog has steps to go back
+        // through; either way the page under the dialog stays where it is.
+        // A dialog that refuses gets its history entry back.
         const takesBack = !!(optsRef.current.onBack || optsRef.current.onEscape);
         const releaseBack = takesBack ? holdBackEntry(() => {
             const o = optsRef.current;

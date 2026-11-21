@@ -25,6 +25,8 @@
  * on. Forward cannot get past such an entry; nothing else is lost.
  */
 
+import { useEffect, useRef } from 'react';
+
 type Open = { back: () => void };
 
 const KEY = 'tmDialog';
@@ -56,14 +58,27 @@ function reconcile() {
         // The router's own fields (its key and index) are copied, so it reads
         // these entries as the page they sit on.
         const base = withoutMark(window.history.state);
-        for (let d = cur + 1; d <= want; d++) window.history.pushState({ ...base, [KEY]: d }, '');
-        known = want;
+        try {
+            for (let d = cur + 1; d <= want; d++) window.history.pushState({ ...base, [KEY]: d }, '');
+        } catch {
+            // A browser that rate-limits history calls (Safari refuses past
+            // ~100 in 30 s) throws: the dialogs stay open as they are, and Back
+            // over them acts as it did before this rule.
+        }
+        known = depthOf(window.history.state);
     } else if (cur > want) {
         traversing = true;
         // A traversal that never reports (out of range) must not stop the
         // rule for good.
         traverseTimer = setTimeout(() => { traversing = false; traverseTimer = null; schedule(); }, 1000);
-        window.history.go(want - cur);
+        try {
+            window.history.go(want - cur);
+        } catch {
+            traversing = false;
+            if (traverseTimer) clearTimeout(traverseTimer);
+            traverseTimer = null;
+            known = cur;
+        }
     } else {
         known = cur;
     }
@@ -122,6 +137,20 @@ export function holdBackEntry(back: () => void): () => void {
         if (i >= 0) open.splice(i, 1);
         schedule();
     };
+}
+
+/**
+ * A floating list or menu (Select, MenuPopover, the model picker) that is not
+ * a `useDialogFocus` overlay: while it is open, Back closes it, as Escape
+ * does, and not the dialog it sits in.
+ */
+export function useBackClose(isOpen: boolean, close: () => void) {
+    const closeRef = useRef(close);
+    closeRef.current = close;
+    useEffect(() => {
+        if (!isOpen) return;
+        return holdBackEntry(() => closeRef.current());
+    }, [isOpen]);
 }
 
 /** The route changed: a dialog that stayed open over the new page needs its
