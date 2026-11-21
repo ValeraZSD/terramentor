@@ -22,7 +22,7 @@
 // throws.
 
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -152,6 +152,20 @@ try {
             (await copyText('hello')) === false && fields() === 0 && doc.activeElement === doc.body);
     }
     restoreGlobals();
+
+    // `await navigator.clipboard?.writeText(x)` resolves to undefined where the
+    // API is missing (plain http), so the "Copied" tick that follows it shows
+    // for a copy that never happened. Copy goes through `copyText`, which says
+    // whether the text arrived.
+    section('no copy button reads `navigator.clipboard?.writeText` for itself');
+    {
+        const srcDir = join(repo, 'src');
+        const files = readdirSync(srcDir, { recursive: true })
+            .map((f) => String(f).replace(/\\/g, '/'))
+            .filter((f) => /\.(ts|tsx)$/.test(f) && f !== 'utils/clipboard.ts');
+        const offenders = files.filter((f) => /clipboard\?\.writeText/.test(readFileSync(join(srcDir, f), 'utf8')));
+        check('every optional-chained clipboard write is in utils/clipboard.ts', offenders.length === 0, offenders.join(', '));
+    }
 
     // -----------------------------------------------------------------------
     section('switching the interface language: the newest pick wins, a failed chunk is not shown');

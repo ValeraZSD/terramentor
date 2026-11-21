@@ -8,6 +8,7 @@ import { SettingNote } from '../ui/SettingRow';
 import ReportProblemDialog from '../ReportProblemDialog';
 import DesktopQuitScreen from '../DesktopQuitScreen';
 import { diagnosticsBlock } from '../../utils/report';
+import { copyText } from '../../utils/clipboard';
 import { uiLocale } from '../../utils/locale';
 import { SectionHeader, Panel } from './SettingsParts';
 import { Select } from '../ui/Field';
@@ -90,12 +91,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                         {appVersion && (
                             <Button
                                 onClick={async () => {
-                                    try {
-                                        await navigator.clipboard?.writeText(
-                                            diagnosticsBlock({ version: appVersion, aiProvider: reportAiProvider, aiModel: reportAiModel }));
-                                        setCopiedVersion(true);
-                                        setTimeout(() => setCopiedVersion(false), 1500);
-                                    } catch { /* http origin: no clipboard, the text is on screen */ }
+                                    // The tick only when the text reached the clipboard.
+                                    if (!await copyText(
+                                        diagnosticsBlock({ version: appVersion, aiProvider: reportAiProvider, aiModel: reportAiModel }))) return;
+                                    setCopiedVersion(true);
+                                    setTimeout(() => setCopiedVersion(false), 1500);
                                 }}
                                 className="self-start shrink-0"
                                 icon={copiedVersion
