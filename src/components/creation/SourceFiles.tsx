@@ -18,6 +18,7 @@ import { cx, FOCUS_RING } from '../ui/vocabulary';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import type { NumberOptions } from '../../utils/numberFormat';
+import { serverText } from '../../utils/serverText';
 
 /** One file in the dialog: being read, read, or refused before it was sent. */
 export interface SourceFile {
@@ -244,7 +245,7 @@ function SourceRow({ file, onRemove }: { file: SourceFile; onRemove: () => void 
 
     if (file.error || (doc && !doc.ok)) {
         icon = <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />;
-        line = file.error || (doc && !doc.ok ? doc.error : '');
+        line = file.error || (doc && !doc.ok ? serverText(doc) ?? '' : '');
         tone = 'text-red-700 dark:text-red-300';
     } else if (doc?.ok && doc.noText) {
         // Not drawn as an error: an amber triangle on a screen about to be
