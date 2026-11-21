@@ -122,8 +122,8 @@ export const formatOf = (question: Pick<QuizQuestion, 'type'>): FormatSpec =>
  */
 export const answerHint = (question: Pick<QuizQuestion, 'type' | 'tests_form'>, forgiveSpelling: boolean): string | undefined => {
     const { hint, forgivingHint } = formatOf(question);
-    // A task about the form forgives no slip and marks the grammar too: the
-    // line says so before the learner types.
+    // A task about the form forgives no slip and marks the grammar too, and
+    // the learner reads that before typing.
     if (formTested(question)) {
         return question.type === 'short_answer' ? k("Judged on meaning, grammar and spelling") : hint;
     }
