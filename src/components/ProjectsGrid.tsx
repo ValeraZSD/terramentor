@@ -307,7 +307,7 @@ export default function ProjectsGrid() {
         <>
             <div className="h-full overflow-auto px-4 py-6 sm:p-8 bg-slate-100 dark:bg-slate-900">
                 <div className="max-w-6xl mx-auto">
-                    <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center justify-between gap-4 mb-8">
                         <div>
                             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
                                 {t("Your Projects")}
@@ -337,6 +337,7 @@ export default function ProjectsGrid() {
                             <SegmentedControl<Show>
                                 label={t("Which courses")}
                                 onPage
+                                block="narrow"
                                 value={show}
                                 onChange={setShow}
                                 options={(['active', 'finished', 'archived'] as const).map(v => ({

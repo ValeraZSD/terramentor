@@ -63,7 +63,6 @@ export default function SettingChangeChips({ changes, messageKey, record = false
     const setThemeTint = useStore(s => s.setThemeTint);
     const setAccentColor = useStore(s => s.setAccentColor);
     const setUiScale = useStore(s => s.setUiScale);
-    const setWeekStartDay = useStore(s => s.setWeekStartDay);
     const setUiLanguage = useStore(s => s.setUiLanguage);
     const setNumberFormat = useStore(s => s.setNumberFormat);
     const setA11y = useStore(s => s.setA11y);
@@ -92,7 +91,6 @@ export default function SettingChangeChips({ changes, messageKey, record = false
             else if (c.key === 'theme_tint') before.theme_tint = s.themeTint;
             else if (c.key === 'accent_color') before.accent_color = s.accentColor;
             else if (c.key === 'ui_scale') before.ui_scale = s.uiScale;
-            else if (c.key === 'week_start_day') before.week_start_day = s.weekStartDay;
             else if (c.key === 'ui_language') before.ui_language = s.uiLanguage;
             else if (c.key === 'number_format') before.number_format = s.numberFormat;
         }
@@ -112,7 +110,6 @@ export default function SettingChangeChips({ changes, messageKey, record = false
                 else if (key === 'theme_tint') await setThemeTint(String(value));
                 else if (key === 'accent_color') await setAccentColor(String(value));
                 else if (key === 'ui_scale') await setUiScale(Number(value));
-                else if (key === 'week_start_day') await setWeekStartDay(Number(value) as never);
                 else if (key === 'ui_language') await setUiLanguage(String(value));
                 else if (key === 'number_format') await setNumberFormat(String(value));
                 else if (key in A11Y_FIELD_OF) {

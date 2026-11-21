@@ -115,12 +115,14 @@ export const isTrayHosted = () => process.env.TERRAMENTOR_TRAY === '1';
 
 const UNSUPPORTED = { supported: false, why: 'the launcher did not say how it was started' };
 let autostart = UNSUPPORTED;
+/** desktop/lib.js once loaded: it reads a login item back as well as writing it. */
+let desktopLib = null;
 /** Loaded once, at import, and only under the launcher — so it has resolved
  *  long before a window exists to ask about it, and `status()` can stay
  *  synchronous (it is also the launcher's single-instance probe). */
 export const autostartLoaded = isDesktop() && launchTarget()
     ? import('../desktop/lib.js')
-        .then(({ autostartPlan }) => { autostart = autostartPlan(launchTarget()); return autostart; })
+        .then((lib) => { desktopLib = lib; autostart = lib.autostartPlan(launchTarget()); return autostart; })
         .catch(() => autostart)
     : Promise.resolve(autostart);
 
@@ -131,8 +133,8 @@ const startsAtLogin = () => !!(autostart.supported && existsSync(autostart.path)
 
 /** Write or remove that file. Windows needs PowerShell to make a .lnk (it is a
  *  COM object); removing one is an ordinary unlink on all three platforms.
- *  `marker` (Windows) records the script that wrote the shortcut once it has —
- *  see refreshLoginItem. */
+ *  `marker`, beside the library, records what this library wrote, so a later
+ *  start can tell its own item from another library's — see refreshLoginItem. */
 function setStartAtLogin(on, marker = null) {
     if (!autostart.supported) return false;
     if (!on) {
@@ -146,17 +148,30 @@ function setStartAtLogin(on, marker = null) {
             writeFileSync(autostart.path, autostart.contents, 'utf8');
             // An XDG entry has to be executable-ish only in spirit; a plist and
             // a .desktop file are both read, not run.
+            if (marker) try { writeFileSync(marker, autostart.contents, 'utf8'); } catch { /* refresh then leaves it alone */ }
             return true;
         }
         const file = join(tmpdir(), `terramentor-autostart-${process.pid}.ps1`);
         writeFileSync(file, autostart.script, 'utf8');
         const child = spawn('powershell.exe',
             ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file],
-            { stdio: 'ignore', windowsHide: true });
-        const script = autostart.script;
-        child.on('exit', (code) => {
+            { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        const wrote = autostart.record;
+        let printed = '';
+        child.stdout.on('data', (b) => { printed += b; });
+        child.on('close', (code) => {
             try { rmSync(file, { force: true }); } catch { /* temp */ }
-            if (code === 0 && marker) try { writeFileSync(marker, script, 'utf8'); } catch { /* next start rewrites once more */ }
+            if (code !== 0 || !marker) return;
+            // What was asked for, and what the shortcut Windows saved holds: the
+            // two can differ (see loginItemRefresh), and a later start needs
+            // both. The saved half is what this write's own PowerShell printed,
+            // never the shared file read back afterwards, which another
+            // library may have rewritten by then.
+            const holds = desktopLib?.savedShortcutRecord(printed);
+            try {
+                if (holds) writeFileSync(marker, desktopLib.shortcutMarker(wrote, holds), 'utf8');
+                else rmSync(marker, { force: true });
+            } catch { /* the item then counts as unmarked: owned by its --data-dir */ }
         });
         child.on('error', () => { /* no PowerShell: reported by the next status read */ });
         return true;
@@ -165,27 +180,25 @@ function setStartAtLogin(on, marker = null) {
     }
 }
 
-/**
- * A login item names the copy of the app that wrote it, and an update is a new
- * folder with the old one deleted — left alone, nothing starts at sign-in after
- * an update while Settings says it will (the file exists). On every
- * start an EXISTING login item is compared with the one this copy would write
- * and rewritten when they differ: the file itself for a plist or a .desktop
- * entry, and for a Windows shortcut (a binary .lnk) the script that last wrote
- * it, kept in `marker` beside the library. One without a marker is rewritten
- * once. A login item the person removed is never put back.
- */
-function refreshLoginItem(marker) {
-    if (!startsAtLogin()) return;
-    if (autostart.contents) {
-        let current = null;
-        try { current = readFileSync(autostart.path, 'utf8'); } catch { return; }
-        if (current !== autostart.contents) setStartAtLogin(true);
-        return;
-    }
-    let written = null;
-    try { written = readFileSync(marker, 'utf8'); } catch { /* never recorded */ }
-    if (written !== autostart.script) setStartAtLogin(true, marker);
+const readOrNull = (p, enc) => { try { return readFileSync(p, enc); } catch { return null; } };
+
+/** On every start, an existing login item this library owns is brought up to
+ *  date with this copy of the app; the rule is desktop/lib.js loginItemRefresh. */
+function refreshLoginItem(marker, dataDir) {
+    if (!desktopLib || !autostart.supported) return;
+    const shortcut = autostart.kind === 'shortcut';
+    const fields = shortcut ? desktopLib.readShortcut(readOrNull(autostart.path)) : null;
+    const action = desktopLib.loginItemRefresh({
+        kind: autostart.kind,
+        exists: startsAtLogin(),
+        current: shortcut ? (fields && desktopLib.shortcutRecord(fields)) : readOrNull(autostart.path, 'utf8'),
+        wanted: shortcut ? autostart.record : autostart.contents,
+        marker: readOrNull(marker, 'utf8'),
+        dataDir,
+        // An item with no --data-dir opens what ITS copy resolves, not this one.
+        unpinnedOf: (root) => desktopLib.unpinnedLibraryOf(root),
+    });
+    if (action === 'rewrite') setStartAtLogin(true, marker);
 }
 
 /** How long every window may go silent before the process stops itself. The
@@ -286,7 +299,7 @@ export function createDesktop({
     const trayHosted = isTrayHosted();
     // After an update the login item still names the old folder: point it here.
     const loginMarker = dataDir ? join(dataDir, 'login-item.written') : null;
-    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker)).catch(() => { /* cosmetic */ });
+    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker, dataDir)).catch(() => { /* cosmetic */ });
     // A tray icon keeps the app running by construction; the stored preference
     // is what answers when there is no icon. ORed rather than overwritten, so
     // turning the icon off (an unpackaged run of the same library) hands the

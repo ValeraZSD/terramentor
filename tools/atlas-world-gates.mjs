@@ -770,15 +770,15 @@ if (S) {
     const atlasSrc = read('server/atlas.js') || '';
     check('the atlas build sends it', /studyNext\(/.test(atlasSrc) && /\bnext\b[^;]*builtAt/.test(atlasSrc));
     // …and the page shows it: at the top of the region list, out of the way of
-    // a search, each row the same row a region's topic list draws and opening
-    // the topic it names.
+    // a search, each row the same row a region's topic list draws, starting
+    // the lesson of the topic it names (study-doors-gates: with its own mark).
     const pageSrc = read('src/components/AtlasView.tsx') || '';
     const hintSrc = read('src/components/atlas/StudyNext.tsx') || '';
     check('the region list opens with it, except while searching',
         /\{!query\.trim\(\) && <StudyNext next=\{data\.next\} regions=\{data\.regions\} \/>\}\s*<RegionList/.test(pageSrc));
     // The reason leads the line: after a long course name it was cut off.
-    check('…each row a topic row that opens its topic and says first what it is near',
-        /<TopicRow[\s\S]{0,400}?tr\("Near \{\{topic\}\} · \{\{course\}\}"[\s\S]{0,200}?openProjectNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
+    check('…each row a topic row that starts its lesson and says first what it is near',
+        /<TopicRow[\s\S]{0,400}?tr\("Near \{\{topic\}\} · \{\{course\}\}"[\s\S]{0,200}?studyNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
         && /<TopicRow\b/.test(read('src/components/atlas/RegionList.tsx') || ''));
 }
 
@@ -864,7 +864,7 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
         'react-i18next': `export const useTranslation = () => ({ i18n: { language: 'en' },
             t: (key, o) => o ? Object.keys(o).reduce((s, n) => s.split('{{' + n + '}}').join(String(o[n])), key) : key });`,
         i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
-        store: `export const useStore = (sel) => sel({ openProjectNode: (p, n) => globalThis.__opened.push([p, n]) });`,
+        store: `export const useStore = (sel) => sel({ studyNode: (p, n) => globalThis.__opened.push([p, n]) });`,
     };
     const stubPlugin = {
         name: 'stubs',
@@ -912,7 +912,7 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
         rows.length === 1 && rows[0].textContent.includes('Derivatives') && rows[0].textContent.includes('Near Limits · Calculus'),
         rows.map(r => r.textContent).join(' | '));
     await React.act(async () => { rows[0]?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
-    check('…and pressing it opens that topic in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
+    check('…and pressing it starts that topic\'s lesson in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
         JSON.stringify(globalThis.__opened));
     await React.act(async () => root.render(React.createElement(StudyNext, { next: [], regions })));
     check('with nothing to suggest it draws nothing', el.innerHTML === '', el.innerHTML.slice(0, 120));

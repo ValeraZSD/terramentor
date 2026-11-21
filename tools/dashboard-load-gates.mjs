@@ -104,7 +104,7 @@ function page() {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     // Every request waits until the gate answers it; the ones a case never answers
-    // (pace, daily plan, placement…) just stay pending.
+    // (pace, placement…) just stay pending.
     const pending = [];
     w.fetch = (url) => new Promise((ok) => { pending.push({ url: String(url), ok }); });
     w.eval(bundle);
@@ -115,7 +115,7 @@ function page() {
         const k = kind(el.textContent ?? '');
         if (k && shown.at(-1) !== k) shown.push(k);
     };
-    useStore.setState({ currentProjectId: null, projects, dashboardData: null, dashboardLoading: false, dailyPlan: null, _navigate: () => { } });
+    useStore.setState({ currentProjectId: null, projects, dashboardData: null, dashboardLoading: false, _navigate: () => { } });
     // Answer the first (or, with last: true, the newest) pending request matching `pattern`.
     const answer = async (pattern, body, { status = 200, last = false } = {}) => {
         const hits = pending.map((p, i) => [p, i]).filter(([p]) => pattern.test(p.url));

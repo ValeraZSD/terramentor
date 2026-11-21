@@ -4,10 +4,11 @@
 //
 // A topic answered well here and then left alone past the decay window is
 // FADING (server/fading.js). The stream brings it back by itself, with no
-// button to press: a review round at the TOP of the home stream and of a
-// course's stream, one question from each fading topic, oldest first, at most
-// `feed_recall_per_batch` of them, and only one round per visit. A topic's own
-// page never carries one.
+// button to press: a review round at the TOP of a course's stream, and on
+// Today at the top of each course's block, one question from each of that
+// course's fading topics, oldest first, at most `feed_recall_per_batch` of
+// them, and only one round per course per visit. A topic's own page never
+// carries one.
 //
 // Which question: picked by DIFFICULTY from the one record every surface writes
 // (question_log). The hardest the learner has got right before comes first; a
@@ -125,39 +126,50 @@ check('each pick says where it lives, so its answer is recorded against it',
 
 console.log('\n--- the review round in the stream ---');
 const recallCards = (feed) => feed.items.filter(i => i.kind === 'recall');
+// The course blocks a page holds, as the client names them (`heldCourses`).
+const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
+const blocksOf = (items) => items.map(courseOf).filter((c, i, all) => c != null && c !== all[i - 1]);
 const home = feed({ limit: 15, excludeKeys: new Set() });
 const firstOwn = home.items.findIndex(i => i.kind !== 'notice');
 const homeRecall = recallCards(home);
-check('the round opens the stream: the first cards after any notice are the recall questions',
-    home.items.slice(firstOwn, firstOwn + homeRecall.length).every(i => i.kind === 'recall') && homeRecall.length > 0, true);
-check('Physics is taught below, so the round reviews Physics: one question from each fading topic that has one, oldest first',
-    homeRecall.map(c => c.nodeId), [A, Bn]);
+const firstRound = home.items.slice(firstOwn, home.items.findIndex((i, n) => n >= firstOwn && i.kind !== 'recall'));
+check('Today opens on its first course, and that course’s block opens with its round',
+    firstRound.length > 0 && firstRound.every(i => i.kind === 'recall' && i.projectId === physics), true);
+check('Physics is taught first, so its round is Physics’: one question from each fading topic that has one, oldest first',
+    firstRound.map(c => c.nodeId), [A, Bn]);
 check('...each the topic’s first pick by difficulty',
-    homeRecall.map(c => c.question.question), ['A hard, right once', 'B typed']);
+    firstRound.map(c => c.question.question), ['A hard, right once', 'B typed']);
 check('every card in it is marked as the round, so the stream can say what it is',
-    homeRecall.map(c => c.review), [true, true]);
-check('the topic being taught comes after the round',
-    home.items.findIndex(i => i.nodeId === T) > home.items.indexOf(homeRecall.at(-1)), true);
+    homeRecall.map(c => c.review), [true, true, true]);
+check('the topic being taught comes after its course’s round and before the next course',
+    [home.items.findIndex(i => i.nodeId === T) > home.items.indexOf(firstRound.at(-1)),
+        home.items.findIndex(i => i.nodeId === T) < home.items.findIndex(i => i.nodeId === C)], [true, true]);
+check('the next course’s block opens with ITS round: another course’s fading topic never joins Physics’',
+    homeRecall.filter(c => c.projectId === dutch).map(c => [c.nodeId, home.items.indexOf(c) === home.items.findIndex(i => courseOf(i) === dutch)]),
+    [[C, true]]);
+check('one block per course: no course comes back lower on the same page',
+    blocksOf(home.items), [physics, dutch]);
 
 const setStatus = db.prepare('UPDATE nodes SET status = ? WHERE id = ?');
 const setStamp = db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?');
 setStamp.run(FAR_AHEAD, A);
 setStamp.run(FAR_AHEAD, Bn);
-check('the course below has nothing fading: the round reviews every course instead',
+check('Physics has nothing fading: its block opens with no round, and Dutch’s still opens with its own',
     recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C]);
 setStamp.run(LONG_AGO(1), A);
 setStamp.run(LONG_AGO(20), Bn);
 
 // From here on nothing new is taught below the round.
 setStatus.run('completed', T);
-const all = recallCards(feed({ limit: 15, excludeKeys: new Set() }));
-check('nothing new below: one question from each fading topic, oldest first, across courses',
-    all.map(c => c.nodeId), [A, C, Bn]);
+const allPage = feed({ limit: 15, excludeKeys: new Set() });
+const all = recallCards(allPage);
+check('nothing taught today: each course’s block is its own round, oldest first within it, never one round across courses',
+    all.map(c => c.nodeId), [A, Bn, C]);
 check('...each the topic’s first pick by difficulty',
-    all.map(c => c.question.question), ['A hard, right once', 'C de or het', 'B typed']);
+    all.map(c => c.question.question), ['A hard, right once', 'B typed', 'C de or het']);
 
-db.prepare(`INSERT INTO settings (key, value) VALUES ('feed_recall_per_batch', '2')`).run();
-check('its size is the existing "Recall questions per batch" setting',
+db.prepare(`INSERT INTO settings (key, value) VALUES ('feed_recall_per_batch', '1')`).run();
+check('its size is the existing "Recall questions per batch" setting, per course',
     recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
 db.prepare(`UPDATE settings SET value = '0' WHERE key = 'feed_recall_per_batch'`).run();
 check('...and 0 turns it off', recallCards(feed({ limit: 15, excludeKeys: new Set() })).length, 0);
@@ -166,10 +178,16 @@ db.prepare(`DELETE FROM settings WHERE key = 'feed_recall_per_batch'`).run();
 const held = new Set(home.items.map(i => i.key));
 check('one round per visit: the next page of the same stream carries no recall',
     recallCards(feed({ limit: 15, excludeKeys: held })).length, 0);
+check('...nor when the page names the blocks it holds: no course’s round opens twice',
+    recallCards(feed({ limit: 15, excludeKeys: held, courses: blocksOf(home.items) })).length, 0);
 check('only the opening page starts one: a later page holding no recall card (topics faded since) has none either',
     recallCards(feed({ limit: 15, excludeKeys: new Set(home.items.filter(i => i.kind !== 'recall').map(i => i.key)) })).length, 0);
-check('never longer than the page asked for',
-    recallCards(feed({ limit: 2, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
+const tight = feed({ limit: 2, excludeKeys: new Set() });
+check('never longer than the page asked for, and a round is never cut: the next course’s waits, and the stream is not over',
+    [recallCards(tight).map(c => c.nodeId), tight.exhausted], [[A, Bn], false]);
+check('...the next page opens the next course with its round',
+    recallCards(feed({ limit: 2, excludeKeys: new Set(tight.items.map(i => i.key)), courses: blocksOf(tight.items) })).map(c => c.nodeId),
+    [C]);
 check('a course’s stream reviews that course’s topics only',
     recallCards(feed({ limit: 15, excludeKeys: new Set(), projectId: dutch })).map(c => c.nodeId), [C]);
 check('a topic’s own page carries no review round',
@@ -205,7 +223,7 @@ check('...and restarts the topic’s decay timer',
 db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?')
     .run(NOW.toISOString().replace('T', ' ').slice(0, 19), A);
 check('the answered topic is no longer fading, so the next visit’s round leaves it out',
-    recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C, Bn]);
+    recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [Bn, C]);
 db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(1), A);
 check('when it fades again, the question its last recall asked is not asked next',
     stems(ghostOf(physics, A))?.[0], 'A easy, always right');

@@ -102,7 +102,7 @@ export default function ConnectModel({ onStatus }: {
 
     const refresh = useCallback(async (forWay?: Way) => {
         try {
-            const s = await api.getAIStatus();
+            const s = await api.getAIStatus({ fresh: !!forWay });
             setStatus(s);
             setModel(s.model || '');
             if (isReady(s, forWay ?? wayOf(s))) void loadModels();
@@ -305,6 +305,7 @@ export default function ConnectModel({ onStatus }: {
                     <div className="space-y-3">
                         <SegmentedControl
                             label={t("Which local server")}
+                            block="narrow"
                             value={localKind}
                             onChange={v => { setLocalKind(v); setLocalUrl(LOCAL_DEFAULTS[v]); }}
                             options={[

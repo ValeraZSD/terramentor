@@ -61,7 +61,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`, `made_from` (a short course's source as JSON: kind, address or file name (and the chat attachment's id, for a file from the assistant's chat), the chapters picked and the topics the assistant showed, so Retry writes the same course; never the source's text; NULL for every other course). |
+| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`, `made_from` (a short course's source as JSON: kind, address or file name (and the chat attachment's id, for a file from the assistant's chat), the chapters picked and the topics the assistant showed, so Retry writes the same course; never the source's text; NULL for every other course), `look_back_skipped_at` (the last "Not now" on its look back offer, §5.1). |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
@@ -190,8 +190,7 @@ Notes never carry schedule dates; a startup repair strips any left by older runs
 teaches it and it holds cards; client mirror `src/utils/projectShape.ts`) is
 scheduled as a window only (`allocateCardWindow` dates no node). Its pace is cards
 met against the share of the window's study days gone (`studyDayShare`), and where
-each section falls on that line is derived on read (`cardPlan`, returned on
-`GET /api/projects/:id/pace` and added to the global calendar). `removeSchedule`
+each section falls on that line can be derived (`cardPlan`; no screen shows it at present). `removeSchedule`
 is the one removal path: window, every node date and the baseline go, the study
 week stays.
 
@@ -318,11 +317,13 @@ guess floor, then the least recently asked. An answer to a copy of the question
 inside another topic's practice quiz counts (matched by its uuid). The question
 the topic's previous recall asked goes last. Only usable keys a verifier has
 confirmed are candidates, and a recall answer is logged as `recall`.
-In the feed they arrive as a review round that OPENS the home stream and a
-course's stream: one question from each fading topic, oldest first, at most
-`feed_recall_per_batch` and never more than the page, on the opening page of a
-visit only (a later page never starts one), drawn under one header
-(`review: true` on the card). A topic's own page carries none.
+In the feed they arrive as a review round: one question from each fading topic,
+oldest first, at most `feed_recall_per_batch` and never more than the page,
+drawn under one header (`review: true` on the card). A course's stream opens
+with its round on the opening page of a visit only. On the home stream each
+course's block (below) opens with that course's own round when the block first
+appears, on whichever page that is; a block that carries on from an earlier
+page starts none. A topic's own page carries none.
 
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
@@ -335,6 +336,24 @@ takes a topic off the list nor brings one back sooner. Once an answer or a
 rebuild of the app's own moves the estimate, the topic is judged on its score
 again (an answer's update starts from the lowered estimate, like any update).
 Asserted by `tools/mcp-gates.mjs`, which also checks that both lists agree.
+
+Both lists read `RECALL_TOPIC`: a fading topic, or a SLIPPED one (`SLIPPED_TOPIC`,
+same file). A topic slips when a look back (§5.1) or a course mock logged a wrong answer on it
+(`question_log` surface `mock`, correct 0) on an earlier learner day than today
+(`slipParams`: the start of `studyDay()`), so it comes back the next day the
+learner studies, within `SLIP_MAX_DAYS` (28; an older miss is left to the fading
+clock; course mocks logged before the look back existed count too, within the
+same 28 days), with no right answer on it logged from one minute after that
+miss; a right answer in the same sitting does not clear it.
+`recallCutoffs(decayDays, now)` gives the three cutoffs. Slips from every course
+in scope join the round, not only the next course's. Slipped topics come first in the
+round, `recallOrder(nodeId, now)` asks the missed question itself first while
+the topic slips by the same rule (earlier day, 28 days, no right answer on any
+of its questions from a minute after) (unless it was the
+last one the recall round asked on that topic), and their cards carry
+`slipped: true`. A slip changes no status and no evidence: the miss is already a
+`mock` practice row, and the topic leaves the round once it is answered right.
+The topic panel's "fading" word still reads `FADING_TOPIC` alone.
 
 ### 4.4 Seeded priors (`applySeededPrior`)
 
@@ -474,8 +493,48 @@ pages by exclude key. With no scope it is the whole library by urgency (`/`); wi
 `projectId` it is one course by the same urgency; with `nodeId` it is one topic or
 section with the schedule ignored (`getFocusForNode`), because the learner chose
 it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
-`practice`, `notice`. The recall round opens the stream (above); after it the
+`practice`, `notice`, `lookback`. The recall round opens the stream (above); after it the
 interleave is roughly lesson → question → … with a flashcard every 3–4 items.
+
+On the home stream the page is built one course block at a time: one course's
+look back offer, its recall round, its window topics through their checkpoints
+with its own due cards every 3–4 items, then the rest of its due cards and new
+cards, and only then the next course. A block ends when the course's share of
+today is used up, never inside a topic or a round. The client sends the courses
+it already holds (`?courses=`, kept to the last 200) so the block it is in
+carries on first; the page splits only between whole heads. The client groups
+the list into blocks (`src/components/feed/courseBlocks.ts`) and draws each
+under one pinned course header (`CourseBlock.tsx`), so no card repeats the
+course name.
+
+**The look back** (`server/lookBack.js`). On the opening page of a course's
+stream (never a topic's, never a later page) one `lookback` card leads, above the
+recall round. On the home stream at most one is served per visit: it opens, above
+that course's round, the block of the first course that has an offer, on
+whichever page that block first appears. `lookBackOffer(projectId, {now})` says what it
+offers: `resume` while a look back is open (until it is put off, below);
+`mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
+21 days away and no full mock was finished or offer put off in the last 7 days
+(nothing on the exam's own day);
+else `look_back` when 14 days have passed since the last look back, full mock
+(a whole sitting, course draw or past paper; one past-paper question practised
+alone is no mock) or "Not now" (or since the course's first answer), or a phase (a top-level node with
+two or more work leaves, each completed or skipped, at least one completed) has
+closed since then, at least 3 days after it; and in
+every case only when `courseReadiness` finds 4 topics and 10 questions it can
+mark alone. A deck, an archived course and a finished one get none. A look back is
+a course draw (`drawCourseMock(…, {lookBack: true})`, `exam_papers.look_back = 1`)
+of 10 questions with no clock: the topics practised longest ago take a question
+each first. Its result has no range and no pass line; it writes the same `mock`
+practice rows a mock does. "Not now" stamps `projects.look_back_skipped_at`.
+A look back left open stops being offered as Continue once put off, once 14 days
+old, or inside the mock window. Start on such a one finishes it when anything was
+answered (the answers count), else drops it (`discardSitting`), and draws a fresh
+one. Start on a deck, an inactive course or one without enough to mix is a 409.
+A stream holding only the offer still gets the empty stream's notices (AI off, no
+model, today's cards done), but never the two that say nothing is left ("That's
+everything this course has ready right now" / "That's everything for now", and
+"You're all caught up") beneath it.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
@@ -950,9 +1009,10 @@ and a route an earlier one answers first.
 
 | Area | Routes |
 |---|---|
-| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
+| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan` (no screen or gate requests it since the Dashboard's daily list was removed; the gates call `generateDailyPlan` directly), `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
-| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
+| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview` |
+| Mock exams, look back | `/projects/:projectId/mock-exams` (+ `/draw`), `/projects/:projectId/exam`, `/mock-exams/papers/:paperId` (+ `/sittings`), `/mock-sittings/:id` (+ `/answers`, `/scores`, `/pause`, `/resume`, `/stop`, `/finish`), `/projects/:projectId/look-back` (GET offer, POST start, + `/skip`) |
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |
@@ -986,9 +1046,12 @@ Streaming endpoints use **SSE**. Long-running generations register in
 
 ### 9.1 Routing
 
-**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
-redirects to `/projects`, where each course card carries its own dates.
+**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/atlas`,
+`/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule` and
+`/calendar` redirect to `/projects`, where each course card carries its own dates;
+a course's old `/timeline` and `/calendar` views (with or without a topic) redirect
+to its `/dashboard`. A course's plan is the pace verdict in its header and the plan
+dialog that opens from it.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,
@@ -1004,7 +1067,7 @@ position is never disturbed.
 
 ### 9.3 Shared utilities
 
-`src/utils/tree.ts` (tree build, UTC dates, gantt, calendar) ·
+`src/utils/tree.ts` (tree build, leaf rule, UTC dates) ·
 `src/utils/projectShape.ts` (`countsInCards`: is a project measured in cards met;
 it also decides that Study opens the review session, `deck/DeckStudy.tsx`) ·
 `src/utils/srs.ts` (FSRS-7 via `ts-fsrs`, the single source of interval logic) ·
@@ -1106,16 +1169,32 @@ node tools/contrast-audit.mjs
 ### 12.1 The activity log (`server/activityLog.js`)
 
 A local record of what the app DID: model calls, background jobs, projects created
-or deleted. **Metadata only**: no titles, prompts, notes or model output, which is
-what makes the file safe to hand to someone helping you debug; ids travel as ids
-and a project's name is looked up only on the way to the screen. A ring buffer of
-`MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
-switched by `activity_log_enabled`
+or deleted. **Metadata only**: no titles, prompts, notes or model output; ids travel
+as ids and a project's name is looked up only on the way to the screen. The download
+also says how much and when you studied (below), so read it before choosing who gets
+it. A ring buffer of `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX`
+environment variable), switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
 Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
+
+The download opens with a **study summary** (`server/studySummary.js`,
+`activityExport()`): counts computed from `study_time`, `review_log` (source `app`),
+`mastery_evidence`, `nodes` (topics marked done, by `completed_at`), `node_mastery` (proven = `estimateProven` over work leaves, the
+finished-project screen's rule) and `mock_sittings` when the file is made, never from
+the log, so an empty, cleared, switched-off or capped log does not change it. Days are
+the learner's days (`studyDay.js`) in the zone the page puts in the link (`?tz=`, since
+a plain link sends no `X-Time-Zone`; an unknown name falls back to the stored zone).
+Weeks start on Monday in that calendar, empty weeks included, a day after this week
+counted in this week's line, at most 52, with a line saying so when older weeks are
+left out. A summary that cannot be worked out becomes one
+`#` line naming the error class plus an `activity.summary_failed` event, and the events
+still follow. Every line starts with `#`, so a reader of one event per line skips it; it
+selects no text column. The gate seeds a library with marked text and a non-UTC time
+zone and pins every count, the week lines and the absence of the marks, and holds the
+proven, answer, review and study-day counts to `projectCompletion()`'s on one course.
 
 ### 12.2 Module map
 

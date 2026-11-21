@@ -189,8 +189,12 @@ db.prepare("DELETE FROM settings WHERE key LIKE 'deck_new_per_day%'").run();
 // day that has real work.
 
 const feed = await import('../server/feed.js');
-const today = new Date().toISOString().split('T')[0];
-const past = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+// A pinned Wednesday, not the real clock: on a Saturday or Sunday the course
+// has no study day, nothing is due, the feed switches to getting ahead and
+// the empty project below fairly gets a slot, so the gate went red every weekend.
+const NOW = Date.parse('2026-11-18T12:00:00Z');
+const today = new Date(NOW).toISOString().split('T')[0];
+const past = new Date(NOW - 7 * 86400000).toISOString().split('T')[0];
 
 db.prepare('UPDATE projects SET start_date = ?, deadline = ? WHERE id = ?')
     .run(past, today, courseId);
@@ -204,7 +208,7 @@ for (let i = 0; i < 12; i++) {
 db.prepare('INSERT INTO flashcards (node_id, front, back) VALUES (?, ?, ?)')
     .run(stage1, 'front', 'back');
 
-const { focus } = feed.getFocusNodes({ maxPerProject: 3, maxTotal: 6 });
+const { focus } = feed.getFocusNodes({ maxPerProject: 3, maxTotal: 6, now: NOW });
 check('the overdue course fills most of the feed',
     focus.filter(f => f.projectId === courseId).length >= 3);
 check('a card collection with no schedule still gets a slot',
@@ -219,7 +223,7 @@ check('a scheduled course node is teachable',
 // push real work out of the feed.
 const emptyId = mkProject('Unscheduled and empty', 'curriculum', 2);
 mkNode(emptyId, null, 'Nothing here', 0, ROLE_TOPIC);
-const after = feed.getFocusNodes({ maxPerProject: 3, maxTotal: 6 }).focus;
+const after = feed.getFocusNodes({ maxPerProject: 3, maxTotal: 6, now: NOW }).focus;
 check('an unscheduled project with no cards takes no reserved slot',
     !after.some(f => f.projectId === emptyId));
 

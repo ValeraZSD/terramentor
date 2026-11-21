@@ -2,6 +2,7 @@ import { ReactNode, CSSProperties, forwardRef } from 'react';
 import { useAccentVars } from '../../hooks/useAccentVars';
 import { CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCourseLine, useStreamHeading } from './streamCourse';
 
 interface Props {
     /** Project colour — re-points the accent vars inside the card (ProjectCard pattern). */
@@ -24,9 +25,11 @@ interface Props {
  * check and let the reader scroll on.
  */
 const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
-    { projectColor, projectName, nodeTitle, subtitle, badge, done = false, onOpenNode, children }, ref,
+    { projectColor, projectName: courseName, nodeTitle, subtitle, badge, done = false, onOpenNode, children }, ref,
 ) {
     const { t } = useTranslation();
+    const projectName = useCourseLine(courseName);
+    const Heading = useStreamHeading(3);
     // The rail is drawn exactly as in ChapterGroup: the card's own left border
     // at 4px, so it follows `rounded-2xl` around the top-left and bottom-left
     // corners instead of being cut flat by them. The colour is inline because
@@ -41,7 +44,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
         <article
             ref={ref}
             style={accentStyle}
-            aria-label={nodeTitle || projectName || t("Feed card")}
+            aria-label={nodeTitle || courseName || t("Feed card")}
             className={`relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden scroll-mt-20${projectColor ? ' border-l-4' : ''}`}
         >
             <div className="p-4 sm:p-6">
@@ -63,9 +66,9 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
                                         {nodeTitle}
                                     </button>
                                 ) : (
-                                    <h3 className="text-base font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
+                                    <Heading className="text-base font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
                                         {nodeTitle}
-                                    </h3>
+                                    </Heading>
                                 )
                             )}
                             {subtitle && (

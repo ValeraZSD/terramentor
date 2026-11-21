@@ -143,8 +143,6 @@ export const SETTINGS = {
         return s === '' || s === 'auto' || /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,3}$/.test(s) ? s : refuse('A language code such as en or pt-BR');
     }),
     number_format: client('ui', text(16)),
-    // 0 = Sunday, 1 = Monday (types.ts WeekStartDay); readers take anything else as Monday.
-    week_start_day: client('ui', oneOf('0', '1')),
     // Single-key shortcuts (src/utils/escapeKey.ts); 'false' turns them all off.
     key_shortcuts: client('ui', bool),
     // Settings → Accessibility (src/utils/accessibility.ts). 'system' follows
@@ -306,7 +304,7 @@ export const PROJECT_SETTING_PREFIXES = SETTING_FAMILIES.filter(f => f.perProjec
  */
 export const SETTING_SCOPES = Object.freeze({
     library: [
-        'ui_language', 'number_format', 'week_start_day', 'key_shortcuts', 'welcome_done',
+        'ui_language', 'number_format', 'key_shortcuts', 'welcome_done',
         // What a person needs to use the app at all travels with them.
         'motion', 'contrast', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
         'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'larger_ui',

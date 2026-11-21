@@ -229,7 +229,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
     const showConfirm = useStore(s => s.showConfirm);
     const rows = useMemo(() => [
         ...data.papers.flatMap(p => p.sittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: p.title }))),
-        ...data.courseSittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: t("From this course") })),
+        ...data.courseSittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: s.lookBack ? t("Look back") : t("From this course") })),
     ].sort((a, b) => b.s.startedAt.localeCompare(a.s.startedAt)), [data, t]);
     const dateFmt = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }), []);
     if (rows.length === 0) return null;

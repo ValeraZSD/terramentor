@@ -135,13 +135,13 @@ console.log('\n--- a password-protected server ---');
         applied.length === 1 && applied[0].view === 'workspace' && applied[0].projectId === 3 && applied[0].workspaceView === 'tree',
         seen());
 
-    await act(async () => { navigate('/calendar'); });
-    check('and a navigation after that applies as before', applied.length === 2 && applied[1].view === 'calendar', seen());
+    await act(async () => { navigate('/atlas'); });
+    check('and a navigation after that applies as before', applied.length === 2 && applied[1].view === 'atlas', seen());
 
     await gate({ authenticated: false });
     check('locking the app again applies nothing', applied.length === 2, seen());
     await gate({ authenticated: true });
-    check('...and the login re-applies the address the reader is on', applied.length === 3 && applied[2].view === 'calendar', seen());
+    check('...and the login re-applies the address the reader is on', applied.length === 3 && applied[2].view === 'atlas', seen());
     await act(async () => { root.unmount(); });
 }
 

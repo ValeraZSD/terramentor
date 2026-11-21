@@ -72,6 +72,10 @@ const ALLOWED_CONSTANTS = [
     // MARKERS, where the same classes written inline are already allowed.
     { file: 'src/components/answer/AssembleInput.tsx', name: 'SLOT', why: 'a gap: a slot set in a line of text, the text\'s own height (answer-format-gates pins it)' },
     { file: 'src/components/answer/AssembleInput.tsx', name: 'TILE', why: 'a bank piece: a tile sized to its word with a 44px hit area (answer-format-gates pins it)' },
+    // A short ordering's tile, written once for the button, the graded tile
+    // and the drag overlay, so Check and a drag change nothing but colour. A
+    // `data-order-tile` widget, argued in control-gates' MARKERS.
+    { file: 'src/components/answer/SequenceInput.tsx', name: 'TILE', why: 'an ordering tile sized to its word, 44px tall in every state (answer-format-gates mounts it)' },
 ];
 
 /** Utilities that give a native control its shape (the control-gates set). */

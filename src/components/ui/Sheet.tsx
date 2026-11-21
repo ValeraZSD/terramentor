@@ -5,46 +5,23 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { canHover } from '../../utils/platform';
 import { IconButton } from './Button';
 import { cx } from './vocabulary';
 
 /**
- * The phone's way of showing what a button opens: a SHEET from the bottom of
- * the screen, not a box floating beside the button.
+ * A SHEET from the bottom of the screen, for a panel that belongs to the
+ * bottom of the screen: the mock exam's list of all questions, opened from the
+ * number row along the bottom edge.
  *
- * A floating menu belongs to a screen with a pointer that hovers. Under a
- * finger it opens wherever the button happens to be, often at the bottom edge
- * with no room, its rows small and away from the thumb; Apple's guidelines keep
- * popovers for regular width and use a sheet in compact width, and a phone's
- * own apps do the same. So every surface that opens from a button decides it
- * here, once, by the rule `Select` has always used: no hovering pointer, a
- * sheet. The rule is read at the moment of opening and kept while it is open,
- * so a pointer that changes mid-list does not swap the surface under the finger.
+ * Not for what opens from a button elsewhere: menus, panels and `Select`'s list
+ * open at their button on every device (`ui/Popover.tsx`). A menu tapped open
+ * from the top bar that slid up from the bottom read as something else opening.
  *
- * One sheet for all of them: `Select`'s list, a `MenuPopover`'s rows, a
- * `PanelPopover`'s panel. It slides up, is titled, has a close button and a
- * handle to pull it down by, dims and closes on a tap outside, owns Escape and
- * Tab while open (`useDialogFocus`), clears the status bar and the screen's
- * sides, and pads the home indicator below its last row.
+ * It slides up, is titled, has a close button and a handle to pull it down by,
+ * dims and closes on a tap outside, owns Escape and Tab while open
+ * (`useDialogFocus`), clears the status bar and the screen's sides, and pads
+ * the home indicator below its last row.
  */
-export function opensAsSheet(): boolean {
-    return !canHover();
-}
-
-/**
- * `opensAsSheet()` read when `open` turns true and held until it turns false.
- * A ref written during render, like `useDialogFocus`'s opener: the first
- * render of an opening must already know which surface it draws, or it paints
- * the floating one for a frame.
- */
-export function useOpensAsSheet(open: boolean): boolean {
-    const sheet = useRef(false);
-    const wasOpen = useRef(false);
-    if (open && !wasOpen.current) sheet.current = opensAsSheet();
-    wasOpen.current = open;
-    return open && sheet.current;
-}
 
 const stop = (e: SyntheticEvent) => e.stopPropagation();
 

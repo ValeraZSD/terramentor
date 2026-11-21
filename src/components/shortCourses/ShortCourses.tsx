@@ -13,17 +13,17 @@
 // The rows are GET /api/short-courses, owned by ProjectsGrid, which leaves
 // these courses out of its own grid. A course leaves the strip when it grows
 // a phase (server/shortCourses.js `listShortCourses`).
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, Paperclip, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
+    Loader2, MoreVertical, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import type { Project, StagedDocument } from '../../types';
 import { Button, IconButton } from '../ui/Button';
-import { TextArea } from '../ui/Field';
+import { TextArea, TextInput } from '../ui/Field';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { cx } from '../ui/vocabulary';
 import Checkbox from '../Checkbox';
@@ -123,6 +123,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const [busy, setBusy] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
+    const hintId = useId();
     const abortRef = useRef<AbortController | null>(null);
     const transcriptRef = useRef<HTMLTextAreaElement>(null);
     useEffect(() => () => abortRef.current?.abort(), []);
@@ -260,9 +261,77 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     // On a phone the forward actions need the whole line, so Clear is the
     // box's own × beside the title instead of a button in that line.
     const clearButton = narrow ? null : <Button variant="quiet" onClick={() => clear()}>{t("Clear")}</Button>;
-    const corner = narrow && box.state !== 'empty' && box.state !== 'reading'
+    const corner = narrow && box.state !== 'reading'
         ? <IconButton label={t("Clear")} tooltip={false} icon={<X className="w-4 h-4" />} className="self-start -mr-1" onClick={() => clear()} />
         : null;
+
+    const filePicker = (
+        <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            onChange={e => {
+                // Copied before the input is cleared: a FileList is live.
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void readFile(file);
+            }}
+        />
+    );
+
+    // Nothing in it yet: a text field that looks like one, its button beside
+    // it and what it takes under it. It was a card whose first line was the
+    // input drawn as a heading, the link icon in a tile beside it: it read as
+    // a title, a press on the card around the words did nothing, and the
+    // caret in a heading-sized line was all that showed it had focus.
+    if (box.state === 'empty') {
+        const typed = !!text.trim();
+        return (
+            <div data-short="source" {...dropProps}>
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* The field takes nearly all the free room (999 to 1); on
+                        a phone too narrow for both, the button wraps under it
+                        and its `grow` spans that line instead of hanging left. */}
+                    <div className="min-w-[12rem] grow-[999] basis-0">
+                        <TextInput
+                            icon={<Link2 className="w-4 h-4" />}
+                            type="text"
+                            inputMode="url"
+                            enterKeyHint="go"
+                            value={text}
+                            onChange={e => setText(e.target.value)}
+                            // Not the Enter that confirms an input method's candidate.
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void readLink(text); } }}
+                            // A pasted link is read at once: pasting IS the request.
+                            // Typed text waits for Enter or Read.
+                            onPaste={e => {
+                                const file = e.clipboardData.files?.[0];
+                                if (file) { e.preventDefault(); void readFile(file); return; }
+                                const pasted = e.clipboardData.getData('text').trim();
+                                if (pasted && !text.trim() && !/\s/.test(pasted)) { e.preventDefault(); setText(pasted); void readLink(pasted); }
+                            }}
+                            aria-label={prompt}
+                            aria-describedby={hintId}
+                            placeholder={prompt}
+                            className={cx(dragOver && '!border-accent ring-2 ring-accent')}
+                        />
+                    </div>
+                    {/* Both in one cell, the one not in use hidden: swapped
+                        outright, the field jumped 85px at the first letter typed. */}
+                    <div className="grid grow">
+                        <Button variant="primary" className={cx('[grid-area:1/1]', !typed && 'invisible')}
+                            onClick={() => void readLink(text)}>{t("Read")}</Button>
+                        <Button variant="neutral" className={cx('[grid-area:1/1]', typed && 'invisible')}
+                            onClick={chooseFile}>{t("Choose a file")}</Button>
+                    </div>
+                </div>
+                <p id={hintId} className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+                    {t("A web page, a PDF, a YouTube video or a document")}
+                </p>
+                {filePicker}
+            </div>
+        );
+    }
 
     if (box.state === 'transcript') {
         return (
@@ -366,36 +435,6 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     let actions: ReactNode;
     let pair = false;
     switch (box.state) {
-        case 'empty': {
-            tile = <Tile><Link2 className="w-5 h-5" aria-hidden="true" /></Tile>;
-            first = (
-                <input
-                    type="text"
-                    inputMode="url"
-                    enterKeyHint="go"
-                    value={text}
-                    onChange={e => setText(e.target.value)}
-                    // Not the Enter that confirms an input method's candidate.
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void readLink(text); } }}
-                    // A pasted link is read at once: pasting IS the request.
-                    // Typed text waits for Enter or Read.
-                    onPaste={e => {
-                        const file = e.clipboardData.files?.[0];
-                        if (file) { e.preventDefault(); void readFile(file); return; }
-                        const pasted = e.clipboardData.getData('text').trim();
-                        if (pasted && !text.trim() && !/\s/.test(pasted)) { e.preventDefault(); setText(pasted); void readLink(pasted); }
-                    }}
-                    aria-label={prompt}
-                    placeholder={prompt}
-                    className="w-full bg-transparent p-0 border-0 text-base font-medium text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 outline-none focus:ring-0"
-                />
-            );
-            second = t("A web page, a PDF, a YouTube video or a document");
-            actions = text.trim()
-                ? <Button variant="primary" onClick={() => void readLink(text)}>{t("Read")}</Button>
-                : <Button variant="neutral" icon={<Paperclip className="w-4 h-4" aria-hidden="true" />} onClick={chooseFile}>{t("Choose a file")}</Button>;
-            break;
-        }
         case 'reading':
             tile = <Tile><Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /></Tile>;
             first = t("Reading {{where}}", { where: box.where });
@@ -448,26 +487,20 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         }
     }
 
-    const empty = box.state === 'empty';
     return (
         <div
             data-short="source"
             {...dropProps}
             className={cx(
                 'rounded-xl border bg-white dark:bg-slate-800 px-4 py-3 transition-colors',
-                dragOver ? 'border-accent ring-2 ring-accent'
-                    : empty
-                        ? 'border-slate-300 dark:border-slate-600 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent'
-                        : 'border-slate-200 dark:border-slate-700',
+                dragOver ? 'border-accent ring-2 ring-accent' : 'border-slate-200 dark:border-slate-700',
                 narrow ? 'flex flex-col gap-3' : 'flex items-center gap-3 min-h-[4.5rem]',
             )}
         >
             <div className="flex items-center gap-3 min-w-0 flex-1">
                 {tile}
                 <div className="min-w-0 flex-1">
-                    {empty ? first : (
-                        <p className={cx('text-base font-medium text-slate-900 dark:text-white', narrow ? 'line-clamp-2' : 'truncate')} title={typeof first === 'string' ? first : undefined}>{first}</p>
-                    )}
+                    <p className={cx('text-base font-medium text-slate-900 dark:text-white', narrow ? 'line-clamp-2' : 'truncate')} title={typeof first === 'string' ? first : undefined}>{first}</p>
                     <p className={cx('text-sm', box.state === 'unreadable' ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400', narrow || box.state === 'unreadable' ? 'line-clamp-3' : 'truncate')}>{second}</p>
                 </div>
                 {corner}
@@ -481,17 +514,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     {actions}
                 </div>
             )}
-            <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                onChange={e => {
-                    // Copied before the input is cleared: a FileList is live.
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (file) void readFile(file);
-                }}
-            />
+            {filePicker}
         </div>
     );
 }

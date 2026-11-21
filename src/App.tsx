@@ -1,5 +1,5 @@
 import { useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useStore } from './store';
 import { setAuthRequiredHandler } from './api';
 import { useRouterStoreSync } from './hooks/useRouterStoreSync';
@@ -11,14 +11,13 @@ import FeedView from './components/feed/FeedView';
 import UpdatePrompt from './components/UpdatePrompt';
 import { useDesktop } from './hooks/useDesktop';
 import { useUpdateStatusRefresh } from './hooks/useUpdateStatusRefresh';
-import type { CalendarScope } from './components/calendar/CalendarView';
 import { k } from './i18n';
 import { isOpenRouterReturn } from './utils/openRouterConnect';
 
 // Every route except the feed is loaded when it is first opened.
 //
 // Importing them up front would put the projects grid, the whole workspace,
-// the settings screen, two date views and the atlas in the entry chunk, to be
+// the settings screen and the atlas in the entry chunk, to be
 // downloaded, parsed and evaluated before the home page could paint, on every
 // launch, on a phone included. The feed stays eager because it IS the home
 // page — making it lazy would only add a round trip in front of the most
@@ -35,7 +34,6 @@ import { isOpenRouterReturn } from './utils/openRouterConnect';
 const importProjectsGrid = () => import('./components/ProjectsGrid');
 const importWorkspace = () => import('./components/Workspace');
 const importSettings = () => import('./components/Settings');
-const importCalendar = () => import('./components/calendar/CalendarView');
 const importAtlas = () => import('./components/AtlasView');
 // Seen once per library, so it is not in the entry chunk either.
 const importWelcome = () => import('./components/welcome/WelcomeFlow');
@@ -45,6 +43,13 @@ const importOpenRouterReturn = () => import('./components/welcome/OpenRouterRetu
  *  in a few milliseconds, and a spinner that flashes for one frame reads as the
  *  app stuttering. The header and rail are already painted around it. */
 const RouteFallback = () => <div className="h-full" aria-busy="true" />;
+
+/** A course's Timeline and Calendar tabs are gone; an old link or bookmark to
+ *  either opens that course's Dashboard, with the same topic open if it named one. */
+function RetiredCourseView() {
+    const { projectId, nodeId } = useParams();
+    return <Navigate to={`/project/${projectId}/dashboard${nodeId ? `/${nodeId}` : ''}`} replace />;
+}
 
 export default function App() {
     const loadProjects = useStore(s => s.loadProjects);
@@ -117,20 +122,19 @@ export default function App() {
                         <Route path="/projects" element={
                             <RouteChunk name={k("Projects Grid")} load={importProjectsGrid} />
                         } />
-                        <Route path="/calendar" element={
-                            <RouteChunk<{ scope: CalendarScope }>
-                                name={k("Calendar")} load={importCalendar} props={{ scope: { kind: 'global' } }}
-                            />
-                        } />
                         {/* The Schedule screen is now each Projects card's
-                            dates strip; an old link or bookmark lands there. */}
+                            dates strip, and the library Calendar is gone with
+                            the courses' own; an old link or bookmark lands there. */}
                         <Route path="/schedule" element={<Navigate to="/projects" replace />} />
+                        <Route path="/calendar" element={<Navigate to="/projects" replace />} />
                         <Route path="/atlas" element={
                             <RouteChunk name={k("Atlas")} load={importAtlas} />
                         } />
                         <Route path="/settings" element={
                             <RouteChunk name={k("Settings")} load={importSettings} />
                         } />
+                        <Route path="/project/:projectId/timeline/:nodeId?" element={<RetiredCourseView />} />
+                        <Route path="/project/:projectId/calendar/:nodeId?" element={<RetiredCourseView />} />
                         <Route path="/project/:projectId" element={workspace} />
                         <Route path="/project/:projectId/:view" element={workspace} />
                         <Route path="/project/:projectId/:view/:nodeId" element={workspace} />

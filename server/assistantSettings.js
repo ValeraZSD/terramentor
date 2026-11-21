@@ -13,7 +13,7 @@
  */
 
 /** The whitelist, mirrored from the client's `SettingKey`. */
-export const SETTABLE_KEYS = ['theme', 'theme_tint', 'accent_color', 'ui_scale', 'week_start_day', 'ui_language', 'number_format',
+export const SETTABLE_KEYS = ['theme', 'theme_tint', 'accent_color', 'ui_scale', 'ui_language', 'number_format',
     'contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
     'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'key_shortcuts', 'larger_ui'];
 
@@ -32,7 +32,7 @@ const ALIASES = {
     page_colour: 'theme_tint', page_color: 'theme_tint', tint: 'theme_tint',
     accent: 'accent_color', scale: 'ui_scale', text_size: 'ui_scale',
     language: 'ui_language', interface_language: 'ui_language',
-    numbers: 'number_format', number_separator: 'number_format', week_start: 'week_start_day',
+    numbers: 'number_format', number_separator: 'number_format',
     reduce_motion: 'motion', shortcuts: 'key_shortcuts', reading_speed: 'speech_rate', speech_speed: 'speech_rate',
 };
 
@@ -68,7 +68,6 @@ export function readSettable(getSetting) {
         theme_tint: !tint || tint === NO_TINT ? 'none' : tint,
         accent_color: getSetting('accent_color', null) || DEFAULT_ACCENT,
         ui_scale: Number.isFinite(scale) && scale > 0 ? Math.round(scale) : 100,
-        week_start_day: String(getSetting('week_start_day', '')) === '0' ? 'sunday' : 'monday',
         ui_language: getSetting('ui_language', null) || 'auto',
         number_format: getSetting('number_format', null) || 'auto',
         ...choices,
