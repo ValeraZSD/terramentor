@@ -14,7 +14,11 @@
 //     same line that it means deleted rows too (`/* with deleted */`). Only
 //     server/database.js (the migrations) and server/softDelete.js (the one
 //     module that writes and reads deleted rows) are exempt; no other module
-//     deletes a row of the five outright;
+//     deletes a row of the five outright. The scan reads table NAMES: a table
+//     named through a value (`FROM ${t}`) is out of its sight. Those reads
+//     today (uuid claims, the course-update undo snapshot, sync backfills,
+//     blob holders) mean deleted rows too; the HTTP crawl below covers what
+//     a route returns either way;
 //   * the schema: both columns on all five tables, the five views, and the
 //     schedule-event log;
 //   * the app: a course, a topic, a card, a question bank and a link deleted
@@ -269,20 +273,24 @@ const gets = [...new Set(routesOf(stackOf(createApp())).filter(r => r.method ===
 // Routes that hold a stream open or start work no gate should start.
 // And Recently deleted itself, whose answer IS the deleted rows (asserted below).
 const SKIP = /\/(events|stream|watch)\b|\/tasks\/[^/]+\/stream|\/updates?\b|\/ollama|\/models\b|^\/api\/deleted\b/;
-const fill = (path, ids) => path.replace(/:(\w+)\??/g, (_, p) => {
+// A bare `:id` is named by the path segment before it (/projects/:id is a
+// course, /flashcards/:id a card); a named one by its own name.
+const BY_SEGMENT = { projects: 'project', nodes: 'node', flashcards: 'card', cards: 'card', quizzes: 'quiz', resources: 'link', documents: 'doc' };
+const fill = (path, ids) => path.replace(/([^/]*)\/:(\w+)\??/g, (m, seg, p) => `${seg}/${idFor(seg, p, ids)}`);
+const idFor = (seg, p, ids) => {
     const k = p.toLowerCase();
-    if (k === 'id' && path.startsWith('/api/documents/')) return ids.doc;
+    if (k === 'id' && BY_SEGMENT[seg]) return ids[BY_SEGMENT[seg]];
     if (/project/.test(k)) return ids.project;
     if (/card|flashcard/.test(k)) return ids.card;
     if (/quiz/.test(k)) return ids.quiz;
     if (/resource|link/.test(k)) return ids.link;
     if (k === 'uuid') return ids.uuid;
     return ids.node;
-});
+};
 const keepFile = db.prepare("SELECT id FROM documents WHERE title = 'Keep file'").pluck().get();
 const liveIds = { project: keep, node: kTopic, card: kCard, quiz: kQuiz, link: 1, doc: keepFile, uuid: raw('nodes', kTopic).uuid };
 const deadIds = { project: ghost, node: gTopic, card: gCard, quiz: gQuiz, link: gLink, doc: gCourseFile, uuid: raw('nodes', gTopic).uuid };
-const shows = [], timedOut = [];
+const shows = [], timedOut = [], liveShows = [];
 let asked = 0;
 // The searches, asked for the deleted rows' own words (a file of a deleted
 // course or topic is found by its text, not by an id).
@@ -312,13 +320,16 @@ for (const path of gets) {
         asked++;
         if (r.status === 0) timedOut.push(url);
         else if (r.text.includes(GHOST)) shows.push(`${url} (${r.status})`);
+        if (ids === liveIds && /Keep (course|topic)/.test(r.text)) liveShows.push(path);
     }
 }
 console.log(`        asked ${asked} GET requests over ${gets.length} routes; ${timedOut.length} held open past 5 s`);
 ok('no answer holds the text of a deleted row', shows.length === 0, shows.slice(0, 15).join('\n        '));
-// The control: the crawl does find a row's text while it is live.
+// The control: the same crawl, asked with the live ids, finds the live rows'
+// text, on the course's own routes among others.
 ok('control: the same crawl finds a live row by its text',
-    (await call('GET', `/api/projects/${keep}/tree`)).text.includes('Keep topic') || (await call('GET', `/api/projects/${keep}`)).text.includes('Keep course'));
+    liveShows.length >= 10 && liveShows.includes('/api/projects/:id') && liveShows.includes('/api/projects/:projectId/flashcards'),
+    `${liveShows.length} routes: ${liveShows.slice(0, 12).join(' ')}`);
 ok('a deleted course by its id is a 404', (await call('GET', `/api/projects/${ghost}`)).status === 404);
 
 // ============================================================================
@@ -361,6 +372,8 @@ const rep = await call('POST', '/api/item-reports', { ref: `card:${mCard}`, reas
 ok('reporting a model-written card takes it away', rep.status === 201 && !!raw('flashcards', mCard)?.deleted_at, rep.text.slice(0, 200));
 ok('…as the app, so it is not offered in Recently deleted', raw('flashcards', mCard)?.deleted_by === 'app'
     && !((await call('GET', '/api/deleted')).json?.items || []).some(i => i.id === mCard));
+await call('DELETE', '/api/deleted');
+ok('…and Empty leaves it, so the report can still be undone', !!raw('flashcards', mCard));
 const undoRep = await call('DELETE', `/api/item-reports/${rep.json?.report?.id}`);
 ok('undoing the report brings the same card back', undoRep.status === 200 && raw('flashcards', mCard) && !raw('flashcards', mCard).deleted_at);
 
@@ -402,6 +415,65 @@ console.log('\n--- nothing new goes under a deleted row ---');
     const before = db.prepare('SELECT COUNT(*) FROM flashcards WHERE node_id = ? /* with deleted */').pluck().get(dead);
     ins("INSERT INTO flashcards (node_id, front, back, deleted_at, deleted_by) VALUES (?, 'Arrives deleted', 'x', '2026-01-03T00:00:00.000Z', 'app')", dead);
     ok('a row that arrives already deleted is allowed', db.prepare('SELECT COUNT(*) FROM flashcards WHERE node_id = ? /* with deleted */').pluck().get(dead) === before + 1);
+}
+
+// ============================================================================
+console.log('\n--- a delete or a restore reaches what is worked out from the rows ---');
+{
+    // Topic dates are laid from the live topics: a deleted topic frees its
+    // days for the others, and its restore takes them back.
+    const { topicDatesOf } = await import(B + 'topicDates.js');
+    const day = '2026-03-02';
+    const at = { today: day, timeZone: 'UTC' };
+    const windowed = ins('INSERT INTO projects (name, start_date, deadline, study_days) VALUES (?, ?, ?, ?)',
+        'Window course', day, '2026-03-11', JSON.stringify([1, 2, 3, 4, 5, 6, 7]));
+    const wPhase = node(windowed, null, 'Window phase');
+    const first = node(windowed, wPhase, 'Window first');
+    const second = node(windowed, wPhase, 'Window second');
+    db.prepare('UPDATE nodes SET position = id WHERE project_id = ?').run(windowed);
+    const laid = topicDatesOf(windowed, at).get(second)?.start;
+    SD.softDelete('nodes', first);
+    const without = topicDatesOf(windowed, at).get(second)?.start;
+    SD.restore('nodes', first);
+    const back = topicDatesOf(windowed, at).get(second)?.start;
+    ok('deleting a topic re-lays the others\' dates, and its restore lays them back',
+        laid > day && without === day && back === laid, `${laid} -> ${without} -> ${back}`);
+
+    // A course file's uuid names the course: importing the file again after
+    // the course was deleted gives the new copy that uuid, and the deleted one
+    // a fresh uuid that still names everything deleted with it.
+    const { claimUuid } = await import(B + 'courseFiles.js');
+    const old = project('Old copy');
+    const oldTopic = node(old, null, 'Old copy topic');
+    const fileUuid = raw('projects', old).uuid;
+    const PROJECT_DIAL = 'deck_new_per_day_';
+    const dial = PROJECT_DIAL + fileUuid;
+    set.run(dial, '7');
+    ok('control: a live course keeps its uuid from an import', claimUuid('projects', fileUuid) === null && raw('projects', old).uuid === fileUuid);
+    SD.softDelete('projects', old);
+    ok('…a deleted one gives it up to the import', claimUuid('projects', fileUuid) === fileUuid && raw('projects', old).uuid !== fileUuid);
+    const renamed = raw('projects', old).uuid;
+    ok('…and what went with it, and its dials, follow its new uuid',
+        raw('nodes', oldTopic).deleted_by === `projects:${renamed}`
+        && db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(PROJECT_DIAL + renamed) === '7'
+        && !db.prepare('SELECT 1 FROM settings WHERE key = ?').get(dial));
+    SD.restore('projects', old);
+    ok('…so its restore still brings them back', !raw('nodes', oldTopic).deleted_at);
+
+    // An Anki deck imported again after its course was deleted: the review
+    // history goes to the new cards, not to the deleted ones.
+    const { importAnkiRevlog } = await import(B + 'reviewLog.js');
+    const revlog = [{ cid: 1, id: 1_700_000_000_000, ease: 3, type: 1, lastIvl: 1 }];
+    const ankiOld = card(kTopic, 'Anki card, first import');
+    importAnkiRevlog(revlog, () => ankiOld);
+    const ankiNew = card(kTopic, 'Anki card, second import');
+    const live = importAnkiRevlog(revlog, () => ankiNew);
+    ok('control: a review already on a live card is not imported twice', live.imported === 0
+        && db.prepare("SELECT card_id FROM review_log WHERE source = 'anki'").pluck().all().join() === String(ankiOld));
+    SD.softDelete('flashcards', ankiOld);
+    const again = importAnkiRevlog(revlog, () => ankiNew);
+    ok('a review on a deleted card moves to the card imported again', again.imported === 1
+        && db.prepare("SELECT card_id FROM review_log WHERE source = 'anki'").pluck().all().join() === String(ankiNew), JSON.stringify(again));
 }
 
 // ============================================================================
