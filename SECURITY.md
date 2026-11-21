@@ -46,9 +46,10 @@ your data at all." Those are different claims and we only make the second one.
   (the app remembers the last 32 pages, forgets them when it restarts, asks a page that timed
   out or whose server failed again after a few minutes, and a page the site refused or does not
   have only hours later), and a lesson that used one ends with a link to it; (c) fetching a
-  URL you explicitly asked it to fetch; (c2) **reading the link of a short course** when you
-  press Read in the Short courses box on Projects, or Create on a short course the assistant
-  prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
+  URL you explicitly asked it to fetch; (c2) **reading a link you add as course material**:
+  in the New course window a link is read when you paste or drop it there, or press Add link
+  (several at once, up to 100 sources in all), and when you press Create on a short course the
+  assistant prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
   the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
   own machine or network is refused before any connection unless the server was started with
   `ALLOW_PRIVATE_FETCH=1`, a redirect is vetted again), with a
@@ -937,8 +938,9 @@ about ten minutes:
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
-   Reading a short course's link reaches that link's host (and `www.youtube.com` for a video,
-   up to six requests), once per press of Read, or of Create on the assistant's card. Any of
+   Reading a link added as course material reaches that link's host (and `www.youtube.com` for
+   a video, up to six requests), once per link pasted, dropped or added in the New course
+   window, or per press of Create on the assistant's card. Any of
    these requests that is redirected follows at most three redirect hops, each one more request,
    each vetted like the first address (never your own machine or network, unless the server
    was started with `ALLOW_PRIVATE_FETCH=1`; cloud metadata addresses stay refused): a page link's

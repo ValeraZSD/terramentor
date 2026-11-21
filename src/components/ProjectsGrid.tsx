@@ -2,9 +2,9 @@
 // The Projects page: every project as a card, in Active, Completed and Archived
 // sections, reordered and moved between sections by dragging. Each card carries
 // its dates and pace (schedule/ProjectDates.tsx), which is all the Schedule
-// screen held that this one did not, so that screen is gone. Starting a new
-// project (with AI, through a chat model, or from a file) is NewProjectModal;
-// an AI creation, once started, lives in creation/creationRuns.ts.
+// screen held that this one did not, so that screen is gone. Every course,
+// short or in phases, created or imported, starts in NewProjectModal; an AI
+// creation, once started, lives in creation/creationRuns.ts.
 import {
     useState,
     useEffect,
@@ -36,7 +36,7 @@ import { Button } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { RecordCard } from './projects/RecordCard';
 import { COMPACT_GRID } from './projects/CompactCard';
-import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
+import { Project, ScheduleOverviewRow } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
@@ -140,12 +140,6 @@ export default function ProjectsGrid() {
         void loadShort();
         void loadProjects({ silent: true });
     }, [loadShort, loadProjects]);
-    // A book read on the strip, made a FULL course instead: the New course
-    // dialog opens with it as the course's material.
-    const fullCourse = useCallback((doc: StagedDocument, title: string) => {
-        setDraft({ name: title, description: '', color: '', icon: '', language: '', documents: [doc] });
-        setShowCreate(true);
-    }, []);
 
     const sensors = useSensors(
         // Desktop: start dragging as soon as the mouse moves a little.
@@ -328,7 +322,7 @@ export default function ProjectsGrid() {
                             so a wrapped label is two lines pressed into 40px.
                             The heading beside it wraps instead. */}
                         <Button variant="primary" className="shrink-0 whitespace-nowrap" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setShowCreate(true)}>
-                            {t("New Project")}
+                            {t("New course")}
                         </Button>
                     </div>
 
@@ -355,7 +349,7 @@ export default function ProjectsGrid() {
 
                     {show === 'active' && (
                         <>
-                            <ShortCourses rows={shortRows ? activeShort : null} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} />
+                            <ShortCourses rows={shortRows ? activeShort : null} projects={projects} onChanged={shortChanged} />
                             {activeProjects.length > 0 && (
                                 <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
                             )}
@@ -405,7 +399,7 @@ export default function ProjectsGrid() {
                                 a library of short courses only counts zero. */}
                             {shortRows !== null && projects.length > 0 && counts.active === 0 && (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
-                                    {t("Nothing in progress. Paste a link above for a short course, or start a new project.")}
+                                    {t("Nothing in progress. Start one with New course.")}
                                 </p>
                             )}
                         </>

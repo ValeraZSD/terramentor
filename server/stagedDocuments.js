@@ -127,6 +127,25 @@ export function stagedSummary(row, { hint = null } = {}) {
         // leaves the learner unsure which language the lessons will be in. Null
         // when it cannot be said with confidence.
         language: chars ? stagedLanguage(row.content, hint) : null,
+        // A link read in the New course window (shortCourses.js): what it is
+        // and where it lives, so the window lists it as a link, not a file,
+        // and still does after "Back" from a run. Null for a file.
+        source: linkSource(row.origin),
+    };
+}
+
+function linkSource(json) {
+    let o = null;
+    try { o = JSON.parse(json || 'null'); } catch { return null; }
+    // Read from a link (a page, a video, a PDF behind a link), or a transcript
+    // pasted for a video; a file picked from the disk has neither.
+    if (!o || (typeof o.url !== 'string' && !o.pasted)) return null;
+    return {
+        kind: ['page', 'video', 'pdf'].includes(o.kind) ? o.kind : 'file',
+        url: typeof o.url === 'string' ? o.url : null,
+        host: typeof o.host === 'string' ? o.host : null,
+        minutes: Number.isFinite(o.minutes) ? o.minutes : null,
+        pasted: !!o.pasted,
     };
 }
 
@@ -196,9 +215,12 @@ export function loadStaged(ids = []) {
 /**
  * Move staged files into a project's vault. Returns `Map<stagedId, documentId>`
  * for the ones that were still staged (a second claim of the same id finds
- * nothing and claims nothing).
+ * nothing and claims nothing). Called inside an outer transaction, pass
+ * `jobs` (an array): the indexing and PDF recovery calls go into it, to be run
+ * once that transaction commits, so a rollback leaves no job queued for a
+ * document that no longer exists.
  */
-export function claimStaged(ids, projectId) {
+export function claimStaged(ids, projectId, jobs = null) {
     const claimed = new Map();
     const take = db.transaction(() => {
         const rows = loadStaged(ids);
@@ -216,7 +238,10 @@ export function claimStaged(ids, projectId) {
         }
     });
     take();
-    for (const { docId, kind } of claimed.values()) afterPersist(docId, kind);
+    for (const { docId, kind } of claimed.values()) {
+        if (jobs) jobs.push(() => afterPersist(docId, kind));
+        else afterPersist(docId, kind);
+    }
     return new Map([...claimed].map(([k, v]) => [k, v.docId]));
 }
 

@@ -27,6 +27,7 @@ import type { CreationTrack } from '../../api';
 import { plainCause } from '../../utils/failureCause';
 import ProgressBar from '../ui/ProgressBar';
 import { type CreationRun, isRunLive } from './creationRuns';
+import { shapeLine as sizeLine } from './creationLog';
 
 type StageKey = NonNullable<CreationTrack['stage']>;
 const ORDER: StageKey[] = ['queued', 'think', 'prepare', 'outline', 'build', 'done'];
@@ -67,7 +68,10 @@ function useRunProgress(run: CreationRun) {
     };
 
     const queued = run.queuePosition != null || !!track?.stageTimes?.queued;
-    const stages = ORDER.filter(s => s !== 'queued' || queued);
+    // A short course (server/courseShape.js) is written in one call: no
+    // project to set up first and no phases to plan.
+    const short = run.shape === 'short';
+    const stages = ORDER.filter(s => (s !== 'queued' || queued) && !(short && (s === 'prepare' || s === 'outline')));
     const current: StageKey = run.status === 'complete' ? 'done'
         : run.queuePosition != null ? 'queued'
             : (track?.stage ?? 'think');
@@ -76,13 +80,14 @@ function useRunProgress(run: CreationRun) {
     const label = (s: StageKey, done: boolean): string => {
         switch (s) {
             case 'queued': return done ? t("Waited for a free model slot") : t("Waiting for a free model slot");
-            case 'think': return t("Understanding the request");
+            case 'think': return run.phase === 'sizing' ? t("Choosing the course size") : t("Understanding the request");
             case 'prepare': return t("Setting up the project");
             case 'outline':
                 return done && track?.phases
                     ? t("{{n}} phases planned", { count: track.phases, n: fmt(track.phases) })
                     : t("Planning the phases");
-            case 'build': return track?.linksOn === false ? t("Writing sections and topics") : t("Writing topics and finding links");
+            case 'build': return short ? t("Writing the topics")
+                : track?.linksOn === false ? t("Writing sections and topics") : t("Writing topics and finding links");
             case 'done': return t("Ready to study");
         }
     };
@@ -110,7 +115,10 @@ function useRunProgress(run: CreationRun) {
     // Server clock → now, for a stage still running.
     const serverNow = track ? track.at + Math.max(0, now - run.trackAt) : now;
 
-    return { t, fmt, live, track, span, stages, current, failed, label, buildCount, activeMs, eta, serverNow };
+    // What the run made of the input, said once it has judged it.
+    const shapeLine = sizeLine(run.shape, run.shapeBy);
+
+    return { t, fmt, live, track, span, stages, current, failed, label, buildCount, activeMs, eta, serverNow, short, shapeLine };
 }
 
 /**
@@ -121,7 +129,7 @@ function useRunProgress(run: CreationRun) {
  * a line less of the list.
  */
 export function RunStatus({ run }: { run: CreationRun }) {
-    const { t, fmt, track, span, current, label, buildCount, activeMs, eta } = useRunProgress(run);
+    const { t, fmt, track, span, current, label, buildCount, activeMs, eta, short, shapeLine } = useRunProgress(run);
 
     let headline: string;
     let right: string | null = null;
@@ -132,7 +140,11 @@ export function RunStatus({ run }: { run: CreationRun }) {
     // as the model's endpoint being down. The raw message stays beside it,
     // small, for anyone who has to report it.
     const cause = run.status === 'error' && run.failure ? plainCause(run.failure) : null;
-    if (run.status === 'complete') {
+    if (run.status === 'complete' && short) {
+        headline = t("Short course ready");
+        right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;
+        detail = run.tree.length > 0 ? t("{{n}} topics written", { count: run.tree.length, n: fmt(run.tree.length) }) : null;
+    } else if (run.status === 'complete') {
         headline = t("Project fully created!");
         right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;
         if (track && track.topicsDone > 0) {
@@ -158,8 +170,9 @@ export function RunStatus({ run }: { run: CreationRun }) {
         // The stage by name is the headline: "running for 3 min" said how long,
         // never what — and "what" is the first thing a reader wants.
         headline = label(current, false);
-        right = eta != null ? t("~{{duration}} left", { duration: span(eta) }) : t("Estimating time left…");
-        detail = current === 'build' ? buildCount() : null;
+        // A short course is one call: no estimate to wait for.
+        right = eta != null ? t("~{{duration}} left", { duration: span(eta) }) : short ? null : t("Estimating time left…");
+        detail = current === 'build' && !short ? buildCount() : shapeLine;
         bar = current === 'build' && track?.topicsTotal ? Math.min(1, track.topicsDone / track.topicsTotal) : null;
     }
 
