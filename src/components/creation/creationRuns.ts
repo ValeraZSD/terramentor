@@ -84,6 +84,9 @@ export interface CreationRun {
     shape: 'short' | 'phased' | null;
     /** What judged it: 'bounds' = the material's length alone. */
     shapeBy: ShapeBy | null;
+    /** How many topics a short course's write made; `tree` follows the
+     *  database after a reload, which the learner may have added to since. */
+    topicsWritten: number | null;
     log: LogEntry[];
     model: string;
     summary: string;
@@ -188,7 +191,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
-        tree: [], shape: null, shapeBy: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
+        tree: [], shape: null, shapeBy: null, topicsWritten: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
         error: null, failure: null, startedAt: Date.now(), finishedAt: null,
         attempt: 0, inputKnown: true,
         ...over,
@@ -229,6 +232,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
                 // A short course: its topics are the whole tree, one level.
                 // Drawn as topic rows (depth 1), not as phase headings.
                 if (f.topics?.length) {
+                    next.topicsWritten = f.topics.length;
                     tree = addCategories([], f.topics.map((t, index) => ({ index, title: t.title, description: t.description || '' })))
                         .map(node => ({ ...node, depth: 1 }));
                 }
@@ -537,6 +541,38 @@ export function liveRunForProject(projectId: number): CreationRun | null {
 
 type Snapshot = Awaited<ReturnType<typeof api.getCreationStatus>>['generations'][number];
 
+/** Tries, and the wait between them, for a reattached run's tree when its
+ *  read fails: a run already settled has no poll to retry it. */
+const TREE_TRIES = 3;
+const TREE_RETRY_MS = 1500;
+
+/**
+ * The log a reloaded page saved, beside what the server says the run became.
+ * The page may have closed between "A short course" / "Writing the topics" and
+ * the frames of the fallback to phases: the size row then says what the run
+ * became, and a short write still spinning is the warning the fallback's own
+ * frame would have made, never a success when the phased run completes.
+ */
+function reconcileShapeLog(log: LogEntry[], g: Snapshot): LogEntry[] {
+    if (g.shape !== 'short' && g.shape !== 'phased') return log;
+    const own = (e: LogEntry, id: string) => e.id === id || e.id.endsWith(`:${id}`);
+    const same = (a: LogEntry, b: LogEntry) => a.message === b.message && a.status === b.status;
+    // The same array when nothing changed: this runs on every poll.
+    const replace = (rows: LogEntry[], id: string, entry: LogEntry | null) =>
+        entry && rows.some(e => own(e, id) && !same(e, entry))
+            ? rows.map(e => (own(e, id) ? { ...entry, id: e.id } : e))
+            : rows;
+    let next = replace(log, 'size', eventToLogEntry({ phase: 'sized', shape: g.shape, by: g.shapeBy }));
+    const writing = next.some(e => own(e, 'short-topics') && e.status === 'running');
+    if (writing && g.shape === 'phased') {
+        next = replace(next, 'short-topics', eventToLogEntry({ phase: 'topics_written', failed: true }));
+    } else if (writing && g.shape === 'short' && g.topicsWritten != null) {
+        // Written while the page was away: "N topics written", as its frame says.
+        next = replace(next, 'short-topics', eventToLogEntry({ phase: 'topics_written', topics: Array.from({ length: g.topicsWritten }) }));
+    }
+    return next;
+}
+
 function applySnapshot(key: string, g: Snapshot) {
     const now = Date.now();
     patch(key, run => ({
@@ -559,6 +595,8 @@ function applySnapshot(key: string, g: Snapshot) {
         failure: g.failure ?? run.failure,
         shape: g.shape ?? run.shape,
         shapeBy: g.shapeBy ?? run.shapeBy,
+        topicsWritten: g.topicsWritten ?? run.topicsWritten,
+        log: reconcileShapeLog(run.log, g),
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
         thinkingVersion.set(key, g.thinkingVersion);
@@ -568,13 +606,23 @@ function applySnapshot(key: string, g: Snapshot) {
     const sig = [g.phase, g.currentCategoryIndex, g.currentElementIndex, g.currentSubElementIndex, g.resourceTotal].join('|');
     if (g.projectId && sig !== treeSig.get(key)) {
         treeSig.set(key, sig);
-        api.getNodes(g.projectId).then(nodes => {
-            if (treeSig.get(key) !== sig) return; // a newer tick won
-            const built = buildLiveTreeFromDB(nodes as any, g);
-            // A short course's top-level rows are topics, drawn as on its stream.
-            const tree = g.shape === 'short' ? built.map(node => ({ ...node, depth: 1 })) : built;
-            patch(key, () => ({ tree: g.outcome === 'complete' ? markAllCreated(tree) : tree }));
-        }).catch(() => { /* the next tick retries */ });
+        const projectId = g.projectId;
+        const load = (triesLeft: number) => {
+            api.getNodes(projectId).then(nodes => {
+                if (treeSig.get(key) !== sig) return; // a newer tick won
+                const built = buildLiveTreeFromDB(nodes as any, g);
+                // A short course's top-level rows are topics, drawn as on its stream.
+                const tree = g.shape === 'short' ? built.map(node => ({ ...node, depth: 1 })) : built;
+                patch(key, () => ({ tree: g.outcome === 'complete' ? markAllCreated(tree) : tree }));
+            }).catch(() => {
+                // Asked again on its own: a settled run has no next tick. Out of
+                // tries, a live run's next tick may ask once more.
+                if (treeSig.get(key) !== sig) return;
+                if (triesLeft > 1) window.setTimeout(() => load(triesLeft - 1), TREE_RETRY_MS);
+                else treeSig.delete(key);
+            });
+        };
+        load(TREE_TRIES);
     }
 }
 

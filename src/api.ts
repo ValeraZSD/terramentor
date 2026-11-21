@@ -958,6 +958,8 @@ export const api = {
             /** Once judged: short (one level of topics) or in phases. */
             shape?: 'short' | 'phased' | null;
             shapeBy?: ShapeBy | null;
+            /** How many topics a short course's write made. */
+            topicsWritten?: number | null;
         }>;
     }>('/ai/creation-status'),
     getProject: (id: number) => request<Project>(`/projects/${id}`),

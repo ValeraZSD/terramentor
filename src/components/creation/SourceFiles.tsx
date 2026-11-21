@@ -181,6 +181,9 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
      *  below empties it. */
     const take = (loose: File[], inFolder: File[] | null = null, replace: string | null = null) => {
         for (const input of [inputRef.current, folderRef.current]) if (input) input.value = '';
+        // Links and files share one cap; a failed link the files replace gives
+        // its row back.
+        const room = Math.max(0, MAX_SOURCE_FILES - files.length + (replace && files.some(f => f.key === replace) ? 1 : 0));
         let fromFolder: File[] = [];
         if (inFolder) {
             fromFolder = inFolder.filter(readableInFolder);
@@ -188,15 +191,20 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                 addToast('info', t("Nothing in that folder can be read"), t("A course is made from PDF, Word, PowerPoint, Excel or text files."));
                 return;
             }
-            const room = Math.max(0, MAX_SOURCE_FILES - files.length - loose.length);
-            if (fromFolder.length > room) {
+            const folderRoom = Math.max(0, room - loose.length);
+            if (fromFolder.length > folderRoom) {
                 addToast('info', t("Part of the folder was left out"), t("A course is made from at most 100 files."));
-                fromFolder = fromFolder.slice(0, room);
+                fromFolder = fromFolder.slice(0, folderRoom);
             } else if (fromFolder.length < inFolder.length) {
                 addToast('info', t("Part of the folder was left out"), t("A course is made from PDF, Word, PowerPoint, Excel or text files."));
             }
         }
-        const picked = [...loose, ...fromFolder];
+        let picked = [...loose, ...fromFolder];
+        if (picked.length > room) {
+            // Only loose files are still over: a folder was cut to fit above.
+            addToast('info', t("A course is made from at most 100 links and files."));
+            picked = picked.slice(0, room);
+        }
         if (picked.length && replace) onRemove(replace);
         if (picked.length) onAdd(picked);
     };

@@ -143,7 +143,10 @@ export function RunStatus({ run }: { run: CreationRun }) {
     if (run.status === 'complete' && short) {
         headline = t("Short course ready");
         right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;
-        detail = run.tree.length > 0 ? t("{{n}} topics written", { count: run.tree.length, n: fmt(run.tree.length) }) : null;
+        // What the write made, not the tree now: a reattached page rebuilds
+        // the tree from the course, which the learner may have added to.
+        const written = run.topicsWritten ?? run.tree.length;
+        detail = written > 0 ? t("{{n}} topics written", { count: written, n: fmt(written) }) : null;
     } else if (run.status === 'complete') {
         headline = t("Project fully created!");
         right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;
