@@ -19,7 +19,7 @@ import { normalizeQuestionFormat } from './answerFormats.js';
 import { questionDefects, verifyQuestion, checkItemKeys } from './feedQuality.js';
 import { getGhostQuestions } from './dailyPlan.js';
 import {
-    isUnverified, isPending, markUnverified, markPending, markConfirmed, REVERIFY_BASE_WAIT_MS,
+    isUnverified, isPending, markUnverified, markPending, markConfirmed, settleFormFlag, REVERIFY_BASE_WAIT_MS,
 } from './questionTrust.js';
 
 const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
@@ -294,9 +294,15 @@ function writeVetVerdicts(nodeId, quizId, own, verdicts) {
                     qs[at] = markUnverified(cur, v.reason);
                     changed = true;
                 }
-            } else if (isUnverified(cur)) {
-                qs[at] = markConfirmed(cur);
-                changed = true;
+            } else {
+                // Judged sound: the writer's form flag stands only where the
+                // verifier also said the task tests form.
+                let next = settleFormFlag(cur, v);
+                if (isUnverified(next)) next = markConfirmed(next);
+                if (next !== cur) {
+                    qs[at] = next;
+                    changed = true;
+                }
             }
         });
         const emptied = !qs.some(q => q && !q.isGhost);

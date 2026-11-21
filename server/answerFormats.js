@@ -272,6 +272,9 @@ function isSlipOf(word, key) {
  */
 export function spellingSlipOf(question, answer) {
     if (question?.type !== 'fill_in') return null;
+    // A gap that tests the spelling or the form has no slip to forgive: the
+    // slip IS the answer being marked.
+    if (formTested(question)) return null;
     const given = normalizeTyped(answer);
     if (!given) return null;
     const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
@@ -286,6 +289,26 @@ export function spellingSlipOf(question, answer) {
         }
     }
     return null;
+}
+
+/**
+ * Does this question test FORM — a verb form, an ending, an article,
+ * agreement, word order, spelling — so that a right meaning in the wrong form
+ * is a wrong answer? Only the typed formats carry the flag (`tests_form`), its
+ * writer sets it, and the cold verifier must agree before it is kept
+ * (questionTrust.js `settleFormFlag`). A question the verifier has not judged yet
+ * (`unverified`) is graded on meaning: a model's unchecked claim never makes a
+ * grader stricter. A course file's author is trusted with the flag as with
+ * the key it sits beside (an import marked `unchecked` is stamped, so waits).
+ * Mirror: `formTested` in `src/components/answer/formats.ts`.
+ */
+export function formTested(question) {
+    return !!question && typeof question === 'object' && question.tests_form === true && !question.unverified;
+}
+
+/** The writer's flag as a model writes it: `true` or the string "true", nothing else. */
+export function readFormFlag(raw) {
+    return raw?.tests_form === true || raw?.tests_form === 'true';
 }
 
 /** How many alternative spellings one question may declare. */
@@ -617,6 +640,13 @@ export function assemblyAgrees(fill, q) {
     return arrangements.some(a => a.length === read.length && a.every((p, i) => foldPiece(p) === read[i]));
 }
 
+/**
+ * The writer's half of `tests_form`, said once for both typed formats that may
+ * carry it. Not in the JSON shape on purpose: a field in the shape is a field
+ * a model fills in every time, and most answers are judged on their meaning.
+ */
+export const FORM_FLAG_RULE = 'Add "tests_form": true only when the task asks for a FORM (a verb form, an ending, an article, agreement, word order, spelling), so that the right meaning in the wrong form is a wrong answer; leave it out when the answer is judged on its meaning.';
+
 export const ANSWER_FORMATS = {
     multiple_choice: {
         guess: 0.25,
@@ -672,12 +702,14 @@ export const ANSWER_FORMATS = {
         grading: 'ai',
         authoring: {
             shape: '{"question": "...", "type": "short_answer", "correct_answer": "...", "explanation": "..."}',
-            rule: 'An open question answerable in 1-3 sentences; correct_answer is the model answer it will be graded against. It must be gradeable: state what a correct answer has to contain.',
+            rule: `An open question answerable in 1-3 sentences; correct_answer is the model answer it will be graded against. It must be gradeable: state what a correct answer has to contain. ${FORM_FLAG_RULE}`,
         },
         normalize(raw) {
             const ca = text(raw.correct_answer);
             if (!ca) return null;
-            return { correct_answer: ca, explanation: sanitizeExplanation(text(raw.explanation)) };
+            const out = { correct_answer: ca, explanation: sanitizeExplanation(text(raw.explanation)) };
+            if (readFormFlag(raw)) out.tests_form = true;
+            return out;
         },
         grade: () => null,
     },
@@ -711,7 +743,7 @@ export const ANSWER_FORMATS = {
         grading: 'local',
         authoring: {
             shape: '{"question": "... ___ ...", "type": "fill_in", "correct_answer": "<the answer, written exactly>", "accept": ["<another answer that is equally correct>"], "explanation": "..."}',
-            rule: 'A question answered by TYPING a short answer that has ONE definite written form — the missing word in a sentence, the form of a verb, the article, the term for a definition, the translation of a single word, the sentence that was dictated. Mark a gap in the sentence with "___". "correct_answer" is that answer ALONE, written exactly as it should be: no quotation marks, no "the answer is", no alternatives inside it. "accept" lists any OTHER answer that is equally correct — a synonym, a second admissible spelling, a word order that is also right — because a learner who was right and was marked wrong stops trusting the whole course; leave it out when there genuinely is only one. Capitals and punctuation are NOT graded and spelling IS. Never use this when the answer is something the learner could correctly phrase several ways, or when it is a number: those are "short_answer" and "numeric".',
+            rule: `A question answered by TYPING a short answer that has ONE definite written form — the missing word in a sentence, the form of a verb, the article, the term for a definition, the translation of a single word, the sentence that was dictated. Mark a gap in the sentence with "___". "correct_answer" is that answer ALONE, written exactly as it should be: no quotation marks, no "the answer is", no alternatives inside it. "accept" lists any OTHER answer that is equally correct — a synonym, a second admissible spelling, a word order that is also right — because a learner who was right and was marked wrong stops trusting the whole course; leave it out when there genuinely is only one. Capitals and punctuation are NOT graded and spelling IS. Never use this when the answer is something the learner could correctly phrase several ways, or when it is a number: those are "short_answer" and "numeric". ${FORM_FLAG_RULE}`,
         },
         normalize(raw) {
             const key = text(raw.correct_answer);
@@ -738,6 +770,7 @@ export const ANSWER_FORMATS = {
                 }
                 if (accept.length) out.accept = accept;
             }
+            if (readFormFlag(raw)) out.tests_form = true;
             return out;
         },
         grade(q, answer, { forgiveSpelling = false } = {}) {

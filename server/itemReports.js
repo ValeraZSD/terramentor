@@ -136,7 +136,7 @@ function questionHome(holders) {
 function questionView(q) {
     if (!q || typeof q !== 'object') return null;
     const out = { question: q.question, type: q.type || 'multiple_choice' };
-    for (const k of ['options', 'correct_answer', 'explanation', 'tolerance', 'unit', 'items', 'language']) {
+    for (const k of ['options', 'correct_answer', 'explanation', 'tolerance', 'unit', 'items', 'language', 'tests_form']) {
         if (q[k] !== undefined) out[k] = q[k];
     }
     return out;

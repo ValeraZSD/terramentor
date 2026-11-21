@@ -16,6 +16,7 @@ import {
     drawFromNode, drawFromQuiz, logAsked, MAX_CHECK_SIZE, PRACTICE_SESSION_SIZE,
 } from '../questionLog.js';
 import { provenSitting } from '../questionTrust.js';
+import { getNodeLanguage } from '../language.js';
 import { buildQuizPrompt, finalizeQuiz, vetQuiz } from '../studyMaterial.js';
 import * as tasks from '../tasks.js';
 import { getGateConfig } from '../settingsStore.js';
@@ -350,16 +351,22 @@ app.post('/api/ai/explain-question', async (req, res) => {
 });
 
 app.post('/api/ai/check-answer', async (req, res) => {
-    const { question, correctAnswer, userAnswer, format, language } = req.body;
+    const { question, correctAnswer, userAnswer, format, language, testsForm, nodeId } = req.body;
     if (!question || !correctAnswer || !userAnswer) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
     try {
         // `format` says what the checker is reading: code is judged on
         // behaviour, prose on meaning. Anything else is graded as prose.
+        // `testsForm` (the client's `formTested`) makes the form count too,
+        // judged in the language of the topic's course; only the boolean.
+        const form = testsForm === true;
+        const topic = Number(nodeId);
         const result = await checkAnswerWithAI(question, correctAnswer, userAnswer, {
             format: format === 'code' ? 'code' : 'short_answer',
             language: typeof language === 'string' ? language.slice(0, 24) : '',
+            testsForm: form,
+            lang: form && Number.isInteger(topic) && topic > 0 ? getNodeLanguage(topic) : null,
         });
         res.json(result);
     } catch (error) {
