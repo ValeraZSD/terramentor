@@ -319,7 +319,9 @@ check('the board has exactly one', (board.match(/<DndContext/g) ?? []).length ==
 for (const file of ['NodeTree', 'Sidebar']) {
     const body = src(`src/components/${file}.tsx`);
     const at = body.indexOf('await moveNode(');
-    const opened = body.lastIndexOf('setExpanded(', at);
+    // `openForNow`: the open lasts the visit, not kept as the learner's choice
+    // (tools/expansion-gates.mjs pins which).
+    const opened = Math.max(body.lastIndexOf('openForNow(', at), body.lastIndexOf('setExpanded(', at));
     check(`${file} opens the drop target before the write`, at > -1 && opened > -1 && at - opened < 200, `${at - opened} chars apart`);
 }
 
@@ -370,6 +372,52 @@ console.log('\na note holds no topics');
     check('a topic moved within a section card still lands', besideTopics?.parentId === 1, JSON.stringify(besideTopics));
     const sidebar = src('src/components/Sidebar.tsx');
     check('the Navigation list asks illegalParent before it moves anything', /if \(illegalParent\(allFlatItems, currentActiveId, newParentId\)\) return;/.test(sidebar));
+}
+
+// The whole row is what a pointer drags, and React bubbles a portalled
+// child's events through the row that rendered it: a held tap on an item of
+// the row's ⋮ sheet (or a mouse press moved 5px on its popover) started a drag
+// of the row, and dnd-kit then dropped the item's click.
+console.log('\na press inside a row\'s portalled menu is not a drag of the row');
+{
+    const calls = [];
+    const listener = (e) => calls.push(e.id);
+    const row = { contains: (n) => n === 'row-title' };
+    const own = typeof tree.ownPress === 'function' ? tree.ownPress(listener) : null;
+    own?.({ id: 'menu', currentTarget: row, target: 'sheet-item' });
+    own?.({ id: 'row', currentTarget: row, target: 'row-title' });
+    check('a press whose target is outside the row\'s own elements does not reach the drag listener; one inside does',
+        calls.join() === 'row', `calls: ${calls.join() || 'none'}${own ? '' : ' (no ownPress in treeDnd.ts)'}`);
+    check('no listener stays no listener', typeof tree.ownPress === 'function' && tree.ownPress(undefined) === undefined);
+    const outline = src('src/components/TreeItemRow.tsx'), nav = src('src/components/Sidebar.tsx');
+    const rowDrag = (s) => (s.match(/const rowDrag = \{([\s\S]*?)\n {4}\};/) ?? [])[1] ?? '';
+    const wrapped = (body, names) => names.every((n) => new RegExp(`${n}: ownPress\\(`).test(body)) && (body.match(/^\s+on\w+:/gm) ?? []).length === names.length;
+    check('every row listener of the outline and the Navigation list goes through ownPress',
+        wrapped(rowDrag(outline), ['onMouseDown', 'onTouchStart']) && wrapped(rowDrag(nav), ['onPointerDown', 'onTouchStart']));
+}
+
+// A drag nests one level per DRAWN indent, which is in rem: at a 160%
+// interface size (25.6px root) a level is 35.2px in the outline, and a fixed
+// 22px step put the row a level ahead of the pointer every 1.6 levels.
+console.log('\na drag steps one drawn indent per level at any text size');
+{
+    const N = (id, children = []) => ({ id, title: `n${id}`, is_note: 0, children });
+    const flat = tree.flattenVisible([N(1, [N(2, [N(3, [N(4)])])]), N(5)], {});
+    const level = (tree.OUTLINE_INDENT_REM ?? NaN) * 25.6;
+    const two = tree.getProjection(flat, 5, 5, 2 * level, null, level);
+    check('two drawn levels right at 160% nest the row two levels, not three', two.depth === 2, JSON.stringify(two));
+    const css = src('src/index.css');
+    const remOf = (name) => +((css.match(new RegExp(`--${name}: ([\\d.]+)rem;`)) ?? [])[1] ?? NaN);
+    check('the step\'s rem is the drawn indent\'s, in the tree and the outline',
+        tree.TREE_INDENT_REM === remOf('row-indent-tree') && tree.OUTLINE_INDENT_REM === remOf('row-indent-outline'),
+        `${tree.TREE_INDENT_REM} / ${remOf('row-indent-tree')}, ${tree.OUTLINE_INDENT_REM} / ${remOf('row-indent-outline')}`);
+    const board = src('src/components/NodeTree.tsx'), nav = src('src/components/Sidebar.tsx');
+    check('both lists scale the step by the current root size and pass it on',
+        /const indentPx = TREE_INDENT_REM \* useRootFontSize\(\);/.test(nav) && /getProjection\([^)]*, indentPx\)/.test(nav)
+        && /const indentPx = OUTLINE_INDENT_REM \* useRootFontSize\(\);/.test(board)
+        && /Math\.round\(event\.delta\.x \/ indentPx\) \* indentPx/.test(board)
+        && /boardProjection\([^)]*, indentPx\)/.test(board) && /event\.delta\.x, indentPx\);/.test(board)
+        && !/INDENTATION_WIDTH/.test(board));
 }
 
 rmSync(scratch, { recursive: true, force: true });

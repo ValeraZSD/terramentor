@@ -13,6 +13,7 @@ import { buildProjectApkg } from '../ankiExport.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { projectFieldError } from './projectRows.js';
 
 const app = routeTable('anki');
 
@@ -28,8 +29,8 @@ const app = routeTable('anki');
 // memory while somebody reads a preview.
 const ankiUpload = multer({
     storage: multer.memoryStorage(),
-    // Big enough for a real collection with media; media is not imported, but it
-    // is inside the file we have to unzip to reach the collection.
+    // Big enough for a real collection with media: the pictures and clips are
+    // extracted from the same file that holds the collection.
     limits: { fileSize: 500 * 1024 * 1024 },
 });
 
@@ -64,13 +65,20 @@ app.post('/api/import/anki/commit', (req, res) => {
     if (!parsed) {
         return res.status(410).json({ error: 'That import expired — upload the deck again.' });
     }
+    // Unset means the deck's own name and the default colour; anything else is
+    // checked like every create.
+    const unset = (v) => v === undefined || v === null || v === '';
+    const pickedName = unset(projectName) ? undefined : projectName;
+    const pickedColor = unset(color) ? undefined : color;
+    const fieldError = projectFieldError({ name: pickedName, color: pickedColor });
+    if (fieldError) return res.status(400).json({ error: fieldError });
     try {
         const result = commitImport(parsed, {
-            projectName,
+            projectName: pickedName?.trim(),
             swapFrontBack: !!swapFrontBack,
             keepSchedule: keepSchedule !== false,
             includeMedia: includeMedia !== false,
-            color,
+            color: pickedColor,
         });
         dropStaged(stagingId);
         // Declining media leaves the extracted blobs unreferenced; reclaim now

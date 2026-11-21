@@ -200,7 +200,7 @@ function text(warnings, value, max, what) {
     return s.slice(0, max);
 }
 
-// The API's own bound on a colour or an icon name (routes/projects.js): a
+// The API's own bound on a colour or an icon name (routes/projectRows.js): a
 // 2 MB colour came back inside every GET /api/projects.
 const TOKEN_MAX = 64;
 function token(warnings, value, fallback, what) {
@@ -731,7 +731,14 @@ function normalizeResources(resources, at, warnings) {
             else warnings.add(`Invalid uuid at ${where} — a new one was minted.`);
         }
 
-        out.push({ title: str(resource.title, LIMITS.title), url, type, completed: resource.completed ? 1 : 0, uuid });
+        // Only true/1 is completed, as is_note is read: the string "false" is
+        // truthy, and read loosely it imported a link as already done.
+        const completed = resource.completed === true || resource.completed === 1 ? 1 : 0;
+        const flag = resource.completed;
+        if (!completed && flag != null && flag !== false && flag !== 0 && flag !== '') {
+            warnings.add(`completed "${String(flag).slice(0, 20)}" at ${where} must be the boolean true or 1 — imported as not completed.`);
+        }
+        out.push({ title: str(resource.title, LIMITS.title), url, type, completed, uuid });
     }
     return out;
 }

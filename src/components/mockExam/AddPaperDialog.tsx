@@ -8,6 +8,7 @@ import { Select } from '../ui/Select';
 import Stepper from '../ui/Stepper';
 import { api } from '../../api';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
+import { useStore } from '../../store';
 import type { MockExamList } from './mockExamTypes';
 
 interface PartDraft { key: number; question: string; part: string; points: number; nodeId: number | null }
@@ -81,6 +82,22 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             .finally(() => setBusy(false));
     };
 
+    // A points table can be long work: Escape, the backdrop or Cancel asks before it is thrown away.
+    const showConfirm = useStore(s => s.showConfirm);
+    const [start] = useState(() => JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }));
+    const changed = JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }) !== start;
+    const leave = async () => {
+        if (busy) return;
+        if (changed && !(await showConfirm({
+            title: t("Discard your changes?"),
+            message: t("The paper you typed in will not be added."),
+            confirmLabel: t("Discard"),
+            cancelLabel: t("Keep editing"),
+            variant: 'warning',
+        }))) return;
+        onClose();
+    };
+
     const docSelect = (id: string, uploadLabel: string, value: number | null, set: (v: number | null) => void) => (
         <div className="flex gap-2">
             <div className="flex-1 min-w-0">
@@ -97,7 +114,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     return (
         <Modal
             isOpen
-            onClose={onClose}
+            onClose={leave}
             title={t("Add a past paper")}
             maxWidth="max-w-2xl"
             footer={(
@@ -107,7 +124,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                     )}
                     {/* One group, so a narrow footer wraps both buttons under the line, never one of them. */}
                     <div className="ml-auto flex gap-2">
-                        <Button onClick={onClose}>{t("Cancel")}</Button>
+                        <Button onClick={leave}>{t("Cancel")}</Button>
                         <Button variant="primary" busy={busy} disabled={!title.trim() || mismatch || printedBad || uploading > 0} onClick={save}>{t("Add the paper")}</Button>
                     </div>
                 </>

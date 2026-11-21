@@ -3,6 +3,7 @@ import { useAccentVars } from '../../hooks/useAccentVars';
 import { ArrowUpRight } from 'lucide-react';
 import ExternalSearchButton from '../ExternalSearchButton';
 import HeadStartBanner from './HeadStartBanner';
+import { STREAM_SCROLL_MARGIN, useCourseLine, useStreamHeading } from './streamCourse';
 import { PlacementHeadStart, TransferInfo } from '../../types';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from '../ui/Button';
@@ -53,6 +54,9 @@ export default function ChapterGroup({
 }: Props) {
     const { t } = useTranslation();
     const accentStyle = useAccentVars(projectColor);
+    // Not on a course's own page, whose header already names it.
+    const courseLine = useCourseLine(projectName);
+    const Heading = useStreamHeading(2);
 
     // The project rail is ONE device in the feed and has to be drawn one way:
     // the card's own LEFT BORDER, 4px against the other three at 1px. A border
@@ -70,7 +74,7 @@ export default function ChapterGroup({
     const railStyle = { ...(accentStyle ?? {}), borderLeftColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
 
     return (
-        <section
+        <article
             style={railStyle}
             aria-label={nodeTitle}
             className="relative overflow-hidden rounded-2xl border border-l-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
@@ -84,17 +88,17 @@ export default function ChapterGroup({
                     not have horizontal room, so the title wraps (capped at two
                     lines) and only the project line above it still truncates. */}
                 <div className="min-w-0 flex-1">
-                    {projectName && (
+                    {courseLine && (
                         <p className="text-2xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                            {projectName}
+                            {courseLine}
                         </p>
                     )}
-                    <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
+                    <Heading className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
                         {nodeTitle}
                         {continued && (
                             <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{t("continued")}</span>
                         )}
-                    </h2>
+                    </Heading>
                 </div>
                 <div className="flex items-center shrink-0 -mr-1">
                     {/* Video explanations of the same topic, one tap away — the
@@ -127,7 +131,7 @@ export default function ChapterGroup({
                 />
             )}
             <div className="px-4 sm:px-6">{children}</div>
-        </section>
+        </article>
     );
 }
 
@@ -135,8 +139,9 @@ export default function ChapterGroup({
  * One item inside a chapter (a lesson part, a question, the checkpoint). Keeps
  * the focus target + scroll anchor that FeedView's advance-to-next needs, and
  * separates itself from the previous item with a hairline instead of a whole
- * new card. The scroll margin clears the feed's sticky strip (`--feed-top`,
- * measured by FeedView) so an advanced-to section never lands under it.
+ * new card. The scroll margin clears the feed's strip and a course block's
+ * pinned header (`STREAM_SCROLL_MARGIN`) so an advanced-to section never lands
+ * under either.
  */
 export function ChapterSection({ innerRef, children }: {
     innerRef: (el: HTMLElement | null) => void;
@@ -146,7 +151,7 @@ export function ChapterSection({ innerRef, children }: {
         <div
             ref={innerRef}
             tabIndex={-1}
-            style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
+            style={{ scrollMarginTop: STREAM_SCROLL_MARGIN }}
             className="outline-none py-5 border-t border-slate-100 dark:border-slate-700/60 first:border-t-0 first:pt-4"
         >
             {children}

@@ -31,12 +31,14 @@ import {
     FLAT_HALF_W, FLAT_HALF_H, FLAT_DX_DLON,
 } from './globeProjection';
 import { CityMap, CityRegion, citiesFor, citiesReady, cityKey } from './cityBuild';
+import type { City } from './globeCities';
 import { cityLines } from './cityLines';
 import { importanceOf, sheetTolerance } from './lineDetail';
 import { landView, flatHomeYaw } from './homeView';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
 import { Locate, Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * The atlas: the library as a planet, drawn as a globe (Terra) or unrolled
@@ -430,7 +432,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      */
     // A sheet does not drift: a map that moves by itself is a map you cannot read.
     const [spinning, setSpinning] = useState(
-        () => !flat && !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
+        () => !flat && !driftSpent && !motionReduced(),
     );
     // The first planet of the session spends the drift, whether it finished
     // or a hand stopped it: the next visit opens on a still planet.
@@ -467,7 +469,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const drawnRef = useRef<{ placed: Placed[]; detail: number }>({ placed: [], detail: 0 });
 
     const reduceMotion = useMemo(
-        () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+        () => motionReduced(),
         [],
     );
 
@@ -1424,9 +1426,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             // however present the region is. Dimming by transparency alone let
             // the sea show through, so every region a search or a traced course
             // set aside read as water. Land stays land; what fades is its colour.
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = palette.ground;
-            ctx.fill('evenodd');
+            // At full strength the colour (always opaque) hides the ground
+            // completely, and up close one country can be the whole screen:
+            // a second screenful of paint nobody sees, on every frame.
+            if (dim < 1) {
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = palette.ground;
+                ctx.fill('evenodd');
+            }
             if (dim < 0.01) continue;
             // Full strength at every zoom: a dot carries an ink edge, so it
             // stands on ground of its own colour without the ground fading.
@@ -1440,39 +1447,50 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // its own (`globeCities.ts`). A city the learner has started is filled
         // in its progress colour; every city gets its border.
         if (cityMap && cityA > 0.01) {
-            // Each country's cities run a little past its coast; the country's
-            // own outline clips them, so a city's outer edge is the border.
             for (const land of terrain.territories) {
                 const country = cityMap.get(land.id);
                 if (!country || !land.loops.some(facesUs)) continue;
-                ctx.save();
-                ctx.beginPath();
-                let front = false;
-                for (const loop of land.loops) if (facesUs(loop)) front = traceLoop(loop) || front;
-                if (!front) { ctx.restore(); continue; }
-                ctx.clip('evenodd');
                 const here = presence.get(land.id) ?? 1;
+                // A city fills out to past its coast, so a filled one is drawn
+                // clipped to the country's outline, and its outer edge is the
+                // coast. Only those need the clip: up close a country covers the
+                // screen, and a clip that size is costly, so a country with no
+                // started city on screen (most of them) takes none.
+                const started: { c: City; topic: AtlasTopic; step: number }[] = [];
                 for (const c of country.cities) {
                     const topic = topicById.get(c.id);
-                    if (!topic || !c.loops.some(facesUs)) continue;
+                    if (!topic) continue;
                     const dot = topicDotStatus(topic);
                     if (dot !== 'completed' && dot !== 'in_progress') continue;
-                    const step = dot === 'completed' ? 4 : 2;
-                    ctx.beginPath();
-                    let any = false;
-                    for (const loop of c.loops) if (facesUs(loop)) any = traceLoop(loop) || any;
-                    if (!any) continue;
-                    ctx.globalAlpha = cityA * here * (traceAt && !traceAt.has(c.id) ? TRACE_TOPIC_DIM : 1);
-                    ctx.fillStyle = paint === 'course'
-                        ? courseFill(courseHue.get(topic.projectId), step, dark, 'globe')
-                        : steps[step];
-                    ctx.fill('evenodd');
+                    if (c.loops.some(facesUs)) started.push({ c, topic, step: dot === 'completed' ? 4 : 2 });
                 }
+                if (started.length) {
+                    ctx.save();
+                    ctx.beginPath();
+                    let front = false;
+                    for (const loop of land.loops) if (facesUs(loop)) front = traceLoop(loop) || front;
+                    if (front) {
+                        ctx.clip('evenodd');
+                        for (const { c, topic, step } of started) {
+                            ctx.beginPath();
+                            let any = false;
+                            for (const loop of c.loops) if (facesUs(loop)) any = traceLoop(loop) || any;
+                            if (!any) continue;
+                            ctx.globalAlpha = cityA * here * (traceAt && !traceAt.has(c.id) ? TRACE_TOPIC_DIM : 1);
+                            ctx.fillStyle = paint === 'course'
+                                ? courseFill(courseHue.get(topic.projectId), step, dark, 'globe')
+                                : steps[step];
+                            ctx.fill('evenodd');
+                        }
+                    }
+                    ctx.restore();
+                }
+                // The borders were cut at the coast when the cities were built
+                // (`globeCities.ts`), so they need no clip of their own.
                 ctx.strokeStyle = palette.surface;
                 ctx.lineWidth = lines.cityBorderWidth;
                 ctx.globalAlpha = lines.cityBorderAlpha * here;
                 for (const line of country.borders) if (facesUs(line)) strokeLine(line);
-                ctx.restore();
             }
             ctx.globalAlpha = 1;
         }

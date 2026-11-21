@@ -27,18 +27,28 @@
  *      questions; otherwise the result says it is not a grade; the clock is on
  *      by default only for an on-screen exam;
  *   7. a draw is a question set kept apart from the attempt, in the mock exam
- *      tables, named for sync and gone with its course.
+ *      tables, named for sync and gone with its course;
+ *   8. the screen: answers kept through a lapsed sign-in, the exam's focus,
+ *      the flag listing its questions as the mock's own;
+ *   9. the screen's decisions (courseMockState.ts): where a mock opens, what
+ *      the save line says when saves keep failing, which clocks a closing
+ *      page pauses;
+ *  10. every format the app checks alone leaves no key in the open mock, a
+ *      placement answer starts no topic, and reading what a course can draw
+ *      costs the same for one topic as for many.
  *
- * --root runs the same cases against another checkout's server; on the code
- * before the draw existed every case fails.
+ * --root runs the same cases against another checkout's server and screen
+ * code; on the code before the draw existed every case fails.
  *
  * Deterministic in what it asserts: a scratch library, no model, no network,
- * no wall clock (every clock case passes its own `now`). The draw shuffles;
- * the cases assert properties every shuffle must keep.
+ * no wall clock. Every case that reads the clock passes its own `now`; the
+ * mocks answered over HTTP, where the server reads the time, have no clock.
+ * The draw shuffles; the cases assert properties every shuffle must keep.
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { request } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -141,7 +151,8 @@ try {
         const list = await call('GET', `/api/projects/${course}/mock-exams`);
         check('the mock exam list carries the same readiness', list.body?.course?.ready === 14, JSON.stringify(list.body?.course));
 
-        const r = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 10, minutes: 15 });
+        // No clock: answered over HTTP, where the server reads the wall clock.
+        const r = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 10, minutes: null });
         check('a draw of 10 starts a mock', r.status === 200 && r.body?.sitting?.id > 0, r.text);
         first = r.body?.sitting?.id;
         const d = await detail(first);
@@ -154,7 +165,13 @@ try {
         for (const u of uuids) { const n = KEY.get(u)?.nodeId; per.set(n, (per.get(n) || 0) + 1); }
         check('spread across topics: Heat gives both its questions, Waves and Optics 4 each',
             per.get(heat) === 2 && per.get(waves) === 4 && per.get(optics) === 4, JSON.stringify([...per]));
-        check('no topic name is shown while it is open', qs.every(q => q.topic === undefined && q.nodeId === undefined));
+        // The topic's id rides along for the study clock (CourseMock.tsx claims
+        // the time for the question's topic); its name, which could cue the
+        // answer, does not.
+        const topicNames = db.prepare('SELECT title FROM nodes WHERE id IN (?, ?, ?)').all(heat, waves, optics).map(r => r.title);
+        check('no topic name is shown while it is open', qs.every(q => !Object.values(q).some(v => typeof v === 'string' && topicNames.includes(v))),
+            JSON.stringify(topicNames));
+        check('…the topic id is there, for the clock', qs.every(q => Number.isInteger(q.nodeId)), JSON.stringify(qs.map(q => q.nodeId)));
 
         const big = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 40, minutes: null });
         check('asking 40 of a course with 14 starts a mock of 14 and says so',
@@ -188,12 +205,17 @@ try {
                 && filed.body.report.item.correct_answer === undefined && filed.body.report.item.explanation === undefined, filed.text.slice(0, 200));
         if (filed.body?.report?.id) await call('DELETE', `/api/item-reports/${filed.body.report.id}`);
 
-        // The assistant's page context: a client that claims the item was
-        // graded (or its key shown) still gets no key for an open mock's question.
+        // The assistant's page context: the mock's own listing that claims the
+        // item was graded (or its key shown) still gets no key for an open mock's question.
         const { buildPageContext } = await import(S + 'pageContext.js');
-        const pc = buildPageContext({ view: 'exam', items: [{ ref: ref0, answer: 'Beta', correct: true, keyShown: true, current: true }] }).text;
-        check('the assistant is not handed an open mock question\'s key, whatever the screen claims',
+        const pc = buildPageContext({ view: 'exam', items: [{ ref: ref0, answer: 'Beta', correct: true, keyShown: true, current: true, surface: 'mock' }] }).text;
+        check('the assistant is not handed an open mock question\'s key, whatever the mock\'s screen claims',
             pc.includes(`[${ref0}]`) && !/Answer key: (?!not on their screen)|Explanation stored with it/.test(pc), pc.slice(-900));
+        // The same question met in a practice quiz while this mock waits with
+        // Resume: the quiz showed its verdict, so the assistant gets the key.
+        const quiz = buildPageContext({ view: 'quiz', items: [{ ref: ref0, answer: 'Gamma', correct: false, current: true }] }).text;
+        check('the same question answered in a quiz keeps its key for the assistant while the mock is open',
+            /Answer key: Beta/.test(quiz) && /Explanation stored with it/.test(quiz), quiz.slice(-900));
 
         const paperId = db.prepare('SELECT paper_id FROM mock_sittings WHERE id = ?').get(first)?.paper_id;
         const before = db.prepare('SELECT COUNT(*) n FROM mock_sittings WHERE paper_id = ?').get(paperId).n;
@@ -211,6 +233,9 @@ try {
         const a2 = await call('PUT', `/api/mock-sittings/${first}/answers`, { partId: p.partId, answer: 'Gamma', attemptId: 'same-id' });
         check('the same attempt id again is a retry: written once, the first answer stands',
             a2.status === 200 && a2.body?.duplicate === true && (await detail(first)).course.questions[0].answer === 'Beta', a2.text);
+        const other = await call('PUT', `/api/mock-sittings/${first}/answers`, { partId: d.course.questions[2].partId, answer: 'Beta', attemptId: 'same-id' });
+        check('the same attempt id for ANOTHER question is a 409, not the first save\'s duplicate, and writes nothing',
+            other.status === 409 && !(await detail(first)).course.questions[2].answer, `${other.status} ${other.text.slice(0, 160)}`);
         await call('POST', `/api/mock-sittings/${first}/pause`);
         const a3 = await answer(first, d.course.questions[1].partId, 'Beta', { later: true });
         check('an answer sent while paused is kept (a save racing the pause is never dropped)', a3.status === 200, a3.text);
@@ -220,6 +245,12 @@ try {
             back.course.answered === 2 && back.course.left === 8 && back.course.later === 1, JSON.stringify(back.course));
         const off = await answer(first, 999999, 'Beta');
         check('a question not in this mock is refused', off.status === 400, String(off.status));
+        const stop = await call('POST', `/api/mock-sittings/${first}/stop`);
+        check('"Finish writing" (a past paper\'s step) is refused: a course mock ends with Finish',
+            stop.status === 400 && (await detail(first))?.sitting?.status === 'writing', `${stop.status} ${stop.text.slice(0, 120)}`);
+        const badId = await call('POST', `/api/mock-sittings/${first}/finish`, { attemptId: 'not an id!' });
+        check('a finish with a malformed attempt id is refused and hands nothing in',
+            badId.status === 400 && (await detail(first))?.sitting?.status === 'writing', `${badId.status} ${badId.text.slice(0, 120)}`);
 
         // The clock: one minute, answered in time, then past it.
         const one = mock.drawCourseMock(course, { size: 3, minutes: 1, now: T0 });
@@ -238,6 +269,20 @@ try {
         check('the result is the in-time one: 1 right in time', res?.right === 1 && res?.total === 3, JSON.stringify(res));
         check('the extra time is told apart: 1 right with it (one more answered, one changed to wrong)',
             res?.late?.right === 1 && res?.late?.answered === 2, JSON.stringify(res?.late));
+
+        // Right in time, then cleared after it. The score is the in-time one;
+        // the late line, the topics and the review read the final answers, and
+        // the late line is what tells the two apart on the result.
+        const two = mock.drawCourseMock(course, { size: 2, minutes: 1, now: T0 });
+        const twoParts = mock.sittingDetail(two.sitting.id, { now: T0 }).course.questions.map(q => q.partId);
+        mock.saveAnswer(two.sitting.id, { partId: twoParts[0], answer: 'Beta', attemptId: 'c1', now: T0 + 10_000 });
+        mock.saveAnswer(two.sitting.id, { partId: twoParts[0], answer: '', attemptId: 'c2', now: T0 + 120_000 });
+        const cleared = mock.finishSitting(two.sitting.id, { now: T0 + 130_000, attemptId: 'f-two' }).result;
+        const row0 = cleared?.review?.find(x => x.partId === twoParts[0]);
+        check('an answer right in time and cleared after: 1 right of 2 in time, 1 not answered in time',
+            cleared?.right === 1 && cleared?.total === 2 && cleared?.notAnswered === 1, JSON.stringify({ r: cleared?.right, t: cleared?.total, na: cleared?.notAnswered }));
+        check('and the late line says what stood at the end: 0 right of 0 answered; the review files it under not answered',
+            cleared?.late?.right === 0 && cleared?.late?.answered === 0 && row0?.group === 'none', JSON.stringify({ late: cleared?.late, group: row0?.group }));
     });
 
     await block('4. the score, the spread and the answers read back', async () => {
@@ -308,6 +353,11 @@ try {
         const n = allMockRows();
         const again = await call('POST', `/api/mock-sittings/${first}/finish`, { attemptId: 'finish-2' });
         check('a second finish writes nothing and returns the same result', again.status === 200 && again.body?.result?.right === 7 && allMockRows() === n);
+        const logRows = () => db.prepare("SELECT COUNT(*) n FROM question_log WHERE surface = 'mock'").get().n;
+        const logN = logRows();
+        const replay = await call('POST', `/api/mock-sittings/${first}/finish`, { attemptId: 'finish-1' });
+        check('the same finish resent (a retry after a lost response) writes nothing and returns the result',
+            replay.status === 200 && replay.body?.result?.right === 7 && allMockRows() === n && logRows() === logN, replay.text.slice(0, 200));
         const after = await answer(first, qs[0].partId, 'Gamma');
         check('a finished mock takes no more answers', after.status === 409, String(after.status));
         // Answered ones only: 2 of the clock case's 3, 9 of this mock's 10. A
@@ -366,7 +416,20 @@ try {
             JSON.stringify(full && checkMasteryEligibility(full)));
         db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(optics);
 
-        const short = mock.drawCourseMock(course, { size: 4, minutes: 6, now: T0 });
+        // A question reported after the finish shortens the mock to 9: it is
+        // no longer the real exam's length, so its pass line goes.
+        const sameRef = sd.course.questions[0].ref;
+        const rep = await call('POST', '/api/item-reports', { ref: sameRef, reason: 'wrong', surface: 'mock' });
+        const shortened = mock.sittingDetail(same.sitting.id, { now: T0 + 70_000 }).result;
+        check('a reported question takes the pass line away: 9 of 9, not a grade',
+            rep.status >= 200 && rep.status < 300 && shortened?.total === 9 && shortened?.passRight == null && shortened?.passed == null && shortened?.notGrade === true,
+            JSON.stringify({ s: rep.status, t: shortened?.total, p: shortened?.passRight, ok: shortened?.passed, ng: shortened?.notGrade }));
+        if (rep.body?.report?.id) await call('DELETE', `/api/item-reports/${rep.body.report.id}`);
+        const restored = mock.sittingDetail(same.sitting.id, { now: T0 + 70_000 }).result;
+        check('and the report undone brings it back: 10 right, pass at 7', restored?.total === 10 && restored?.passRight === 7 && restored?.passed === true,
+            JSON.stringify({ t: restored?.total, p: restored?.passRight }));
+
+        const short =mock.drawCourseMock(course, { size: 4, minutes: 6, now: T0 });
         const rowsBefore = allMockRows();
         const logBefore = db.prepare("SELECT COUNT(*) n FROM question_log WHERE surface = 'mock'").get().n;
         const r2 = mock.finishSitting(short.sitting.id, { now: T0 + 1000, attemptId: 'f-short' }).result;
@@ -402,8 +465,15 @@ try {
         const permanent = course.match(/const PERMANENT = new Set\(\[([^\]]*)\]\)/)?.[1]?.split(',').map(s => Number(s.trim())) ?? [];
         check('an answer the server refused with 401 or 403 stays queued (a sign-in that lapsed), 409 is let go',
             permanent.includes(409) && !permanent.includes(401) && !permanent.includes(403), JSON.stringify(permanent));
-        check('the answer field rests while the mock is handed in',
-            /<AnswerInput[^>]*disabled=\{finishing/.test(course));
+        check('the answer field rests while the mock is handed in: disabled by `finishing`, set before the finish is sent',
+            /<AnswerInput[^>]*disabled=\{finishing/.test(course)
+                && /setFinishing\(true\);[^]{0,300}?api\.finishMock/.test(course.match(/const finish = async[^]*?\n {4}\};/)?.[0] ?? ''));
+        // The flag lists the mock's questions as the mock's own, so the
+        // server withholds the key for them and not for the same question
+        // in a quiz.
+        check('the flag tells the screen list which surface an item is on',
+            /useScreenItem\(itemRef, shown, \{[^}]*\bsurface\b[^}]*\}\)/.test(src('src/components/ui/ReportItem.tsx'))
+                && /surface: 'mock'/.test(src('src/utils/itemReportStore.ts')));
         check('the docked assistant makes no room while an exam holds the window',
             /assistantDocked = [^;]*&& !examFocus/.test(src('src/components/Layout.tsx')));
         check('the background-task bar stays out of an exam (it comes back after)',
@@ -415,6 +485,104 @@ try {
             /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
                 && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*onAct\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc)
                 && /<ClockButtons paused=\{paused\} running=\{sitting\.running\}/.test(paperSrc));
+    });
+
+    await block('9. the screen\'s decisions: where a mock opens, the save line, the clocks a closing page pauses', async () => {
+        const esbuild = createRequire(import.meta.url)('esbuild');
+        const outfile = join(scratch, 'courseMockState.mjs');
+        await esbuild.build({
+            entryPoints: [join(ROOT, 'src/components/mockExam/courseMockState.ts')],
+            bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
+        });
+        const ui = await import(pathToFileURL(outfile).href);
+        const answered = [true, false, true, false];
+        check('nothing kept for this tab (another device, a closed tab): it opens on the first question not answered',
+            ui.openingPlace(null, answered) === 1, String(ui.openingPlace(null, answered)));
+        check('the question this tab was on wins', ui.openingPlace('2', answered) === 2);
+        check('a kept place outside the mock, or not a number, falls back to the first not answered',
+            ui.openingPlace('9', answered) === 1 && ui.openingPlace('x', answered) === 1 && ui.openingPlace('', answered) === 1);
+        check('everything answered and nothing kept: the first question', ui.openingPlace(null, [true, true]) === 0);
+
+        check('nothing waiting: the save line says nothing', ui.saveState(0, 7) === 'saved');
+        check('a save on its way or tried again once or twice: "saving…"', ui.saveState(1, 0) === 'saving' && ui.saveState(2, ui.STUCK_AFTER - 1) === 'saving');
+        check(`after ${ui.STUCK_AFTER} failed sends in a row (no connection): it says the answers are not saved`,
+            ui.STUCK_AFTER >= 2 && ui.saveState(1, ui.STUCK_AFTER) === 'stuck');
+        const course = readFileSync(join(ROOT, 'src/components/mockExam/CourseMock.tsx'), 'utf8');
+        check('the mock screen opens where openingPlace says and words its save line by saveState',
+            /useState\(\(\) => openingPlace\(readPlace\(placeKey\)/.test(course)
+                && /saving === 'stuck' \? t\("not saved yet, check the connection"\)/.test(course)
+                && /setFailedInARow\(0\)/.test(course) && /setFailedInARow\(n => n \+ 1\)/.test(course));
+
+        const list = {
+            papers: [{ sittings: [{ id: 1, status: 'writing', running: true }, { id: 2, status: 'marking', running: false }] }],
+            courseSittings: [{ id: 5, status: 'writing', running: true }, { id: 6, status: 'writing', running: false }, { id: 7, status: 'done', running: false }],
+        };
+        check('a closing page pauses every running clock in the list, course mocks too, and the open one, once each',
+            JSON.stringify(ui.runningSittings(list, 1).sort((a, b) => a - b)) === '[1,5]'
+                && JSON.stringify(ui.runningSittings(list, 9).sort((a, b) => a - b)) === '[1,5,9]'
+                && JSON.stringify(ui.runningSittings(null, null)) === '[]',
+            JSON.stringify(ui.runningSittings(list, 9)));
+        check('the mock exam list uses it', /running\.current = runningSittings\(data, open\)/.test(readFileSync(join(ROOT, 'src/components/mockExam/MockExamView.tsx'), 'utf8')));
+    });
+
+    await block('10. every format checked alone, a placement answer, one read for the course', async () => {
+        const node = (pid, title, status, pos) => Number(db.prepare(
+            'INSERT INTO nodes (project_id, parent_id, title, position, status) VALUES (?, NULL, ?, ?, ?)',
+        ).run(pid, title, pos, status).lastInsertRowid);
+        const chem = Number(db.prepare("INSERT INTO projects (name) VALUES ('Chemistry')").run().lastInsertRowid);
+        const states = node(chem, 'States of matter', 'in_progress', 0);
+        const probed = node(chem, 'Bonds', 'not_started', 1);
+        const seq = { uuid: randomUUID(), type: 'sequence', question: 'Order the steps of heating ice.', items: ['Boil', 'Melt', 'Warm the ice'], correct_answer: JSON.stringify(['Warm the ice', 'Melt', 'Boil']), explanation: 'Heat flows in.' };
+        const asm = { uuid: randomUUID(), type: 'assemble', question: 'Build the sentence.', template: 'Water is made of ___ and ___.', correct_answer: JSON.stringify(['hydrogen', 'oxygen']), tokens: ['oxygen', 'carbon', 'hydrogen'], explanation: 'Two kinds of atom.' };
+        const num = { uuid: randomUUID(), type: 'numeric', question: 'Free fall acceleration at the surface?', correct_answer: '9.81', unit: 'm/s^2', tolerance: 0.01, explanation: 'Measured.' };
+        const fill = { uuid: randomUUID(), type: 'fill_in', question: 'The capital of the Netherlands is ___.', correct_answer: 'Amsterdam', accept: ['Mokum'], explanation: 'By the constitution.' };
+        bank(states, [seq, asm, num, fill]);
+        bank(probed, [mc(probed, 1), mc(probed, 2)]);
+        // The placement probe answered one question on Bonds before any study.
+        db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'placement', 1, 1)").run(probed);
+
+        const ready = mock.courseReadiness(chem);
+        check('a topic with only a placement answer is not studied yet: 1 studied, 1 left out, 4 ready',
+            ready?.studied === 1 && ready?.notStudied === 1 && ready?.ready === 4, JSON.stringify(ready));
+
+        const r = await call('POST', `/api/projects/${chem}/mock-exams/draw`, { size: 4, minutes: null });
+        const sid = r.body?.sitting?.id;
+        const open = await call('GET', `/api/mock-sittings/${sid}`);
+        const qs = open.body?.course?.questions ?? [];
+        check('an ordering, an assembly, a number and a typed word are drawn',
+            ['sequence', 'assemble', 'numeric', 'fill_in'].every(t => qs.some(q => q.question?.type === t)), JSON.stringify(qs.map(q => q.question?.type)));
+        check('the whole open mock holds nothing of any key: no key field, accepted answer, tolerance, explanation or key value',
+            open.status === 200 && !/correct_answer|"accept"|tolerance|explanation|9\.81|Amsterdam|Mokum|Heat flows|Two kinds/.test(open.text), open.text.slice(0, 400));
+        check('an ordering comes in its stored, shuffled order, never the key\'s',
+            JSON.stringify(qs.find(q => q.question?.type === 'sequence')?.question?.items) === JSON.stringify(seq.items));
+        const right = { sequence: seq.correct_answer, assemble: asm.correct_answer, numeric: '9.81', fill_in: 'Amsterdam' };
+        for (const q of qs) await answer(sid, q.partId, right[q.question.type]);
+        const f = await call('POST', `/api/mock-sittings/${sid}/finish`, { attemptId: 'finish-chem' });
+        check('the app checks each of them alone: 4 right of 4',
+            f.body?.result?.right === 4 && f.body?.result?.total === 4, JSON.stringify(f.body?.result?.review?.map(x => [x.question?.type, x.correct])));
+
+        // The list reads what a course can draw on every open: its cost must
+        // not grow with the number of topics (no statement per topic).
+        const bio = Number(db.prepare("INSERT INTO projects (name) VALUES ('Biology')").run().lastInsertRowid);
+        for (let i = 0; i < 6; i++) { const id = node(bio, `Cell ${i}`, 'in_progress', i); bank(id, [mc(id, 1)]); }
+        const prepares = (fn) => {
+            let n = 0;
+            const own = db.prepare;
+            db.prepare = function (...a) { n++; return own.apply(this, a); };
+            try { fn(); } finally { delete db.prepare; }
+            return n;
+        };
+        mock.courseReadiness(chem); mock.courseReadiness(bio);
+        const one = prepares(() => mock.courseReadiness(chem));
+        const six = prepares(() => mock.courseReadiness(bio));
+        check('what a course can draw is read with no statement per topic: as many for 6 topics as for 1',
+            one === six, JSON.stringify({ one, six }));
+        const drawn = [];
+        const dOne = prepares(() => drawn.push(mock.drawCourseMock(chem, { size: 1, now: T0 })));
+        const dSix = prepares(() => drawn.push(mock.drawCourseMock(bio, { size: 1, now: T0 })));
+        check('and a draw orders the course in one read too: as many statements for 6 topics as for 1',
+            dOne === dSix, JSON.stringify({ dOne, dSix }));
+        for (const d of drawn) mock.discardSitting(d.sitting.id);
     });
 } finally {
     server.close();

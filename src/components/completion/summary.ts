@@ -55,9 +55,9 @@ export function completionStats(data: ProjectCompletion, text: SummaryText): Sum
         if (when && out.length < MAX_STATS) out.push({ key, value, label });
     };
     // "1 days studied" is the kind of thing that makes a keepsake look
-    // machine-made. Both forms are written out because English loads no locale
-    // file — the key IS the string, so i18next's plural suffixes never fire here
-    // (see src/i18n/index.ts and memory english-is-the-key-no-plurals).
+    // machine-made. The tiles write both forms out as two plain keys, which is
+    // right for English and wrong for languages with more than two forms; each
+    // wants a `count` key.
     // The two forms are wrapped in `k()` so the extraction tools can see them:
     // they scan for a literal inside `t(...)`/`k(...)`, and a string passed
     // through a helper is invisible to them — which silently orphaned five keys

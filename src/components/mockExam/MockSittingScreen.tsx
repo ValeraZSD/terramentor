@@ -456,7 +456,7 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
     const { sitting, paper, result } = detail;
     const date = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }).format(new Date(sitting.startedAt)), [sitting.startedAt]);
     const graded = result.grade != null;
-    const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin, { decimals: 0 }) : '';
+    const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin) : '';
 
     return (
         <div className="space-y-4">
@@ -491,7 +491,9 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                 )}
                 {result.passed != null && result.passPoints != null && (
                     <p className="mt-4 text-sm text-slate-700 dark:text-slate-200">
-                        {result.passed
+                        {result.earned === result.passPoints
+                            ? t("That is exactly the pass line.")
+                            : result.passed
                             ? t("That is {{points}} points above the pass line.", { count: result.earned - result.passPoints, points: fmt(result.earned - result.passPoints) })
                             : t("That is {{points}} points short of the pass line.", { count: result.passPoints - result.earned, points: fmt(result.passPoints - result.earned) })}
                         {' '}{t("One paper, graded by you: a guide, not a forecast.")}

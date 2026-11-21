@@ -10,7 +10,8 @@ import TopicRow from './TopicRow';
  * course under way (`server/studyNext.js`). The line under each says which
  * finished topic it is near, which is the whole reason it was picked.
  *
- * A row opens its topic, the same as a topic row inside a region. Nothing is
+ * A row starts its topic's lesson, as the heading says, with a play mark so it
+ * does not pass for a region's topic row, which opens the topic. Nothing is
  * drawn when the build has nothing to suggest: a library with nothing
  * finished has no "next" yet, and saying so would be a line about nothing.
  */
@@ -19,7 +20,7 @@ export default function StudyNext({ next, regions }: {
     regions: AtlasRegion[];
 }) {
     const { t: tr } = useTranslation();
-    const openProjectNode = useStore(s => s.openProjectNode);
+    const studyNode = useStore(s => s.studyNode);
     const headingId = useId();
     const rows = useMemo(() => {
         if (!next?.length) return [];
@@ -33,9 +34,9 @@ export default function StudyNext({ next, regions }: {
     if (!rows.length) return null;
     return (
         <section aria-labelledby={headingId} className="pb-1">
-            <h3 id={headingId} className="px-3 pt-3 pb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <h2 id={headingId} className="px-3 pt-3 pb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
                 {tr("Study next")}
-            </h3>
+            </h2>
             {/* `px-1` plus the row's own `px-2` puts the dots on the region
                 swatches' edge below. */}
             <ul className="px-1">
@@ -47,7 +48,8 @@ export default function StudyNext({ next, regions }: {
                             // "near …" off every row, the one part that says
                             // why this topic and not another.
                             detail={tr("Near {{topic}} · {{course}}", { topic: near, course: topic.projectName })}
-                            onOpen={() => openProjectNode(topic.projectId, topic.id)}
+                            onOpen={() => studyNode(topic.projectId, topic.id)}
+                            studies
                         />
                     </li>
                 ))}

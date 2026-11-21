@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useSettingsSnapshot } from './settings/settingsSnapshot';
 import LearningSettings from './settings/LearningSettings';
 import GeneralSettings from './settings/GeneralSettings';
+import AccessibilitySettings from './settings/AccessibilitySettings';
 import WebSettings from './settings/WebSettings';
 import DevicesSettings from './settings/DevicesSettings';
 import LibrarySettings from './settings/LibrarySettings';
@@ -23,7 +24,7 @@ import { useAppBack } from '../utils/appBack';
  * Two shapes, chosen by Settings' OWN width (`TWO_PANE_REM`), the way every
  * phone and tablet settings app does it:
  *  - narrow (a phone, a narrow window): one pane at a time. `/settings` is a
- *    list of the six sections; a row opens its section as a page of its own,
+ *    list of the seven sections; a row opens its section as a page of its own,
  *    a history entry, so the phone's back returns to the list. On a section
  *    the header's back arrow goes UP to the list (`useAppBack`), even when a
  *    link elsewhere in the app opened it.
@@ -68,7 +69,7 @@ export default function Settings() {
         return true;
     } : null);
 
-    // An address from before the six sections (`#data`, `#search`) is
+    // An address from before these sections (`#data`, `#search`) is
     // rewritten to the section that holds those settings now.
     useEffect(() => {
         if (chosen && isRenamedSection(tab)) {
@@ -196,6 +197,7 @@ export default function Settings() {
 
                     <div className="flex-1 min-w-0">
                         <GeneralSettings active={shown === 'general'} />
+                        <AccessibilitySettings active={shown === 'accessibility'} />
                         <LearningSettings active={shown === 'learning'} snapshot={snapshot} />
                         <AISettings active={shown === 'ai'} snapshot={snapshot} />
                         <WebSettings active={shown === 'web'} snapshot={snapshot} />

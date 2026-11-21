@@ -64,12 +64,15 @@ import {
     readdirSync, statSync, chmodSync, realpathSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { isBuiltin } from 'node:module';
 import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { buildIco, buildIcns } from './lib/icons.mjs';
 import { zipFolder } from './lib/zipFolder.mjs';
+import { readmeForPlatform, PLATFORM_OF } from './lib/readmeForPlatform.mjs';
 import { codeFiles, runtimeSources, RUNTIME_DATA } from './lib/runtimeSources.mjs';
+import { stripNodeModules } from './lib/packageStrip.mjs';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
@@ -146,8 +149,9 @@ cpSync(join(repoRoot, 'server'), join(appDir, 'server'), {
     },
 });
 // README.txt is left out as well: it is the template of the zip's top-level
-// README (written below with the version filled in), and a second, raw copy in
-// desktop/ read "Terramentor __VERSION__" inside every 1.0.0 zip.
+// README (written below for this system, with the version filled in), and a
+// second, raw copy in desktop/ read "Terramentor __VERSION__" inside every
+// 1.0.0 zip.
 cpSync(join(repoRoot, 'desktop'), join(appDir, 'desktop'), {
     recursive: true,
     filter: (src) => {
@@ -184,11 +188,12 @@ const DATA_DEPS = {
 
 // Everything that runs: the server, the MCP server, and the files from src/
 // they import (whose own imports, ts-fsrs for one, are the server's too).
+const serverSpecifiers = new Set();
 const serverDeps = scanDependencies([
     ...codeFiles(join(repoRoot, 'server')),
     ...codeFiles(join(repoRoot, 'mcp')),
     ...sharedSources.map((rel) => join(repoRoot, rel)),
-]);
+], serverSpecifiers);
 const declared = Object.keys(pkg.dependencies || {});
 const missingData = Object.keys(DATA_DEPS).filter((d) => !declared.includes(d));
 if (missingData.length) throw new Error(`package.json no longer declares: ${missingData.join(', ')}`);
@@ -204,6 +209,13 @@ run('npm', ['prune', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'
 rmSync(join(appDir, 'package-lock.json'), { force: true });
 // Restore the real package.json (the app reads its version and engines from it).
 writeFileSync(join(appDir, 'package.json'), JSON.stringify({ ...pkg, devDependencies: {}, scripts: { start: 'node desktop/launcher.js' } }, null, 2));
+// Source maps, type declarations, readmes, SQLite's C source: nothing runs them
+// (tools/lib/packageStrip.mjs). Step 7 imports every package the code names,
+// because the parsers load on first use and a plain start would not reach them.
+{
+    const gone = stripNodeModules(join(appDir, 'node_modules'));
+    log(`▸ stripped ${gone.files} files nothing runs (${(gone.bytes / 1024 / 1024).toFixed(1)} MB)`);
+}
 
 // --- 4. the runtime -------------------------------------------------------------
 const runtimeDir = join(appDir, 'runtime');
@@ -256,8 +268,9 @@ if (platform === 'win32') {
     }
 }
 // The package's top level: beside the app on Windows and Linux (and in its
-// file list), beside the bundle on macOS.
-writeFileSync(join(stage, 'README.txt'), readme.replaceAll('__VERSION__', pkg.version));
+// file list), beside the bundle on macOS. Only this system's steps are in it
+// (tools/lib/readmeForPlatform.mjs).
+writeFileSync(join(stage, 'README.txt'), readmeForPlatform(readme, PLATFORM_OF[platform], pkg.version));
 
 // --- 7. does it start? ----------------------------------------------------------------
 let port = 3901;
@@ -298,6 +311,20 @@ if (!noCheck) {
             throw new Error(`the staged copy exited cleanly without running its checks (${label})`);
         }
         port++;
+    }
+    // Every package the code names, imported from the staged folder by its
+    // own runtime. The document parsers load on first use, so the start above
+    // never reached them; a prune or strip that broke one would ship.
+    log('▸ importing every package the server and mcp/ name');
+    {
+        const specs = [...serverSpecifiers].filter((s) => !isBuiltin(s)).sort();
+        const script = `const specs = ${JSON.stringify(specs)}; const bad = [];
+for (const s of specs) { try { await import(s); } catch (e) { bad.push(s + ': ' + (e && e.message)); } }
+if (bad.length) { console.error(bad.join('\\n')); process.exit(1); } console.log('imported ' + specs.length);`;
+        const r = spawnSync(join(runtimeDir, nodeName), ['--input-type=module', '-e', script],
+            { cwd: appDir, encoding: 'utf8', timeout: 120_000 });
+        if (r.status !== 0) throw new Error(`the staged copy cannot import what its code names:\n${r.stderr || r.error?.message}`);
+        log(`  ${(r.stdout || '').trim()} specifiers`);
     }
     // The MCP server is a second program in the same folder, started by the
     // agent's app rather than by the launcher, so the launcher's check never
@@ -391,8 +418,9 @@ log(`✓ ${relative(repoRoot, finalDir)}`);
 
 // --- helpers ------------------------------------------------------------------------------
 
-/** Every bare package specifier the given modules import. */
-function scanDependencies(files) {
+/** Every package the given modules import; each full specifier ('pdfjs-dist/
+ *  legacy/build/pdf.mjs') is also added to `specifiers`. */
+function scanDependencies(files, specifiers = new Set()) {
     const found = new Set();
     for (const p of files) {
         const src = readFileSync(p, 'utf8');
@@ -409,6 +437,7 @@ function scanDependencies(files) {
             if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:') || !PKG.test(spec)) continue;
             const pkgName = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
             found.add(pkgName);
+            specifiers.add(spec);
         }
     }
     // Node built-ins written without the prefix.

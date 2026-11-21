@@ -140,6 +140,14 @@ const assistantSrc = read('src/utils/assistantSettings.ts');
 const assistantKeys = [...(/export type SettingKey = ([^;]+);/.exec(assistantSrc)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 const notUi = assistantKeys.filter(k => SETTINGS[k]?.writable !== 'client' || SETTINGS[k]?.sensitivity !== 'ui');
 check(`the assistant's [[set]] keys (${assistantKeys.length}) are all client ui rows`, assistantKeys.length >= 5 && notUi.length === 0, notUi.join(', '));
+// The week's first day is retired with the views that read it: neither its
+// name nor the `week_start` shorthand may come back as a [[set]] marker.
+const { settingKeysIn } = await import(B + 'assistantSettings.js');
+const control = settingKeysIn('[[set:theme:dark]]');
+check('the server reads a live [[set]] marker (control)', control.length === 1 && control[0] === 'theme', control.join(', '));
+const weekKeys = settingKeysIn('[[set:week_start:sunday]] [[set:week_start_day:sunday]]');
+check('the server reads no week-start marker, alias or full name', weekKeys.length === 0, weekKeys.join(', '));
+check('...and the client has no week-start key or alias', !/['"]week_start/.test(assistantSrc));
 
 console.log('\n--- 4. each validator takes what the screens send and refuses the rest ---');
 const takes = (key, value, stored = String(value)) => {
@@ -154,7 +162,14 @@ const refuses = (key, value) => {
     try { got = SETTINGS[key].validate(value); } catch (e) { refused = e instanceof SettingValueError; got = e; }
     check(`${key} refuses ${JSON.stringify(value)}`, refused, `stored ${JSON.stringify(got)}`);
 };
-takes('theme', 'dark'); refuses('theme', 'purple');
+takes('theme', 'dark'); takes('theme', 'system'); refuses('theme', 'purple');
+// Settings → Accessibility: every row the section writes, in the shape it sends.
+takes('contrast', 'more'); takes('contrast', 'system'); refuses('contrast', 'high');
+takes('motion', 'reduce'); takes('motion', 'full'); refuses('motion', 'off');
+for (const k of ['letter_spacing', 'word_spacing', 'line_spacing']) { takes(k, 'widest'); refuses(k, '2em'); }
+for (const k of ['reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers', 'larger_ui']) { takes(k, 'true'); takes(k, 'false'); refuses(k, 'on'); }
+takes('speech_rate', '140'); refuses('speech_rate', '20'); refuses('speech_rate', '300');
+takes('drill_time_scale', 'off');
 takes('theme_tint', '#1e293b'); refuses('theme_tint', 'red; background: url(x)');
 takes('theme_surfaces', JSON.stringify({ mode: 'dark', tint: '#000000', background: '#0f172a', theme: '#0f172a' }));
 refuses('theme_surfaces', '[1,2]'); refuses('theme_surfaces', '{nope');
@@ -162,7 +177,6 @@ takes('app_icon_style', 'simple'); takes('app_icon_radius', '23'); refuses('app_
 takes('ui_scale', 120, '120'); refuses('ui_scale', '999'); refuses('ui_scale', '1e2');
 takes('ui_language', 'pt-BR'); takes('ui_language', ''); refuses('ui_language', '../../etc');
 takes('number_format', '1\u00a0234,5'); takes('number_format', 'auto');
-takes('week_start_day', '1'); takes('week_start_day', '0'); refuses('week_start_day', '7');
 refuses('accent_color', '#abc');
 takes('sidebarWidth', '320'); refuses('sidebarWidth', '100'); takes('detailPanelWidth', '600'); refuses('detailPanelWidth', '4000');
 takes('atlas_viewer', JSON.stringify({ speed: 1, dwell: 2 })); refuses('atlas_viewer', 'null');
@@ -187,6 +201,9 @@ refuses('ai_openai_base_url', '');
 takes('ai_ollama_url', 'http://127.0.0.1:11434');
 takes('searxng_url', ''); takes('searxng_url', 'https://searx.example.org'); refuses('searxng_url', 'ftp://searx.example.org');
 refuses('theme', { toString: () => 'dark' }); refuses('theme', null); refuses('theme', undefined); refuses('theme', ['dark']);
+// A retired row has no validator to refuse with: it is refused by having no
+// entry at all, which the route answers with 400 (section 5).
+check('the retired week_start_day has no entry', settingSpec('week_start_day') === null && !CLIENT_SETTING_KEYS.includes('week_start_day'));
 
 console.log('\n--- 5. the real route ---');
 const { serverReady } = await import(B + 'index.js');
@@ -215,6 +232,8 @@ if (stored('ai_setup_dismissed') !== 'true') { console.log('not the fixture — 
 
 r = await put('no_such_setting', { value: 'x' });
 check('an unknown key is refused with 400 and not stored', r.status === 400 && stored('no_such_setting') === undefined, `${r.status} ${stored('no_such_setting')}`);
+r = await put('week_start_day', { value: '1' });
+check('the retired week_start_day is refused with 400 and not stored', r.status === 400 && stored('week_start_day') === undefined, `${r.status} ${stored('week_start_day')}`);
 r = await put('__proto__', { value: 'x' });
 check('…including one named like an object\'s own property', r.status === 400, r.status);
 for (const key of ['update_latest', 'desktop_keep_running', 'embedding_provider', 'inbox_project_id', 'deck_new_per_day_1', 'teach_topics_1']) {

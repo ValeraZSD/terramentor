@@ -278,7 +278,7 @@ check('the scan reads what it claims to (a known px class is caught)',
     && [..."style={{ fontSize: '0.85rem' }}".matchAll(PX_STYLE)].length === 0);
 const tw = read('tailwind.config.js');
 check('the small-print sizes exist, in rem',
-    /'2xs':\s*'0\.6875rem'/.test(tw) && /'3xs':\s*'0\.625rem'/.test(tw));
+    /'2xs':\s*'var\(--text-2xs, 0\.6875rem\)'/.test(tw) && /'3xs':\s*'var\(--text-3xs, 0\.625rem\)'/.test(tw));
 
 // ---------------------------------------------------------------------------
 section('a field that grows to its text is re-measured when the type size moves');

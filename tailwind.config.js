@@ -43,9 +43,16 @@ export default {
             // body text. A bare size with no line-height,
             // exactly what the arbitrary class set, so 100% renders unchanged.
             // `typography-gates.mjs` refuses a px font size in a class name.
+            //
+            // The three sizes under body text read a variable first: Settings →
+            // Accessibility → "Larger text and buttons" raises all three to the
+            // body size in one place (index.css, `html[data-larger-ui]`), every
+            // `sm:`/`touch:` variant of them included. Unset, each is its old
+            // size, so the default app renders unchanged.
             fontSize: {
-                '2xs': '0.6875rem', // 11px at 100%
-                '3xs': '0.625rem',  // 10px at 100%
+                xs: ['var(--text-xs, 0.75rem)', { lineHeight: 'var(--text-xs-leading, 1rem)' }], // 12px at 100%
+                '2xs': 'var(--text-2xs, 0.6875rem)', // 11px at 100%
+                '3xs': 'var(--text-3xs, 0.625rem)',  // 10px at 100%
             },
             animation: {
                 'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
@@ -68,6 +75,16 @@ export default {
         plugin(({ addVariant }) => {
             addVariant('can-hover', '@media (hover: hover) and (pointer: fine)');
             addVariant('touch', '@media (hover: none)');
+            // Motion follows Settings → Accessibility, not the media query
+            // alone: `data-motion` on <html> is the reader's choice already
+            // combined with the system's (src/utils/accessibility.ts), so a
+            // reader who turned motion off in the app gets none even when the
+            // system allows it, and the other way round. New names, because
+            // Tailwind's own `motion-safe`/`motion-reduce` cannot be redefined
+            // (its media-query versions win); tools/accessibility-settings-gates.mjs keeps
+            // those two out of src/.
+            addVariant('motion-on', 'html:not([data-motion="reduce"]) &');
+            addVariant('motion-off', 'html[data-motion="reduce"] &');
         }),
         // Safe-area insets: the status bar, the island, the home indicator and,
         // held sideways, the rounded corners of a phone. `index.html` asks for

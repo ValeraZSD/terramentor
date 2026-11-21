@@ -4,6 +4,7 @@ import Checkbox from '../Checkbox';
 import { Field } from '../ui/Field';
 import SegmentedControl from '../ui/SegmentedControl';
 import { Explain } from '../ui/Disclosure';
+import { Button } from '../ui/Button';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /** A figure the endpoint does not publish. A dash reads as "nothing here" to
@@ -26,13 +27,15 @@ function NotReported({ label }: { label: string }) {
  *  in AISettings, because this is drawn only for an OpenAI-compatible
  *  provider and must survive a switch to Ollama and back. */
 export default function ServingEndpointsPicker({
-    providerOrder, providerSort, servingEndpoints, endpointsLoading,
+    providerOrder, providerSort, servingEndpoints, endpointsLoading, endpointsError,
     loadServingEndpoints, chooseProviderSort, toggleProvider,
 }: {
     providerOrder: string[];
     providerSort: string;
     servingEndpoints: ServingEndpoint[] | null;
     endpointsLoading: boolean;
+    /** Why the last read failed; null when it did not. */
+    endpointsError: string | null;
     loadServingEndpoints: () => void;
     chooseProviderSort: (value: string) => void;
     toggleProvider: (slug: string) => void;
@@ -60,6 +63,7 @@ export default function ServingEndpointsPicker({
                     {() => (
                         <SegmentedControl
                             label={tr("When you have no preference, pick by")}
+                            block="narrow"
                             value={providerSort}
                             onChange={chooseProviderSort}
                             options={[
@@ -74,6 +78,18 @@ export default function ServingEndpointsPicker({
 
                 {endpointsLoading && (
                     <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Asking the endpoint who can serve it…")}</p>
+                )}
+
+                {/* A read that failed is not "no list": it says what went
+                    wrong and offers to ask again. */}
+                {!endpointsLoading && endpointsError !== null && (
+                    <div className="flex flex-wrap items-center gap-3">
+                        {/* The app's error red, one step darker in light: this
+                            line sits on the grey Explain panel (#f3f3f3), where
+                            red-600 is 4.35:1 and red-700 is 5.8:1. */}
+                        <p role="alert" className="text-sm text-red-700 dark:text-red-400">{endpointsError}</p>
+                        <Button size="sm" onClick={() => loadServingEndpoints()}>{tr("Try again")}</Button>
+                    </div>
                 )}
 
                 {!endpointsLoading && servingEndpoints !== null && servingEndpoints.length === 0 && (

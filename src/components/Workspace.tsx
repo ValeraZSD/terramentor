@@ -1,22 +1,19 @@
-import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRef, useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useStore, WorkspaceView } from '../store';
-import { TreeNode } from '../types';
-import { todayStr, isLeafNode } from '../utils/tree';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import Sidebar from './Sidebar';
 import NodeTree from './NodeTree';
 import DetailPanel from './DetailPanel';
-import ProjectTimeline from './schedule/ProjectTimeline';
-import CalendarView from './calendar/CalendarView';
 import StudyDashboard from './StudyDashboard';
 import DeckDashboard from './deck/DeckDashboard';
 import VaultProjectView from './VaultProjectView';
 import FeedView from './feed/FeedView';
 import DeckStudy from './deck/DeckStudy';
 import PaceIndicator from './PaceIndicator';
+import { LABEL as VERDICT_LABEL, VerdictDot } from './plan/verdict';
 import MockExamView from './mockExam/MockExamView';
 import ScheduleModal from './ScheduleModal';
-import { LayoutGrid, GanttChart, Calendar, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
+import { LayoutGrid, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { countsInCards } from '../utils/projectShape';
 import { useDialogFocus } from '../hooks/useDialogFocus';
@@ -33,7 +30,6 @@ export default function Workspace() {
     const setShowScheduleModal = useStore(s => s.setShowScheduleModal);
     const currentProjectId = useStore(s => s.currentProjectId);
     const projects = useStore(s => s.projects);
-    const tree = useStore(s => s.tree);
     const dueFlashcardCount = useStore(s => s.dueFlashcardCount);
 
     // The Mastery Gate ("mastery check") modal is mounted in Layout, not here — the
@@ -54,7 +50,7 @@ export default function Workspace() {
     // is the course's FILING — the thing the stream exists to save you from
     // walking topic by topic — and beside a lesson it costs the reading column
     // ~17rem of every screen while answering a question the reader is not
-    // asking. The other five views administer the course and are exactly where
+    // asking. The other views administer the course and are exactly where
     // the tree belongs; it is one tab away from here.
     const studyView = workspaceView === 'study';
     // The mock exam has no tab of its own: it opens from the Dashboard's
@@ -79,6 +75,7 @@ export default function Workspace() {
 
     const project = projects.find(p => p.id === currentProjectId);
     const hasSchedule = !!(project?.start_date && project?.deadline);
+    const verdict = useStore(s => s.paceData?.verdict ?? null);
     // What this project HAS decides what it is shown — never where it came from.
     // A project with cards and nothing being taught gets the card page, because
     // a curriculum's questions have no useful answers for it (see
@@ -90,27 +87,6 @@ export default function Workspace() {
     const cardsOnly = !!project && countsInCards({
         teaches: project.teaches, topics: project.topic_count, cards: project.card_count,
     });
-
-    const todayTaskCount = useMemo(() => {
-        if (!hasSchedule) return 0;
-        const today = todayStr();
-        let count = 0;
-        const walk = (nodes: TreeNode[]) => {
-            for (const n of nodes) {
-                if (n.is_note) continue;
-                if (
-                    n.scheduled_start && n.scheduled_end &&
-                    n.scheduled_start <= today && n.scheduled_end >= today &&
-                    n.status !== 'completed' && n.status !== 'skipped'
-                ) {
-                    if (isLeafNode(n)) count++;
-                }
-                walk(n.children);
-            }
-        };
-        walk(tree);
-        return count;
-    }, [tree, hasSchedule]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -141,16 +117,14 @@ export default function Workspace() {
         };
     }, [setDetailPanelWidth]);
 
-    // The rail shows what this project HAS, not what the app can do.
+    // The rail shows what this project HAS, not what the app can do. The
+    // active tab is always kept, so a deep link never strands the learner on a
+    // view with no way back to it.
     //
-    // Timeline and Calendar are two ways of reading the same thing — a set of
-    // dates — and a project with no dates has nothing for either to draw. An
-    // imported deck is the clearest case: 1,500 cards, one topic, no schedule,
-    // and two tabs offering to plot it against a calendar. They come back the
-    // moment the project is given a schedule, which is also the moment they
-    // start meaning something. The active tab is always kept, so a deep link or
-    // a schedule that was just cleared never strands the learner on a view with
-    // no way back to it.
+    // The plan has no tab: it is the verdict and "Open plan" at the end of this
+    // row, on every tab. A Timeline and a Calendar tab drew it again with a day
+    // for every topic, which stops being true on the first day missed; the
+    // verdict speaks in weeks and does not.
     //
     // A card-only project names its first tab "Deck" rather than "Dashboard" —
     // it is not a summary of a plan, it is the cards — and drops the category
@@ -168,8 +142,6 @@ export default function Workspace() {
         { key: 'dashboard', label: cardsOnly ? tr("Deck") : tr("Dashboard"), icon: cardsOnly ? Layers : BarChart3, when: true },
         // Labelled "Outline"; the key and the URL segment stay `tree`, so links and stored state still work.
         { key: 'tree', label: tr("Outline"), icon: LayoutGrid, when: !cardsOnly },
-        { key: 'timeline', label: tr("Timeline"), icon: GanttChart, when: hasSchedule },
-        { key: 'calendar', label: tr("Calendar"), icon: Calendar, when: hasSchedule },
         { key: 'vault', label: tr("Vault"), icon: Library, when: true },
     ] as { key: WorkspaceView; label: string; icon: typeof LayoutGrid; when: boolean }[])
         .filter(t => t.when || workspaceView === t.key);
@@ -192,9 +164,16 @@ export default function Workspace() {
     const barRef = useRef<HTMLDivElement | null>(null);
     const scheduleBtnRef = useRef<HTMLButtonElement | null>(null);
     const paceGhostRef = useRef<HTMLDivElement | null>(null);
-    const [paceFull, setPaceFull] = useState(false);
+    // null until the row is first measured: the Dashboard says the verdict
+    // itself only once it is KNOWN not to fit here, so a wide screen never
+    // flashes a second copy while the header measures.
+    const [paceFull, setPaceFull] = useState<boolean | null>(null);
+    // Where the pill does not fit, the verdict rides on the plan button.
+    const dotVerdict = !paceFull && verdict && verdict.band !== 'no_date' ? verdict : null;
     const tabKeys = viewTabs.map(t => t.key).join();
-    useEffect(() => {
+    // A layout effect, so the first measure lands before the first paint and
+    // no frame is drawn with the row's form still unknown (`paceFull` null).
+    useLayoutEffect(() => {
         const bar = barRef.current, rail = tabRailRef.current, btn = scheduleBtnRef.current, ghost = paceGhostRef.current;
         if (!bar || !rail || !btn || !ghost) return;
         const fit = () => {
@@ -248,8 +227,8 @@ export default function Workspace() {
                 scale they stop fitting: the right-hand group is `shrink-0`, so
                 measured at 160% on a 375px phone it took 290 of 375px and left
                 the tab rail an 81px window onto 496px of tabs — technically
-                scrollable, in practice a third of one tab, with Timeline,
-                Calendar and Vault effectively gone. Navigation loses that
+                scrollable, in practice a third of one tab, with the last
+                three tabs effectively gone. Navigation loses that
                 argument to a status readout, always.
 
                 So the row WRAPS instead of strangling the rail: the rail keeps
@@ -280,7 +259,6 @@ export default function Workspace() {
                     )}
                     {viewTabs.map(tab => {
                         const Icon = tab.icon;
-                        const isCalendarTab = tab.key === 'calendar';
                         const isDashboardTab = tab.key === 'dashboard';
                         return (
                             <button
@@ -306,14 +284,6 @@ export default function Workspace() {
                                     took the name away from a screen reader too,
                                     and four buttons were announced as nothing. */}
                                 <span className={tab.key === 'study' || tabView === tab.key ? 'inline' : 'sr-only sm:not-sr-only'}>{tab.label}</span>
-                                {isCalendarTab && todayTaskCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'calendar'
-                                        ? 'bg-accent text-white'
-                                        : 'bg-red-600 text-white'
-                                        }`}>
-                                        {todayTaskCount}
-                                    </span>
-                                )}
                                 {/* Reviews OWED. This used to come from a query
                                     that treated every never-reviewed card as
                                     due — on the real 1,501-card import the badge
@@ -336,7 +306,7 @@ export default function Workspace() {
                 </nav>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <PaceIndicator full={paceFull} />
+                    <PaceIndicator full={paceFull === true} />
 
                     <Button
                         ref={scheduleBtnRef}
@@ -351,8 +321,11 @@ export default function Workspace() {
                         variant={hasSchedule || cardsOnly ? 'quiet' : 'primary'}
                         icon={<CalendarClock className="w-4 h-4" aria-hidden="true" />}
                         className="relative shrink-0"
+                        title={dotVerdict ? tr(VERDICT_LABEL[dotVerdict.band]) : undefined}
                     >
-                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Edit Schedule") : tr("Set Schedule")}</span>
+                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Open plan") : tr("Set Schedule")}</span>
+                        {dotVerdict && <span className="sr-only">, {tr(VERDICT_LABEL[dotVerdict.band])}</span>}
+                        {dotVerdict && <VerdictDot verdict={dotVerdict} />}
                     </Button>
                 </div>
             </div>
@@ -389,12 +362,8 @@ export default function Workspace() {
 
                 {/* Center content based on view */}
                 <div className="flex-1 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 min-w-0">
-                    {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard />)}
+                    {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard paceInHeader={paceFull !== false} />)}
                     {workspaceView === 'tree' && <NodeTree />}
-                    {workspaceView === 'timeline' && <ProjectTimeline />}
-                    {workspaceView === 'calendar' && currentProjectId != null && (
-                        <CalendarView scope={{ kind: 'project', projectId: currentProjectId }} />
-                    )}
                     {workspaceView === 'vault' && <VaultProjectView />}
                     {workspaceView === 'exam' && currentProjectId != null && <MockExamView key={currentProjectId} projectId={currentProjectId} />}
                     {/* Study is the scoped stream — except for a project measured

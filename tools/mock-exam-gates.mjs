@@ -9,7 +9,7 @@
  * suite pins:
  *
  *   1. the grade comes from the paper's own formula and the pass line is shown
- *      in points (a CCVX paper: 79 points, grade = points / 79 * 9 + 1, pass
+ *      in points (a 79-point paper, grade = points / 79 * 9 + 1, pass
  *      at 5.5 = 39.5 points, in halves like the points themselves);
  *   2. a paper's points table is checked when it is added (no zero-point part,
  *      no topic or document from another course, no document without a stored
@@ -111,9 +111,9 @@ const score = (id) => getNodeMastery(id).mastery_score;
 const statusOf = (id) => db.prepare('SELECT status FROM nodes WHERE id = ?').get(id).status;
 const evidenceOf = (id) => db.prepare("SELECT score, total, evidence_type FROM mastery_evidence WHERE node_id = ? ORDER BY id").all(id);
 
-// The CCVX sample paper's cover: 3 hours, five questions worth 20, 18, 14, 14
+// A sample paper's cover: 3 hours, five questions worth 20, 18, 14, 14
 // and 13 = 79 points, "mark = score / 79 * 9 + 1", pass at 5.5.
-const CCVX = {
+const PAPER = {
     title: 'Sample exam 19',
     minutes: 180,
     gradeMin: 1, gradeMax: 10, passGrade: 5.5,
@@ -157,25 +157,25 @@ try {
     });
 
     await block('2. adding a paper checks its points table', async () => {
-        const made = await call('POST', papersPath, CCVX);
-        check('the CCVX paper is added', made.status === 200 && made.body?.paper?.id > 0, JSON.stringify(made.body));
+        const made = await call('POST', papersPath, PAPER);
+        check('the paper is added', made.status === 200 && made.body?.paper?.id > 0, JSON.stringify(made.body));
         paper = made.body?.paper;
         check('its total is the sum of its parts: 79', paper?.total === 79, String(paper?.total));
         check('its pass line reads 39.5 points', paper?.passPoints === 39.5, String(paper?.passPoints));
         check('seven parts in five questions, in the order given', paper?.parts?.length === 7 && paper.parts.map(x => x.question).join('') === '1123345');
-        const zero = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 0 }] });
+        const zero = await call('POST', papersPath, { ...PAPER, parts: [{ question: '1', part: '', points: 0 }] });
         check('a zero-point part is refused', zero.status === 400, String(zero.status));
-        const none = await call('POST', papersPath, { ...CCVX, parts: [] });
+        const none = await call('POST', papersPath, { ...PAPER, parts: [] });
         check('a paper with no parts is refused', none.status === 400, String(none.status));
-        const stray = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 5, nodeId: foreign }] });
+        const stray = await call('POST', papersPath, { ...PAPER, parts: [{ question: '1', part: '', points: 5, nodeId: foreign }] });
         check('a topic from another course is refused', stray.status === 400, String(stray.status));
         const chapter = addNode(course, 'Calculus chapter');
         db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, ?, ?, 0)').run(course, chapter, 'Limits');
-        const parent = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 5, nodeId: chapter }] });
+        const parent = await call('POST', papersPath, { ...PAPER, parts: [{ question: '1', part: '', points: 5, nodeId: chapter }] });
         check('a chapter (not a topic you study) is refused, as the picker never offers it', parent.status === 400, String(parent.status));
-        const twice = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: 'a', points: 5 }, { question: '1', part: 'a', points: 3 }] });
+        const twice = await call('POST', papersPath, { ...PAPER, parts: [{ question: '1', part: 'a', points: 5 }, { question: '1', part: 'a', points: 3 }] });
         check('the same question and part twice is refused', twice.status === 400, String(twice.status));
-        const badFormula = await call('POST', papersPath, { ...CCVX, gradeMin: 10, gradeMax: 1 });
+        const badFormula = await call('POST', papersPath, { ...PAPER, gradeMin: 10, gradeMax: 1 });
         check('a formula whose top is not above its bottom is refused', badFormula.status === 400, String(badFormula.status));
         const list = await call('GET', papersPath);
         check('the course lists one paper', list.status === 200 && list.body?.papers?.length === 1, JSON.stringify(list.body)?.slice(0, 200));
@@ -183,7 +183,7 @@ try {
         check('another course lists none', elsewhere.status === 200 && elsewhere.body?.papers?.length === 0);
         const missing = await call('GET', '/api/projects/999999/mock-exams');
         check('a course that does not exist is a 404, not an empty list', missing.status === 404, String(missing.status));
-        const tooHigh = await call('POST', papersPath, { ...CCVX, gradeMin: 1, gradeMax: 1e9, passGrade: 5.5 });
+        const tooHigh = await call('POST', papersPath, { ...PAPER, gradeMin: 1, gradeMax: 1e9, passGrade: 5.5 });
         check('a grade beyond 0 to 1000 is refused', tooHigh.status === 400, String(tooHigh.status));
     });
 
@@ -198,10 +198,10 @@ try {
         const photo = addDoc(course, 'Solutions page 1.jpg', 'jpg', 'd'.repeat(64));
         const failed = addDoc(course, 'Broken.pdf', 'pdf', 'e'.repeat(64));
         db.prepare("UPDATE documents SET status = 'failed' WHERE id = ?").run(failed);
-        const tryDoc = (id) => call('POST', papersPath, { ...CCVX, title: 'Doc check', paperDocumentId: id });
+        const tryDoc = (id) => call('POST', papersPath, { ...PAPER, title: 'Doc check', paperDocumentId: id });
         const ok = await tryDoc(own);
         check('the course\'s own stored PDF is accepted', ok.status === 200 && ok.body?.paper?.paperDocumentId === own, JSON.stringify(ok.body)?.slice(0, 200));
-        const pic = await call('POST', papersPath, { ...CCVX, title: 'Photo check', solutionDocumentId: photo });
+        const pic = await call('POST', papersPath, { ...PAPER, title: 'Photo check', solutionDocumentId: photo });
         check('a photo of the solution (jpg) is accepted, and says it is not a PDF', pic.status === 200 && pic.body?.paper?.solutionKind === 'jpg', JSON.stringify(pic.body)?.slice(0, 200));
         if (pic.body?.paper?.id) mock.deletePaper(pic.body.paper.id);
         check('a document whose import failed is refused, as the picker never offers it', (await tryDoc(failed)).status === 400);
@@ -254,7 +254,7 @@ try {
         check('negative points are refused', neg.status === 400, String(neg.status));
         const third = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: 2.3 });
         check('points come in halves at most', third.status === 400, String(third.status));
-        const otherPaper = await call('POST', papersPath, { ...CCVX, title: 'Sample exam 20' });
+        const otherPaper = await call('POST', papersPath, { ...PAPER, title: 'Sample exam 20' });
         const strayPart = otherPaper.body?.paper?.parts?.[0]?.id;
         const wrongPaper = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: strayPart, points: 1 });
         check('a part of another paper is refused', wrongPaper.status === 400 || wrongPaper.status === 404, String(wrongPaper.status));
@@ -394,12 +394,12 @@ try {
     });
 
     await block('10. the parts are checked against the total printed on the paper', async () => {
-        const off = await call('POST', papersPath, { ...CCVX, title: 'Printed 80', printedTotal: 80 });
+        const off = await call('POST', papersPath, { ...PAPER, title: 'Printed 80', printedTotal: 80 });
         check('parts adding up to 79 against a printed 80 are refused', off.status === 400, String(off.status));
         check('…and the refusal names both numbers', /79/.test(off.body?.error ?? '') && /80/.test(off.body?.error ?? ''), off.body?.error);
-        const odd = await call('POST', papersPath, { ...CCVX, title: 'Printed half', printedTotal: 79.5 });
+        const odd = await call('POST', papersPath, { ...PAPER, title: 'Printed half', printedTotal: 79.5 });
         check('a printed total that is not a whole number of points is refused', odd.status === 400, String(odd.status));
-        const same = await call('POST', papersPath, { ...CCVX, title: 'Printed 79', printedTotal: 79 });
+        const same = await call('POST', papersPath, { ...PAPER, title: 'Printed 79', printedTotal: 79 });
         check('parts adding up to the printed 79 are added', same.status === 200 && same.body?.paper?.total === 79, JSON.stringify(same.body)?.slice(0, 160));
         // A build that wrongly took the refused ones would leave them behind for later blocks.
         for (const r of [off, odd, same]) if (r.body?.paper?.id) mock.deletePaper(r.body.paper.id);
@@ -533,8 +533,9 @@ try {
         check('Pause and Finish writing sit in the frame\'s footer, so a short screen never scrolls them away', /footer=\{/.test(screen) && /ClockButtons/.test(clock));
         check('the time sizes to the card and to a short screen (a phone held sideways)', /function ClockLeft[\s\S]*cqi[\s\S]*max-height/.test(screen));
         // Not new: pinned so the frame never has to pad them itself.
-        check('the frame sits in <main>, which clears the home indicator and a sideways phone\'s corners', /<main className="[^"]*safe-px-0[^"]*safe-pb-0/.test(layout));
+        check('the frame sits in <main>, which clears the home indicator and a sideways phone\'s corners', /<main [^>]*className="[^"]*safe-px-0[^"]*safe-pb-0/.test(layout));
     });
+
 
     await block('8. named for sync, and gone with the course', async () => {
         for (const t of ['exam_papers', 'exam_paper_parts', 'mock_sittings', 'mock_part_scores']) {
@@ -565,10 +566,28 @@ try {
             !/now shows (?:this paper|in its topic) as practice/.test(screen + course));
         check('with no name, the dialog footer says a name is needed before Add',
             /\{!title\.trim\(\) && \(\s*<span [^>]*>\{t\("Give the paper a name to add it\."\)\}<\/span>/.test(dialog)
-                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{onClose\}>[^\n]*\n\s*<Button variant="primary"[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\}>[^\n]*\n\s*<Button variant="primary"[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
         const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
         check('the away offer\'s two buttons are full-size tap targets',
             /takeOff\(awayOff\)/.test(offer) && /I kept writing/.test(offer) && !/size="sm"/.test(offer));
+    });
+
+    await block('9b. what the review round found', async () => {
+        const src = (...p) => readFileSync(join(ROOT, ...p), 'utf8');
+        const screen = src('src', 'components', 'mockExam', 'MockSittingScreen.tsx');
+        const dialog = src('src', 'components', 'mockExam', 'AddPaperDialog.tsx');
+        for (const t of ['mock_sittings', 'mock_part_scores']) {
+            check(`${t} is synced as content: it changes after it is written (pause, marks)`, SYNC_TABLES[t]?.class === 'content', JSON.stringify(SYNC_TABLES[t]));
+        }
+        check('a finished mock reads "Mock exam" in Today\'s activity, not "Question"',
+            /\bmock: k\("Mock exam"\)/.test(src('src', 'components', 'feed', 'TodayActivityModal.tsx')));
+        check('the printed grade formula keeps a half-point span (4.5 is not rounded to 5)',
+            /const span = [^;]*fmt\(paper\.gradeMax - paper\.gradeMin\)/.test(screen));
+        check('a score right on the pass line says so, not "0 points above"',
+            /result\.earned === result\.passPoints\s*\?\s*t\("That is exactly the pass line\."\)/.test(screen));
+        check('the add dialog asks before Escape, the backdrop or Cancel drops a typed paper',
+            /onClose=\{leave\}/.test(dialog) && /<Button onClick=\{leave\}>\{t\("Cancel"\)\}/.test(dialog)
+                && /if \(changed && !\(await showConfirm\(/.test(dialog));
     });
 } finally {
     server.close();

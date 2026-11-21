@@ -4,14 +4,18 @@ import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { BottomSheet, useOpensAsSheet } from './Sheet';
 import { FOCUS_RING, cx } from './vocabulary';
 
 /**
  * What opens from a button: a MENU (`MenuPopover`) or a small PANEL of
- * controls (`PanelPopover`). With a hovering pointer it floats, portalled to
- * the body, anchored to the button's own edge and kept on the screen; under a
- * finger it is the bottom sheet (`ui/Sheet.tsx`), the same one `Select` opens.
+ * controls (`PanelPopover`). It floats, portalled to the body, anchored to the
+ * button's own edge and kept on the screen, under a finger as with a mouse.
+ *
+ * On a phone it was a sheet from the bottom of the screen for a while: a menu
+ * tapped open from the top bar then appeared at the far end of the screen from
+ * the finger that opened it, and read as something else opening. A phone's own
+ * menus (Android's, iOS's pull-down menus) open at their button; so do these,
+ * with rows a finger can hit (`MenuItem`'s `touch:min-h-11`).
  *
  * Hand-written menus each get a different part wrong. Hanging a menu from the
  * button's RIGHT edge with `absolute right-0` runs it off a card's left edge
@@ -157,6 +161,49 @@ export function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
     return false;
 }
 
+/** How long a finger's dismissing tap may take to arrive as a click. */
+const TAP_CLICK_MS = 700;
+
+/**
+ * The rest of a press that closed a floating surface from outside it.
+ *
+ * Under a finger the tap is spent on closing, as a native picker spends it:
+ * the click it would become is eaten, so a tap beside an open menu does not
+ * also press the button it landed on. A mouse press goes on to its target, as
+ * it does beside a desktop menu. Only `touch` and `pen` count as a finger.
+ *
+ * `back` is the button the surface opened from. When focus was inside the
+ * surface, it goes back there once the press is over, unless the press put it
+ * somewhere itself (a field it landed on): the surface left the page with
+ * focus in it, which drops focus to the page's start.
+ */
+export function endOutsidePress(e: PointerEvent, back?: HTMLElement | null) {
+    const restore = back
+        ? () => {
+            const at = document.activeElement;
+            if ((!at || at === document.body) && back.isConnected) back.focus({ preventScroll: true });
+        }
+        : () => { };
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') {
+        // pointerdown and its mousedown come from one input event: by the next
+        // task the mousedown has moved focus wherever it was going.
+        setTimeout(restore, 0);
+        return;
+    }
+    let timer = 0;
+    const done = () => {
+        window.clearTimeout(timer);
+        document.removeEventListener('click', eat, true);
+        document.removeEventListener('pointercancel', done, true);
+        restore();
+    };
+    const eat = (c: MouseEvent) => { c.preventDefault(); c.stopPropagation(); done(); };
+    document.addEventListener('click', eat, true);
+    // A tap that turned into a scroll sends no click.
+    document.addEventListener('pointercancel', done, true);
+    timer = window.setTimeout(done, TAP_CLICK_MS);
+}
+
 /**
  * A floating surface's place beside its button, kept up to date while `active`:
  * measured before paint, again as the page scrolls or the window or the visual
@@ -218,15 +265,22 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         const onDown = (e: PointerEvent) => {
             const t = e.target as Node;
             if (surfaceRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            const held = !!surfaceRef.current?.contains(document.activeElement);
             closeRef.current();
+            endOutsidePress(e, held ? anchorRef.current : null);
+        };
+        // Scrolling the surface's own rows moves nothing it is placed by.
+        const onScroll = (e: Event) => {
+            if (surfaceRef.current?.contains(e.target as Node)) return;
+            measure();
         };
         document.addEventListener('pointerdown', onDown, true);
-        window.addEventListener('scroll', measure, true);
+        window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', measure);
         const unfollow = followVisualViewport(measure);
         return () => {
             document.removeEventListener('pointerdown', onDown, true);
-            window.removeEventListener('scroll', measure, true);
+            window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', measure);
             unfollow();
         };
@@ -246,7 +300,7 @@ const KEEP_EVENTS = { onClick: stop, onPointerDown: stop };
 /** When a floating surface closes and focus fell to nothing (the chosen row
  *  unmounted with it; Safari never focused the clicked button), the button it
  *  opened from gets focus back. A surface that moved focus on (a dialog a row
- *  opened) keeps it. The sheet does the same through `returnFocus`. */
+ *  opened) keeps it. */
 function useFocusBackOnClose(active: boolean, anchorRef: RefObject<HTMLElement | null>) {
     useEffect(() => {
         if (!active) return;
@@ -285,27 +339,26 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
     onClose: () => void;
     /** The button the menu belongs to: where it is placed, and where focus goes back. */
     anchorRef: RefObject<HTMLElement | null>;
-    /** The menu's name; on a phone, the sheet's title. */
+    /** The menu's name, for a screen reader. */
     label: string;
     align?: 'start' | 'end';
     children: ReactNode;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
-    const sheet = useOpensAsSheet(open);
-    const place = useFloatingPlace({ active: open && !sheet, anchorRef, surfaceRef: menuRef, align, onClose });
-    const { anchor: accentAnchor, accent } = usePortalAccent(open && !sheet);
+    const place = useFloatingPlace({ active: open, anchorRef, surfaceRef: menuRef, align, onClose });
+    const { anchor: accentAnchor, accent } = usePortalAccent(open);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
 
     // The first row takes focus once the menu is PLACED, not when it mounts:
     // until then it is `visibility: hidden`, and a hidden element refuses focus
     // — measured in Edge, focus stayed on the button, so the arrows and Escape
-    // (which listened on the menu) did nothing at all. A sheet is placed by CSS.
-    const placed = sheet || place != null;
+    // (which listened on the menu) did nothing at all.
+    const placed = place != null;
     useEffect(() => {
         if (open && placed) focusItem(menuRef.current, 'first');
     }, [open, placed]);
-    useFocusBackOnClose(open && !sheet, anchorRef);
+    useFocusBackOnClose(open, anchorRef);
 
     useEffect(() => {
         if (!open) return;
@@ -339,21 +392,6 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
         return () => document.removeEventListener('keydown', onKey, true);
     }, [open, anchorRef]);
 
-    if (open && sheet) {
-        return (
-            <BottomSheet title={label} onClose={onClose} returnFocus={anchorRef}>
-                <div
-                    ref={menuRef}
-                    role="menu"
-                    aria-label={label}
-                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3"
-                >
-                    {children}
-                </div>
-            </BottomSheet>
-        );
-    }
-
     return (
         <>
             <span ref={accentAnchor} className="hidden" aria-hidden="true" />
@@ -379,7 +417,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                     // every other floating panel here; `p-1` so a highlighted
                     // row is inset from the panel's rounded edge rather than
                     // flush against it.
-                    className={cx('fixed z-50 min-w-[13rem] w-max overflow-y-auto overscroll-contain', MENU_PANEL)}
+                    className={cx('fixed min-w-[13rem] w-max overflow-y-auto overscroll-contain', FLOAT_LAYER, MENU_PANEL)}
                 >
                     {children}
                 </div>,
@@ -393,18 +431,18 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
  * A small panel of controls that opens from a button (the course's icon and
  * colour, the export options): a non-menu `MenuPopover`. A dialog for focus —
  * Tab stays inside, Escape closes, focus goes back to the button — floating
- * beside the button with a hovering pointer and the bottom sheet under a finger.
+ * beside the button, under a finger as with a mouse.
  */
 export function PanelPopover({ open, onClose, anchorRef, label, align = 'start', width, className, initialFocus, children }: {
     open: boolean;
     onClose: () => void;
     anchorRef: RefObject<HTMLElement | null>;
-    /** The panel's name; on a phone, the sheet's title. */
+    /** The panel's name, for a screen reader. */
     label: string;
     align?: 'start' | 'end';
-    /** The floating panel's width class (`w-72`); the sheet is the screen's. */
+    /** The panel's width class (`w-72`); capped to the screen when narrower. */
     width: string;
-    /** The content's own layout, the same in both forms (`space-y-4`). */
+    /** The content's own layout (`space-y-4`). */
     className?: string;
     /** A selector inside the panel for where focus starts (the chosen swatch). */
     initialFocus?: string;
@@ -412,33 +450,22 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
 }) {
     const panelRef = useRef<HTMLDivElement>(null);
     const startRef = useRef<HTMLElement | null>(null);
-    const sheet = useOpensAsSheet(open);
-    const place = useFloatingPlace({ active: open && !sheet, anchorRef, surfaceRef: panelRef, align, gap: 4, onClose });
-    const { anchor: accentAnchor, accent } = usePortalAccent(open && !sheet);
+    const place = useFloatingPlace({ active: open, anchorRef, surfaceRef: panelRef, align, gap: 4, onClose });
+    const { anchor: accentAnchor, accent } = usePortalAccent(open);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
 
-    // Layout effects run before any passive one, so this is set before either
-    // form's `useDialogFocus` reads it.
+    // Layout effects run before any passive one, so this is set before
+    // `useDialogFocus` reads it.
     useLayoutEffect(() => {
         startRef.current = open && initialFocus ? panelRef.current?.querySelector<HTMLElement>(initialFocus) ?? null : null;
-    }, [open, sheet, initialFocus]);
-    useDialogFocus(open && !sheet, panelRef, {
+    }, [open, initialFocus]);
+    useDialogFocus(open, panelRef, {
         onEscape: e => { e.preventDefault(); closeRef.current(); },
         initialFocus: startRef,
     });
     // Declared after `useDialogFocus`, so its own hand-back runs first.
-    useFocusBackOnClose(open && !sheet, anchorRef);
-
-    if (open && sheet) {
-        return (
-            <BottomSheet title={label} onClose={onClose} initialFocus={startRef} returnFocus={anchorRef}>
-                <div ref={panelRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-1 pb-5">
-                    <div className={className}>{children}</div>
-                </div>
-            </BottomSheet>
-        );
-    }
+    useFocusBackOnClose(open, anchorRef);
 
     return (
         <>
@@ -461,7 +488,7 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
                         // dialog takes it as it mounts, before it is placed.
                         opacity: place ? 1 : 0,
                     }}
-                    className={cx('fixed z-50 overflow-y-auto overscroll-contain p-3 outline-none', width, MENU_SURFACE)}
+                    className={cx('fixed overflow-y-auto overscroll-contain p-3 outline-none', FLOAT_LAYER, width, MENU_SURFACE)}
                 >
                     <div className={className}>{children}</div>
                 </div>,
@@ -474,12 +501,12 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
 /** One row of a menu: an icon and a label, padded, with the app's focus ring.
  *  A link when it has `href` (opens in a new tab), else a button.
  *
- *  Every menu in the app draws its rows with this — a `MenuPopover`'s, and the
- *  older hand-placed ones (the project card's, `DropdownMenu`'s), which once had
- *  rows of their own: flush to the panel's edge, 36px, a different hover. Those
- *  have no arrow keys, so `roving={false}` leaves their rows plain buttons with
- *  their own Tab stop and no menu role (a `menuitem` promises the arrow keys a
- *  `MenuPopover` provides and they do not). */
+ *  Every menu in the app draws its rows with this, inside a `MenuPopover` (the
+ *  project card's and `DropdownMenu`'s included), whose arrow keys, Home/End and
+ *  first-row focus find a row by its `menuitem` role. Leave `roving` on there:
+ *  `roving={false}` is only for a row outside a `MenuPopover`, where it stays a
+ *  plain button with its own Tab stop and no menu role (a `menuitem` promises
+ *  the arrow keys that only a `MenuPopover` provides). */
 export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true, current = false }: {
     icon?: ReactNode;
     children: ReactNode;
@@ -515,9 +542,17 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
         : <button role={role} tabIndex={tabIndex} aria-current={ariaCurrent} type="button" onClick={onSelect} className={cls}>{body}</button>;
 }
 
-/** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the
- *  same material and inset as `MenuPopover`'s, so a menu is one shape wherever
- *  it opens. `MENU_SURFACE` is the material alone, for a panel that scrolls
+/** The panel of a menu: `MenuPopover` draws it, and anything hand-placed that
+ *  must look like one takes the same material and inset, so a menu is one shape
+ *  wherever it opens. `MENU_SURFACE` is the material alone, for a panel that scrolls
  *  INSIDE its frame (`Select`'s list). */
 export const MENU_SURFACE = 'rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
 export const MENU_PANEL = `p-1 ${MENU_SURFACE}`;
+
+/** The stacking layer of everything that floats from a button: `MenuPopover`,
+ *  `PanelPopover`, `Select`'s list, the model picker. Above every dialog and
+ *  sheet that can hold one of them (the mastery check `z-[55]`, the `z-[60]`
+ *  dialogs, `ConfirmDialog` `z-[100]`): one opened inside them would otherwise
+ *  open underneath, out of reach. Only the desktop quit screen sits higher,
+ *  as the last thing the page shows. */
+export const FLOAT_LAYER = 'z-[110]';

@@ -4,7 +4,7 @@
 // is already in may connect another device or remove one.
 import { routeTable } from './routeTable.js';
 import { wrap } from './request.js';
-import { isAuthEnabled, passwordThroughThrottle } from '../auth.js';
+import { isAuthEnabled, ownerPresent, passwordThroughThrottle } from '../auth.js';
 import {
     createPairingOffer, listDevices, phoneAddress, removeDevice, servedHere, serveOnTailnet, setTailscaleTrust, tailscaleOwner,
     tailscaleTrustOn,
@@ -40,6 +40,9 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 // never Funnel), then answer with a code at the new address — or with the
 // command to run by hand when the CLI refused.
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
+    // This changes the computer's own Tailscale setup, so a device let in
+    // without the password (a paired phone) may not press it.
+    if (!ownerPresent(req)) return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
     if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
     if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command, problem: served.problem });
@@ -73,6 +76,9 @@ app.delete('/api/devices/:id', (req, res) => {
 });
 
 app.put('/api/devices/tailscale', (req, res) => {
+    // Whether the owner's Tailscale sign-in lets anyone in is the computer's to
+    // decide, like the serve route above.
+    if (!ownerPresent(req)) return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
     const on = req.body && req.body.on;
     if (typeof on !== 'boolean') return res.status(400).json({ error: '`on` must be true or false' });
     setTailscaleTrust(on);

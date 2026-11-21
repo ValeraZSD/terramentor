@@ -11,6 +11,7 @@ import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
 import { publicMessage } from '../clientError.js';
 import { dayBounds, studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
 
 const app = routeTable('insights');
 
@@ -20,9 +21,10 @@ function buildInsightContext(projectId) {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
     if (!project) return {};
 
+    refreshTopicDates();
     const nodes = db.prepare(`
         SELECT id, parent_id, title, status, is_note, scheduled_start, scheduled_end, completed_at
-        FROM nodes WHERE project_id = ? AND is_note = 0 ORDER BY position
+        FROM plan_nodes WHERE project_id = ? AND is_note = 0 ORDER BY position
     `).all(projectId);
 
     const nodeMap = new Map(nodes.map(n => [n.id, { ...n, children: [] }]));
@@ -67,7 +69,7 @@ function buildInsightContext(projectId) {
     // incorrectly show up as pending/overdue even when all their children are done.
     const todayTasks = db.prepare(`
         SELECT n.id, n.title
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
         AND n.scheduled_start <= ? AND n.scheduled_end >= ?
     `).all(projectId, today, today).map(n => ({ title: n.title, nodeId: n.id }));
@@ -77,7 +79,7 @@ function buildInsightContext(projectId) {
     const gate = getGateConfig();
     const overdueTasks = db.prepare(`
         SELECT n.id, n.title, n.status, n.scheduled_end
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
         AND n.scheduled_end < ?
     `).all(projectId, today).map(n => ({

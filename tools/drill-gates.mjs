@@ -256,6 +256,24 @@ section('The spec a model writes still parses');
     check('the parsed items are a closed set', closedOptionSet(spec.items)?.length === 2);
     check('grading is insensitive to case and stray punctuation',
         answersMatch('receding', 'Receding.') && !answersMatch('Receding', 'Approaching'));
+    // A decimal point or comma inside a number is the number: a numeric drill's
+    // distractor 35 must not pass for the answer 3.5.
+    check('a number is not graded equal to the same digits without their decimal mark',
+        !answersMatch('35', '3.5') && !answersMatch('981', '9.81') && !answersMatch('12', '1,2') && !answersMatch('1,5', '15'));
+    // This row passes on the old rule too: it guards what the fix must keep.
+    check('a number still matches itself, with a full stop or case ignored around it',
+        answersMatch('3.5', '3.5.') && answersMatch(' (9.81) ', '9.81') && answersMatch('1,2', '1,2'));
+    // Either mark is the same number: the typed answer 3,5 is the key 3.5.
+    check('a comma and a point are the same decimal mark, and trailing zeros do not matter',
+        answersMatch('3,5', '3.5') && answersMatch('3.5', '3,5') && answersMatch('3.50', '3.5') && !answersMatch('3,5', '35') && !answersMatch('3.5', '3.6'));
+    // Grouped thousands typed without the marks are the same number (as they
+    // were when every mark was dropped); a mark before two digits never groups.
+    check('thousands typed with or without grouping marks are the same number',
+        answersMatch('299,792,458', '299792458') && answersMatch('3.024.000', '3024000') && answersMatch('1,000', '1000')
+        && !answersMatch('9.81', '981') && !answersMatch('299,792,458', '299792'));
+    check('a number is not compared to text by its leading digits', !answersMatch('3 apples', '3') && answersMatch('3 apples', '3 Apples'));
+    check('the answer rule compiles with no lookbehind, which Safari before 16.4 cannot parse',
+        !/\(\?<[=!]/.test(readFileSync(fileURLToPath(new URL('../src/components/drills/parseDrill.ts', import.meta.url)), 'utf8')));
 }
 
 section('The bar under the counter — a timed drill\'s bar is its clock, and only its clock');
@@ -345,8 +363,8 @@ section('How long an item may take — typing gets time per letter, the learner 
         tiny?.target?.secondsPerItem === 1, String(tiny?.target?.secondsPerItem));
 
     const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
-    check('the player times each item through itemSeconds, by the current mode and answer',
-        /itemSeconds\(baseSeconds, mode, currentItem\?\.answer \?\? '', timeScale\)/.test(player));
+    check('the player times each item through itemSeconds, by the mode it is asked in and its answer',
+        /itemSeconds\(baseSeconds, itemMode, currentItem\?\.answer \?\? '', timeScale\)/.test(player));
     check('the intro offers the scale only on a timed drill',
         /\{baseSeconds \? \(/.test(player) && /DRILL_TIME_SCALES\.map/.test(player));
     check('the intro line comes from drillTimeSummary, in the chosen mode and scale',
@@ -390,6 +408,133 @@ section('A drill keeps its last full round');
     const modal = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillModal.tsx', import.meta.url)), 'utf8');
     check('the round is recorded WITH its key and its items', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key, result\.items\)/.test(modal));
     check('the launcher reads the stored score back', /api\.getDrillScores\(spec\.nodeId\)/.test(launcher));
+}
+
+// --- the flashcard drill asks each card's own question -----------------------
+// A course gives one topic cards of several kinds: listening cards (a sound, then
+// the sentence), word cards both ways, de/het cards with a blank. The drill made
+// from them once showed a listening card with no sound under "What is this?" and
+// offered "лошадь", a rule explanation and "het podium" beside the one Dutch
+// sentence, so the answer was the only option of its kind. The fixture below is
+// that topic's shape.
+section('The flashcard drill keeps each card its question and its kind');
+{
+    const { drillFromFlashcards } = await import(pathToFileURL(out).href);
+    const audio = (n) => JSON.stringify({ front: [{ hash: String(n).repeat(64).slice(0, 64), kind: 'audio', name: `nl_${n}.mp3`, alt: '' }] });
+    const LISTEN = '🎧 Послушай. Что сказал диктор?';
+    let id = 1;
+    const card = (front, back, extra_front = null, media = null) => ({ id: id++, node_id: 1, front, back, extra_front, media });
+    const cards = [
+        card(LISTEN, 'Onder de tafel ligt een bal. Hij is rond.', null, audio(1)),
+        card(LISTEN, 'De bus komt. Hij is te laat.', null, audio(2)),
+        card(LISTEN, 'Op het podium speelt een orkest.', null, audio(3)),
+        card(LISTEN, 'Het paard loopt in de wei.', null, audio(4)),
+        card(LISTEN, 'We gaan vandaag naar het park.', null, audio(5)),
+        card('het paard', 'лошадь', 'переведите на русский'),
+        card('de bal', 'мяч', 'переведите на русский'),
+        card('de bus', 'автобус', 'переведите на русский'),
+        card('het park', 'парк', 'переведите на русский'),
+        card('лошадь', 'het paard', 'назовите слово вместе с артиклем'),
+        card('мяч', 'de bal', 'назовите слово вместе с артиклем'),
+        card('___ bal', 'de bal', 'de или het?'),
+        card('___ paard', 'het paard', 'de или het?'),
+        card('___ bus', 'de bus', 'de или het?'),
+        card('___ park', 'het park', 'de или het?'),
+        card('Каким местоимением заменяют предметы во множественном числе?', 'Ze, независимо от рода: de boeken → ze.'),
+        card('Каким местоимением заменяют de-слово, а каким het-слово?', 'De-слово — hij, het-слово — het: de tafel → hij, het boek → het.'),
+        card('Как hij и het выглядят в роли дополнения?', 'Hij → hem, het → het: ik zie hem (de sleutel), ik zie het (het boek).'),
+    ];
+    const spec = drillFromFlashcards(cards, 'hij вместо het', (s) => s);
+    const byFront = (f, a) => spec.items.find(it => it.prompt === f && (!a || it.answer === a));
+    const listen = byFront(LISTEN, 'Onder de tafel ligt een bal. Hij is rond.');
+    const listenAnswers = new Set(cards.filter(c => c.front === LISTEN).map(c => c.back));
+    const draws = (item) => Array.from({ length: 60 }, () => buildOptions(item, spec.items)).flat();
+
+    check('a listening card keeps its sound in the drill', !!listen?.media && JSON.parse(listen.media).front[0].kind === 'audio');
+    const strays = [...new Set(draws(listen))].filter(o => !listenAnswers.has(o));
+    check('a listening card is offered only other heard sentences', strays.length === 0, strays.join(' | '));
+    check('a listening card still gets four options', buildOptions(listen, spec.items).length === 4);
+
+    check('the card drill puts no generic label over a card\'s own question', !spec.promptLabel, spec.promptLabel);
+
+    const word = byFront('het paard');
+    check('a card keeps the task line its author printed', word?.context === 'переведите на русский');
+    const notRussian = [...new Set(draws(word))].filter(o => !/^[а-яё ,]+$/i.test(o));
+    check('a word to translate is offered only translations', notRussian.length === 0, notRussian.join(' | '));
+
+    const blank = byFront('___ bal');
+    const blankOpts = new Set(draws(blank));
+    check('a de/het blank is offered its own word with each article, nothing else',
+        blankOpts.size === 2 && blankOpts.has('de bal') && blankOpts.has('het bal'), [...blankOpts].join(' | '));
+
+    const rule = byFront('Каким местоимением заменяют de-слово, а каким het-слово?');
+    const ruleAnswers = new Set(cards.filter(c => c.front.startsWith('Как')).map(c => c.back));
+    const ruleStrays = [...new Set(draws(rule))].filter(o => !ruleAnswers.has(o));
+    check('a rule question is offered only the other rules, even if that makes three options',
+        ruleStrays.length === 0 && buildOptions(rule, spec.items).length === 3, ruleStrays.join(' | '));
+
+    id = 100;
+    const synonyms = drillFromFlashcards([
+        card('конь', 'het paard', 'назовите слово'), card('лошадь', 'het paard', 'назовите слово'),
+        card('шар', 'de bal', 'назовите слово'), card('мяч', 'de bal', 'назовите слово'),
+        card('автобус', 'de bus', 'перевод'),
+    ], 't', (s) => s);
+    const thin = synonyms.items.filter(it => buildOptions(it, synonyms.items).length < 2).map(it => it.prompt);
+    check('a card whose kind shares its answer still gets another option', thin.length === 0, thin.join(', '));
+    const fourBlanks = drillFromFlashcards([card('___ bal', 'de bal', 'de или het?'), card('___ paard', 'het paard', 'de или het?'),
+        card('___ bus', 'de bus', 'de или het?'), card('___ park', 'het park', 'de или het?')], 't', (s) => s);
+    check('four cards are not read as one small fixed vocabulary', closedOptionSet(fourBlanks.items) === null);
+
+    id = 200;
+    const allDe = drillFromFlashcards([card('___ bal', 'de bal', 'de или het?'), card('___ bus', 'de bus', 'de или het?'),
+        card('___ tafel', 'de tafel', 'de или het?'), card('лошадь', 'het paard', 'назовите слово'),
+        card('театр', 'het theater', 'назовите слово')], 't', (s) => s);
+    const allDeBal = allDe.items.find(it => it.prompt === '___ bal');
+    const allDeOffers = new Set(Array.from({ length: 60 }, () => buildOptions(allDeBal, allDe.items)).flat());
+    check('a blank whose siblings all take its article is offered the other article, never a whole answer',
+        [...allDeOffers].sort().join('|') === 'de bal|het bal', [...allDeOffers].join(' | '));
+    const verb = drillFromFlashcards([card('Ik ___ naar huis', 'Ik ga naar huis', 'вставьте глагол'),
+        card('Ik ga naar huis', 'Я иду домой', 'переведите'), card('мяч', 'de bal', 'назовите слово'),
+        card('лошадь', 'het paard', 'назовите слово')], 't', (s) => s);
+    const loneFill = verb.items.find(it => it.prompt === 'Ik ___ naar huis');
+    check('a blank with no other fill of its kind is typed (its answer alone), not offered another card',
+        buildOptions(loneFill, verb.items).length === 1, buildOptions(loneFill, verb.items).join(' | '));
+
+    const tiered = drillFromFlashcards([
+        card('het paard', 'лошадь', 'переведите'), card('de bal', 'мяч', 'переведите'),
+        card('het huis', 'дом', 'переведите'),
+        card('Ik fiets naar school.', 'Я еду на велосипеде в школу каждый день.', 'переведите'),
+        card('Het paard loopt in de wei.', 'Лошадь бежит по лугу очень быстро сегодня.', 'переведите'),
+        card('De bal ligt onder de tafel.', 'Мяч лежит под столом в большой комнате.', 'переведите'),
+    ], 't', (s) => s);
+    const horse = tiered.items.find(it => it.prompt === 'het paard');
+    const dropped = Array.from({ length: 200 }, () => buildOptions(horse, tiered.items))
+        .filter(opts => !opts.includes('мяч') || !opts.includes('дом'));
+    check('answers in the card\'s own shape come before other shapes of the same task',
+        dropped.length === 0, `${dropped.length} of 200 draws left out a word: ${(dropped[0] ?? []).join(' | ')}`);
+
+    const loneListen = drillFromFlashcards([card(LISTEN, 'Het paard is groot.', '', audio(9)),
+        card('het paard', 'лошадь', 'переведите'), card('de bal', 'мяч', 'переведите'),
+        card('Ik fiets naar school elke dag.', 'Я каждый день езжу в школу.', 'переведите'),
+        card('мяч', 'de bal', 'назовите слово'), card('лошадь', 'het paard', 'назовите слово'),
+        card('Hij ligt onder de tafel.', 'Hij ligt onder de tafel en rolt weg.', 'перепишите')], 't', (s) => s);
+    const heard = loneListen.items.find(it => it.media);
+    check('a lone listening card is typed, never offered an answer to a question it does not ask',
+        buildOptions(heard, loneListen.items).length === 1, buildOptions(heard, loneListen.items).join(' | '));
+
+    const ai = { prompt: 'x', answer: 'a' };
+    const bank = [ai, { prompt: 'y', answer: 'b' }, { prompt: 'z', answer: 'c' }];
+    check('a drill item with no pool still draws from the whole bank (AI drills)',
+        new Set(Array.from({ length: 40 }, () => buildOptions(ai, bank)).flat()).size === 3);
+
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    check('the player plays the card\'s question-side sound as the item opens',
+        /parseCardMedia\(currentItem\.media\)\.front/.test(player) && /<CardAudioProvider[^\n]*\sautoPlay>/.test(player));
+    check('the player shows the card\'s own task line before the drill\'s label',
+        /<MathText content=\{currentItem\.context \|\| spec\.promptLabel/.test(player));
+    check('the player asks an item typed when its options hold the answer alone',
+        /mode === 'choice' && currentItem && options\.length < 2 \? 'type' : mode/.test(player)
+        && /\) : itemMode === 'choice' \? \(/.test(player));
 }
 
 rmSync(scratch, { recursive: true, force: true });

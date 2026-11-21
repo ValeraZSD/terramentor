@@ -7,7 +7,8 @@
 # network, so they run anywhere in seconds.
 #
 # CI runs `npm test` and the steps around it (types, `node --check`, the
-# link-time import, the build and, on Windows, the README's pictures);
+# link-time import, the build, on Windows the README's pictures and on Linux
+# the desktop zip's size);
 # CONTRIBUTING.md lists the same six for a contributor to run locally.
 #
 # The Node matrix is not decoration. The floor declared in package.json
@@ -90,8 +91,26 @@ jobs:
       - name: Guard suites
         run: npm test
 
+      # What tools/perf-budget-gates.mjs measured, beside each budget: a passing
+      # suite is one line in the step above, and the numbers are what a budget
+      # is next set from. The same table is on the run's summary page.
+      - name: Performance numbers
+        if: always()
+        run: cat "$RUNNER_TEMP/perf-budgets.md" 2>/dev/null || echo "the performance gate did not run"
+
       - name: Frontend builds
         run: npm run build
+
+      # The Linux zip (the largest of the three) built as the release builds
+      # it, and held to its size budget, so a change that grows the download
+      # is seen on its pull request and not at the next nightly. The release
+      # workflow checks every platform's zip the same way.
+      - name: Linux package within its size budget
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 15
+        run: |
+          node tools/build-desktop.mjs --skip-build
+          node tools/perf-budget-gates.mjs --package release/*.zip
 
       # The README's pictures against the app just built: tools/docs-shots.mjs
       # builds an invented course in a scratch library, opens the screen each
@@ -141,3 +160,6 @@ jobs:
 
       - name: Two hosted copies behind the proxy
         run: TM_IMAGE=terramentor:ci bash hosted/rehearse.sh
+
+      - name: Site libraries are kept apart, wake fast and spend nothing
+        run: docker run --rm --user 0 -v "$PWD/tools:/app/tools:ro" terramentor:ci node tools/site-proofs.mjs

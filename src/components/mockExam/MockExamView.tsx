@@ -14,6 +14,7 @@ import { CourseStartPanel } from './CourseMock';
 import { Panel } from './Panel';
 import type { CourseListSitting, MockExamList, MockListSitting } from './mockExamTypes';
 import { useDuration } from './mockFormat';
+import { runningSittings } from './courseMockState';
 
 /**
  * Mock exam: a real past paper, written by hand with the app as the clock,
@@ -47,14 +48,9 @@ export default function MockExamView({ projectId }: { projectId: number }) {
     // when its screen closes, CourseMock.tsx). The server ignores a pause once
     // the writing is over.
     const running = useRef<number[]>([]);
+    useEffect(() => { running.current = runningSittings(data, open); }, [data, open]);
     useEffect(() => {
-        running.current = [
-            ...(data?.papers.flatMap(p => p.sittings.filter(s => s.status === 'writing' && s.running).map(s => s.id)) ?? []),
-            ...(open != null ? [open] : []),
-        ];
-    }, [data, open]);
-    useEffect(() => {
-        const leave = () => { for (const id of new Set(running.current)) void api.pauseMockOnLeave(id).catch(() => {}); };
+        const leave = () => { for (const id of running.current) void api.pauseMockOnLeave(id).catch(() => {}); };
         window.addEventListener('pagehide', leave);
         return () => window.removeEventListener('pagehide', leave);
     }, []);
@@ -233,7 +229,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
     const showConfirm = useStore(s => s.showConfirm);
     const rows = useMemo(() => [
         ...data.papers.flatMap(p => p.sittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: p.title }))),
-        ...data.courseSittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: t("From this course") })),
+        ...data.courseSittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: s.lookBack ? t("Look back") : t("From this course") })),
     ].sort((a, b) => b.s.startedAt.localeCompare(a.s.startedAt)), [data, t]);
     const dateFmt = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }), []);
     if (rows.length === 0) return null;

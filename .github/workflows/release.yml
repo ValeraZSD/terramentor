@@ -219,8 +219,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Only the exact version here. The tags that MOVE (`latest` and the minor
-      # line, or `nightly`) are pointed at this image by the image-tags job,
+      # Only the exact version here. The tags that MOVE (`latest`, the minor and
+      # major lines, or `nightly`) are pointed at this image by the image-tags job,
       # after the release is published: a build that fails later, in the zips or
       # the release, must not have moved what `docker compose pull` fetches.
       - id: meta
@@ -290,8 +290,8 @@ jobs:
   # runs `npm ci`, and the runner's Node — pinned by setup-node — is the runtime
   # that ships (see the header of the build script). The staged copy starts
   # itself in a scratch data directory before it is zipped; a package that does
-  # not start never reaches the release. macOS builds on Apple Silicon; an Intel
-  # Mac runs the zip through Rosetta.
+  # not start never reaches the release. macOS builds on Apple Silicon only:
+  # its Node and native modules are arm64, which an Intel Mac cannot run.
   desktop:
     needs: [plan, verify]
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
@@ -321,6 +321,11 @@ jobs:
         run: node tools/build-desktop.mjs --skip-build
         env:
           GIT_SHA: ${{ needs.plan.outputs.ref }}
+      # The zip against its size budget (tools/perf-budgets.json): a download
+      # that grew past it is raised on purpose, in that file, or not shipped.
+      - name: Package within its size budget
+        run: node tools/perf-budget-gates.mjs --package release/*.zip
+        shell: bash
       # The macOS package opened as a person opens it: the bundle copied on its
       # own out of the unpacked zip, started through LaunchServices, marked as
       # downloaded, then not, then read-only (tools/macos-open-check.sh).
@@ -479,7 +484,7 @@ jobs:
 
   # The image tags that MOVE, pointed at the image already pushed and
   # smoke-tested, once the release that names it is public: `latest` and the
-  # minor line for a stable release that is not an older line's hotfix,
+  # minor and major lines for a stable release that is not an older line's hotfix,
   # `nightly` for a nightly (releasePlan's movingTags). A retag copies the
   # multi-arch manifest by digest; nothing is rebuilt.
   image-tags:

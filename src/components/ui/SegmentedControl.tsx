@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, ReactNode } from 'react';
 import { cx, FOCUS_RING } from './vocabulary';
+import { useSettingHint } from './settingHint';
 
 export interface Segment<T extends string | number> {
     value: T;
@@ -46,8 +47,21 @@ interface Props<T extends string | number> {
      * For a phone toolbar where the switch and the buttons beside it span the
      * screen edge to edge: a switch at its own width left a strip of nothing at
      * the right that read as a layout that had not finished.
+     *
+     * `'narrow'`: only while the row it stands in is narrow (under 40rem, a
+     * phone or a side panel), its own width on a wider one. For a switch alone
+     * on its line, such as the Projects page's Active / Finished / Archived:
+     * across a desktop page three segments would be a long bar of air.
+     *
+     * The row is the PARENT element, so the parent must be the line: a block,
+     * or a flex column. In a flex row or a grid the switch shares its line,
+     * and it keeps its own width there whatever the width (a settings row
+     * that puts the switch beside its sentence from `sm:` up). A parent that
+     * shrinks to its content (a cell of a centred column) measures narrow
+     * always and gives the fill no room to take: wrap it in a block that
+     * spans the line, or leave the prop off.
      */
-    block?: boolean;
+    block?: boolean | 'narrow';
     /**
      * The control sits on the page's own grey, not on a white panel.
      *
@@ -57,6 +71,14 @@ interface Props<T extends string | number> {
      */
     onPage?: boolean;
     className?: string;
+}
+
+/** Whether `row` lays its children out one per line: a block, or a flex column. */
+function standsAlone(row: HTMLElement): boolean {
+    const s = getComputedStyle(row);
+    if (/grid/.test(s.display)) return false;
+    if (/flex/.test(s.display)) return /column/.test(s.flexDirection);
+    return true;
 }
 
 /**
@@ -75,8 +97,30 @@ export function SegmentedControl<T extends string | number>({
     track = true, block = false, onPage = false, className,
 }: Props<T>) {
     const vertical = orientation === 'vertical';
+    const rowHint = useSettingHint();
     const ref = useRef<HTMLDivElement>(null);
     const [wrapped, setWrapped] = useState(false);
+
+    // `block="narrow"`: the row it stands in is measured, not the screen, so
+    // the same switch in a side panel fills too. The row's width does not
+    // depend on whether the switch fills it, so this never argues with itself.
+    const fillsWhenNarrow = block === 'narrow';
+    const [narrowRow, setNarrowRow] = useState(false);
+    useLayoutEffect(() => {
+        const row = ref.current?.parentElement;
+        if (!fillsWhenNarrow || !row) return;
+        const measure = () => {
+            const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+            const w = row.clientWidth;
+            setNarrowRow(w > 0 && w < 40 * rem && standsAlone(row));
+        };
+        measure();
+        if (typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(measure);
+        ro.observe(row);
+        return () => ro.disconnect();
+    }, [fillsWhenNarrow]);
+    const fill = block === true || (fillsWhenNarrow && narrowRow);
 
     // Has the row actually wrapped?
     //
@@ -188,7 +232,10 @@ export function SegmentedControl<T extends string | number>({
         <div
             ref={ref}
             role="radiogroup"
+            // The High Contrast frame (index.css): one round a track, one per chip.
+            data-segmented={track && !wrapped ? 'track' : 'chips'}
             aria-label={label}
+            aria-describedby={rowHint}
             aria-orientation={orientation}
             onKeyDown={onKeyDown}
             className={cx(
@@ -207,7 +254,7 @@ export function SegmentedControl<T extends string | number>({
                 // separate chips in the `subtle` fill are the whole look (the
                 // endpoint presets, at every width). Only a row that FITS is a
                 // track with segments lifted out of it.
-                block ? 'flex w-full' : 'inline-flex max-w-full',
+                fill ? 'flex w-full' : 'inline-flex max-w-full',
                 'flex-wrap items-stretch rounded-lg',
                 wrapped ? 'gap-1.5' : 'gap-0.5 p-1',
                 track && !wrapped && (onPage ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-slate-100 dark:bg-slate-700/70'),
@@ -223,6 +270,7 @@ export function SegmentedControl<T extends string | number>({
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        data-segment
                         data-selected={selected}
                         tabIndex={selected ? 0 : -1}
                         disabled={o.disabled}
@@ -235,11 +283,11 @@ export function SegmentedControl<T extends string | number>({
                             // floor: the share of the width already spaces the label.
                             // The full floor made "Mese Settimana Giorno" wrap into
                             // chips on a 320px phone with room to spare.
-                            block && !vertical ? 'px-1.5' : 'px-3',
+                            fill && !vertical ? 'px-1.5' : 'px-3',
                             '[touch-action:manipulation] disabled:opacity-45 disabled:cursor-default', FOCUS_RING,
                             size === 'md' ? 'text-sm' : 'text-xs',
                             vertical ? stacked : inRow,
-                            block && !vertical && 'flex-1',
+                            fill && !vertical && 'flex-1',
                             selected ? chosen
                                 : cx('text-slate-600 dark:text-slate-300 can-hover:hover:text-slate-900 dark:can-hover:hover:text-white', outlined),
                         )}

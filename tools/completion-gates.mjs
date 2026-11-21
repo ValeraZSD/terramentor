@@ -18,7 +18,7 @@
  *
  *   node tools/completion-gates.mjs
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -466,6 +466,121 @@ for (const [name, patch] of Object.entries(POSTER_CASES)) {
             seen.add(`${pixels[i] >> 4},${pixels[i + 1] >> 4},${pixels[i + 2] >> 4}`);
         }
         check(`${name}: the tick on the badge is actually visible`, seen.size >= 3, `${seen.size} colours in the badge`);
+    }
+}
+
+/* ── the screen's own wiring ─────────────────────────────────────────────── */
+section('the screen');
+
+// The real screen, mounted on a stand-in store: what a press does, not what
+// the source looks like.
+{
+    const { JSDOM } = require('jsdom');
+    // Inside node_modules, so the bundle's own `require('react')` resolves.
+    const cache = join(repoRoot, 'node_modules', '.cache');
+    mkdirSync(cache, { recursive: true });
+    const screenScratch = mkdtempSync(join(cache, 'completion-screen-gates-'));
+    const outfile = join(screenScratch, 'screen.cjs');
+    const stubs = {
+        name: 'completion-screen-stubs',
+        setup(b) {
+            b.onResolve({ filter: /^(\.\.\/)+(store|api|i18n)$/ }, (a) => ({ path: a.path.split('/').pop(), namespace: 'stub' }));
+            b.onResolve({ filter: /^stub:store$/ }, () => ({ path: 'store', namespace: 'stub' }));
+            b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({
+                resolveDir: repoRoot, loader: 'js',
+                contents: a.path === 'store'
+                    ? `import { create } from 'zustand';
+                       export const themeKeyOf = () => 'light';
+                       export const isDarkTheme = (t) => t === 'dark';
+                       export const useStore = create(() => ({ completion: null, theme: 'light', themeTint: null, projects: [] }));`
+                    : a.path === 'api'
+                        ? 'export const api = {}; export const newAttemptId = () => "x";'
+                        : "import i18next from 'i18next'; export const currentLocale = () => i18next.language || 'en'; export const k = (s) => s; export default i18next;",
+            }));
+        },
+    };
+    const built = esbuild.build({
+        plugins: [stubs],
+        stdin: {
+            contents: `
+                import * as React from 'react';
+                import { createRoot } from 'react-dom/client';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import CompletionSummary from './src/components/completion/CompletionSummary';
+                export { useStore } from 'stub:store';
+                export const ready = i18n.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: {} } },
+                    keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false }, react: { useSuspense: false }, initAsync: false });
+                export function mount(el) { const r = createRoot(el); React.act(() => r.render(React.createElement(CompletionSummary))); return () => React.act(() => r.unmount()); }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repoRoot, loader: 'tsx',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile,
+        jsx: 'automatic', packages: 'external', logLevel: 'silent',
+    });
+    // A failed build still removes its scratch folder.
+    await built.catch((e) => { rmSync(screenScratch, { recursive: true, force: true }); throw e; });
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    const g = globalThis;
+    const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver', 'KeyboardEvent', 'MouseEvent',
+        'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'navigator'];
+    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
+    window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
+    class RO { observe() { } unobserve() { } disconnect() { } }
+    try {
+        for (const [k, v] of Object.entries({
+            window, document: window.document, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+            MutationObserver: window.MutationObserver, KeyboardEvent: window.KeyboardEvent, MouseEvent: window.MouseEvent,
+            getComputedStyle: window.getComputedStyle.bind(window), IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: RO,
+            requestAnimationFrame: (f) => setTimeout(f, 0), cancelAnimationFrame: (t) => clearTimeout(t), navigator: window.navigator,
+        })) Object.defineProperty(g, k, { value: v, configurable: true, writable: true });
+        window.ResizeObserver = RO;
+        const view = require(outfile);
+        await view.ready;
+        const doc = window.document;
+        const settle = async () => { for (let i = 0; i < 4; i++) await view.act(async () => { await new Promise(r => setTimeout(r, 0)); }); };
+        const data = projectCompletion(effortProject);
+        let closed = 0;
+        let writes = 0;
+        let answer = false;
+        view.useStore.setState({
+            completion: { ...data, project: { ...data.project, status: 'active' } },
+            closeCompletion: () => { closed++; view.useStore.setState({ completion: null }); },
+            updateProject: async () => { writes++; return answer; },
+            addToast: () => { },
+        });
+        const host = doc.createElement('div'); doc.body.append(host);
+        const unmount = view.mount(host);
+        await settle();
+        const fileButton = () => [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Move it to Completed');
+        check('the screen is up, offering "Move it to Completed"', !!fileButton(), doc.body.textContent.slice(0, 120));
+
+        // Filing is a write that can fail (the server restarting, a hosted copy
+        // offline): `updateProject` toasts and answers false. Closing anyway
+        // marked a screen shown only once as seen and left the project Active.
+        await view.act(async () => { fileButton()?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await settle();
+        check('a failed filing leaves the screen open, so the press can be repeated', writes === 1 && closed === 0 && !!fileButton(),
+            `${writes} write(s), ${closed} close(s)`);
+        answer = true;
+        await view.act(async () => { fileButton()?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await settle();
+        check('a filing that went through closes it', writes === 2 && closed === 1, `${writes} write(s), ${closed} close(s)`);
+
+        // The activity chart is a group named by the period it covers; its
+        // bars name their own days. A bare bucket size ("7") is no name.
+        view.useStore.setState({ completion: { ...data, project: { ...data.project, status: 'active' } } });
+        await settle();
+        const chart = doc.querySelector('[role="group"]');
+        const name = chart?.getAttribute('aria-label') ?? '';
+        check('the activity chart is named by the period it covers',
+            !!data.span && name !== '' && !/^\d+( days?)?$/.test(name.trim()) && /\d{4}/.test(name), name || 'no chart');
+        unmount();
+    } finally {
+        for (const k of GLOBALS) {
+            if (saved[k]) Object.defineProperty(g, k, saved[k]); else delete g[k];
+        }
+        window.close();
+        rmSync(screenScratch, { recursive: true, force: true });
     }
 }
 

@@ -11,7 +11,9 @@ export const CLIENT_SETTING_KEYS = [
     // How the app looks
     'theme', 'theme_tint', 'theme_surfaces', 'accent_color',
     'app_icon_style', 'app_icon_bg', 'app_icon_radius',
-    'ui_scale', 'ui_language', 'number_format', 'week_start_day',
+    'ui_scale', 'ui_language', 'number_format', 'key_shortcuts',
+    'motion', 'contrast', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
+    'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'larger_ui',
     'sidebarWidth', 'detailPanelWidth',
     'atlas_color_mode', 'atlas_surface', 'atlas_viewer',
     'welcome_done', 'ai_setup_dismissed', 'library_notice_dismissed', 'app_placement_notice_dismissed', 'activity_log_enabled',
@@ -19,7 +21,7 @@ export const CLIENT_SETTING_KEYS = [
     'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size', 'decay_days',
     'feed_focus_total', 'feed_focus_per_project', 'feed_due_per_day', 'feed_new_per_project', 'feed_recall_per_batch', 'feed_max_parts',
     'feed_practice', 'feed_widgets', 'feed_prepare_check', 'feed_prepare_cards',
-    'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision',
+    'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'forgive_spelling', 'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision',
     // Which model answers
     'ai_enabled', 'ai_model', 'ai_openai_model', 'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order',
     'pdf_recovery_vision_model', 'atlas_naming_model', 'ai_web_search',

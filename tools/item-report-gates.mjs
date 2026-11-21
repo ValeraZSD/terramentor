@@ -107,9 +107,10 @@ const stub = createServer((req, res) => {
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 3 } }));
     });
 });
-// feedGen's isTransient reads "502"/"503"/"504" anywhere in an error's text,
-// the URL's port included: on such a port the refusal below would be retried
-// three seconds later, when this gate no longer refuses. A port without them.
+// A port without "502"/"503"/"504" in it. feedGen's isTransient reads the
+// status (feed-retry-gates.mjs), but server code that reads those digits from
+// the error's text, URL included, would retry the refusal below three seconds
+// later, when this gate no longer refuses.
 for (;;) {
     await new Promise(r => stub.listen(0, '127.0.0.1', r));
     if (!/50[234]/.test(String(stub.address().port))) break;
@@ -1146,7 +1147,7 @@ ok('…the feed card and the lesson set it aside only when not done yet, and giv
 // asks before it says nothing was changed, and a saved report reads as filed.
 ok('a failed send looks the report up: a saved one is filed as on success; otherwise it says which it knows',
     /const saved = await api\.itemReportTarget\(itemRef\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(control)
-    && /if \(saved && !saved\.undoneAt\) \{\s*useItemReports\.getState\(\)\.setReport\(saved\.ref, saved\);\s*onReported\(saved\);/.test(control)
+    && /if \(saved && !saved\.undoneAt\) \{\s*useItemReports\.getState\(\)\.setReport\(saved\.ref, saved\);\s*if \(alive\.current\) onReported\(saved\);/.test(control)
     && /setFailed\(saved === undefined \? 'unknown' : 'none'\)/.test(control)
     && /t\("Couldn't tell whether the report was sent\. Sending it again will not file it twice\."\)/.test(control)
     && /const saved = await api\.itemReportTarget\(proposal\.ref\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(proposals),

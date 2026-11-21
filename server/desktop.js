@@ -49,6 +49,7 @@ import { libraryId } from './paths.js';
 import { appPlacement } from './appPlacement.js';
 import { instanceProof, validNonce } from './instanceKey.js';
 import { clientError } from './clientError.js';
+import { heldUntil as signInHeldUntil } from './signInHold.js';
 
 /** The app folder this server runs from (inside the bundle on macOS). */
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -114,12 +115,14 @@ export const isTrayHosted = () => process.env.TERRAMENTOR_TRAY === '1';
 
 const UNSUPPORTED = { supported: false, why: 'the launcher did not say how it was started' };
 let autostart = UNSUPPORTED;
+/** desktop/lib.js once loaded: it reads a login item back as well as writing it. */
+let desktopLib = null;
 /** Loaded once, at import, and only under the launcher — so it has resolved
  *  long before a window exists to ask about it, and `status()` can stay
  *  synchronous (it is also the launcher's single-instance probe). */
 export const autostartLoaded = isDesktop() && launchTarget()
     ? import('../desktop/lib.js')
-        .then(({ autostartPlan }) => { autostart = autostartPlan(launchTarget()); return autostart; })
+        .then((lib) => { desktopLib = lib; autostart = lib.autostartPlan(launchTarget()); return autostart; })
         .catch(() => autostart)
     : Promise.resolve(autostart);
 
@@ -130,8 +133,8 @@ const startsAtLogin = () => !!(autostart.supported && existsSync(autostart.path)
 
 /** Write or remove that file. Windows needs PowerShell to make a .lnk (it is a
  *  COM object); removing one is an ordinary unlink on all three platforms.
- *  `marker` (Windows) records the script that wrote the shortcut once it has —
- *  see refreshLoginItem. */
+ *  `marker`, beside the library, records what this library wrote, so a later
+ *  start can tell its own item from another library's — see refreshLoginItem. */
 function setStartAtLogin(on, marker = null) {
     if (!autostart.supported) return false;
     if (!on) {
@@ -145,17 +148,30 @@ function setStartAtLogin(on, marker = null) {
             writeFileSync(autostart.path, autostart.contents, 'utf8');
             // An XDG entry has to be executable-ish only in spirit; a plist and
             // a .desktop file are both read, not run.
+            if (marker) try { writeFileSync(marker, autostart.contents, 'utf8'); } catch { /* refresh then leaves it alone */ }
             return true;
         }
         const file = join(tmpdir(), `terramentor-autostart-${process.pid}.ps1`);
         writeFileSync(file, autostart.script, 'utf8');
         const child = spawn('powershell.exe',
             ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file],
-            { stdio: 'ignore', windowsHide: true });
-        const script = autostart.script;
-        child.on('exit', (code) => {
+            { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        const wrote = autostart.record;
+        let printed = '';
+        child.stdout.on('data', (b) => { printed += b; });
+        child.on('close', (code) => {
             try { rmSync(file, { force: true }); } catch { /* temp */ }
-            if (code === 0 && marker) try { writeFileSync(marker, script, 'utf8'); } catch { /* next start rewrites once more */ }
+            if (code !== 0 || !marker) return;
+            // What was asked for, and what the shortcut Windows saved holds: the
+            // two can differ (see loginItemRefresh), and a later start needs
+            // both. The saved half is what this write's own PowerShell printed,
+            // never the shared file read back afterwards, which another
+            // library may have rewritten by then.
+            const holds = desktopLib?.savedShortcutRecord(printed);
+            try {
+                if (holds) writeFileSync(marker, desktopLib.shortcutMarker(wrote, holds), 'utf8');
+                else rmSync(marker, { force: true });
+            } catch { /* the item then counts as unmarked: owned by its --data-dir */ }
         });
         child.on('error', () => { /* no PowerShell: reported by the next status read */ });
         return true;
@@ -164,57 +180,73 @@ function setStartAtLogin(on, marker = null) {
     }
 }
 
-/**
- * A login item names the copy of the app that wrote it, and an update is a new
- * folder with the old one deleted — left alone, nothing starts at sign-in after
- * an update while Settings says it will (the file exists). On every
- * start an EXISTING login item is compared with the one this copy would write
- * and rewritten when they differ: the file itself for a plist or a .desktop
- * entry, and for a Windows shortcut (a binary .lnk) the script that last wrote
- * it, kept in `marker` beside the library. One without a marker is rewritten
- * once. A login item the person removed is never put back.
- */
-function refreshLoginItem(marker) {
-    if (!startsAtLogin()) return;
-    if (autostart.contents) {
-        let current = null;
-        try { current = readFileSync(autostart.path, 'utf8'); } catch { return; }
-        if (current !== autostart.contents) setStartAtLogin(true);
-        return;
-    }
-    let written = null;
-    try { written = readFileSync(marker, 'utf8'); } catch { /* never recorded */ }
-    if (written !== autostart.script) setStartAtLogin(true, marker);
+const readOrNull = (p, enc) => { try { return readFileSync(p, enc); } catch { return null; } };
+
+/** On every start, an existing login item this library owns is brought up to
+ *  date with this copy of the app; the rule is desktop/lib.js loginItemRefresh. */
+function refreshLoginItem(marker, dataDir) {
+    if (!desktopLib || !autostart.supported) return;
+    const shortcut = autostart.kind === 'shortcut';
+    const fields = shortcut ? desktopLib.readShortcut(readOrNull(autostart.path)) : null;
+    const action = desktopLib.loginItemRefresh({
+        kind: autostart.kind,
+        exists: startsAtLogin(),
+        current: shortcut ? (fields && desktopLib.shortcutRecord(fields)) : readOrNull(autostart.path, 'utf8'),
+        wanted: shortcut ? autostart.record : autostart.contents,
+        marker: readOrNull(marker, 'utf8'),
+        dataDir,
+        // An item with no --data-dir opens what ITS copy resolves, not this one.
+        unpinnedOf: (root) => desktopLib.unpinnedLibraryOf(root),
+    });
+    if (action === 'rewrite') setStartAtLogin(true, marker);
 }
 
 /** How long every window may go silent before the process stops itself. The
  *  page pings on its own cadence (PING_MS in src/hooks/useDesktop.ts, 10s); a
  *  laptop lid, a busy tab or a GC pause may skip a couple, and a stop that
- *  fires during a reload would be a bug people meet daily. Generous on purpose:
- *  the cost of a late stop is a few seconds of an idle process, the cost of an
- *  early one is a lost session. */
-export const IDLE_MS = 45_000;
+ *  fires during a reload would be a bug people meet daily. A window left
+ *  minimised or covered for a few minutes is worse: Chromium then wakes its
+ *  timers about once a minute, so the 10s ping arrives every ~60s, and the
+ *  limit has to outlast that with room to spare or the server stops under a
+ *  window that is still open. Generous on purpose: the cost of a late stop is
+ *  a minute or so of an idle process, the cost of an early one is a lost
+ *  session. */
+export const IDLE_MS = 90_000;
 /** After an explicit goodbye the check runs sooner — a reload sends a goodbye
  *  and a new ping within a second, a real close sends only the goodbye. */
 export const BYE_GRACE_MS = 6_000;
+/** How long a server nobody has connected to waits for its first window. A cold
+ *  Chromium start on a slow disk is ten seconds, so this is generous already,
+ *  and it is its own number: it does not follow the idle limit. */
+export const FIRST_WINDOW_MS = 180_000;
 
 /**
  * Decide whether an idle desktop server should stop. A pure function of the
  * clock and the ping history so the gate suite can walk it through every state:
  * never connected (a launcher that opened a window the user closed before the
  * page loaded must still stop, which is what `startedAt` is for), connected and
- * silent, connected and pinging, said goodbye, keep-running.
+ * silent, connected and pinging, said goodbye, keep-running, away on a sign-in.
+ *
+ * `heldUntil` is server/signInHold.js: while a sign-in has the window on the
+ * provider's site the page sends nothing, and its goodbye is not a close.
  */
-export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBye, keepRunning }) {
+export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBye, keepRunning, heldUntil = 0 }) {
     if (keepRunning) return false;
+    if (heldUntil > now) return false;
     if (!everConnected) {
         // No page ever loaded. Give the browser a real chance — a cold Chromium
         // start on a slow disk is ten seconds — and then conclude the window
-        // never came.
-        return now - startedAt > 4 * IDLE_MS;
+        // never came. The first ping can be lost, so a sign-in may have started
+        // here anyway: the page coming back from it gets the idle limit too.
+        if (heldUntil && now - heldUntil <= IDLE_MS) return false;
+        return now - startedAt > FIRST_WINDOW_MS;
     }
-    if (lastBye && lastBye >= lastPing) return now - lastBye > BYE_GRACE_MS;
-    return now - lastPing > IDLE_MS;
+    // The end of a hold is the last sign of life: the page coming back from
+    // the sign-in gets the whole idle limit to ping, not the goodbye's grace,
+    // which ran out minutes ago.
+    const alive = Math.max(lastPing, heldUntil);
+    if (lastBye && lastBye >= alive) return now - lastBye > BYE_GRACE_MS;
+    return now - alive > IDLE_MS;
 }
 
 /**
@@ -249,11 +281,12 @@ function openFolder(dir) {
  * `libraryFallback` is what the launcher recorded about a lost pointer, and
  * `libraryEmpty` the fact that joins it to a visible warning: an empty
  * library is also what a genuine first run looks like, so neither half alone
- * may speak.
+ * may speak. `heldUntil` says how long a sign-in in progress holds the server
+ * open (server/signInHold.js); the gate suite hands in its own.
  */
 export function createDesktop({
     dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now,
-    placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null,
+    placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null, heldUntil = signInHeldUntil,
 }) {
     const state = {
         startedAt: now(),
@@ -266,7 +299,7 @@ export function createDesktop({
     const trayHosted = isTrayHosted();
     // After an update the login item still names the old folder: point it here.
     const loginMarker = dataDir ? join(dataDir, 'login-item.written') : null;
-    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker)).catch(() => { /* cosmetic */ });
+    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker, dataDir)).catch(() => { /* cosmetic */ });
     // A tray icon keeps the app running by construction; the stored preference
     // is what answers when there is no icon. ORed rather than overwritten, so
     // turning the icon off (an unpackaged run of the same library) hands the
@@ -386,7 +419,7 @@ export function createDesktop({
     function tick() {
         const t = now();
         for (const [id, seen] of state.clients) if (t - seen > IDLE_MS) state.clients.delete(id);
-        if (shouldShutDown({ now: t, ...state, keepRunning: keepRunning() })) {
+        if (shouldShutDown({ now: t, ...state, keepRunning: keepRunning(), heldUntil: heldUntil() })) {
             stop(state.everConnected ? 'every window has closed' : 'no window ever connected');
         }
     }
@@ -493,7 +526,7 @@ export function createDesktop({
         res.json({ ok: true, lastDir: libraryFallback.lastDir, pointerPath: libraryFallback.pointerPath });
     });
 
-    return { publicRouter: pub, protectedRouter, status, stop, state };
+    return { publicRouter: pub, protectedRouter, status, stop, state, tick };
 }
 
 /** What a non-desktop server answers, so the client has one shape to read. */

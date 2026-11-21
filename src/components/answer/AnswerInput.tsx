@@ -38,6 +38,8 @@ export interface AnswerInputProps {
     result?: { correct: boolean; answer: string; run?: RunResult } | null;
     /** Put the caret in the input on mount (an open format the learner is about to write in). */
     autoFocus?: boolean;
+    /** Enter in a one-line answer (fill-in, numeric): the surface's own Check. */
+    onSubmit?: () => void;
 }
 
 const INPUTS: Record<AnswerFormat, ComponentType<AnswerInputProps>> = {

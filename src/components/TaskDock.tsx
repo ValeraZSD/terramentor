@@ -8,6 +8,7 @@ import { KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useTranslation } from 'react-i18next';
 import i18n, { k } from '../i18n';
 import { useAccentVars } from '../hooks/useAccentVars';
+import { motionReduced } from '../utils/accessibility';
 
 /**
  * A CHIP IS COLOURED BY ITS OWN PROJECT, never by the page it is floating over.
@@ -92,10 +93,10 @@ const EXIT_MS = EXIT_FADE_MS + EXIT_COLLAPSE_MS;
 
 /** Whether the reader has asked for less movement. Read at the moment it
  *  matters, never cached — and it has to be read in JS rather than left to a
- *  `motion-reduce:` class, because these transitions are inline styles (they
+ *  `motion-off:` class, because these transitions are inline styles (they
  *  carry per-property delays) and an inline style beats any class. */
 function reducedMotion(): boolean {
-    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+    return motionReduced();
 }
 
 /**
@@ -105,10 +106,12 @@ function reducedMotion(): boolean {
  *
  * Each chip: a breathing dot in the owning project's colour while running
  * (grey while queued), the task label, and live progress (percent where a
- * real total exists, character counts otherwise). Clicking a chip navigates
- * to the surface the task belongs to; ✕ cancels an active task or dismisses
- * a finished one. Navigating away never cancels anything — generations run
- * server-side and the queue advances on its own.
+ * real total exists, character counts otherwise). Clicking a chip opens the
+ * task's record, whose first button goes to the surface the task belongs to;
+ * ✕ dismisses a finished task at once; on an active one it asks first, since
+ * one slip on a small button threw away a long job. Navigating away never
+ * cancels anything — generations run server-side and the queue advances on
+ * its own.
  */
 
 
@@ -168,8 +171,9 @@ function sortTasks(tasks: AITaskSummary[]): AITaskSummary[] {
 /**
  * The chip's place in the row, and its way out of it. One grid column: `1fr`
  * while the chip is here, `0fr` while it leaves, which is a width animation
- * with no width to measure — the inner box keeps `min-w-0 overflow-hidden` so
- * the chip is CLIPPED as the column closes rather than reflowing its own text.
+ * with no width to measure — the inner box takes `overflow-hidden` while it
+ * leaves, so the chip is CLIPPED as the column closes rather than reflowing
+ * its own text.
  * The words go first (they are already gone by the time the clipping would
  * show), and the negative margin walks back the dock's `gap` so the row closes
  * the whole way instead of leaving a 4px hole where the chip was.
@@ -200,7 +204,9 @@ function ChipExit({ leaving, children }: { leaving: boolean; children: React.Rea
             aria-hidden={leaving || undefined}
         >
             <div
-                className="min-w-0 overflow-hidden"
+                // Clipped only while it leaves: a staying chip's High Contrast
+                // frame stands outside its box, and the clip cut its edges.
+                className={`min-w-0 ${leaving ? 'overflow-hidden' : ''}`}
                 style={{
                     opacity: leaving ? 0 : 1,
                     pointerEvents: leaving ? 'none' : undefined,
@@ -242,14 +248,19 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     // there is no output to look at, and "why" is the only question left.
     const [showFailure, setShowFailure] = useState(false);
     // The task's own record: when it started, how far it has got, how long it
-    // has left, and the controls that go with those. Opened by the progress
-    // badge on any chip, and by the chip itself when the task has no screen to
-    // go to — which is most of the background kinds.
+    // has left, the controls that go with those, and the way to its screen.
+    // Opened by a press on any chip that is not a failure with a report.
     const [showDetail, setShowDetail] = useState(false);
     const cancelAiTask = useStore(s => s.cancelAiTask);
+    const showConfirm = useStore(s => s.showConfirm);
+    const hideConfirm = useStore(s => s.hideConfirm);
 
     const active = task.status === 'running' || task.status === 'queued';
     const failed = task.status === 'error';
+    // A failure WITH its report opens the report; one without opens the record,
+    // which carries the error text. A record already open when its task fails
+    // stays open and shows that text; the report is the next press on the chip.
+    const diagnosed = failed && !!task.failure;
     const { vars: accentVars, dot: dotColor } = useTaskAccent(task.projectColor);
 
     // Hovering holds the chip: the pointer is on its way to the result. So does
@@ -259,14 +270,45 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     // dock is what owns the countdown: a chip clipped behind the "+N" pill is
     // not mounted at all, and a timer living in it would never fire.
     const [hovered, setHovered] = useState(false);
+    // So does the question the ✕ asks on an active task.
+    const [asking, setAsking] = useState(false);
     useEffect(() => {
-        onHold(task.id, hovered || showFailure || showDetail);
+        onHold(task.id, hovered || showFailure || showDetail || asking);
         return () => onHold(task.id, false);
-    }, [hovered, showFailure, showDetail, task.id, onHold]);
+    }, [hovered, showFailure, showDetail, asking, task.id, onHold]);
 
     const detail = progressText(task);
     const kindLabel = tr(KIND_LABEL[task.kind] ?? k("AI task"));
     const title = taskTitle(task, tr);
+
+    // Stopping throws the job away, and the ✕ is a small target beside the
+    // chip, so it asks; the safe answer has the focus. A task that ends while
+    // the question is open closes the question: there is nothing left to stop.
+    // The same when the chip goes because its task left the list; a chip only
+    // clipped behind "+N" leaves its question open, since that task still runs.
+    const askingRef = useRef(false);
+    askingRef.current = asking;
+    useEffect(() => {
+        if (asking && !active) hideConfirm(false);
+    }, [asking, active, hideConfirm]);
+    useEffect(() => () => {
+        if (!askingRef.current) return;
+        const now = useStore.getState().aiTasks.find(x => x.id === task.id);
+        if (now?.status !== 'running' && now?.status !== 'queued') useStore.getState().hideConfirm(false);
+    }, [task.id]);
+    const stop = async () => {
+        setAsking(true);
+        const ok = await showConfirm({
+            title: tr("Stop this task?"),
+            message: tr("{{label}} stops and will not finish. You can start it again later.", { label: title }),
+            confirmLabel: tr("Stop"),
+            cancelLabel: tr("Continue"),
+            variant: 'warning',
+        });
+        setAsking(false);
+        const now = useStore.getState().aiTasks.find(x => x.id === task.id);
+        if (ok && (now?.status === 'running' || now?.status === 'queued')) cancelAiTask(task.id);
+    };
     // The chip has room for a label and a number; the live detail line (which
     // topic, which part, how many of the batch are ready) goes in the tooltip.
     const tooltip = `${kindLabel}: ${title}` +
@@ -281,7 +323,9 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
             // repeats the dock's own capsule — because two chips side by side
             // on a bare bar ran into each other and could not be told apart.
             // The dock is still the container; the tint only draws the seam.
-            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
+            // min-h, not h: with the larger setting its buttons are 44px tall,
+            // and a fixed 36px chip let the dock's rail cut them to 36.
+            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 min-h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
                 ${task.status === 'queued' ? 'opacity-70' : ''}`}
             // Scoped here, on the chip's own root, so everything accented
             // inside it — the progress token, the focus rings — says which
@@ -295,17 +339,17 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
         >
             <button data-dock
                 type="button"
-                // Where the work IS, whenever the task has somewhere to be:
-                // the topic, the project, the feed, the assistant, the settings
-                // panel that runs it. A failure has no output to look at, so
-                // it opens the diagnosis instead; a task with nowhere to go
-                // opens its own record rather than swallowing the press.
-                onClick={() => {
-                    if (failed) setShowFailure(true);
-                    else if (!openAiTask(task)) setShowDetail(true);
-                }}
+                // The task's own record, never a jump. The dock floats over
+                // whatever the reader is doing — a lesson half read, an answer
+                // half typed — and a chip that navigated on press took them off
+                // that page for a glance at a progress number. The record says
+                // where the work is and carries the button that goes there, so
+                // leaving the page is a second, deliberate press. A failure
+                // opens its diagnosis instead: "why" is the only question left.
+                onClick={() => (diagnosed ? setShowFailure(true) : setShowDetail(true))}
+                aria-haspopup="dialog"
                 className="flex items-center gap-2 min-w-0 h-9 px-1 -mx-1 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label={failed
+                aria-label={diagnosed
                     ? tr("Why the {{kindLabel}} \"{{label}}\" failed", { kindLabel: kindLabel.toLowerCase(), label: title })
                     : tr("Open {{kindLabel}} task: {{label}} ({{detail}})", { kindLabel: kindLabel.toLowerCase(), label: title, detail })}
             >
@@ -340,34 +384,28 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                     </span>
                 </span>
 
-            </button>
-
-            {/* The state, as its own tinted token: at a glance, which of these
-                is still working and which is finished — and a CONTROL, because
-                the number is what a reader is looking at when they wonder how
-                long is left, and that answer does not fit on a chip. A sibling
-                of the chip's button rather than inside it: a button inside a
-                button is not a thing, and the press would belong to whichever
-                one the browser decided it belonged to. */}
-            <button data-dock
-                type="button"
-                onClick={() => setShowDetail(true)}
-                aria-label={tr("Details of {{label}}: {{detail}}", { label: title, detail })}
-                title={tr("Details")}
-                className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium tabular-nums transition outline-none focus-visible:ring-2 focus-visible:ring-accent hover:brightness-95 dark:hover:brightness-110 ${
-                    task.status === 'running' ? 'bg-accent/15 text-accent-fg'
-                        : task.status === 'done' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                            : failed ? 'bg-red-500/15 text-red-700 dark:text-red-300'
-                                : 'bg-slate-500/10 text-slate-600 dark:text-slate-300'}`}
-            >
-                {detail}
+                {/* The state, as its own tinted token: at a glance, which of
+                    these is still working and which is finished. Inside the
+                    chip's one button, not a second target beside it: both
+                    would open the same record. Hidden from the accessibility
+                    tree because the button's own name already says it. */}
+                <span
+                    aria-hidden="true"
+                    className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium tabular-nums ${
+                        task.status === 'running' ? 'bg-accent/15 text-accent-fg'
+                            : task.status === 'done' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : failed ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+                                    : 'bg-slate-500/10 text-slate-600 dark:text-slate-300'}`}
+                >
+                    {detail}
+                </span>
             </button>
 
             <button data-dock
                 type="button"
-                onClick={() => (active ? cancelAiTask(task.id) : onDismiss(task.id))}
-                aria-label={active ? tr("Cancel {{label}}", { label: title }) : tr("Dismiss {{label}}", { label: title })}
-                title={active ? tr("Cancel") : tr("Dismiss")}
+                onClick={() => (active ? stop() : onDismiss(task.id))}
+                aria-label={active ? tr("Stop {{label}}", { label: title }) : tr("Dismiss {{label}}", { label: title })}
+                title={active ? tr("Stop") : tr("Dismiss")}
                 className="shrink-0 grid place-items-center w-7 h-7 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 <X className="w-3.5 h-3.5" />
@@ -388,7 +426,6 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                     task={task}
                     onClose={() => setShowDetail(false)}
                     onDismiss={onDismiss}
-                    onShowFailure={task.failure ? () => { setShowDetail(false); setShowFailure(true); } : undefined}
                 />
             )}
         </div>
@@ -410,6 +447,8 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
         && x.label === y.label
         && x.projectColor === y.projectColor
         && x.error === y.error
+        // Decides what a press opens (report or record) and the chip's name.
+        && !!x.failure === !!y.failure
         && x.progress.percent === y.progress.percent
         && x.progress.content === y.progress.content
         && x.progress.thinking === y.progress.thinking

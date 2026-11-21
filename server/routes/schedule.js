@@ -5,9 +5,10 @@
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
 import {
-    allocateSchedule, calculatePace, cardPlan, persistSchedule, readStudyDays, recalibrateSchedule,
-    removeSchedule, scheduleWindowError,
+    allocateSchedule, calculatePace, lockedDeadlineError, persistSchedule, readStudyDays,
+    recalibrateSchedule, removeSchedule, scheduleWindowError, countStudyDays,
 } from '../scheduling.js';
+import { projectCountsInCards } from '../progress.js';
 import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
 import { isNodeWeight } from '../curriculumSchema.js';
 import { projectTeaches } from '../nodeRole.js';
@@ -15,6 +16,13 @@ import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
+import { libraryPace, projectVerdict } from '../pace.js';
+
+let openTopic = null;
+const openTopicStmt = () => (openTopic ??= db.prepare(`
+    SELECT 1 FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF} LIMIT 1
+`));
 
 const app = routeTable('schedule');
 
@@ -41,7 +49,7 @@ app.get('/api/schedule/overview', (req, res) => {
     try {
         const projects = db.prepare(`
             SELECT id, uuid, name, color, icon, position, status,
-                   start_date, deadline, study_days
+                   start_date, deadline, deadline_fixed, study_days
             FROM projects
             WHERE COALESCE(status, 'active') != 'archived'
             ORDER BY position ASC, id ASC
@@ -59,12 +67,13 @@ app.get('/api/schedule/overview', (req, res) => {
             FROM nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
+        refreshTopicDates();
         const extents = new Map(db.prepare(`
             SELECT n.project_id AS pid,
                    MIN(n.scheduled_start) AS first_start,
                    MAX(n.scheduled_end)   AS last_end,
                    COUNT(n.scheduled_start) AS scheduled_count
-            FROM nodes n
+            FROM plan_nodes n
             WHERE ${WORK_LEAF} AND n.scheduled_start IS NOT NULL
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
@@ -84,6 +93,9 @@ app.get('/api/schedule/overview', (req, res) => {
             JOIN nodes n ON n.id = f.node_id
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
+
+        // The learner's record, read once for every dated row (server/pace.js).
+        const library = projects.some(p => p.deadline) ? libraryPace() : null;
 
         const rows = projects.map(p => {
             const ext = extents.get(p.id) || {};
@@ -124,9 +136,13 @@ app.get('/api/schedule/overview', (req, res) => {
                 // the grid's row makes.
                 teaches: projectTeaches(p.id),
                 pace,
+                // The date judged against the learner's own pace: needed,
+                // recent and best, the band and the offers. Null without a date.
+                verdict: p.deadline ? projectVerdict(p.id, { library }) : null,
             };
         });
-        res.json({ projects: rows, today: studyToday() });
+        // The day the verdicts were judged on, even if midnight passed since.
+        res.json({ projects: rows, today: library?.today ?? studyToday() });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
         res.status(500).json({ error: clientError(err) });
@@ -138,9 +154,12 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     // `hoursPerDay` is deliberately not read. It was a project column and a
     // slider, and it cancelled itself out of the allocator's arithmetic — an
     // older client may still send it, and it is ignored rather than rejected.
-    const { startDate, deadline, studyDays } = req.body;
+    const { startDate, deadline, studyDays, deadlineFixed } = req.body;
 
     if (!startDate || !deadline) return res.status(400).json({ error: 'Start date and deadline are required.' });
+    if (deadlineFixed !== undefined && typeof deadlineFixed !== 'boolean') {
+        return res.status(400).json({ error: 'deadlineFixed must be true or false.' });
+    }
     const windowError = scheduleWindowError(startDate, deadline);
     if (windowError) return res.status(400).json({ error: windowError });
 
@@ -151,24 +170,59 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     const days = readStudyDays(studyDays == null ? null : JSON.stringify(studyDays));
 
     if (!requireProject(req, res)) return;
+    const lockError = lockedDeadlineError(id, deadline, deadlineFixed);
+    if (lockError) return res.status(400).json({ error: lockError });
 
     try {
+        const reply = (extra) => {
+            const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+            refreshTopicDates();
+            const nodes = db.prepare(`
+                SELECT id, project_id, parent_id, title, description, notes, status,
+                       is_note, position, scheduled_start, scheduled_end, estimated_weight,
+                       completed_at, created_at, updated_at
+                FROM plan_nodes WHERE project_id = ?
+            `).all(id);
+            res.json({ success: true, project: updatedProject, nodes, ...extra });
+        };
+
+        // Only the mark changes (the same window and study days): it is written
+        // alone. Laying the topics out again on the way had nothing to change,
+        // and refused the mark outright when no study day was left before the
+        // date (an exam tomorrow, a Saturday).
+        const stored = db.prepare('SELECT start_date, deadline, study_days, deadline_fixed FROM projects WHERE id = ?').get(id);
+        if (deadlineFixed !== undefined && stored
+            && stored.start_date === startDate && stored.deadline === deadline
+            && readStudyDays(stored.study_days).join() === days.join()
+            && !!stored.deadline_fixed !== deadlineFixed) {
+            db.prepare('UPDATE projects SET deadline_fixed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(deadlineFixed ? 1 : 0, id);
+            return reply({ warnings: [], stats: null });
+        }
+
         const result = allocateSchedule(id, startDate, deadline, days);
         if (!result.success) return res.status(400).json({ error: result.error });
+        // A course under way with open topics and no study day left before
+        // its date: the plan this write asks for cannot be laid.
+        const today = studyToday();
+        if (startDate < today && deadline >= today && !projectCountsInCards(id)
+            && countStudyDays(today, deadline, days) === 0 && openTopicStmt().get(id)) {
+            return res.status(400).json({ error: 'No valid study days remaining between today and deadline.' });
+        }
 
-        persistSchedule(id, result.assignments, result.baselineSnapshot, {
-            startDate, deadline, studyDays: days,
-        });
+        // The ONE write path for a window: the window, the study week and the
+        // lock. No topic date is written; every reader derives them from this
+        // row and the record (server/topicDates.js), so a course under way has
+        // its open topics from today and a missed week never reads as overdue.
+        db.transaction(() => {
+            persistSchedule(id, result.assignments, result.baselineSnapshot, {
+                startDate, deadline, studyDays: days,
+            });
+            if (deadlineFixed !== undefined) {
+                db.prepare('UPDATE projects SET deadline_fixed = ? WHERE id = ?').run(deadlineFixed ? 1 : 0, id);
+            }
+        })();
 
-        const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
-        const nodes = db.prepare(`
-            SELECT id, project_id, parent_id, title, description, notes, status,
-                   is_note, position, scheduled_start, scheduled_end, estimated_weight,
-                   completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
-        `).all(id);
-
-        res.json({ success: true, project: updatedProject, nodes, warnings: result.warnings, stats: result.stats });
+        reply({ warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Schedule] Error:', err);
         res.status(500).json({ error: clientError(err) });
@@ -186,23 +240,13 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         }
         if (result.unchanged) return res.json({ success: true, message: 'All tasks completed!', unchanged: true });
 
-        const updateNodeSchedule = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`);
-        const clearSchedules = db.prepare(`UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?`);
-        const transaction = db.transaction(() => {
-            clearSchedules.run(id);
-            for (const [nodeId, data] of result.assignments) {
-                if (data.scheduled_start && data.scheduled_end) {
-                    updateNodeSchedule.run(data.scheduled_start, data.scheduled_end, nodeId);
-                }
-            }
-        });
-        transaction();
-
+        // Nothing to write: open topics already run from today on every read.
+        refreshTopicDates();
         const nodes = db.prepare(`
             SELECT id, project_id, parent_id, title, description, notes, status,
                    is_note, position, scheduled_start, scheduled_end, estimated_weight,
                    completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
+            FROM plan_nodes WHERE project_id = ?
         `).all(id);
 
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });
@@ -217,9 +261,11 @@ app.get('/api/projects/:id/pace', (req, res) => {
     if (!requireProject(req, res)) return;
     try {
         const pace = calculatePace(id);
-        // A project measured in cards stores no topic dates, so its Timeline
-        // and Calendar draw the plan's sections from here (null otherwise).
-        if (pace.basis === 'cards') pace.cardPlan = cardPlan(id);
+        // The date judged against the learner's own pace, and the weeks it was
+        // judged from (in the verdict's unit), beside the plan-based numbers.
+        const library = libraryPace();
+        pace.verdict = projectVerdict(id, { library });
+        pace.learnerPace = pace.verdict ? library[pace.verdict.unit] : null;
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);
@@ -234,6 +280,10 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
     if (!requireProject(req, res)) return;
 
     try {
+        // A date marked "cannot move" is not removed either: the mark comes
+        // off first, as it must before any other change to the date.
+        const lockError = lockedDeadlineError(id, null, undefined);
+        if (lockError) return res.status(400).json({ error: lockError });
         // Window, node dates and baseline go; the study week stays (see
         // `removeSchedule` in server/scheduling.js).
         const { nodesCleared } = removeSchedule(id);

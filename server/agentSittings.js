@@ -39,7 +39,7 @@ import { missedOf, missedText, shownAnswer, shownKey } from './checkFeedback.js'
 import { checkAnswerWithAI } from './ai.js';
 import { MIN_GATE_QUESTIONS, recordOnce } from './mastery.js';
 import { recordMasteryCheck } from './masteryCheck.js';
-import { globalStudyQueue, studyQueue } from './decks.js';
+import { getRetention, globalStudyQueue, studyQueue } from './decks.js';
 import { ambiguousProjectText, findProject } from './projectState.js';
 import { writeCard } from './cardWrite.js';
 import { noTopicText, topicFor } from './agentReads.js';
@@ -178,10 +178,10 @@ const defaultAnswer = (q) => (q.type === 'sequence' ? JSON.stringify(Array.isArr
  * order it shows; a form has no such order, so an ordering left blank there
  * is blank, and the agent is told so rather than shown an order nobody gave.
  */
-async function gradeOne(q, raw, { form = false } = {}) {
+async function gradeOne(q, raw, { form = false, forgiveSpelling = false } = {}) {
     const answer = typeof raw === 'string' && raw.trim() ? raw.slice(0, ANSWER_CHARS) : (form ? '' : defaultAnswer(q));
     if (!answer.trim()) return { correct: false, answer, explanation: text(q.explanation) };
-    const local = gradeLocally(q, answer);
+    const local = gradeLocally(q, answer, { forgiveSpelling });
     if (local !== null) return { correct: local, answer, explanation: text(q.explanation) };
     try {
         const res = await checkAnswerWithAI(q.question, String(q.correct_answer ?? ''), answer, {
@@ -307,7 +307,9 @@ export async function submitCheck(token, answers) {
             // checker calls meets a provider's rate limit, and a fallback
             // verdict there counts a right answer as wrong.
             const graded = [];
-            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form }));
+            // Read once: one sitting is graded under one setting.
+            const forgiveSpelling = getSetting('forgive_spelling', 'off') === 'on';
+            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form, forgiveSpelling }));
             const score = graded.filter(g => g.correct).length;
             const total = s.questions.length;
             const asked = s.questions.map((d, i) => ({
@@ -422,7 +424,7 @@ function cardFront(card, presentationId) {
 // prepared on first use and kept, never at import.
 let cardRowStatement = null;
 const cardRow = (id) => (cardRowStatement ??= db.prepare(`
-    SELECT f.*, n.title AS node_title, p.name AS project_name
+    SELECT f.*, n.title AS node_title, n.project_id, p.name AS project_name
     FROM flashcards f JOIN nodes n ON n.id = f.node_id JOIN projects p ON p.id = n.project_id
     WHERE f.id = ?
 `)).get(id);
@@ -539,7 +541,8 @@ export function reviewReveal(token, presentationId) {
     s.current.revealed = true;
     configureScheduler();
     const now = new Date();
-    const intervals = Object.fromEntries(RATINGS.map(r => [r, formatInterval(computeNextInterval(card, r, now).intervalDays)]));
+    const retention = getRetention(card.project_id);
+    const intervals = Object.fromEntries(RATINGS.map(r => [r, formatInterval(computeNextInterval(card, r, now, retention).intervalDays)]));
     return {
         kind: 'review', ...reviewCounts(s),
         card: { ...cardFront(card, presentationId), back: plain(card.back), ...(card.extra ? { extra: plain(card.extra) } : {}) },
@@ -561,7 +564,7 @@ export function reviewRate(token, presentationId, rating) {
     if (!s.current.revealed) throw new SittingError(409, 'Show the answer before rating the card.');
     configureScheduler();
     const now = new Date();
-    const update = computeSrsUpdate(card, rating, now);
+    const update = computeSrsUpdate(card, rating, now, getRetention(card.project_id));
     const { duplicate, outcome } = recordOnce('agent_review', presentationId, () => {
         const written = writeCard(card.id, update);
         if (written.status !== 200) throw new SittingError(written.status, written.json?.error || 'The rating was not saved.');

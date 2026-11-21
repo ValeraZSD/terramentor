@@ -5,6 +5,15 @@ import type { SettingChange, SettingKey } from '../utils/assistantSettings';
 import { beginRun, markRunUndone, runOf, type SettingRun } from '../utils/settingRuns';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
+import { A11Y_KEYS, type A11yPrefs } from '../utils/accessibility';
+
+/** Settings row → store field, for the accessibility rows. */
+const A11Y_FIELD_OF = Object.fromEntries(
+    Object.entries(A11Y_KEYS).map(([field, row]) => [row, field]),
+) as Record<string, keyof A11yPrefs>;
+/** A store value as the marker writes it: switches are `on`/`off`. */
+const a11yValue = (v: A11yPrefs[keyof A11yPrefs]): string | number =>
+    typeof v === 'boolean' ? (v ? 'on' : 'off') : v;
 
 /**
  * "I changed it" — and the way back.
@@ -54,9 +63,10 @@ export default function SettingChangeChips({ changes, messageKey, record = false
     const setThemeTint = useStore(s => s.setThemeTint);
     const setAccentColor = useStore(s => s.setAccentColor);
     const setUiScale = useStore(s => s.setUiScale);
-    const setWeekStartDay = useStore(s => s.setWeekStartDay);
     const setUiLanguage = useStore(s => s.setUiLanguage);
     const setNumberFormat = useStore(s => s.setNumberFormat);
+    const setA11y = useStore(s => s.setA11y);
+    const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
     const addToast = useStore(s => s.addToast);
 
     // What each setting was before this turn touched it, so Undo restores a
@@ -73,11 +83,14 @@ export default function SettingChangeChips({ changes, messageKey, record = false
         const s = useStore.getState();
         const before: Partial<Record<SettingKey, string | number>> = {};
         for (const c of changes) {
-            if (c.key === 'theme') before.theme = s.theme;
+            // The CHOICE, not the mode it resolves to: undoing "dark" on a
+            // library that followed the system follows the system again.
+            if (c.key === 'theme') before.theme = s.themeChoice;
+            else if (c.key in A11Y_FIELD_OF) before[c.key] = a11yValue(s.a11y[A11Y_FIELD_OF[c.key]]);
+            else if (c.key === 'key_shortcuts') before.key_shortcuts = s.keyShortcuts ? 'on' : 'off';
             else if (c.key === 'theme_tint') before.theme_tint = s.themeTint;
             else if (c.key === 'accent_color') before.accent_color = s.accentColor;
             else if (c.key === 'ui_scale') before.ui_scale = s.uiScale;
-            else if (c.key === 'week_start_day') before.week_start_day = s.weekStartDay;
             else if (c.key === 'ui_language') before.ui_language = s.uiLanguage;
             else if (c.key === 'number_format') before.number_format = s.numberFormat;
         }
@@ -97,9 +110,15 @@ export default function SettingChangeChips({ changes, messageKey, record = false
                 else if (key === 'theme_tint') await setThemeTint(String(value));
                 else if (key === 'accent_color') await setAccentColor(String(value));
                 else if (key === 'ui_scale') await setUiScale(Number(value));
-                else if (key === 'week_start_day') await setWeekStartDay(Number(value) as never);
                 else if (key === 'ui_language') await setUiLanguage(String(value));
                 else if (key === 'number_format') await setNumberFormat(String(value));
+                else if (key in A11Y_FIELD_OF) {
+                    const field = A11Y_FIELD_OF[key];
+                    const current = useStore.getState().a11y[field];
+                    const next = typeof current === 'boolean' ? value === 'on' : typeof current === 'number' ? Number(value) : String(value);
+                    await setA11y(field, next as never);
+                }
+                else if (key === 'key_shortcuts') await setKeyShortcuts(value === 'on');
             }
         } catch (e) {
             addToast('error', t("Could not change that setting"), e instanceof Error ? e.message : String(e));

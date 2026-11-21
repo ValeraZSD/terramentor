@@ -232,14 +232,15 @@ if (getLeafNodesTs || getWorkLeavesTs) {
 }
 
 // The count is a SOURCE fact as much as a function one: a correct collector that
-// nothing calls is what `isWorkLeaf` was for three weeks. The dialog derives its
-// header, its three preset deadlines and its pace box from one `leafCount`, so
-// that one line is what this reads.
+// nothing calls is what `isWorkLeaf` was for three weeks. The plan panel counts
+// nothing itself: every number it prints is the server's verdict
+// (`GET /api/projects/:id/pace`, counted over WORK_LEAF, pinned by pace-gates),
+// so a client-side tree count appearing there is a second count to drift.
 const modalSrc = readFileSync(fileURLToPath(new URL('../src/components/ScheduleModal.tsx', import.meta.url)), 'utf8');
-const leafCountLine = modalSrc.split('\n').find(l => /const\s+leafCount\s*=/.test(l)) ?? '';
-check('ScheduleModal counts WORK leaves', /getWorkLeaves\s*\(/.test(leafCountLine), leafCountLine.trim() || 'no leafCount found');
-check('…and does not fall back to the structural collector anywhere',
-    !/\bgetLeafNodes\s*\(/.test(modalSrc), 'ScheduleModal.tsx still calls getLeafNodes()');
+check('the plan panel reads its counts from the server verdict', /api\.getProjectPace\s*\(/.test(modalSrc),
+    'ScheduleModal.tsx no longer calls api.getProjectPace()');
+check('…and counts no leaves of its own, structural or work',
+    !/\b(getLeafNodes|getWorkLeaves)\s*\(/.test(modalSrc), 'ScheduleModal.tsx counts tree leaves itself');
 
 try { db.close(); } catch { /* already closed */ }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* temp dir, best effort */ }

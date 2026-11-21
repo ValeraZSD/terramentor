@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { useIconOnlyClose } from '../hooks/useIconOnlyClose';
 import { usePointerVerb } from '../utils/platform';
 import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus, isReadyToProve } from '../utils/tree';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
@@ -11,6 +12,7 @@ import ResourceList from './ResourceList';
 import MarkdownNotes from './MarkdownNotes';
 import StudyTools from './StudyTools';
 import { TopicStudyTime } from './studyTime/StudyTime';
+import TopicEvidence from './evidence/TopicEvidence';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
 import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Play, PenLine, ShieldCheck } from 'lucide-react';
@@ -27,7 +29,7 @@ function formatDateShort(dateStr: string): string {
 }
 
 export default function DetailPanel() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const selectedNodeId = useStore(s => s.selectedNodeId);
     const tree = useStore(s => s.tree);
     const updateNode = useStore(s => s.updateNode);
@@ -39,6 +41,11 @@ export default function DetailPanel() {
     const projectName = useStore(s => s.projects.find(p => p.id === s.currentProjectId)?.name ?? null);
     const isMobile = useIsMobile();
     const pointerVerb = usePointerVerb();
+    const largerUi = useStore(s => s.a11y.largerUi);
+    const headerRow = useRef<HTMLDivElement>(null);
+    // A phone's header with larger buttons: Close as just the X when that is
+    // what lets the row fit one line (hooks/useIconOnlyClose.ts).
+    const iconOnlyClose = useIconOnlyClose(headerRow, isMobile && largerUi, i18n.language);
 
     const openAssistant = useStore(s => s.openAssistant);
 
@@ -241,7 +248,7 @@ export default function DetailPanel() {
                     Editing is a mode; nothing else in this header is needed
                     during it. */}
                 {!isMobile && !editingTitle && <Breadcrumbs />}
-                <div className="flex items-center gap-1">
+                <div ref={headerRow} className="flex flex-wrap items-center gap-1">
                 {editingTitle ? (
                     <input
                         value={title}
@@ -259,11 +266,17 @@ export default function DetailPanel() {
                     <button data-row="title"
                         onClick={() => setEditingTitle(true)}
                         title={t("{{title}} — {{pointerVerb}} to rename", { title: node.title, pointerVerb })}
-                        /* `basis-40` is a FLOOR, not a width: flexbox shrinks
-                           items in proportion to their content, so without one
-                           the longest string in the row wins and the title —
-                           which is what the panel is about — loses. */
-                        className="group flex-1 basis-40 min-w-0 flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                        /* The title takes whatever the buttons leave (they never
+                           shrink). With larger text and buttons it keeps at
+                           least 8rem: when the title and the buttons do not fit
+                           on one line (a phone, a 420px panel), the buttons go
+                           to a second line instead of squeezing the title to an
+                           ellipsis or pushing Close past the panel's edge. On a
+                           phone Close first gives up its word for the X, when
+                           that is what keeps the row one line. 8rem
+                           is a width the larger-UI floor keeps (index.css).
+                           With the setting off the row stays one line. */
+                        className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
                     >
                         <span className="min-w-0 truncate">{node.title}</span>
                         {/* Renaming was discoverable only by clicking text that
@@ -312,8 +325,11 @@ export default function DetailPanel() {
                 {/* Video explanations of this exact topic, one tap away — the
                     search people were doing by hand. */}
                 {!editingTitle && <ExternalSearchButton title={node.title} context={projectName} variant="icon" />}
-                {isMobile ? (
+                {isMobile && iconOnlyClose ? (
+                    <IconButton data-close="icon" size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-5 h-5" />} />
+                ) : isMobile ? (
                     <Button
+                        data-close="word"
                         size="sm"
                         variant="quiet"
                         onClick={() => selectNode(null)}
@@ -324,7 +340,7 @@ export default function DetailPanel() {
                         {t("Close")}
                     </Button>
                 ) : (
-                    <IconButton size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-4 h-4" />} />
+                    <IconButton data-close="icon" size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-4 h-4" />} />
                 )}
                 </div>
             </div>
@@ -335,7 +351,7 @@ export default function DetailPanel() {
                     onClick={() => setActiveTab('details')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'details'
                         ? 'border-accent text-accent-fg'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                 >
                     <Layers className="w-4 h-4" />
@@ -345,7 +361,7 @@ export default function DetailPanel() {
                     onClick={() => setActiveTab('quizzes')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'quizzes'
                         ? 'border-accent text-accent-fg'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                 >
                     <Brain className="w-4 h-4" />
@@ -355,7 +371,7 @@ export default function DetailPanel() {
                     onClick={() => setActiveTab('flashcards')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'flashcards'
                         ? 'border-accent text-accent-fg'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                 >
                     <BookOpen className="w-4 h-4" />
@@ -455,6 +471,13 @@ export default function DetailPanel() {
                             has taken, by the study clock. A note is material
                             read as part of its topic, so its time is the topic's. */}
                         {!isNote && selectedNodeId != null && <TopicStudyTime nodeId={selectedNodeId} />}
+
+                        {/* What the app thinks you know about this topic, and
+                            the answers that say so. Work leaves only: a section's
+                            knowledge is its topics'. */}
+                        {isLeaf && !isNote && selectedNodeId != null && (
+                            <TopicEvidence nodeId={selectedNodeId} refreshKey={node.status} />
+                        )}
 
                         {/* Schedule Info Card */}
                         {hasSchedule && (

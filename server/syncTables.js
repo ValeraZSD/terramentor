@@ -72,9 +72,12 @@ const TABLE_LIST = [
     ['item_reports', { class: 'history', uuid: true, derive: D([['node_id', 'nodes'], ['project_id', 'projects']], 'created_at', ['kind', 'reason']) }],
     ['mastery_claims', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['source']) }],
     ['answer_attempts', { class: 'history', uuid: true, derive: D([], 'created_at', ['surface', 'attempt_id']) }],
+    // Answers that are not evidence (server/lessonPrompts.js).
+    ['pre_questions', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at') }],
+    ['explain_backs', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['part_index']) }],
     // One go at a past paper, and the points the learner gave each part.
-    ['mock_sittings', { class: 'history', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
-    ['mock_part_scores', { class: 'history', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],
+    ['mock_sittings', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
+    ['mock_part_scores', { class: 'content', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],
 
     // ---- counters ----------------------------------------------------------------------
     // Keyed by (topic, hour, activity, device): each device adds to its own row.
@@ -112,6 +115,11 @@ const TABLE_LIST = [
     ['visual_build_failures', { class: 'device' }],
     ['region_name_failures', { class: 'device' }],
     ['ai_job_fallbacks', { class: 'device' }],
+    // Which file each installed course came from, and the undo of its last
+    // update. Keyed by this library's project id; a sync would have to
+    // re-key them by the project's uuid before they could travel.
+    ['course_base', { class: 'device' }],
+    ['course_upstream', { class: 'device' }],
     // Left behind in libraries made by older builds; nothing creates them now.
     ['generation_state', { class: 'device', legacy: true }],
     ['resource_cache', { class: 'device', legacy: true }],

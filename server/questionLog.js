@@ -14,9 +14,10 @@
 // whether a topic is proven is BKT's, and a bank that re-asked misses would be
 // a second scheduler quietly disagreeing with it.
 //
-// The one reader that weighs right and wrong is a RECALL (`recallOrder`): it
-// does not decide whether a topic is proven, only which question best asks
-// whether a fading one stuck.
+// Two readers weigh right and wrong, and neither decides whether a topic is
+// proven: a RECALL (`recallOrder`) picks which question best asks whether a
+// fading one stuck, and `shakyQuestions` lists the ones missed lately for the
+// learner to look at (a pointer, not a draw).
 //
 // Ghost (review) questions embedded in a saved practice quiz belong to OTHER
 // topics and are never drawn here.
@@ -25,6 +26,7 @@ import db from './database.js';
 import { NOW_ISO } from './database.js';
 import { hasUsableKey, GUESS_BY_FORMAT } from './answerFormats.js';
 import { isUnverified, locateAsked } from './questionTrust.js';
+import { slipParams } from './fading.js';
 
 /** How many questions one practice sitting or one mastery check draws by default. */
 export const DEFAULT_CHECK_SIZE = 10;
@@ -67,6 +69,30 @@ export function bankOf(nodeId) {
         qs.forEach((q, index) => {
             if (servable(q)) out.push({ quizId: row.id, index, question: q });
         });
+    }
+    return out;
+}
+
+let projectBanks = null;
+
+/**
+ * `bankOf` for every topic of a course in one read: node id -> its bank, same
+ * tagging and order. For a caller that would otherwise read topic by topic.
+ */
+export function banksOfProject(projectId) {
+    projectBanks ??= db.prepare(`
+        SELECT q.id, q.node_id, q.questions FROM quizzes q JOIN nodes n ON n.id = q.node_id
+        WHERE n.project_id = ? ORDER BY q.node_id, q.id
+    `);
+    const out = new Map();
+    for (const row of projectBanks.all(projectId)) {
+        const qs = safeParse(row.questions);
+        if (!Array.isArray(qs)) continue;
+        const bank = out.get(row.node_id) ?? [];
+        qs.forEach((q, index) => {
+            if (servable(q)) bank.push({ quizId: row.id, index, question: q });
+        });
+        out.set(row.node_id, bank);
     }
     return out;
 }
@@ -205,6 +231,10 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  *      and a lucky true/false says little;
  *   3. then the questions only ever missed: never got right, they say nothing
  *      about forgetting.
+ * Before all three: a question missed on a look back or a mock while its topic
+ * slips (fading.js SLIPPED_TOPIC: an earlier learner day, at most four weeks,
+ * nothing on the topic right since), so the recall card that says it comes from the look back asks
+ * the question the learner missed there.
  * Within a tier and the same share of misses, the format a guess cannot pass
  * first in EVERY tier (a correct calculation known twice says more than a
  * correct true/false known twice), then the least recently asked, then
@@ -215,7 +245,7 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  * (`bankOf`), and never one a verifier has not confirmed, since its answer
  * would record nothing. Returns `{ quizId, index, question }` entries.
  */
-export function recallOrder(nodeId) {
+export function recallOrder(nodeId, now = new Date()) {
     const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
     if (!bank.length) return [];
     const quizIds = [...new Set(bank.map(b => b.quizId))];
@@ -225,11 +255,20 @@ export function recallOrder(nodeId) {
     // the same question answered, so it counts here too.
     const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
     const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    // A slip is the slip rule's (fading.js SLIPPED_TOPIC): a mock miss on an
+    // earlier learner day, at most SLIP_MAX_DAYS old.
+    const [dayStart, oldest] = slipParams(now);
     const record = new Map(db.prepare(`
-        SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last
+        SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last,
+            strftime('%Y-%m-%dT%H:%M:%fZ',
+                MAX(CASE WHEN surface = 'mock' AND correct = 0 AND asked_at < ? AND asked_at >= ? THEN asked_at END),
+                '+1 minute') AS mockMissPlus
         FROM question_log WHERE quiz_id IN (${marks})${byUuid}
         GROUP BY k
-    `).all(...quizIds, ...uuids).map(r => [r.k, r]));
+    `).all(dayStart, oldest, ...quizIds, ...uuids).map(r => [r.k, r]));
+    // The slip clears on a right answer to ANY of the topic's questions, as the
+    // rule reads it, not only to the one missed.
+    const topicHit = db.prepare('SELECT MAX(asked_at) AS t FROM question_log WHERE node_id = ? AND correct = 1').get(nodeId)?.t ?? null;
     const previous = db.prepare(`
         SELECT ${LOG_KEY} AS k FROM question_log
         WHERE quiz_id IN (${marks}) AND surface = 'recall'
@@ -240,8 +279,12 @@ export function recallOrder(nodeId) {
         const r = record.get(askKey(b));
         const hits = r?.hits || 0;
         const misses = r?.misses || 0;
+        // Missed on a look back or a mock, and nothing on the topic answered
+        // right since (from a minute after, as SLIPPED_TOPIC counts): the
+        // question the slip is about, asked first.
+        const slipped = !!r?.mockMissPlus && !(topicHit > r.mockMissPlus);
         return {
-            b, position,
+            b, position, slipped,
             tier: hits > 0 ? 0 : misses > 0 ? 2 : 1,
             missShare: hits + misses > 0 ? misses / (hits + misses) : 0,
             guess: GUESS_BY_FORMAT[b.question.type] ?? GUESS_BY_FORMAT.multiple_choice,
@@ -251,12 +294,80 @@ export function recallOrder(nodeId) {
     });
     ranked.sort((x, y) =>
         (x.previous - y.previous)
+        || (y.slipped - x.slipped)
         || (x.tier - y.tier)
         || (y.missShare - x.missShare)
         || (x.guess - y.guess)
         || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0)
         || (x.position - y.position));
     return ranked.map(r => r.b);
+}
+
+/** Two misses in a row: one could be a slip, two with no right answer since is a pattern. */
+export const SHAKY_MISSES = 2;
+
+/**
+ * A topic's STILL SHAKY questions: its own, confirmed questions whose newest
+ * graded answers, on any surface, are SHAKY_MISSES or more misses in a row.
+ * A right answer ends the run; an ask with no grade (a whole-row sitting that
+ * named no result) is skipped, not counted either way.
+ *
+ * A pointer for the learner, never evidence: the estimate is BKT's, and this
+ * list changes nothing it reads (see the draw's rule at the top). Only what
+ * the bank still holds and no verifier holds back (no `unverified` stamp): a
+ * question reported out is gone, and a miss of one whose key nobody confirmed
+ * says nothing about the learner. Once a verifier confirms it, only the
+ * answers from then on count (`verifiedAt`, as in questionTrust.js).
+ *
+ * A copy answered in another topic's practice quiz counts by the uuid it
+ * keeps, as in `recallOrder`, but only from this course: a second import of
+ * the same course carries the same uuids, and its answers are another
+ * course's.
+ *
+ * Returns `{ uuid, stem, misses, last }`, most misses first, then the newest.
+ */
+export function shakyQuestions(nodeId) {
+    const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
+    if (!bank.length) return [];
+    const quizIds = [...new Set(bank.map(b => b.quizId))];
+    const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
+    const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    // Newest first, so a question's run of misses is read from its head. A row
+    // whose quiz sits in another course is that course's answer; one whose
+    // quiz was deleted since still counts.
+    const graded = db.prepare(`
+        SELECT ${LOG_KEY} AS k, correct, asked_at AS at
+        FROM question_log
+        WHERE (quiz_id IN (${quizIds.map(() => '?').join(',')})${byUuid}) AND correct IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM quizzes q JOIN nodes n ON n.id = q.node_id
+              WHERE q.id = question_log.quiz_id
+                AND n.project_id IS NOT (SELECT project_id FROM nodes WHERE id = ?))
+        ORDER BY asked_at DESC, id DESC
+    `).all(...quizIds, ...uuids, nodeId);
+    // Confirmed after it was asked: the answers before that stay uncounted.
+    const since = new Map(bank.filter(b => typeof b.question.verifiedAt === 'string').map(b => [askKey(b), b.question.verifiedAt]));
+    const runs = new Map();
+    for (const r of graded) {
+        const from = since.get(r.k);
+        if (from && r.at < from) continue;
+        let run = runs.get(r.k);
+        if (!run) runs.set(r.k, run = { misses: 0, last: r.at, ended: false });
+        if (run.ended) continue;
+        if (r.correct === 1) run.ended = true;
+        else run.misses++;
+    }
+    const out = [];
+    const listed = new Set();
+    for (const b of bank) {
+        const key = askKey(b);
+        const run = runs.get(key);
+        if (run && run.misses >= SHAKY_MISSES && typeof b.question.question === 'string' && !listed.has(key)) {
+            listed.add(key);
+            out.push({ uuid: b.question.uuid ?? null, stem: b.question.question, misses: run.misses, last: run.last });
+        }
+    }
+    return out.sort((a, b) => (b.misses - a.misses) || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
 }
 
 /** How much of a node's bank has ever been asked. */

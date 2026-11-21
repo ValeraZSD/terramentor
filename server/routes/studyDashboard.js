@@ -10,6 +10,7 @@ import { clientError } from '../clientError.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
 import { studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
 import { headStartFor, reviewPlanned } from '../headStart.js';
 
 const app = routeTable('studyDashboard');
@@ -24,10 +25,11 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
     try {
         const todayDate = studyToday();
         const gate = getGateConfig();
+        refreshTopicDates({ today: todayDate });
         const allNodes = db.prepare(`
             SELECT id, parent_id, title, status, is_note,
                    scheduled_start, scheduled_end
-            FROM nodes WHERE project_id = ? AND is_note = 0
+            FROM plan_nodes WHERE project_id = ? AND is_note = 0
             ORDER BY position, id
         `).all(projectId);
 
@@ -235,7 +237,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             const allNodesForHero = db.prepare(`
         SELECT n.id, n.title, n.status, n.scheduled_start, n.scheduled_end, n.parent_id,
                (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0) as child_count
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND n.is_note = 0 AND ${TOPIC_NODE}
           AND n.status NOT IN ('completed', 'skipped')
         ORDER BY CASE WHEN n.scheduled_start IS NULL THEN 1 ELSE 0 END,
@@ -280,7 +282,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             SELECT n.id, n.parent_id, n.status, n.is_note, n.role FROM nodes n
             JOIN descendants d ON n.parent_id = d.id
         )
-        SELECT d.id, d.parent_id, d.status, d.is_note, d.role,
+        SELECT d.id, d.parent_id, n.title, d.status, d.is_note, d.role,
                -- …and what its cards say, because a topic whose content is
                -- cards is finished by meeting them, not by being ticked
                -- (server/progress.js).

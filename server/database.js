@@ -11,6 +11,12 @@ import {
 } from './secrets.js';
 import { FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
+import { bootMark } from './bootTimes.js';
+
+// The app's modules are all read and linked before the first one runs, and
+// this is the first that does real work (server/index.js imports it right
+// after the umask), so the time up to here is reading the app off the disk.
+bootMark('modules read');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,6 +59,7 @@ db.pragma('journal_mode = WAL');
 // older version gave them; new ones already follow the database (above).
 makePrivateFile(`${DB_FILE}-wal`);
 makePrivateFile(`${DB_FILE}-shm`);
+bootMark('library opened');
 
 // Enable foreign key enforcement. SQLite leaves this OFF by default per
 // connection, which silently disables every `ON DELETE CASCADE` clause in the
@@ -526,6 +533,11 @@ addColumnIfMissing('projects', 'start_date', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'deadline', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'study_days', "TEXT DEFAULT '[1,2,3,4,5]'");
 addColumnIfMissing('projects', 'baseline_schedule', 'TEXT DEFAULT NULL');
+// 1 = the deadline is an exam date the learner marked "cannot move": no screen
+// offers to move it, and a write that does not name the mark (the card's
+// editor, Remove schedule, an older client) cannot move or clear it. A write
+// that names it decides it: `lockedDeadlineError` in server/scheduling.js.
+addColumnIfMissing('projects', 'deadline_fixed', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'status', "TEXT DEFAULT 'active'"); // active | completed | archived
 // Declared study language (see server/language.js). '' = follow the material,
 // which is what every project did before this column existed.
@@ -1438,6 +1450,16 @@ try {
 } catch (e) {
   console.error('[Migration] uuid identity migration failed (non-fatal):', e.message);
 }
+// A question is looked up by its uuid across quizzes (a copy answered in
+// another topic's practice quiz): the recall pick and the still-shaky list,
+// which every topic panel reads. Its own try, so a failure in the migration
+// above does not leave every panel read without it. Not idx_question_log_uuid:
+// that name is the sync migration's UNIQUE index on the row's own uuid.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_question_uuid ON question_log(question_uuid)');
+} catch (e) {
+  console.error('[Migration] question_log question_uuid index failed (non-fatal):', e.message);
+}
 
 // One-time orphan cleanup. Databases created before foreign-key enforcement
 // was enabled may contain rows whose parent was deleted without cascading
@@ -1492,7 +1514,7 @@ try {
 
   // Notes are reference material, never work items — strip any schedule dates that
   // earlier scheduling runs may have left on them so they stop leaking into the
-  // calendar / pace / daily plan as phantom tasks. Idempotent.
+  // pace / daily plan / Today as phantom tasks. Idempotent.
   try {
     const fixed = db.prepare(
       `UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL
@@ -2215,9 +2237,71 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mastery_claims_node ON mastery_claims(node_id);
 `);
+// Updating an installed course from a newer file (server/courseUpdate.js).
+// `course_base`: per author-owned field of each item the file installed, the
+// hash of the value it held at the last install or update, and whether a person
+// has edited it since (set only by the edit routes). `course_upstream`: which
+// file the course was last synced from, and what the last update changed, so
+// it can be taken back. Both hang on the project and go with it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS course_base (
+    project_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    uuid TEXT NOT NULL,
+    field TEXT NOT NULL,
+    base_hash TEXT NOT NULL,
+    edited INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, kind, uuid, field),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_course_base_item ON course_base(kind, uuid);
+  CREATE TABLE IF NOT EXISTS course_upstream (
+    project_id INTEGER PRIMARY KEY,
+    exported_at TEXT,
+    version TEXT,
+    synced_at TEXT NOT NULL,
+    undo TEXT,
+    undo_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+`);
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
+
+// Answers that are NOT evidence (server/lessonPrompts.js), each in a table of
+// its own for the same reason as `mastery_claims`: every reader of
+// `mastery_evidence` counts it as answers the learner was taught for.
+// `pre_questions`: a topic's round of questions asked BEFORE its first part,
+// one row per topic; `items` is `[{ ref, correct }]`, refs only, never text.
+// `explain_backs`: the learner's own account of a lesson part, the model's
+// verdict on it and who marked it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pre_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    asked INTEGER NOT NULL DEFAULT 0,
+    answered INTEGER NOT NULL DEFAULT 0,
+    correct INTEGER NOT NULL DEFAULT 0,
+    items TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pre_questions_node ON pre_questions(node_id);
+  CREATE TABLE IF NOT EXISTS explain_backs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    part_index INTEGER NOT NULL,
+    explanation TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    generated_by TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_explain_backs_node ON explain_backs(node_id);
+`);
 // A short course (server/shortCourses.js): where it was made from, as JSON
 // `{ kind: page|pdf|video|file|topic, url?, host?, file?, title?, minutes? }`;
 // NULL for every other course. Never the source's text, which is a document.
@@ -2248,6 +2332,18 @@ addColumnIfMissing('projects', 'exam_on_screen', 'INTEGER');
 addColumnIfMissing('projects', 'exam_questions', 'INTEGER');
 addColumnIfMissing('projects', 'exam_minutes', 'INTEGER');
 addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
+// What an attempt id answered (a topic, a quiz, a question): the same id for
+// another one is refused rather than answered with the first outcome
+// (`recordOnce`, mastery.js). NULL on rows from before, which answer as before.
+addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
+// The look back (server/lookBack.js): a course draw flagged as one, and the
+// course's last "Not now" on its offer (ISO), which starts the clock again.
+addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
+// A topic's misses and right answers in time order, read per topic by the slip
+// rule (fading.js SLIPPED_TOPIC) on every recall round and by recallOrder's
+// "right since"; surface last, since the "right since" reads name none.
+db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_node_correct ON question_log(node_id, correct, asked_at, surface)');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;
@@ -2319,6 +2415,7 @@ try {
   const v = currentAppVersion();
   if (v) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('app_version', v);
 } catch { /* a stamp is bookkeeping; never fatal */ }
+bootMark('schema');
 
 /** The file this process opened — for the desktop status panel and the logs. */
 export const DB_PATH = DB_FILE;

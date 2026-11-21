@@ -54,7 +54,15 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             setNums(prev => {
                 const next = { ...prev };
                 for (const k of Object.keys(NUMBER_DEFAULTS) as NumberKey[]) {
-                    if (s[k] !== undefined && s[k] !== '') next[k] = String(parseInt(s[k], 10) || NUMBER_DEFAULTS[k]);
+                    // 0 is a real stored value where the lower bound is 0 (it turns that
+                    // part of the feed off), so only a number that failed to parse falls
+                    // back to the default. A stored number is shown as the server reads
+                    // it, inside the same bounds (a 0 where the bound is 1 reads as 1).
+                    if (s[k] !== undefined && s[k] !== '') {
+                        const stored = parseInt(s[k], 10);
+                        const [lo, hi] = NUMBER_BOUNDS[k];
+                        next[k] = String(Number.isFinite(stored) ? Math.max(lo, Math.min(hi, stored)) : NUMBER_DEFAULTS[k]);
+                    }
                 }
                 return next;
             });

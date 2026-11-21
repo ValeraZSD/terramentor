@@ -5,7 +5,8 @@
 // bounded — so `tools/desktop-gates.mjs` can assert each decision on every
 // platform from one machine. `launcher.js` is the thin script that runs them.
 
-import { existsSync, statSync, renameSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, statSync, renameSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, linkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
 import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
@@ -209,8 +210,31 @@ export function browserCandidates(platform, env = {}) {
         }
         return out;
     }
-    // Linux and the BSDs: names on PATH.
-    return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser', 'vivaldi'];
+    // Linux and the BSDs: names on PATH first. Brave's own packages install
+    // `brave-browser`; Arch's AUR package installs `brave`.
+    const names = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser', 'brave', 'vivaldi'];
+    // Then the same browsers installed from Flathub. A Flatpak browser has no
+    // program under any of the names above, only its app id in Flatpak's
+    // exports folder: the per-user one (often not on PATH) and the system one.
+    // A relative XDG_DATA_HOME is invalid by the XDG spec and Flatpak ignores it.
+    const xdg = String(env.XDG_DATA_HOME || '');
+    const dataHome = xdg.startsWith('/') ? xdg : (env.HOME ? posix.join(env.HOME, '.local', 'share') : '');
+    const exportDirs = [...(dataHome ? [posix.join(dataHome, 'flatpak', 'exports', 'bin')] : []), '/var/lib/flatpak/exports/bin'];
+    const flatpaks = [];
+    for (const id of FLATPAK_BROWSERS) for (const dir of exportDirs) flatpaks.push(posix.join(dir, id));
+    return [...names, ...flatpaks];
+}
+
+/** Flathub app ids of Chromium-family browsers, in the order they are preferred. */
+export const FLATPAK_BROWSERS = [
+    'com.google.Chrome', 'org.chromium.Chromium', 'io.github.ungoogled_software.ungoogled_chromium',
+    'com.microsoft.Edge', 'com.brave.Browser', 'com.vivaldi.Vivaldi',
+];
+
+/** The Flatpak app id when `browser` is a Flatpak export, otherwise null. */
+export function flatpakAppId(browser) {
+    const m = /\/flatpak\/exports\/bin\/([^/]+)$/.exec(String(browser).replace(/\\/g, '/'));
+    return m && FLATPAK_BROWSERS.includes(m[1]) ? m[1] : null;
 }
 
 /** Resolve a bare command name against PATH; absolute paths pass through. */
@@ -281,10 +305,21 @@ export function browserArgs(url, profileDir, windowMode = DEFAULT_WINDOW_MODE) {
  * goes to the instance already holding that profile, as on other systems.
  * `open` exits non-zero when it could not launch the application, so the
  * launcher waits for its exit before saying the window opened.
+ *
+ * A Flatpak browser through `flatpak run`, granted the profile folder for this
+ * run only: its sandbox sees almost nothing of the home folder (Flathub's Brave
+ * gets Downloads, the desktop and two folders under ~/.local/share), so the
+ * profile inside the app's data folder would not exist for it. The folder must
+ * exist before the run; the launcher makes it.
  */
 export function browserCommand(browser, url, profileDir, windowMode = DEFAULT_WINDOW_MODE, platform = process.platform) {
     const args = browserArgs(url, profileDir, windowMode);
     if (platform === 'darwin') return { cmd: 'open', args: ['-n', '-a', browser, '--args', ...args], byExit: true };
+    const flatpak = platform === 'win32' ? null : flatpakAppId(browser);
+    // Flatpak reads `--filesystem=PATH[:MODE]`, so a `:` or `\` in the library
+    // path is escaped the way Flatpak writes them itself (unparse_filesystem_flags).
+    const granted = String(profileDir).replace(/[\\:]/g, '\\$&');
+    if (flatpak) return { cmd: 'flatpak', args: ['run', `--filesystem=${granted}`, flatpak, ...args], byExit: false };
     return { cmd: browser, args, byExit: false };
 }
 
@@ -421,6 +456,225 @@ export function portRange(start = DEFAULT_PORT, count = PORT_ATTEMPTS) {
     return Array.from({ length: count }, (_, i) => start + i);
 }
 
+// --- one start at a time ------------------------------------------------------
+// `findRunningInstance` only finds a server that is already listening. A first
+// launch of the day can take half a minute before it listens (a cold disk, a
+// paging machine), and a second launch in that time (a tray "Open" click, a
+// second double-click) found nothing and started a server of its own; three
+// servers on one library were seen this way. So the launch that starts the
+// server says so in a lock file in the data folder, and a later launch that
+// finds the lock waits for that start instead of making another.
+//
+// The lock is `{ pid, at, state, token }`. `starting` while the server comes
+// up, `up` once the launch has decided about its window (`window` says whether
+// it opened one). Only a `starting` lock whose process is alive and younger
+// than START_LOCK_MAX_MS holds anyone back: a dead holder, a hung one, or an
+// `up` one (a running server, which `findRunningInstance` answers for) is
+// taken over. The lock is a courtesy, never a requirement: a folder it cannot
+// be written to means the launch goes ahead unguarded, as before.
+
+export const START_LOCK = 'start.lock';
+export const START_LOCK_MAX_MS = 180_000;
+/** An unreadable lock younger than this is one being written right now. */
+const START_LOCK_WRITE_MS = 10_000;
+
+/** Whether a process with this id exists (EPERM: it does, under another account). */
+export function pidAlive(pid, kill = process.kill) {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try { kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+const lockFs = { writeFileSync, readFileSync, unlinkSync, renameSync, statSync, linkSync };
+
+function readRaw(file, fs) {
+    try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
+}
+function parseLock(raw) {
+    try {
+        const v = JSON.parse(raw);
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+    } catch { return null; }
+}
+
+/** The lock's contents, or null when there is none or it cannot be parsed. */
+export function readStartLock(file, fs = lockFs) {
+    const raw = readRaw(file, fs);
+    return raw === null ? null : parseLock(raw);
+}
+
+/** Whether `lock` is a start still in progress, which a later launch waits for.
+ *  A start stamped in the future (the clock went back) holds nobody. */
+export function startLockLive(lock, { now = Date.now(), alive = pidAlive } = {}) {
+    if (!lock || lock.state !== 'starting') return false;
+    const age = now - Date.parse(lock.at);
+    return Number.isFinite(age) && age > -START_LOCK_WRITE_MS && age < START_LOCK_MAX_MS && alive(lock.pid);
+}
+
+/**
+ * Try to become the launch that starts the server.
+ * `{ claimed: true, token }`: go ahead, and pass the token to the two calls
+ * below. `{ claimed: false, lock }`: another start is in progress. `{ claimed:
+ * false, busy: true }`: a lock is being written this instant; ask again
+ * shortly. `{ claimed: false }` alone: no lock can be kept here (no folder, no
+ * permission), so the caller starts unguarded. Never creates the folder.
+ */
+export function claimStartLock(file, { pid = process.pid, now = Date.now, alive = pidAlive, fs = lockFs } = {}) {
+    const token = randomUUID();
+    const body = JSON.stringify({ pid, at: new Date(now()).toISOString(), state: 'starting', token });
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            fs.writeFileSync(file, body, { flag: 'wx' });
+        } catch (e) {
+            if (e.code !== 'EEXIST') return { claimed: false };
+            const raw = readRaw(file, fs);
+            if (raw === null) continue; // gone between the two calls
+            const lock = parseLock(raw);
+            if (!lock) {
+                // Created by `wx` and not yet written, or garbage. Only a young
+                // one can be the former.
+                let age = Infinity;
+                try { age = now() - fs.statSync(file).mtimeMs; } catch { /* gone: claim again */ }
+                if (age < START_LOCK_WRITE_MS) return { claimed: false, busy: true };
+            } else if (startLockLive(lock, { now: now(), alive })) {
+                return { claimed: false, lock };
+            }
+            // Stale. Moved aside under a name of our own rather than deleted,
+            // then compared with what was judged stale: when two launches take
+            // over one stale lock, the slower one would otherwise delete the
+            // fresh lock the faster one had just written, and both would start.
+            const aside = `${file}.${token}.stale`;
+            try { fs.renameSync(file, aside); } catch (e2) {
+                if (e2.code === 'ENOENT') continue;
+                return { claimed: false };
+            }
+            if (readRaw(aside, fs) !== raw) {
+                // Someone's fresh lock: put it back, unless a newer one stands.
+                try { fs.linkSync(aside, file); } catch (e3) {
+                    if (e3.code !== 'EEXIST') { try { fs.renameSync(aside, file); } catch { /* lost; that start goes on */ } }
+                }
+                try { fs.unlinkSync(aside); } catch { /* already moved back */ }
+                return { claimed: false, busy: true };
+            }
+            try { fs.unlinkSync(aside); } catch { /* best effort */ }
+            continue;
+        }
+        const mine = readStartLock(file, fs);
+        if (mine?.token === token) return { claimed: true, token };
+        return mine ? { claimed: false, lock: mine } : { claimed: false, busy: true };
+    }
+    return { claimed: false, busy: true };
+}
+
+/** Rewrite our lock as `up` once the window is decided. Someone else's lock is left alone. */
+export function markStartLockUp(file, token, { window = false, fs = lockFs } = {}) {
+    const lock = readStartLock(file, fs);
+    if (!token || lock?.token !== token) return false;
+    const next = JSON.stringify({ ...lock, state: 'up', window: window === true });
+    // Through a rename, so a launch polling the lock never reads half of it.
+    const tmp = `${file}.${token}.tmp`;
+    try {
+        fs.writeFileSync(tmp, next);
+        fs.renameSync(tmp, file);
+    } catch {
+        try { fs.unlinkSync(tmp); } catch { /* never written */ }
+        try { fs.writeFileSync(file, next); } catch { return false; }
+    }
+    return true;
+}
+
+/** Remove our lock (on exit). Someone else's is left alone. */
+export function releaseStartLock(file, token, fs = lockFs) {
+    if (!token || readStartLock(file, fs)?.token !== token) return false;
+    try { fs.unlinkSync(file); return true; } catch { return false; }
+}
+
+/**
+ * The launcher's first decision: a server is running (`{ running, openedByHolder }`),
+ * or this launch starts one (`{ token }`, or `{}` when no lock can be kept), or
+ * another start holds the library and never settled (`{ stuck: true }`): the
+ * launch then stops rather than start a second server beside it.
+ * `find` is `findRunningInstance` bound to this library. A launch that waited
+ * for another start reports whether THAT start opened a window, so a second
+ * click during a slow start makes one window, not two; a launch that did not
+ * wait never reads the old lock's `window`, which describes a start long gone.
+ */
+export async function settleStart({
+    lockFile, find,
+    claim = (f) => claimStartLock(f),
+    read = (f) => readStartLock(f),
+    live = (lock) => startLockLive(lock),
+    serving = (lock) => lock?.state === 'up' && pidAlive(lock.pid),
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+    onWait = () => {},
+    pollMs = 500,
+    maxRounds = 5,
+    // An `up` lock whose process lives is a server that missed one probe (busy
+    // with its start, or paged out): asked again this many times before a
+    // second server is started beside it on the same library.
+    upRetries = 10,
+    // The holder marks its lock `up` once its window is decided, a second or
+    // two after it listens. Past this many polls the server itself is asked as
+    // well, so a holder that stalls after listening does not hold launches off
+    // for the whole START_LOCK_MAX_MS.
+    probeAfterPolls = 40,
+    // A lock being written this instant: asked again for at most this many
+    // polls. A young empty lock turns stale after START_LOCK_WRITE_MS, so this
+    // only runs out when new lock files keep appearing.
+    busyPolls = Math.ceil((2 * START_LOCK_WRITE_MS) / pollMs),
+    // When the probe finds a holder's server before its lock says `up`, the
+    // holder's window decision is still coming: waited for this many polls.
+    decisionPolls = 20,
+}) {
+    let waitedFor = null;
+    let retriedUp = false;
+    let busy = 0;
+    for (let waits = 0; ;) {
+        let running = await find();
+        if (!running && !retriedUp && serving(read(lockFile))) {
+            retriedUp = true;
+            for (let i = 0; i < upRetries && !running; i++) {
+                await sleep(pollMs);
+                running = await find();
+            }
+        }
+        if (running) return { running, openedByHolder: waitedFor?.state === 'up' && waitedFor.window === true };
+        const c = claim(lockFile);
+        if (c.claimed) return { token: c.token };
+        // Only a folder that cannot hold a lock starts unguarded. A lock that is
+        // busy or held does not: that start may be about to serve this library.
+        if (!c.lock && !c.busy) return {};
+        if (c.busy) {
+            if (++busy > busyPolls) return { stuck: true };
+            await sleep(pollMs);
+            continue;
+        }
+        if (waits++ >= maxRounds) return { stuck: true };
+        onWait(c.lock);
+        let lock = c.lock;
+        let polls = 0;
+        while (live(lock)) {
+            await sleep(pollMs);
+            if (++polls >= probeAfterPolls && polls % 4 === 0) {
+                const found = await find();
+                if (found) {
+                    // Its server listens; its window decision may still be on
+                    // the way. Wait for it a little longer; a holder that never
+                    // makes it leaves the window to this launch.
+                    let after = read(lockFile);
+                    for (let i = 0; i < decisionPolls && after?.token === lock.token && after.state === 'starting'; i++) {
+                        await sleep(pollMs);
+                        after = read(lockFile);
+                    }
+                    const decided = after?.token === lock.token && after.state === 'up';
+                    return { running: found, openedByHolder: decided && after.window === true };
+                }
+            }
+            lock = read(lockFile);
+        }
+        waitedFor = lock;
+    }
+}
+
 // --- the log file -------------------------------------------------------------
 
 export const LOG_MAX_BYTES = 5 * 1024 * 1024;
@@ -440,6 +694,21 @@ export function prepareLogFile(dir, { stat = statSync, rename = renameSync, mkdi
         if (exists(file) && stat(file).size > LOG_MAX_BYTES) rename(file, `${file}.1`);
     } catch { /* rotation is a courtesy */ }
     return file;
+}
+
+/**
+ * The log file the launcher opens for the library `chooseDataDir` picked, or
+ * null when it must not make one. A pointer at a folder that is gone is the
+ * case: `prepareLogFile` makes `<folder>/logs` with `mkdir -p`, which makes the
+ * library folder itself, and the launcher prepares its log before it stops on
+ * the missing library. Launch one would stop, launch two would find a folder,
+ * call it present and open a NEW EMPTY library there, the same "reads as lost
+ * work" case `launcherInstanceKey` keeps out. The stop's own message still
+ * reaches the console, which is all a missing library needs.
+ */
+export function launcherLogFile(chosen, appRoot, deps) {
+    if (chosen?.missing) return null;
+    return prepareLogFile(chosen?.dir || join(appRoot, 'server'), deps);
 }
 
 const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
@@ -465,7 +734,7 @@ const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64St
  *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
  *  a .lnk is a COM object and only PowerShell can make one here. Deleting one
  *  needs no script, so there is no counterpart. */
-export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME }) {
+export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME, report = false }) {
     return [
         '$ErrorActionPreference = "Stop"',
         `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
@@ -488,7 +757,23 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         '$s.WindowStyle = 7',
         `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
+        // `report`: print what this shortcut object now holds (Windows may have
+        // changed characters on the way in), base64 so no console code page can
+        // touch it. From this object, never by reading the file back: another
+        // library may write the same file in between (savedShortcutRecord).
+        report ? '$saved = [ordered]@{ arguments = [string]$s.Arguments; workingDir = [string]$s.WorkingDirectory } | ConvertTo-Json -Compress' : null,
+        report ? '[Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($saved)))' : null,
     ].filter(Boolean).join('\n');
+}
+
+/** The record a reporting shortcutScript printed, or null. */
+export function savedShortcutRecord(stdout) {
+    try {
+        const fields = JSON.parse(Buffer.from(String(stdout).trim(), 'base64').toString('utf8'));
+        return typeof fields?.arguments === 'string' && typeof fields?.workingDir === 'string' ? shortcutRecord(fields) : null;
+    } catch {
+        return null;
+    }
 }
 
 export const START_MENU_FOLDER = 'Microsoft\\Windows\\Start Menu\\Programs';
@@ -707,16 +992,18 @@ export function autostartPlan({ platform = process.platform, target, args = [], 
     if (platform === 'win32') {
         const appData = env.APPDATA;
         if (!appData) return { supported: false, why: 'no APPDATA' };
+        // Quoting each argument: a packaged copy can sit under
+        // "C:\Program Files" and an unquoted path stops at the space.
+        const line = args.map(windowsArg).join(' ');
+        // win32.dirname, not this machine's: on Linux `dirname('C:\\A\\x.exe')`
+        // is '.', and every copy's plan would name the same folder.
+        const dir = workingDir || win32.dirname(target);
         return {
             supported: true,
             kind: 'shortcut',
             path: at(appData, STARTUP_FOLDER, `${name}.lnk`),
-            // Quoting each argument: a packaged copy can sit under
-            // "C:\Program Files" and an unquoted path stops at the space.
-            script: shortcutScript({
-                shellFolder: STARTUP_FOLDER, target, workingDir: workingDir || dirname(target), icon, name,
-                args: args.map(windowsArg).join(' '),
-            }),
+            script: shortcutScript({ shellFolder: STARTUP_FOLDER, target, workingDir: dir, icon, name, args: line, report: true }),
+            record: shortcutRecord({ arguments: line, workingDir: dir }),
         };
     }
     if (platform === 'darwin') {
@@ -768,5 +1055,229 @@ X-GNOME-Autostart-enabled=true
 `,
     };
 }
+
+// ---------------------------------------------------------------------------
+// Reading a login item back. There is one login item per user and any number
+// of libraries, so before a server rewrites the item it has to know whose it
+// is — from what the item itself says, never from a substring or a file time.
+
+/** What a Windows shortcut is compared by: the two fields this app sets that
+ *  change when it moves (the working folder is the app's own) or when the
+ *  library does (the arguments name it). Key order is fixed, so equal fields
+ *  are an equal string. */
+export const shortcutRecord = ({ arguments: args = '', workingDir = '' }) =>
+    JSON.stringify({ arguments: args, workingDir });
+
+/**
+ * The text fields of a .lnk file (MS-SHLLINK): the header, then the item-id
+ * list and the link info, both skipped by their sizes, then up to five
+ * counted strings in a fixed order, each present when its flag is set. UTF-16
+ * when the IsUnicode flag is; otherwise the bytes are read as Latin-1, which
+ * is wrong for other code pages but still equal to itself. Null for anything
+ * that is not a well-formed shortcut.
+ */
+export function readShortcut(buf) {
+    try {
+        if (!buf || buf.length < 0x4C || buf.readUInt32LE(0) !== 0x4C) return null;
+        const flags = buf.readUInt32LE(20);
+        let at = 0x4C;
+        if (flags & 0x01) at += 2 + buf.readUInt16LE(at);
+        if (flags & 0x02) at += buf.readUInt32LE(at);
+        const unicode = (flags & 0x80) !== 0;
+        const out = {};
+        for (const [bit, key] of [[0x04, 'name'], [0x08, 'relativePath'], [0x10, 'workingDir'], [0x20, 'arguments'], [0x40, 'icon']]) {
+            if (!(flags & bit)) continue;
+            const n = buf.readUInt16LE(at);
+            const bytes = unicode ? n * 2 : n;
+            if (at + 2 + bytes > buf.length) return null;
+            out[key] = buf.toString(unicode ? 'utf16le' : 'latin1', at + 2, at + 2 + bytes);
+            at += 2 + bytes;
+        }
+        return out;
+    } catch {
+        return null;
+    }
+}
+
+/** A Windows command line split the way the C runtime splits it: whitespace
+ *  between arguments, double quotes group, and backslashes count only before
+ *  a quote (2n then a quote: n backslashes and a quote that groups; 2n+1: n
+ *  backslashes and a literal quote). The inverse of windowsArg. */
+export function windowsArgs(line) {
+    const s = String(line), out = [];
+    let i = 0;
+    for (;;) {
+        while (i < s.length && /\s/.test(s[i])) i++;
+        if (i >= s.length) return out;
+        let arg = '', quoted = false;
+        while (i < s.length && (quoted || !/\s/.test(s[i]))) {
+            if (s[i] === '\\') {
+                let n = 0;
+                while (s[i] === '\\') { n++; i++; }
+                if (s[i] === '"') {
+                    arg += '\\'.repeat(n >> 1);
+                    if (n & 1) { arg += '"'; i++; }
+                } else arg += '\\'.repeat(n);
+            } else if (s[i] === '"') {
+                if (quoted && s[i + 1] === '"') { arg += '"'; i += 2; } else { quoted = !quoted; i++; }
+            } else arg += s[i++];
+        }
+        out.push(arg);
+    }
+}
+
+const XML_ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+const xmlText = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|quot|apos|amp);/gi, (m, e) => (
+    e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : XML_ENTITIES[e.toLowerCase()]));
+
+/** The Exec line of a .desktop file split back into its arguments: field codes
+ *  (`%%` is a literal `%`), then the string escapes, then the quoting rules —
+ *  desktopExecArg's three layers undone in reverse. */
+function desktopExecArgs(exec) {
+    const s = exec.replace(/%%/g, '%')
+        .replace(/\\([\\snrt])/g, (m, c) => ({ s: ' ', n: '\n', r: '\r', t: '\t', '\\': '\\' }[c]));
+    const out = [];
+    let i = 0;
+    for (;;) {
+        while (i < s.length && /\s/.test(s[i])) i++;
+        if (i >= s.length) return out;
+        let arg = '';
+        if (s[i] === '"') {
+            for (i++; i < s.length && s[i] !== '"'; i++) {
+                if (s[i] === '\\' && i + 1 < s.length) i++;
+                arg += s[i];
+            }
+            i++;
+        } else {
+            while (i < s.length && !/\s/.test(s[i])) arg += s[i++];
+        }
+        out.push(arg);
+    }
+}
+
+/**
+ * The command a login item runs, as a list: the program then its arguments
+ * for a plist or a .desktop entry, the arguments alone for a shortcut (its
+ * target is a separate field). Null when the text is not one this app could
+ * have written.
+ */
+export function loginItemArgs(kind, text) {
+    if (typeof text !== 'string') return null;
+    if (kind === 'plist') {
+        const array = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+        return array ? [...array[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => xmlText(m[1])) : null;
+    }
+    if (kind === 'desktop-entry') {
+        const exec = text.match(/^Exec=(.*)$/m);
+        return exec ? desktopExecArgs(exec[1]) : null;
+    }
+    if (kind === 'shortcut') {
+        try { return windowsArgs(JSON.parse(text).arguments); } catch { return null; }
+    }
+    return null;
+}
+
+/** The library a command opens: the value after its first `--data-dir`, as the
+ *  launcher reads it, or null when it names none (the default library). */
+export function dataDirOf(args) {
+    const i = args.indexOf('--data-dir');
+    return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+}
+
+/** Two library folders are one when they resolve to the same path — compared
+ *  whole, never by prefix — ignoring case on Windows, whose file system does. */
+export function sameLibrary(a, b, platform = process.platform) {
+    if (a == null || b == null) return a == null && b == null;
+    const p = platform === 'win32' ? win32 : posix;
+    const norm = (d) => {
+        const r = p.resolve(d);
+        const t = r.length > p.parse(r).root.length ? r.replace(/[\\/]+$/, '') : r;
+        return platform === 'win32' ? t.toLowerCase() : t;
+    };
+    return norm(a) === norm(b);
+}
+
+/** The app folder a login item starts: the folder above `desktop/launcher.js`
+ *  when the command runs that script (a checkout, or the bundled Node of a
+ *  macOS or Linux copy), else a shortcut's working folder, which is the app's
+ *  own folder in every shortcut this app writes. Null when the item says
+ *  neither. */
+export function loginItemRoot(kind, current, platform = process.platform) {
+    const args = loginItemArgs(kind, current);
+    if (!args) return null;
+    const p = platform === 'win32' ? win32 : posix;
+    const script = args.find((a) => /[\\/]desktop[\\/]launcher\.js$/i.test(a));
+    if (script) return p.dirname(p.dirname(script));
+    if (kind !== 'shortcut') return null;
+    try { return JSON.parse(current).workingDir || null; } catch { return null; }
+}
+
+/**
+ * The library a start with no `--data-dir` opens from the app folder `root`:
+ * chooseDataDir's answer for THAT copy, so a copy with a `data` folder of its
+ * own opens that one, and a checkout the historical layout under its
+ * `server/`. A folder that is gone resolves as an installed copy with no data
+ * folder, the only kind an update replaces; its item starts nothing, so
+ * adopting it takes no library's item away.
+ */
+export function unpinnedLibraryOf(root, { platform = process.platform, env = process.env, home, exists = existsSync, readFile = readFileSync } = {}) {
+    if (!root) return null;
+    const packaged = !exists(root) || exists(join(root, 'build.json'));
+    return chooseDataDir({ appRoot: root, packaged, platform, env, home, exists, readFile }).dir ?? join(root, 'server');
+}
+
+/**
+ * Whether a server rewrites the login item at start. A login item names the
+ * copy of the app that wrote it, and an update is a new folder with the old
+ * one deleted — left alone, nothing starts at sign-in after an update while
+ * Settings says it will. But the item is the user's one item, so a server
+ * rewrites only the item its own library owns:
+ *
+ * - `current` is the item as it is now, `wanted` what this copy would write,
+ *   `marker` what this library last wrote (all compared as records: the file
+ *   for a plist or .desktop entry, shortcutRecord for a .lnk).
+ * - With a marker, the item is this library's only while it is still exactly
+ *   what the library wrote. Another library writing the item since, or a
+ *   person editing it, makes it someone else's, and it is left alone.
+ *   A shortcut's marker keeps two records, because Windows does not always
+ *   store what it is given (WScript.Shell sends some fields through the ANSI
+ *   code page, so `é` on a Cyrillic system comes back as `e`): `holds`, read
+ *   back from the file, says whose it is; `wrote`, what this copy asked for,
+ *   says whether this copy would write anything different.
+ * - With no marker (an item from before markers, or a marker from before
+ *   shortcut records, which held the script), the item is this library's when
+ *   its own `--data-dir` is this library — the whole path, not a prefix — or
+ *   when neither names one. An item that names none (written before the flag
+ *   was pinned) opens whatever its OWN copy resolves with no flag:
+ *   `unpinnedOf(loginItemRoot(...))`, unpinnedLibraryOf in production. It is
+ *   this library's when that is. An item whose copy cannot be told is left.
+ * - A removed item is never put back, and an item that cannot be read is
+ *   nobody's to judge.
+ */
+export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, unpinnedOf = null, platform = process.platform }) {
+    if (!exists || current == null || wanted == null || current === wanted) return 'none';
+    if (kind === 'shortcut' && marker != null) {
+        // Markers written before shortcut records hold the PowerShell script:
+        // anything that is not both records counts as no marker.
+        let m = null;
+        try { m = JSON.parse(marker); } catch { /* the script */ }
+        if (typeof m?.wrote === 'string' && typeof m?.holds === 'string') {
+            return current === m.holds && m.wrote !== wanted ? 'rewrite' : 'none';
+        }
+        marker = null;
+    }
+    if (marker != null) return current === marker ? 'rewrite' : 'none';
+    const args = loginItemArgs(kind, current);
+    if (!args) return 'none';
+    const named = dataDirOf(args);
+    if (named == null && dataDir == null) return 'rewrite';
+    const root = named == null ? loginItemRoot(kind, current, platform) : null;
+    const opens = named ?? (root != null && unpinnedOf ? unpinnedOf(root) : null);
+    return opens != null && sameLibrary(opens, dataDir, platform) ? 'rewrite' : 'none';
+}
+
+/** The marker a shortcut write leaves: what was asked for, and what the file
+ *  Windows wrote turned out to hold. */
+export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds });
 
 export { userDataDir, dirname };

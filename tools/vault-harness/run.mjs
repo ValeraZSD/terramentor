@@ -121,8 +121,13 @@ console.log('\n--- what the component actually asks the server for ---');
 // Drive it as a real click. Pre-setting `.checked` and THEN dispatching is the
 // classic jsdom trap: the click toggles the value back, so React's handler sees
 // the opposite of what the test meant.
+boxes[0].focus();
 click(boxes[0]);
 check('ticking private notes takes effect', $$('input[type=checkbox]')[0].checked, true);
+// A toggle declared inside the view's body is a new component type on every
+// render, so ticking it would unmount the focused input and drop keyboard focus.
+check('ticking keeps the same checkbox in the page, still focused',
+    $$('input[type=checkbox]')[0] === boxes[0] && window.document.activeElement === boxes[0], true);
 
 const exportBtn = $$('button').find(b => (b.textContent || '').trim() === 'Export');
 check('the panel has its own Export button', !!exportBtn, true);

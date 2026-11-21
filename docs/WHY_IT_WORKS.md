@@ -45,6 +45,24 @@ results (Latimier, Peyre & Ramus, 2021). Flashcards in Terramentor are scheduled
 open model of when you are likely to forget a card, and a proven topic that has gone unpractised
 for a while comes back as recall questions in the stream and in practice quizzes.
 
+**A look back every two weeks or so.** The best gap before a review grows with how long you mean
+to remember: in an online study of 1,354 people it was about 20 to 40% of the time to a test a
+week away, and 5 to 10% for a test a year away (Cepeda, Vul, Rohrer, Wixted & Pashler, 2008).
+For a course of a few months that is one to two weeks. So when 14 days have passed, or a part of
+the course has just been finished, the stream opens with an offer of ten questions from across
+the course, the topics practised longest ago first. One tap puts it off. Feedback after a wrong
+answer is what makes a test stick: in a study of 258 people learning word pairs, showing the
+right answer after an error raised recall a week later by 494%, while feedback after a right
+answer made little difference (Pashler, Cepeda, Wixted & Rohrer, 2005). So the look back shows
+the right answers when it ends, and a topic answered wrong comes back as a recall question from
+the next day until it is answered right; in a study of 533 students, relearning missed items in
+later, spaced sessions kept a lot for little extra practice (Rawson & Dunlosky, 2011). The look back
+has no pass line and no grade: in one study of three introductory psychology classes, ungraded
+quizzes led to better final-exam scores than graded ones (Khanna, 2015). In the three weeks
+before an exam whose date cannot move, or one you have described, the offer is the full mock
+exam instead, at most once a week. Ten questions, the three-week window and the weekly offer
+are our choices, not a study's.
+
 **A pass mark before a topic counts.** In mastery learning, students move on only after passing a
 check. Across 103 studies, mastery courses raised scores by 0.52 SD (Kulik, Kulik &
 Bangert-Drowns, 1990), but most of those scores came from the courses' own exams. In the 11
@@ -245,6 +263,11 @@ Cited in the text only:
   Review* 30. <https://doi.org/10.1007/s10648-018-9434-x>
 - Brunmair, M. & Richter, T. (2019). Similarity matters: a meta-analysis of interleaved learning
   and its moderators. *Psychological Bulletin* 145(11). <https://doi.org/10.1037/bul0000209>
+- Cepeda, N. J., Vul, E., Rohrer, D., Wixted, J. T. & Pashler, H. (2008). Spacing effects in
+  learning: a temporal ridgeline of optimal retention. *Psychological Science* 19(11).
+  <https://doi.org/10.1111/j.1467-9280.2008.02209.x>
+- Khanna, M. M. (2015). Ungraded pop quizzes: test-enhanced learning without all the anxiety.
+  *Teaching of Psychology* 42(2). <https://doi.org/10.1177/0098628315573144>
 - Kulik, J. A. & Fletcher, J. D. (2016). Effectiveness of intelligent tutoring systems: a
   meta-analytic review. *Review of Educational Research* 86(1).
   <https://doi.org/10.3102/0034654315581420>
@@ -253,6 +276,12 @@ Cited in the text only:
 - Oreopoulos, P., Liut, M., Sungu, A. & Low, N. (2026). Making AI tutoring productive: evidence
   from a mastery-based math practice experiment. EdWorkingPaper 26-1552.
   <https://doi.org/10.26300/01qv-6c22>
+- Pashler, H., Cepeda, N. J., Wixted, J. T. & Rohrer, D. (2005). When does feedback facilitate
+  learning of words? *Journal of Experimental Psychology: Learning, Memory, and Cognition* 31(1).
+  <https://doi.org/10.1037/0278-7393.31.1.3>
+- Rawson, K. A. & Dunlosky, J. (2011). Optimizing schedules of retrieval practice for durable and
+  efficient learning: how much is enough? *Journal of Experimental Psychology: General* 140(3).
+  <https://doi.org/10.1037/a0023956>
 - Slavin, R. E. (1987). Mastery learning reconsidered. *Review of Educational Research* 57(2).
   <https://doi.org/10.3102/00346543057002175>
 - St Hilaire, K. J., Chan, J. C. K. & Ahn, D. (2023). Guessing as a learning intervention: a

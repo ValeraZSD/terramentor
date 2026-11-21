@@ -189,6 +189,20 @@ function ownOpenState(raw, file) {
     }
 }
 
+/* ── 5b. a disclosure row lays out by its own width ─────────────────────── */
+//
+// The row's aside sat beside its description from a 640px VIEWPORT up, so a
+// narrow side panel on a wide screen kept it inline and squeezed the text
+// (review, 19 Nov 2026). The row is its own container (`[data-disclosure]`
+// in src/index.css); a viewport variant in the component undoes that.
+function containerNotViewport(raw, file) {
+    const src = blindComments(raw);
+    for (const m of src.matchAll(/(?<![\w-])(?:sm|md|lg|xl|2xl):[\w.[\]/-]+/g)) {
+        fail('viewport', file, lineOf(src, m.index), `\`${m[0]}\` keys the row's layout on the viewport, not the row's own width`,
+            'key it on the row: a `[data-disclosure-*]` rule inside the `@container` block in src/index.css');
+    }
+}
+
 /* ── 6. an on/off setting is a switch on the right ──────────────────────── */
 //
 // Six on/off settings (four feed dials, resource hunting, "Offer simulations
@@ -297,6 +311,19 @@ for (const file of files(UI_SCOPE)) {
     // A switch that says ON over a failed save is wrong wherever it is drawn.
     if (/<Switch\b/.test(src)) switchRevertsOnFailure(src, file);
 }
+{
+    const file = 'src/components/ui/Disclosure.tsx';
+    checked++;
+    containerNotViewport(read(file), file);
+    // And the container the rows key on is really there.
+    checked++;
+    const css = read('src/index.css');
+    if (!/\[data-disclosure\]\s*\{[^}]*container-type:\s*inline-size/.test(css)
+        || !/@container\s*\(min-width:[^)]*\)\s*\{[^@]*\[data-disclosure-aside\]/.test(css)) {
+        fail('viewport', 'src/index.css', 1, 'no `[data-disclosure]` size container, or no `@container` rule for `[data-disclosure-aside]`',
+            'make the row its own container and key the aside on it');
+    }
+}
 for (const file of files(SETTINGS_SCOPE)) {
     const src = read(file);
     checked++;
@@ -388,6 +415,12 @@ const PRE_FIX = [
         run: ownOpenState,
         file: 'src/components/ui/Disclosure.tsx',
         src: "    'transition-transform duration-200 ease-out motion-reduce:transition-none group-open:rotate-90';",
+    },
+    {
+        why: 'the row aside that stayed inline in a narrow panel on a wide screen',
+        run: containerNotViewport,
+        file: 'src/components/ui/Disclosure.tsx',
+        src: "<span className={cx('order-last basis-full shrink-0 pl-8 text-sm sm:order-none sm:basis-auto sm:pl-0', !!desc && 'sm:mt-0.5')}>",
     },
     {
         why: 'the feed dial ticked on the left under steppers on the right',

@@ -1,0 +1,170 @@
+{
+  "about": "jsx-a11y findings allowed per file and rule. Numbers only go down: see tools/a11y-lint-gates.mjs.",
+  "allowed": {
+    "src/components/AnkiImportModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/label-has-associated-control": 1,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/answer/CodeInput.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/answer/FillInInput.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/atlas/AtlasSettingsModal.tsx": {
+      "jsx-a11y/media-has-caption": 1
+    },
+    "src/components/atlas/CourseList.tsx": {
+      "jsx-a11y/no-noninteractive-element-to-interactive-role": 2
+    },
+    "src/components/atlas/GlobeMap.tsx": {
+      "jsx-a11y/no-interactive-element-to-noninteractive-role": 1
+    },
+    "src/components/atlas/RegionList.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/attachments/ImageViewer.tsx": {
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/AuthGate.tsx": {
+      "jsx-a11y/no-autofocus": 2
+    },
+    "src/components/CardMedia.tsx": {
+      "jsx-a11y/media-has-caption": 1
+    },
+    "src/components/CategoryCard.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-autofocus": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/deck/CardsPanel.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/deck/RetentionTarget.tsx": {
+      "jsx-a11y/no-autofocus": 2,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/DetailPanel.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/drills/DrillModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 2,
+      "jsx-a11y/no-noninteractive-element-interactions": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/evidence/EstimateChart.tsx": {
+      "jsx-a11y/no-noninteractive-element-interactions": 1,
+      "jsx-a11y/no-noninteractive-tabindex": 1
+    },
+    "src/components/GlobalFlashcardReview.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/MarkdownNotes.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/ModelPicker.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/interactive-supports-focus": 1
+    },
+    "src/components/NodeTree.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/PlacementModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/plan/WeeklyChart.tsx": {
+      "jsx-a11y/no-noninteractive-element-interactions": 1,
+      "jsx-a11y/no-noninteractive-tabindex": 1
+    },
+    "src/components/ProjectCard.tsx": {
+      "jsx-a11y/click-events-have-key-events": 2,
+      "jsx-a11y/no-static-element-interactions": 2
+    },
+    "src/components/ProjectFormFields.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/projects/CompactCard.tsx": {
+      "jsx-a11y/click-events-have-key-events": 3,
+      "jsx-a11y/no-static-element-interactions": 3
+    },
+    "src/components/ReportProblemDialog.tsx": {
+      "jsx-a11y/label-has-associated-control": 1
+    },
+    "src/components/ResourceList.tsx": {
+      "jsx-a11y/no-autofocus": 2
+    },
+    "src/components/schedule/ProjectDates.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-static-element-interactions": 2
+    },
+    "src/components/ScheduleModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/SearchBar.tsx": {
+      "jsx-a11y/click-events-have-key-events": 2,
+      "jsx-a11y/no-noninteractive-element-interactions": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/settings/ModelJobsSection.tsx": {
+      "jsx-a11y/label-has-associated-control": 1
+    },
+    "src/components/settings/ProvingModeCards.tsx": {
+      "jsx-a11y/label-has-associated-control": 1
+    },
+    "src/components/settings/VisualKindsPanel.tsx": {
+      "jsx-a11y/role-has-required-aria-props": 1
+    },
+    "src/components/shortCourses/ShortCourses.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/Sidebar.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-noninteractive-tabindex": 1,
+      "jsx-a11y/no-static-element-interactions": 2
+    },
+    "src/components/TaskDetailModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/TaskFailureModal.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "src/components/TreeItemRow.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-autofocus": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/ui/Radio.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/ui/SegmentedControl.tsx": {
+      "jsx-a11y/interactive-supports-focus": 1
+    },
+    "src/components/ui/Select.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/interactive-supports-focus": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/ui/Sheet.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-static-element-interactions": 1
+    },
+    "src/components/visuals/ExportVisualModal.tsx": {
+      "jsx-a11y/label-has-associated-control": 2
+    },
+    "src/components/visuals/VisualBlock.tsx": {
+      "jsx-a11y/no-autofocus": 1
+    },
+    "src/components/welcome/ConnectModel.tsx": {
+      "jsx-a11y/label-has-associated-control": 1
+    },
+    "src/components/Workspace.tsx": {
+      "jsx-a11y/no-static-element-interactions": 1
+    }
+  }
+}

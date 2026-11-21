@@ -43,11 +43,13 @@ and you can also import a course file or an Anki deck.
 
 ### Plan
 
-Give it a start date, a deadline and the days of the week you study. Bigger topics get more
-days, and pace is measured against that plan. Change the dates and whatever is
-still open is planned again.
+Give it a start date, a deadline and the days of the week you study. Your pace is measured
+week by week against what the date needs, and the course's header says in one line whether you
+will make it. Open the plan to see your weeks as bars, the pace the date needs drawn across them,
+and what to do if it slips: plan a set number a week, study only the topics that fit, or move
+the date.
 
-![A course's calendar for November, with the topics planned for each study day and the course on track.](docs/screenshots/plan.webp)
+![A course's plan: the verdict, the learner's weeks as bars with the pace the date needs drawn across them, and the start date, deadline and study days.](docs/screenshots/plan.webp)
 
 ### Study
 
@@ -74,6 +76,9 @@ can always skip a topic; it then stays marked as skipped, not as known.
 
 Flashcards come back just before you would forget them (scheduled with FSRS-7, the newest FSRS,
 and fitted to your own reviews once there are enough of them).
+Every two weeks or so a course offers a look back: ten questions from across it, and a topic you
+miss comes back as a question the next day you study. In the weeks before an exam whose date cannot
+move, or one you have described, the offer is a full mock exam.
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)
@@ -142,6 +147,16 @@ course's topics while it is drafted, and a topic's links read when its lessons a
 on by default, two switches in Settings → AI & Models). [SECURITY.md](SECURITY.md) lists every
 outbound connection.
 
+## Accessibility
+
+You can study, review cards and answer questions with only a keyboard, and NVDA reads a card
+review, a quiz and maths. Any list or card you can drag also moves from the keyboard. Settings
+→ General → Text & interface size makes everything up to 160% of its usual size, and Settings →
+Accessibility holds
+contrast, motion, text spacing, a reading line, reading aloud, time limits, confirming before
+an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
+says how that is tested, what does not meet it yet, and how to report a barrier.
+
 ## Install
 
 **Desktop.** Download the zip for your system from the
@@ -185,6 +200,7 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.
 - [Security](SECURITY.md): threat model and every outbound connection.
+- [Accessibility](docs/ACCESSIBILITY.md): what is tested, the WCAG 2.2 report, known gaps.
 - [Contributing](CONTRIBUTING.md), [Roadmap](ROADMAP.md), [Changelog](CHANGELOG.md).
 
 Found a wrong lesson or a bug? **Settings → Library & about → About → Report a problem** fills in

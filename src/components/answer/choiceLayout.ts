@@ -13,6 +13,37 @@
  *   fit one row (a last row holding one tile reads as a layout gone wrong).
  */
 
+/**
+ * Roughly how much an option will PAINT, which is not how long it is: four
+ * fractions that fill four full-width rows are `$f_s\frac{v - v_{\text{run}}}
+ * {v + v_{\text{train}}}$` in source, and half of that source is markup.
+ *
+ * So strip the delimiters, keep the word inside a `\text{…}`, and count every
+ * other command as the one symbol it draws. A fraction is still counted as
+ * numerator PLUS denominator although it paints them stacked — the error is
+ * deliberately toward "this is prose", where the full-width row is right.
+ *
+ * Choice tiles use it only until the options have been MEASURED (the first
+ * frame, and jsdom); an ordering decides its whole layout by it.
+ */
+export const visualLength = (option: string) => option
+    .replace(/\$+/g, '')
+    .replace(/\\(?:text|textrm|mathrm|mathbf|mathit|operatorname)\s*\{([^{}]*)\}/g, '$1')
+    .replace(/\\(?:displaystyle|limits|left|right|quad|qquad|[,;:!])/g, '')
+    .replace(/\\[a-zA-Z]+/g, 'x')
+    .replace(/[{}^_\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .length;
+
+/** An ordering whose every item is at most this long is words or a short
+ *  phrase (a sentence's parts, dates, numbers): it is laid out as tiles in a
+ *  line that reads like the answer, not one full-width row per item. A step of
+ *  a procedure ("Preheat the oven to 180 °C") is longer and stays a list. */
+export const SEQUENCE_TILE_CHARS = 20;
+export const sequenceAsTiles = (items: string[]) =>
+    items.length > 0 && items.every(item => visualLength(item) <= SEQUENCE_TILE_CHARS);
+
 /** One row only while the widest option fills at most this much of its tile:
  *  a formula touching its border reads as cramped, and the parts that tell two
  *  options apart (an exponent, a sign) are the smallest glyphs on screen. */

@@ -299,16 +299,12 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                                     first field was the longest text left in the
                                     open page, and it was about all three keys,
                                     not Tavily's. */}
-                                {/* Stays a LINE, not a "More": this block has no label
-                                    of its own, and a named disclosure ("Why add a key")
-                                    sits directly under it. Two chevrons stacked, one of
-                                    them unnamed, is worse than the sentence. */}
-                                <p className="mb-3 max-w-prose text-sm text-slate-500 dark:text-slate-400">
+                                {/* One line and no "Why add a key" disclosure under
+                                    it: that one, opened inside this opened row, was
+                                    a block inside a block. */}
+                                <p className="mb-4 max-w-prose text-sm text-slate-500 dark:text-slate-400">
                                     {tr("A key joins that engine to every search, on top of the built-in ones — stored in your database, sent only to its own service.")}
                                 </p>
-                                <Explain summary={tr("Why add a key")} className="mb-4">
-                                    {tr("Steadier when DuckDuckGo throttles, and some engines return the page text with their results, so an answer can read more than a snippet. Without a key, that engine simply doesn’t connect.")}
-                                </Explain>
                                 {/* THREE CARDS ACROSS, not three stacked rows. They
                                     are the same control three times over — one
                                     field, one optional pair of buttons — and stacked

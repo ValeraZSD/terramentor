@@ -48,6 +48,7 @@ h1, h2 { margin: 0; font-weight: 600; }
 .eyebrow { font-size: 0.8125rem; color: var(--tm-muted); }
 .title { font-size: 1.125rem; line-height: 1.35; overflow-wrap: anywhere; }
 .muted { color: var(--tm-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .center { text-align: center; }
 .loading { padding: 8px 0; }
 
@@ -105,6 +106,15 @@ button:disabled { opacity: 0.45; cursor: default; }
 button:focus-visible, .field:focus-visible {
     outline: 2px solid var(--tm-ring);
     outline-offset: 2px;
+}
+/* A block the script focuses (a result, a card) is a reading position for a
+   screen reader, not a control: no ring after a click, a ring after a key. */
+[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+/* After a key it is the app's ring, set off from the block so the text and the
+   options inside it never touch the line. */
+[tabindex="-1"]:focus-visible {
+    outline: 2px solid var(--tm-ring);
+    outline-offset: 6px;
 }
 @media (hover: hover) {
     .button:not(:disabled):hover, .option:not(:disabled):hover, .piece:not(:disabled):hover,

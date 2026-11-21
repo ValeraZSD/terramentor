@@ -18,12 +18,14 @@ import { formatOf } from '../answer/formats';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { useStudyClock } from '../../hooks/useStudyClock';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
 import { Panel } from './Panel';
 import { REVEAL_AT, useDuration, useHiddenClock } from './mockFormat';
 import { PractiseWeakest } from './PractiseWeakest';
+import { openingPlace, saveState } from './courseMockState';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
 import { ClockToggle, EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
@@ -185,7 +187,7 @@ function RealExamDialog({ projectId, exam, onClose, onSaved }: {
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {t("How is the exam for this course taken? A mock gets a clock and a pass line only when the real exam is on screen in the same format.")}
                 </p>
-                <SegmentedControl label={t("How it is taken")} value={how} onChange={setHow}
+                <SegmentedControl label={t("How it is taken")} block="narrow" value={how} onChange={setHow}
                     options={[
                         { value: 'unknown', label: t("Not sure") },
                         { value: 'paper', label: t("On paper") },
@@ -242,6 +244,9 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
     const inflight = useRef(new Map<number, Promise<boolean>>());
     const timers = useRef(new Map<number, number>());
     const [unsaved, setUnsaved] = useState(0);
+    // Sends that failed in a row and will be tried again: the save line says
+    // "not saved" once there are a few (no connection), not "saving…" forever.
+    const [failedInARow, setFailedInARow] = useState(0);
     const savedRef = useRef(onSaved);
     savedRef.current = onSaved;
     const refusedRef = useRef(onRefused);
@@ -255,6 +260,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
         const trip = api.saveMockAnswer(sittingId, { partId, ...p })
             .then(r => {
                 if (pending.current.get(partId) === p) pending.current.delete(partId);
+                setFailedInARow(0);
                 savedRef.current(r);
                 return true;
             })
@@ -270,6 +276,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
                     refusedRef.current(e?.message || '');
                     return true;
                 }
+                setFailedInARow(n => n + 1);
                 return false;
             })
             .finally(() => {
@@ -319,7 +326,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
         return () => { window.removeEventListener('pagehide', leave); leave(); };
     }, [sittingId]);
 
-    return { queue, flush, unsaved };
+    return { queue, flush, unsaved, saving: saveState(unsaved, failedInARow) };
 }
 
 export function CourseMockScreen({ detail, onChange, onLeave }: {
@@ -339,11 +346,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     // Coming back opens the question the learner was on in this tab; on
     // another device, or a first open, the first one not answered yet.
     const placeKey = `mock-place:${sitting.id}`;
-    const [index, setIndex] = useState(() => {
-        const kept = Number(readPlace(placeKey));
-        if (Number.isInteger(kept) && kept >= 0 && kept < questions.length) return kept;
-        return Math.max(0, questions.findIndex(q => q.answer == null));
-    });
+    const [index, setIndex] = useState(() => openingPlace(readPlace(placeKey), questions.map(q => q.answer != null)));
     useEffect(() => { writePlace(placeKey, String(index)); }, [placeKey, index]);
     const [answers, setAnswers] = useState<Record<number, string>>(() => Object.fromEntries(questions.map(q => [q.partId, q.answer ?? ''])));
     const [later, setLater] = useState<Record<number, boolean>>(() => Object.fromEntries(questions.map(q => [q.partId, q.later])));
@@ -353,7 +356,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const [leaving, setLeaving] = useState(false);
     const [finishing, setFinishing] = useState(false);
     const finishId = useRef<string | null>(null);
-    const { queue, flush, unsaved } = useAnswerSaver(sitting.id, setProgress,
+    const { queue, flush, saving } = useAnswerSaver(sitting.id, setProgress,
         message => addToast('error', message || t("That answer could not be saved.")));
 
     // Measured on the frame's root, the one element every state shares, so a
@@ -471,6 +474,10 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
 
     const paused = timed && !sitting.running;
 
+    // A test: the time on the question in front of the learner counts for its
+    // topic, from the open to the hand-in, and not while the clock is paused.
+    useStudyClock(q?.nodeId != null && !paused && !finishing ? { nodeId: q.nodeId, activity: 'checks' } : null, { layer: 'session' });
+
     const leave = async () => {
         setLeaving(true);
         if (!(await flush())) {
@@ -497,7 +504,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const status = [
         t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
         timed ? clock : null,
-        unsaved > 0 ? t("saving…") : null,
+        saving === 'stuck' ? t("not saved yet, check the connection") : saving === 'saving' ? t("saving…") : null,
     ].filter(Boolean)
         // Each part stays whole: at a large text size the line breaks between
         // the count and the clock, never inside either.
@@ -512,7 +519,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         : null;
 
     const frame = (children: React.ReactNode, footer?: React.ReactNode) => (
-        <ExamFrame title={t("Mock exam from this course")} status={status} actions={pauseButton}
+        <ExamFrame title={detail.paper.lookBack ? t("Look back") : t("Mock exam from this course")} status={status} actions={pauseButton}
             onLeave={() => void leave()} leaving={leaving} footer={footer} frameRef={frameRef}>
             {children}
         </ExamFrame>
@@ -646,13 +653,16 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
     return (
         <div className="space-y-4">
             <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam from this course, {{date}}", { date })}</h2>
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {detail.paper.lookBack ? t("Look back, {{date}}", { date }) : t("Mock exam from this course, {{date}}", { date })}
+                </h2>
+                {/* A look back has no clock and no setting to recall, so it has no line here. */}
+                {!detail.paper.lookBack && <p className="text-sm text-slate-600 dark:text-slate-300">
                     {sitting.timeAllowed > 0
                         // The clock runs on past the time while late answers are given; the score stops at the time.
                         ? t("Answered on screen in {{used}} of {{allowed}}", { used: duration(Math.min(sitting.elapsed, sitting.timeAllowed)), allowed: duration(sitting.timeAllowed) })
                         : t("Answered on screen in {{used}}, no clock", { used: duration(sitting.elapsed) })}
-                </p>
+                </p>}
             </div>
             <Panel>
                 <p className="text-5xl font-semibold tabular-nums text-slate-900 dark:text-white">
@@ -679,6 +689,12 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             })}
                         </p>
                     )}
+                    {/* What a course mock or look back does with a miss (server/fading.js SLIPPED_TOPIC). */}
+                    {/* Only an answer given and wrong slips; a blank one writes nothing.
+                        The review groups read the final answers, the ones the log keeps. */}
+                    {result.review.some(r => r.group === 'wrong' || r.group === 'wrong_later') && (
+                        <p>{t("The topics you missed come back as a question the next day you study.")}</p>
+                    )}
                     {result.notGrade && (
                         <p className="text-slate-600 dark:text-slate-300">
                             {t("This is not a grade. A pass line shows only when the real exam is taken on screen with the same number of questions.")}
@@ -697,7 +713,9 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                 </div>
             </Panel>
 
-            {result.topics.length > 0 && (
+            {/* A look back asks about one question per topic, so a bar per topic would only repeat
+                the answers below, each of which names its topic. */}
+            {result.topics.length > 0 && !detail.paper.lookBack && (
                 <Panel>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("By topic")}</h3>
                     <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-700">

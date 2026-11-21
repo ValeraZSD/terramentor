@@ -6,6 +6,8 @@ import {
     pauseSitting, resumeSitting, takeAwayTimeOff, stopWriting, discardSitting, setPartScore, finishSitting,
     setExam, drawCourseMock, saveAnswer,
 } from '../mockExams.js';
+import { getLookBack, startLookBack, skipLookBack } from '../lookBack.js';
+import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 
@@ -17,12 +19,12 @@ const idOf = (v) => {
     return n;
 };
 
-/** One shape for every handler: a MockExamError carries its own status. */
+/** One shape for every handler: a MockExamError (or a reused attempt id) carries its own status. */
 const handle = (fn) => (req, res) => {
     try {
         res.json(fn(req));
     } catch (err) {
-        const status = err instanceof MockExamError ? err.status : 500;
+        const status = err instanceof MockExamError || err instanceof AttemptReusedError ? err.status : 500;
         res.status(status).json({ error: clientError(err, status) });
     }
 };
@@ -71,5 +73,10 @@ app.put('/api/mock-sittings/:id/answers', handle(req => {
 }));
 
 app.delete('/api/mock-sittings/:id', handle(req => { discardSitting(idOf(req.params.id)); return { ok: true }; }));
+
+// The look back (server/lookBack.js): what the stream offers for a course, starting it, and "Not now".
+app.get('/api/projects/:projectId/look-back', handle(req => getLookBack(idOf(req.params.projectId))));
+app.post('/api/projects/:projectId/look-back', handle(req => startLookBack(idOf(req.params.projectId))));
+app.post('/api/projects/:projectId/look-back/skip', handle(req => skipLookBack(idOf(req.params.projectId))));
 
 export const routes = app.takeRoutes();

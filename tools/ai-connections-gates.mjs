@@ -142,10 +142,12 @@ const authStub = createServer(async (req, res) => {
             issuedTokens++;
             return json(200, { access_token: `access-${issuedTokens}`, refresh_token: `refresh-${issuedTokens}`, expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
         }
+        // A script answers the code exchange itself, or returns 'pass' to let the stub answer.
+        if (auth.codeScript && (await auth.codeScript(json, form)) !== 'pass') return;
         const now = Math.floor(Date.now() / 1000);
         return json(200, {
             access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 3600, scope: auth.scope, token_type: 'Bearer',
-            id_token: jwt({ iss: AUTH_BASE, aud: form.client_id, sub: 'user-sub-1', email: 'learner@example.com', exp: now + 3600, iat: now, nonce: auth.nonce }),
+            id_token: jwt({ iss: AUTH_BASE, aud: form.client_id, sub: 'user-sub-1', email: 'learner@example.com', exp: now + 3600, iat: now, nonce: auth.nonce, ...auth.idClaims }),
         });
     }
     res.writeHead(404); res.end();
@@ -327,6 +329,11 @@ check('a picture becomes input_image, the effort reasoning.effort', rr.input[0].
 check('native tools are refused with a reason that names tools (the assistant falls back to its text protocol)',
     /tool/i.test(cw.toResponsesRequest({ messages: [], tools: [{ type: 'function', function: { name: 'x' } }] }).refuse || ''));
 
+const planEffort = (effort) => cw.toResponsesRequest({ model: 'plan-model', reasoning: { effort }, messages: [{ role: 'user', content: 'x' }] }).req.reasoning;
+check('a level the Responses API does not name (a `max` chosen on a Claude connection) is sent as `high`, never as itself and never dropped',
+    eq(planEffort('max'), { effort: 'high' }) && eq(planEffort('xhigh'), { effort: 'high' }) && planEffort('bogus') === undefined);
+check('...a level it names is', eq(planEffort('medium'), { effort: 'medium' }) && eq(planEffort('minimal'), { effort: 'minimal' }));
+
 // A signed-in plan connection, token not yet due for refresh.
 const planId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at) VALUES ('chatgpt', 'https://api.openai.com/v1', 'learner@example.com', ?)`)
     .run(new Date().toISOString()).lastInsertRowid);
@@ -414,6 +421,8 @@ conns.updateConnection(orId, { model: 'openai/gpt-6.1-sol' });
 check('changing the model of the connection in use reaches the row calls read', row('ai_openai_model') === 'openai/gpt-6.1-sol');
 
 const customId = conns.addConnection({ kind: 'custom', baseUrl: 'http://127.0.0.1:1234', apiKey: 'local-key' });
+conns.updateConnection(customId, { baseUrl: 'http://127.0.0.1:1234/openai/v1' });
+check('editing only the path of a server\'s address keeps its key (the key belongs to the origin)', conns.settingsForConnection(customId).apiKey === 'local-key');
 conns.updateConnection(customId, { baseUrl: 'https://elsewhere.example/v1' });
 check('moving a server\'s address does not carry its key to the new host', conns.settingsForConnection(customId).apiKey === '');
 check('a per-job settings object can be built for any saved connection and model', conns.settingsForConnection(anthId, { model: 'claude-x' }).model === 'claude-x'
@@ -523,6 +532,12 @@ db.prepare('DELETE FROM ai_connections').run();
 del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection');
 check('only a browser on this computer can reach the 127.0.0.1 callback',
     cauth.isLocalBrowser('http://127.0.0.1:5257') && cauth.isLocalBrowser('http://localhost:3001') && !cauth.isLocalBrowser('https://100.64.0.7:3001'));
+// The window leaves for OpenAI's page, so the desktop server is held open for
+// the attempt's whole life (server/signInHold.js), and let go when it ends.
+// The holds read one pinned instant until the callback below.
+const signInHold = await import('../server/signInHold.js');
+const HOLD_AT = 1_900_000_000_000;
+signInHold.setHoldClock(() => HOLD_AT);
 const { url: authorizeUrl } = await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257', returnPath: '/settings#ai' });
 const q = new URL(authorizeUrl).searchParams;
 check('a first sign-in registers dynamically, under the app\'s own name and a host id',
@@ -531,15 +546,20 @@ check('the callback is http://127.0.0.1:<port>/auth/callback, never localhost', 
 check('it asks for plan usage and the API resource, with an S256 challenge',
     q.get('scope').split(' ').includes('chatgpt.tokens.use.direct') && q.get('resource') === 'https://api.openai.com/v1' && q.get('code_challenge_method') === 'S256');
 check('the host id is the same on the next sign-in', cauth.hostId() === q.get('ext_agent_host_id'));
+check('a started sign-in holds the desktop server open for the attempt', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 const callback = q.get('redirect_uri');
 let cb = await fetch(`${callback}?code=c1&state=wrong`, { redirect: 'manual' });
 check('a callback with another attempt\'s state is refused and saves nothing', cb.status === 400 && conns.listConnections().connections.length === 0);
+check('…and the real attempt still holds the server open', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 auth.nonce = q.get('nonce');
 auth.tokenCalls = [];
 cb = await fetch(`${callback}?code=c1&state=${q.get('state')}&client_id=oaiapp_issued`, { redirect: 'manual' });
 const landed = new URL(cb.headers.get('location') || 'http://x/');
 check('the browser is sent back to the app\'s Settings, saying it connected', cb.status === 302 && landed.origin === 'http://127.0.0.1:5257' && landed.pathname === '/settings'
     && /^connected-\d+$/.test(landed.searchParams.get('chatgpt') || '') && landed.hash === '#ai', cb.headers.get('location'));
+// Ended at the pinned instant exactly: a hold that was never taken reads 0.
+check('the callback ended the attempt, and with it the hold', signInHold.heldUntil() === HOLD_AT, signInHold.heldUntil());
+signInHold.setHoldClock(null);
 const exchange = auth.tokenCalls[0] || {};
 check('the code is exchanged with the ISSUED client id and the verifier behind the challenge',
     exchange.client_id === 'oaiapp_issued' && createHash('sha256').update(exchange.code_verifier || '').digest('base64url') === q.get('code_challenge') && exchange.redirect_uri === callback);
@@ -574,6 +594,178 @@ check('signing in again reuses the issued client id, sends the account hints and
 auth.nonce = 'some-other-nonce';
 cb = await fetch(`${q2.get('redirect_uri')}?code=c2&state=${q2.get('state')}`, { redirect: 'manual' });
 check('an ID token answering another attempt (wrong nonce) is rejected', new URL(cb.headers.get('location')).searchParams.get('chatgpt') === 'failed');
+
+// A sign-in that fails says which step failed: in the address the browser lands
+// on (a short code from a closed list, for the toast) and in the log (with
+// OpenAI's own words).
+{
+    const logged = [];
+    const realLog = console.log;
+    const fresh = async (connectionId = null) => {
+        const { url } = await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257', connectionId });
+        const sq = new URL(url).searchParams;
+        auth.nonce = sq.get('nonce');
+        return sq;
+    };
+    const answer = async (sq, query) => {
+        // An attempt that never opened (no callback address) answers nothing.
+        if (!sq.get('redirect_uri')) return { outcome: null, reason: null, hash: '', log: 'no callback address' };
+        logged.length = 0;
+        console.log = (...a) => { logged.push(a.join(' ')); };
+        try {
+            const r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&${query}`, { redirect: 'manual' });
+            const u = new URL(r.headers.get('location') || 'http://x/');
+            return { outcome: u.searchParams.get('chatgpt'), reason: u.searchParams.get('chatgpt_reason'), hash: u.hash, log: logged.join('\n') };
+        } finally { console.log = realLog; }
+    };
+    const saved = () => conns.listConnections().connections.length;
+    const before = saved();
+
+    let a = await answer(await fresh(), 'error=server_error&error_description=Agent%20registration%20failed');
+    check('an error OpenAI sends back is named: its code in the address, its description in the log',
+        a.outcome === 'failed' && a.reason === 'provider:server_error' && a.hash === '#ai'
+        && /\[chatgpt\] sign-in failed: provider:server_error/.test(a.log) && /Agent registration failed/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(), `error=${encodeURIComponent('<b>call 0800</b>')}`);
+    check('…an error code outside the OAuth shape is not echoed into the address', a.outcome === 'failed' && a.reason === 'provider:other', JSON.stringify(a));
+    a = await answer(await fresh(), 'error=access_denied');
+    check('a declined consent stays "declined" and is logged as one', a.outcome === 'declined' && /declined/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(), 'code=c4');
+    check('a first sign-in that comes back without an issued client id says so', a.outcome === 'failed' && a.reason === 'no_client_id' && /no_client_id/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(chat.id), 'code=c5&client_id=oaiapp_someone_else');
+    check('a sign-in again that comes back with another client id says so', a.outcome === 'failed' && a.reason === 'client_mismatch', JSON.stringify(a));
+
+    // invalid_grant on a FIRST sign-in: OpenAI's guide says to discard the code
+    // and start a fresh authorization with the client id issued for the
+    // attempt, so the callback sends the browser back to OpenAI, once, on the
+    // same listener. A returning sign-in already used its own id: no retry.
+    auth.codeScript = (json) => json(400, { error: 'invalid_grant', error_description: 'Code already used' });
+    // The desktop hold (signInHold.js) on a clock the gate moves by hand.
+    const MIN = 60_000, ATTEMPT_MS = 10 * MIN, T0 = 1_790_000_000_000;
+    let holdNow = T0;
+    signInHold.setHoldClock(() => holdNow);
+    let sq = await fresh();
+    auth.tokenCalls = [];
+    holdNow = T0 + 8 * MIN;   // eight minutes on OpenAI's pages before the code comes back
+    let r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c6&client_id=oaiapp_three`, { redirect: 'manual' });
+    const retryAt = new URL(r.headers.get('location') || 'http://x/');
+    let rq = retryAt.searchParams;
+    check('a first sign-in whose code OpenAI refuses (invalid_grant) starts again at OpenAI with the ISSUED client id, no name hint, and a new state, nonce and challenge',
+        r.status === 302 && `${retryAt.origin}${retryAt.pathname}` === `${AUTH_BASE}/api/accounts/authorize`
+        && rq.get('client_id') === 'oaiapp_three' && !rq.has('agent_name_hint') && rq.get('ext_agent_host_id') === sq.get('ext_agent_host_id')
+        && rq.get('redirect_uri') === sq.get('redirect_uri') && !!rq.get('state') && rq.get('state') !== sq.get('state')
+        && !!rq.get('nonce') && rq.get('nonce') !== sq.get('nonce') && !!rq.get('code_challenge') && rq.get('code_challenge') !== sq.get('code_challenge')
+        && rq.get('code_challenge_method') === 'S256' && rq.get('scope') === sq.get('scope') && rq.get('resource') === sq.get('resource'),
+        r.headers.get('location'));
+    check('…and holds the desktop server open for the retry\'s whole life, not the first attempt\'s remainder',
+        signInHold.heldUntil() === T0 + 8 * MIN + ATTEMPT_MS, signInHold.heldUntil() - T0);
+    check('…after one exchange under the issued id, and nothing saved',
+        auth.tokenCalls.length === 1 && auth.tokenCalls[0].client_id === 'oaiapp_three' && saved() === before, JSON.stringify(auth.tokenCalls));
+    r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c6b&client_id=oaiapp_three`, { redirect: 'manual' });
+    check('…the refused attempt\'s state is spent', r.status === 400);
+    auth.tokenCalls = [];
+    holdNow = T0 + 9 * MIN;
+    a = await answer(rq, 'code=c6c');
+    check('a second refusal fails as token:invalid_grant with OpenAI\'s words in the log, and starts no third attempt',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && /Code already used/.test(a.log)
+        && auth.tokenCalls.length === 1 && auth.tokenCalls[0].client_id === 'oaiapp_three', JSON.stringify(a));
+    check('…and lets the desktop server go', signInHold.heldUntil() === T0 + 9 * MIN, signInHold.heldUntil() - T0);
+    const closed = async (callbackUrl) => fetch(`${callbackUrl}?state=x`).then(() => false, () => true);
+    check('…and closes the callback listener', !!rq.get('redirect_uri') && await closed(rq.get('redirect_uri')));
+    a = await answer(await fresh(chat.id), 'code=c6d');
+    check('a sign-in AGAIN whose code is refused fails at once (it already used its own client id)',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant', JSON.stringify(a));
+    // A sign-in started while the refused code was being exchanged wins: no
+    // retry over it, and its own attempt still answers.
+    let restarted = null;
+    auth.codeScript = async (json) => {
+        restarted = new URL((await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257' })).url).searchParams;
+        json(400, { error: 'invalid_grant' });
+    };
+    holdNow = T0 + 20 * MIN;
+    a = await answer(await fresh(), 'code=c6e&client_id=oaiapp_three');
+    check('…the refused one ending does not cut the new attempt\'s hold on the desktop server',
+        signInHold.heldUntil() === T0 + 20 * MIN + ATTEMPT_MS, signInHold.heldUntil() - T0);
+    signInHold.setHoldClock(null);
+    auth.codeScript = (json) => json(400, { error: 'invalid_grant' });
+    const restartedAnswer = restarted ? await answer(restarted, 'code=c6f&client_id=oaiapp_five') : {};
+    check('a sign-in started during the exchange is not overwritten by the retry: the refused one fails, the new one still answers',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && restartedAnswer.outcome === null && restartedAnswer.reason === null
+        && /starting again/.test(restartedAnswer.log), JSON.stringify({ a, restartedAnswer }));
+    // The same, but the new sign-in has also FINISHED before the refusal comes
+    // back, so nothing is pending any more: the newer press still wins, and no
+    // retry opens on the listener it closed.
+    let newer = null;
+    auth.codeScript = async (json) => {
+        const nq = new URL((await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257' })).url).searchParams;
+        auth.codeScript = (json2) => json2(400, { error: 'invalid_request' });
+        const nr = await fetch(`${nq.get('redirect_uri')}?state=${nq.get('state')}&code=c6g&client_id=oaiapp_six`, { redirect: 'manual' });
+        newer = new URL(nr.headers.get('location') || 'http://x/').searchParams.get('chatgpt_reason');
+        json(400, { error: 'invalid_grant' });
+    };
+    a = await answer(await fresh(), 'code=c6h&client_id=oaiapp_three');
+    check('a sign-in started AND finished during the exchange still wins: the refused one fails instead of retrying on its closed listener',
+        newer === 'token:invalid_request' && a.outcome === 'failed' && a.reason === 'token:invalid_grant' && !/starting again/.test(a.log),
+        JSON.stringify({ newer, a }));
+    // An error nested as { code, message }, and OpenAI's words quoting the code.
+    auth.codeScript = (json, form) => json(400, { error: { code: 'invalid_grant', message: `Code ${form.code} is not valid` } });
+    a = await answer(await fresh(chat.id), 'code=c6-secret-code');
+    check('an error OpenAI nests as { code, message } is still read, and the code itself is blanked out of the log',
+        a.reason === 'token:invalid_grant' && /Code \[code\] is not valid/.test(a.log) && !/c6-secret-code/.test(a.log), JSON.stringify(a));
+    auth.codeScript = (json) => json(502, '<html>bad gateway</html>');
+    a = await answer(await fresh(), 'code=c7&client_id=oaiapp_three');
+    check('…and an exchange answered with no error code names the HTTP status', a.reason === 'token:http_502', JSON.stringify(a));
+    auth.codeScript = null;
+
+    auth.idClaims = { aud: ['oaiapp_three', 'https://api.openai.com/v1'] };
+    a = await answer(await fresh(), 'code=c8&client_id=oaiapp_three');
+    check('an ID token check that fails names the check, and the log shows the token\'s shape (no identity)',
+        a.reason === 'id_token:party' && /aud 2/.test(a.log) && /azp absent/.test(a.log)
+        && !/learner@example\.com|user-sub-1|access-1|refresh-1|eyJ/.test(a.log), JSON.stringify(a));
+    auth.idClaims = { nonce: 'not-this-attempt' };
+    a = await answer(await fresh(), 'code=c9&client_id=oaiapp_three');
+    check('…a nonce from another attempt is named as that', a.reason === 'id_token:nonce', JSON.stringify(a));
+    auth.idClaims = undefined;
+
+    check('none of the failed sign-ins saved a connection', saved() === before);
+
+    // Refused once, accepted on the retry: the sign-in completes and keeps
+    // the client id it was issued. The retried callback may omit client_id.
+    let refusals = 1;
+    auth.codeScript = (json) => (refusals-- > 0 ? json(400, { error: 'invalid_grant' }) : 'pass');
+    sq = await fresh();
+    r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c10&client_id=oaiapp_four`, { redirect: 'manual' });
+    rq = new URL(r.headers.get('location') || 'http://x/').searchParams;
+    auth.nonce = rq.get('nonce');
+    a = await answer(rq, 'code=c11');
+    const retriedConn = conns.listConnections().connections.find(c => creds(c.id)?.client_id === 'oaiapp_four');
+    check('the retry\'s callback completes the sign-in, saved under the issued client id',
+        !!retriedConn && a.outcome === `connected-${retriedConn.id}` && saved() === before + 1
+        && !!rq.get('redirect_uri') && await closed(rq.get('redirect_uri')), JSON.stringify(a));
+    auth.codeScript = null;
+    if (retriedConn) await conns.removeConnection(retriedConn.id);
+    check('…(removed again, so the checks below see the connections they made)', saved() === before);
+}
+
+// Every reason a failed sign-in can name has words of its own on the
+// Settings page (by the whole reason, else its step), in every language.
+{
+    const server = readFileSync(new URL('../server/chatgptAuth.js', import.meta.url), 'utf8');
+    const steps = new Set([...server.matchAll(/fail\(\s*[`'](\w+)/g)].map(m => m[1]));
+    for (const m of server.matchAll(/reason: `(\w+):/g)) steps.add(m[1]);
+    const providers = readFileSync(new URL('../src/components/settings/connections/providers.ts', import.meta.url), 'utf8');
+    const block = providers.slice(providers.indexOf('SIGN_IN_FAILURE_TEXT'), providers.indexOf('};', providers.indexOf('SIGN_IN_FAILURE_TEXT')));
+    const texts = Object.fromEntries([...block.matchAll(/^\s*'?([\w:]+)'?: k\("((?:[^"\\]|\\.)*)"\)/gm)].map(m => [m[1], JSON.parse(`"${m[2]}"`)]));
+    const missing = [...steps, 'token:invalid_grant'].filter(s => !texts[s]);
+    check('every step a ChatGPT sign-in can fail at, and a refused code, has its own words on the Settings page',
+        steps.size >= 7 && missing.length === 0, `steps ${[...steps].join(', ')}; missing ${missing.join(', ')}`);
+    const localesDir = new URL('../src/locales/', import.meta.url);
+    const untranslated = [];
+    for (const lang of ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']) {
+        const strings = JSON.parse(readFileSync(new URL(`${lang}.json`, localesDir), 'utf8'));
+        for (const text of Object.values(texts)) if (!strings[text] || strings[text] === text) untranslated.push(`${lang}: ${text.slice(0, 40)}`);
+    }
+    check('…translated in every language', Object.keys(texts).length > 0 && untranslated.length === 0, untranslated.join('; '));
+}
 
 // One fixed instant for every expiry below: an assertion must not read the clock.
 const PINNED_NOW = 1_790_000_000;

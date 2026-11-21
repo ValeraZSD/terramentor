@@ -6,7 +6,7 @@ import {
     readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
 } from './answerFormats.js';
 import {
-    canonicalOption, sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
+    canonicalOption, sameOption, sameOptionCased, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
 import {
     SCRIPTS, getNodeLanguage, closerPatterns, nativeScripts, driftedToEnglish,
 } from './language.js';
@@ -493,7 +493,7 @@ export function questionDefects(question, nodeId = null) {
         if (options.length < 2) problems.push('a multiple-choice question needs at least two options');
         for (let i = 0; i < options.length; i++) {
             for (let j = i + 1; j < options.length; j++) {
-                if (sameOption(options[i], options[j])) {
+                if (sameOptionCased(options[i], options[j])) {
                     problems.push(`options ${i + 1} and ${j + 1} are the same value written two ways ("${String(options[i]).slice(0, 40)}" / "${String(options[j]).slice(0, 40)}")`);
                 }
             }
@@ -908,10 +908,16 @@ export function sameAnswer(a, b) {
  * prompt switches mode): the verifier recomputes the model answer's arithmetic
  * and checks it against its own explanation, and a fault there comes back as
  * verdict "broken", which is rejected below like any other.
+ *
+ * `source` is the text the question's writer had (`questionSource(nodeId)` in
+ * ai.js, plus the lesson part on the feed). Every caller of this function
+ * passes it (tools/verifier-source-gates.mjs): without it, a question about
+ * that text cannot be answered and is deleted as unsound. The key is still
+ * never shown.
  */
-export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
+export async function verifyQuestion(nodeTitle, question, { signal, source = '' } = {}) {
     try {
-        const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question);
+        const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question, { source });
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
         const parsed = parseObject(resp, 'verdict');
         if (!parsed || typeof parsed.verdict !== 'string') {

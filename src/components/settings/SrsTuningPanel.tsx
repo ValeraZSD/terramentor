@@ -4,7 +4,6 @@ import { useStore } from '../../store';
 import { api, SrsStatus, SrsFitResult } from '../../api';
 import { configureSrs, retentionVerdict, REQUEST_RETENTION } from '../../utils/srs';
 import { Button } from '../ui/Button';
-import { Explain } from '../ui/Disclosure';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { uiLocale } from '../../utils/locale';
 import { TuningBlock, Fact, FactStrip } from './tuningParts';
@@ -150,7 +149,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                 />
             </FactStrip>
             {status && status.retention.reviews > 0 && (
-                <div className="px-4 py-2.5" data-testid="srs-retention">
+                <div className="py-2.5" data-testid="srs-retention">
                     {/* Three percentages side by side make the reader work
                         out which way is good. The verdict says it in words
                         and keeps both numbers inside the sentence that uses
@@ -175,10 +174,11 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                     />
                     {/* The band chart is for someone checking the fit, not for
                         someone tuning it: the verdict above already says whether
-                        memory is ahead of or behind the schedule. So the chart
-                        closes until asked for. */}
+                        memory is ahead of or behind the schedule. It is shown,
+                        not folded: this panel already opens inside a section
+                        row, and a disclosure there was a block inside a block. */}
                     {status.retention.bins.filter(b => b.n >= BIN_MIN_REVIEWS).length >= 2 && (
-                        <Explain summary={tr("The bands, prediction by prediction")} className="mt-3">
+                        <div className="mt-4">
                         <div>
                         {/* Why there are three rows and not ten: the bands are
                             fixed (`retentionReport` cuts predictions into ten),
@@ -236,7 +236,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                             })}
                         </div>
                         </div>
-                        </Explain>
+                        </div>
                     )}
                 </div>
             )}

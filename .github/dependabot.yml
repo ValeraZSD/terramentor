@@ -29,6 +29,12 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
           - version-update:semver-patch
+      # Tailwind 4 moved its PostCSS plugin to @tailwindcss/postcss and its
+      # configuration into CSS; the build fails on the bare version bump.
+      # Moving is a migration with a visual check of every screen.
+      - dependency-name: tailwindcss
+        update-types:
+          - version-update:semver-major
     groups:
       # @vitejs/plugin-react's majors follow vite's (6.x needs vite 8), so
       # apart they arrive as two pull requests that each fail without the

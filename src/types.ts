@@ -43,6 +43,16 @@ export interface DeckData {
     stages: DeckStage[];
     matureDays: number;
     currentStageId: number | null;
+    /** The recall target its cards are scheduled for (`getRetention`), not observed recall. */
+    desiredRetention: number;
+}
+
+/** GET /api/projects/:id/deck/retention-forecast: answers a day each target would ask for. */
+export interface RetentionForecast {
+    current: number;
+    newPerDay: number;
+    days: number;
+    choices: { retention: number; perDay: number }[];
 }
 
 export interface Project {
@@ -58,6 +68,8 @@ export interface Project {
     ai_generating?: number;
     start_date: string | null;
     deadline: string | null;
+    /** 1 = the deadline is an exam date marked "cannot move". */
+    deadline_fixed?: number;
     study_days: string;
     baseline_schedule: string | null;
     status?: 'active' | 'completed' | 'archived';
@@ -108,6 +120,9 @@ export interface Project {
      *  default for an import, on for anything authored here, and the learner's
      *  to change (PUT /api/projects/:id/teaching). */
     teaches?: boolean;
+    /** The share of its cards the learner wants to still know when each comes
+     *  up (FSRS desired retention); 0.9 unless the course set its own. */
+    desired_retention?: number;
     /** Total cards, and how many have ever been studied. Progress is this ratio
      *  for a project that is not being taught: its nodes are never hand-marked
      *  complete, so the leaf-status counters read 0% forever. */
@@ -118,6 +133,10 @@ export interface Project {
     insights?: string | null;
     insights_generated_at?: string | null;
 }
+
+/** What `PUT /api/projects/:id` takes: the lock is written as a boolean and
+ *  read back as 0/1 (`Project.deadline_fixed`). */
+export type ProjectUpdate = Omit<Partial<Project>, 'deadline_fixed'> & { deadline_fixed?: boolean };
 
 export interface Node {
     id: number;
@@ -249,6 +268,69 @@ export type ImportResult = Project & {
     failed?: { name: string; error: string }[];
 };
 
+/** One item in a course-update preview. */
+export interface CourseUpdateItem {
+    kind: 'node' | 'question' | 'card' | 'resource';
+    label: string;
+    where: string | null;
+    /** For a changed item: which of its fields the file changes. */
+    fields?: string[];
+    /** For a changed item: each changed field as the learner reads it now and after (the first 200 items only). */
+    diff?: { field: string; from: string | null; to: string | null }[];
+    /** For a moved item: the topic it moves under (null: the top of the course; absent: a place the preview cannot name). */
+    to?: string | null;
+}
+
+/** A field both the file and the learner changed: the learner's version is kept
+ *  unless they choose the file's. `mine` is null for an item they deleted. */
+export interface CourseUpdateConflict {
+    key: string;
+    kind: 'node' | 'question' | 'card' | 'resource' | 'project';
+    field: string;
+    label: string | null;
+    where: string | null;
+    mine: string | null;
+    file: string | null;
+    unknownBase: boolean;
+}
+
+export interface CourseUpdateSummary {
+    changed: number;
+    moved: number;
+    added: number;
+    removed: number;
+    keptRemoved: number;
+    conflicts: number;
+    ambiguous: number;
+    reviewedCardsChanged: number;
+    questionsReset: number;
+    projectFields: number;
+    /** Groups of siblings already in the course whose order the file changes. */
+    reordered: number;
+    nothing: boolean;
+}
+
+/** What `POST /api/course-updates/inspect` says a file would do. `match` is null
+ *  when the file's course is not in the library (the importer makes a new one). */
+export interface CourseUpdatePreview {
+    match: { projectId: number; name: string; version: string | null; fileVersion: string | null } | null;
+    refused: 'older' | null;
+    message?: string | null;
+    summary: CourseUpdateSummary | null;
+    items?: {
+        changed: (CourseUpdateItem & { fields: string[] })[];
+        moved: CourseUpdateItem[];
+        added: CourseUpdateItem[];
+        removed: CourseUpdateItem[];
+        keptRemoved: CourseUpdateItem[];
+        reviewedCardsChanged: CourseUpdateItem[];
+        ambiguous: CourseUpdateItem[];
+        project: string[];
+    } | null;
+    conflicts?: CourseUpdateConflict[];
+    warnings?: string[];
+}
+
 export interface Toast {
     id: string;
     type: 'success' | 'error' | 'info';
@@ -276,6 +358,56 @@ export interface ScheduleConfig {
     startDate: string;
     deadline: string;
     studyDays: number[];
+    /** Set or take off the "exam date, cannot move" mark in the same write. */
+    deadlineFixed?: boolean;
+}
+
+/**
+ * A date judged against the learner's own pace (`judgeDate`, server/paceModel.js).
+ * Every pace surface reads this one object: the plan panel, the Projects card
+ * pill and the course header.
+ */
+export type VerdictBand = 'learning' | 'on_pace' | 'under_pace' | 'tight' | 'out_of_reach' | 'done' | 'passed' | 'no_date';
+export type PaceOffer =
+    | { kind: 'fit_subset'; count: number }
+    | { kind: 'plan_weekly'; perWeek: number }
+    | { kind: 'check_known' }
+    | { kind: 'pause_others' }
+    | { kind: 'move_date' };
+export interface FinishRange {
+    from: string;
+    to: string;
+    stretch: { start: string; end: string };
+}
+export interface PaceVerdict {
+    unit: 'topics' | 'cards';
+    band: VerdictBand;
+    /** With one week of data: the date already needs at least twice that week's pace. */
+    early: boolean;
+    open: number;
+    deadline: string | null;
+    daysLeft: number | null;
+    needed: number | null;
+    recent: number | null;
+    best: number | null;
+    bestStretch: { start: string; end: string } | null;
+    fits: number | null;
+    weeksOfData: number;
+    quietWeeks: number;
+    ranges: { recent: FinishRange | null; best: FinishRange | null };
+    owner: 'learner' | 'teacher';
+    fixed: boolean;
+    offers: PaceOffer[];
+    otherCourses?: number;
+}
+/** The learner's weeks in the verdict's unit, newest first. */
+export interface LearnerPace {
+    weeks: Array<{ start: string; end: string; count: number }>;
+    weeksOfData: number;
+    recent: number | null;
+    best: number | null;
+    bestStretch: { start: string; end: string } | null;
+    quietWeeks: number;
 }
 
 export interface ScheduleResult {
@@ -329,68 +461,11 @@ export interface PaceData {
     /** What both percentages count: topics, or cards met for a project that is
      *  measured in cards (`countsInCards`). */
     basis?: 'cards' | 'topics';
-    /** A project measured in cards stores no topic dates; this is where each of
-     *  its sections falls on the plan (`cardPlan`, server/scheduling.js). Only
-     *  on `/api/projects/:id/pace`. */
-    cardPlan?: CardPlanSection[] | null;
+    /** The date judged against the learner's own pace; null without a date. */
+    verdict?: PaceVerdict | null;
+    /** The weeks that verdict was judged from. */
+    learnerPace?: LearnerPace | null;
 }
-
-/** One section of a card-measured plan: the study days its cards fall on. */
-export interface CardPlanSection {
-    nodeId: number;
-    start: string;
-    end: string;
-    cards: number;
-    seen: number;
-}
-
-export interface GanttItem {
-    id: number;
-    title: string;
-    depth: number;
-    status: Node['status'];
-    isNote: boolean;
-    scheduledStart: string | null;
-    scheduledEnd: string | null;
-    hasChildren: boolean;
-    parentId: number | null;
-    rootPhaseId: number | null;
-    rootPhaseTitle: string | null;
-    /** Tailwind background class for the bar, derived from status + overdue. */
-    colorClass: string;
-    /** Past its end and open: still counted behind schedule. */
-    isOverdue: boolean;
-    /** …and the learner already knows it: it says "Ready to prove", not red
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    readyToProve: boolean;
-}
-
-export interface CalendarDay {
-    date: string;
-    dayOfWeek: number;
-    isToday: boolean;
-    isStudyDay: boolean;
-    isCurrentMonth: boolean;
-    tasks: CalendarTask[];
-}
-
-export interface CalendarTask {
-    nodeId: number;
-    title: string;
-    status: Node['status'];
-    color: string;
-    /** The task's OWN window. A chip is drawn once per period, so the day it
-     *  sits on is not necessarily the day the topic starts — the dates are how
-     *  a multi-day topic still says where it runs. */
-    start: string;
-    end: string;
-    /** The mastery gate would pass it now: a late one says "ready to prove"
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    provable?: boolean;
-}
-
-export type CalendarViewMode = 'month' | 'week' | 'day';
-export type WeekStartDay = 0 | 1;
 
 /** A check run on something the assistant prepared (server/assistantChecks.js).
  *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */
@@ -783,30 +858,6 @@ export interface GhostResult {
     total: number;
 }
 
-// A consolidated "what to do today" agenda for a project (server/dailyPlan.js).
-export interface DailyPlanTask {
-    id: number;
-    title: string;
-    scheduled_start?: string | null;
-    scheduled_end?: string | null;
-    status?: string;
-    /** On an overdue task: the learner already knows it (server/readyToProve.js). */
-    readyToProve?: boolean;
-}
-
-export interface DailyPlan {
-    date: string;
-    overdueTasks: DailyPlanTask[];
-    todayTasks: DailyPlanTask[];
-    summary: {
-        overdueCount: number;
-        todayCount: number;
-        decayingCount: number;
-        dueFlashcardCount: number;
-        untestedCount: number;
-    };
-}
-
 // Learning feed (server/feed.js, GET /api/feed) — the home page card stream.
 // A discriminated union: `kind` selects the card component; `key` is the
 // stable identity used for exclude-list paging and consume calls.
@@ -838,6 +889,13 @@ export interface FeedLessonCard extends FeedCardCommon {
      *  read on an earlier visit, so the card can offer them again. Absent when
      *  the topic starts at part 1 or nothing earlier is kept. */
     readBefore?: FeedReadPart[];
+    /** On a topic's first part, met for the first time, and only when the app
+     *  holds an unspent head start on it: ONE of its own tap questions, asked
+     *  before the part is shown. Never evidence
+     *  (`server/lessonPrompts.js`). A feed row by its id, a bank question by its uuid. */
+    preQuestions?: { feedItemId: number | null; question: QuizQuestion }[];
+    /** A model is set up to mark the learner's own account of this part. */
+    explainBack?: boolean;
 }
 
 /** A lesson part already read (`readLessonParts`, server/feed.js); the text
@@ -877,6 +935,8 @@ export interface FeedRecallCard extends FeedCardCommon {
     kind: 'recall';
     /** One of the review round that opens the stream (server/feed.js), drawn under one header. */
     review?: boolean;
+    /** Back because it was answered wrong in a look back (server/fading.js SLIPPED_TOPIC), not because time passed. */
+    slipped?: boolean;
     daysSince: number | null;
     quizId: number;
     question: QuizQuestion;
@@ -1043,10 +1103,35 @@ export interface PlacementAnswerResult {
  * mistake positional field-picking can make — a reversed front/back — catchable
  * before it becomes two thousand backwards cards.
  */
+/** Who wrote a picture's description: the deck's author, the learner, or a vision model. */
+export type MediaDescriber = 'author' | 'learner' | 'vision';
+
+/** `GET /api/media/:hash/info`. */
+export interface MediaInfo {
+    hash: string;
+    filename: string;
+    kind: 'image' | 'audio' | string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+}
+
+/** One picture in the description review list (`GET /api/media-descriptions`). */
+export interface MediaDescriptionRow {
+    hash: string;
+    filename: string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+    /** The model that wrote it, when one did. */
+    generated_by: string | null;
+    /** Its place in the list's order, as it was read: the next page starts after it. */
+    cursor: string;
+}
+
 /** Progress of the card-image description sweep (server/mediaDescribe.js). */
 export interface MediaDescriptionStatus {
     images: number;
     described: number;
+    byLearner?: number;
     /** Written by the deck's author (alt text) — never overwritten by a model. */
     byAuthor: number;
     byVision: number;
@@ -1135,6 +1220,26 @@ export interface FeedNoticeCard {
     message: string;
 }
 
+/**
+ * What the stream offers a course now and then (server/lookBack.js): a look
+ * back over what it has taught, the one left open, or the full mock in the
+ * weeks before a real exam.
+ */
+export type LookBackOffer =
+    | { kind: 'look_back'; projectId: number; questions: number }
+    | { kind: 'resume'; projectId: number; sittingId: number; answered: number; questions: number }
+    | { kind: 'mock'; projectId: number; daysLeft: number; questions: number };
+
+/** The offer at the head of the stream's opening page; no topic of its own. */
+export interface FeedLookBackCard {
+    key: string;
+    kind: 'lookback';
+    projectId: number;
+    projectName: string;
+    projectColor: string;
+    offer: LookBackOffer;
+}
+
 export type FeedCard =
     | FeedLessonCard
     | FeedQuestionCard
@@ -1142,7 +1247,8 @@ export type FeedCard =
     | FeedRecallCard
     | FeedCheckpointCard
     | FeedPracticeCard
-    | FeedNoticeCard;
+    | FeedNoticeCard
+    | FeedLookBackCard;
 
 export interface FeedStats {
     itemsDoneToday: number;
@@ -1586,24 +1692,6 @@ export interface GlobalDueFlashcard extends ProjectFlashcard {
     project_color: string;
 }
 
-// Global calendar feed (GET /api/calendar?from&to).
-export interface GlobalCalendarTask {
-    nodeId: number;
-    projectId: number;
-    title: string;
-    status: string;
-    scheduled_start: string;
-    scheduled_end: string;
-    /** The mastery gate would pass it now (server/readyToProve.js `canProve`). */
-    provable?: boolean;
-}
-
-export interface GlobalCalendarData {
-    /** `scheduled`: the course has dates, so the course filter lists it. */
-    projects: { id: number; name: string; color: string; scheduled?: boolean }[];
-    tasks: GlobalCalendarTask[];
-}
-
 export interface Quiz {
     id: number;
     node_id: number;
@@ -1641,6 +1729,68 @@ export interface SittingReview {
     nodeTitle: string;
     projectId: number;
     items: SittingReviewItem[];
+}
+
+/** The one word for what the app thinks a learner knows about a topic (server/evidenceTrail.js). */
+export type EstimateLevel = 'none' | 'borrowed' | 'proven' | 'fading' | 'practice' | 'few' | 'close' | 'early';
+
+/** One piece of evidence about a topic, as the trail lists it. */
+export interface EvidenceRow {
+    id: number;
+    type: 'quiz' | 'flashcard' | 'mastery_check' | 'drill' | 'paper' | 'placement' | string;
+    at: string;
+    score: number;
+    total: number;
+    /** The gate's estimate before and after this row; null for practice and placement. */
+    before: number | null;
+    after: number | null;
+    /** A single feed answer's question, when the bank still holds it. */
+    question: string | null;
+    /** That question's ref for the "this is wrong" flag. */
+    ref: string | null;
+    recall: boolean;
+    /** A check or quiz whose answers were kept: it opens (GET /api/today/sittings/:id). */
+    reviewable: boolean;
+    /** Questions a report took out of this row. */
+    voided: number;
+}
+
+/** GET /api/nodes/:nodeId/evidence */
+export interface EvidenceTrail {
+    nodeId: number;
+    title: string;
+    status: string;
+    projectKind: 'curriculum' | 'deck';
+    threshold: number;
+    estimate: {
+        level: EstimateLevel;
+        /** 0..1, what every learner-facing reader prints; null with no estimate. */
+        score: number | null;
+        /** What the proving answers alone give; under `score` when practice lifted it. */
+        answersScore: number | null;
+        seed: 'placement' | 'transfer' | null;
+        ownAnswers: number;
+        practiceRight: number;
+        practiceTotal: number;
+        /** Proven by a passed sitting while the estimate is under the bar. */
+        byCheck: boolean;
+        lastEvidenceAt: string | null;
+    };
+    count: number;
+    rows: EvidenceRow[];
+    /** Questions missed twice or more in a row with no right answer since, most misses first.
+     *  Absent from a server older than the client. */
+    shaky?: ShakyQuestion[];
+    /** All of them; `shaky` lists the first SHAKY_LIMIT. */
+    shakyCount?: number;
+}
+
+export interface ShakyQuestion {
+    question: string;
+    /** The "this is wrong" flag's ref (`q:<uuid>`), or null for a question with no uuid. */
+    ref: string | null;
+    /** Misses since the last right answer. */
+    misses: number;
 }
 
 export interface AskedQuestion {
@@ -1728,6 +1878,16 @@ export interface DrillItem {
     note?: string;
     /** The card it was made from, in the flashcard drill: a report on it is a report on the card. */
     cardId?: number;
+    /** The only answers this item may borrow as wrong options, when set (the
+     *  flashcard drill: answers of cards of the same kind, never the whole deck),
+     *  in tiers: a later tier is drawn from only once the earlier ones run out.
+     *  Nothing in it means nothing fits as a wrong option: the item is typed. */
+    pool?: string[][];
+    /** The line the card's author printed beside the question ("de или het?",
+     *  "переведите на русский"), shown in place of the drill's own label. */
+    context?: string;
+    /** The card's question-side media JSON (`flashcards.media`): a listening card's sound IS its question. */
+    media?: string;
 }
 
 export interface DrillSpec {
@@ -2184,6 +2344,8 @@ export interface ScheduleOverviewRow {
     status?: 'active' | 'completed' | 'archived';
     start_date: string | null;
     deadline: string | null;
+    /** 1 = the deadline is an exam date marked "cannot move". */
+    deadline_fixed?: number;
     study_days: string;
     /** Leaves still open — the number a reschedule would move. */
     openLeaves: number;
@@ -2210,6 +2372,8 @@ export interface ScheduleOverviewRow {
         drift: number;
         totalDays: number;
     } | null;
+    /** The date judged against the learner's own pace; null without a date. */
+    verdict: PaceVerdict | null;
 }
 
 export interface ScheduleOverview {

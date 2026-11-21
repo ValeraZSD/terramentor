@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useStore } from '../store';
+import { takeOpenedForNow, useStore } from '../store';
 import ProgressRing from './ProgressRing';
 import TreeItemRow from './TreeItemRow';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import { TreeNode } from '../types';
-import { INDENTATION_WIDTH, FlatItem } from '../utils/treeDnd';
+import type { FlatItem } from '../utils/treeDnd';
 import {
   ChevronDown,
   ChevronRight,
@@ -17,11 +17,18 @@ import {
   MoreVertical,
   FolderOpen,
   FileText,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
+import { useSiblingMove, useSidewaysInGrid } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDropFlash } from '../hooks/useDropFlash';
 import { countsInCards } from '../utils/projectShape';
+import { listStartRow } from '../utils/defaultExpansion';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { MenuItem } from './ui/Popover';
@@ -48,12 +55,13 @@ interface Props {
 
 export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndicator }: Props) {
   const { t } = useTranslation();
+  const move = useSiblingMove(node);
   const selectNode = useStore((s) => s.selectNode);
   const createNode = useStore((s) => s.createNode);
   const deleteNode = useStore((s) => s.deleteNode);
   const expanded = useStore((s) => s.expanded);
   const toggleExpanded = useStore((s) => s.toggleExpanded);
-  const setExpanded = useStore((s) => s.setExpanded);
+  const openForNow = useStore((s) => s.openForNow);
   const selectedNodeId = useStore((s) => s.selectedNodeId);
   const projects = useStore((s) => s.projects);
   const currentProjectId = useStore((s) => s.currentProjectId);
@@ -66,6 +74,12 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: node.id, data: { kind: 'card' } });
   const flash = useDropFlash(`node:${node.id}`);
+  // Sections sit side by side on a wide board and in one column on a phone;
+  // the move arrows follow (see useSidewaysInGrid).
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const sideways = useSidewaysInGrid(cardRef);
+  const EarlierIcon = sideways ? ArrowLeft : ArrowUp;
+  const LaterIcon = sideways ? ArrowRight : ArrowDown;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -86,10 +100,41 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const subtreeCards = node.progress?.cards ?? 0;
   const inCards = countsInCards({ teaches: project?.teaches, topics: node.progress?.total, cards: subtreeCards });
 
+  // An opened list starts at its first unfinished row (`listStartRow`) when
+  // the card opens or the board is drawn again, never between: finishing a
+  // topic or the learner's own scrolling is not undone by a jump. An open that
+  // shows where an added or dropped row went (`openForNow`) brings that row
+  // into view instead, once it is drawn here (a dropped row arrives after the
+  // move's write). Only this card's list moves, never the page.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const showRowRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    showRowRef.current = null;
+    if (!isExpanded || !list) return;
+    const opened = takeOpenedForNow(node.id);
+    if (opened) { showRowRef.current = opened.row; return; }
+    const id = listStartRow(rowsRef.current.map((r) => r.node), useStore.getState().expanded);
+    if (id == null) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${id}"]`);
+    scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 8 });
+  }, [isExpanded]);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (showRowRef.current == null || !list) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${showRowRef.current}"]`);
+    if (!row) return;
+    showRowRef.current = null;
+    scrollIntoViewWithin(row, { boundary: list, block: 'nearest', padding: 8 });
+  });
+
   const handleAddChild = async () => {
     if (!newItemTitle.trim()) return;
-    await createNode({ title: newItemTitle, parent_id: node.id });
-    if (!expanded[node.id]) setExpanded(node.id, true);
+    const created = await createNode({ title: newItemTitle, parent_id: node.id });
+    // Shows where the new row went, for this visit: no choice to keep.
+    openForNow(node.id, created?.id ?? null);
     setShowAddModal(false);
     setNewItemTitle('');
   };
@@ -118,7 +163,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
           its properties because a dragged card is drawn at opacity 0.3, and a
           plain `transition` faded it back in over 150 ms after every drop. */}
       <div
-        ref={setNodeRef}
+        ref={(el) => { setNodeRef(el); cardRef.current = el; }}
         style={style}
         data-category-id={node.id}
         data-node-id={node.id}
@@ -137,12 +182,12 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
         {/* Header band. Light: slate-50 — a hair off the card's white, and
             distinct from the canvas. Dark: slate-700/50, a raised band over
             the slate-800 card. */}
-        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-t-2xl">
+        <div className={`bg-slate-50 dark:bg-slate-700/50 ${isExpanded ? 'rounded-t-2xl' : 'rounded-2xl'}`}>
           <div
             {...attributes}
             {...listeners}
             title={t("Drag to reorder (press and hold on touch)")}
-            className="flex justify-center py-2 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
+            className="flex justify-center py-2.5 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
           >
             <div className="flex gap-1">
               {[...Array(5)].map((_, i) => (
@@ -163,12 +208,17 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   {isNote ? <FileText className="w-5 h-5" /> : <FolderOpen className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white truncate">
+                  {/* The button truncates, not the heading: a clipping heading
+                      cut the button's high-contrast frame down to a "]".
+                      align-top: a clipping inline-block sits on the baseline
+                      and left a descender's gap under the heading. */}
+                  <h3 data-larger-wraps className="font-semibold text-slate-900 dark:text-white">
                     <button data-row="title"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
+                      data-larger-wraps
                       aria-label={t("Open {{title}}", { title: node.title })}
-                      className={`-mx-1 px-1 max-w-full truncate text-left rounded ${FOCUS_RING}`}
+                      className={`-mx-1 px-1 max-w-full truncate align-top text-left rounded ${FOCUS_RING}`}
                     >
                       {node.title}
                     </button>
@@ -191,6 +241,16 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   <MenuItem onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
                     {t("Add Item")}
                   </MenuItem>
+                  {move.up && (
+                    <MenuItem onSelect={move.up} icon={<EarlierIcon className="w-4 h-4" />}>
+                      {t("Move earlier")}
+                    </MenuItem>
+                  )}
+                  {move.down && (
+                    <MenuItem onSelect={move.down} icon={<LaterIcon className="w-4 h-4" />}>
+                      {t("Move later")}
+                    </MenuItem>
+                  )}
                   <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                     {t("Delete")}
                   </MenuItem>
@@ -219,7 +279,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
              bottom-right corner. The card itself cannot simply clip
              (`overflow-hidden`) — the drag-and-drop indicators are positioned
              outside its edges on purpose. */
-          <div className="border-t border-slate-100 dark:border-slate-700 rounded-b-2xl px-2 py-2 max-h-80 overflow-auto">
+          <div ref={listRef} className="border-t border-slate-100 dark:border-slate-700 rounded-b-2xl px-2 py-2 max-h-80 overflow-auto">
             {/* The drag context is the board's (NodeTree), so a row can be
                 carried into another card; this card only lists its rows. */}
             <SortableContext items={rows.map((i) => i.id)} strategy={verticalListSortingStrategy}>
@@ -231,7 +291,6 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                     cardId={node.id}
                     isActive={rowDrag?.activeId === item.id}
                     projectedDepth={rowDrag?.activeId === item.id ? rowDrag.projectedDepth : null}
-                    indentationWidth={INDENTATION_WIDTH}
                     isDropParent={rowDrag?.dropParentId != null && item.id === rowDrag.dropParentId}
                     dropParentTitle={rowDrag?.activeId === item.id ? rowDrag.dropParentTitle : null}
                   />

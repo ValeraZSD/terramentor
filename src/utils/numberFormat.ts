@@ -147,5 +147,13 @@ export const num = (value: number, options: NumberOptions = {}): string =>
  */
 export function writtenDecimals(written: string): number | undefined {
     const m = String(written ?? '').replace(/[  \s]/g, '').match(/[.,](\d+)(?:[eE][-+]?\d+)?$/);
-    return m ? m[1].length : undefined;
+    if (!m) return undefined;
+    // The same separator more than once, with the other one nowhere, is
+    // grouping ("299,792,458", "1.234.567"), exactly as `parseNumber` reads it:
+    // its last three digits are a thousands group, not a claimed precision.
+    const plain = m.input ?? '';
+    const separator = plain[m.index ?? 0];
+    const other = separator === '.' ? ',' : '.';
+    if (plain.split(separator).length > 2 && !plain.includes(other)) return undefined;
+    return m[1].length;
 }

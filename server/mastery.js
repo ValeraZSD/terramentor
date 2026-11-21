@@ -1,6 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
-import { FADING_TOPIC, fadingCutoff } from './fading.js';
+import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -228,22 +228,46 @@ export function readAttemptId(value) {
     return typeof value === 'string' && ATTEMPT_ID.test(value) ? value : undefined;
 }
 
-const recordTx = db.transaction((surface, attemptId, write) => {
+/**
+ * The same id sent for ANOTHER item (another topic, quiz or question) is not a
+ * retry: it was answered with the first item's outcome, so the second answer
+ * was dropped while the caller was told it had been recorded. `status` 409 is
+ * the reply; a client issues a new id per presentation and never meets it.
+ */
+export class AttemptReusedError extends Error {
+    constructor() {
+        super('This attemptId was already used for another answer; send a new one');
+        this.status = 409;
+    }
+}
+
+const recordTx = db.transaction((surface, attemptId, write, subject) => {
     if (attemptId) {
-        const prior = db.prepare('SELECT outcome FROM answer_attempts WHERE surface = ? AND attempt_id = ?').get(surface, attemptId);
-        if (prior) return { duplicate: true, outcome: prior.outcome == null ? null : JSON.parse(prior.outcome) };
+        const prior = db.prepare('SELECT outcome, subject FROM answer_attempts WHERE surface = ? AND attempt_id = ?').get(surface, attemptId);
+        if (prior) {
+            // A row from before subjects were kept (NULL) answers as it always did.
+            if (subject != null && prior.subject != null && prior.subject !== subject) throw new AttemptReusedError();
+            return { duplicate: true, outcome: prior.outcome == null ? null : JSON.parse(prior.outcome) };
+        }
     }
     const outcome = write();
     if (attemptId) {
-        db.prepare('INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES (?, ?, ?)')
-            .run(surface, attemptId, outcome === undefined ? null : JSON.stringify(outcome));
+        db.prepare('INSERT INTO answer_attempts (surface, attempt_id, outcome, subject) VALUES (?, ?, ?, ?)')
+            .run(surface, attemptId, outcome === undefined ? null : JSON.stringify(outcome), subject ?? null);
     }
     return { duplicate: false, outcome };
 });
 
-/** Run `write` once per (surface, attemptId); see above. IMMEDIATE, so a second process queues rather than races. */
-export function recordOnce(surface, attemptId, write) {
-    return recordTx.immediate(surface, attemptId, write);
+/**
+ * Run `write` once per (surface, attemptId); see above. `subject` names what
+ * was answered (a topic, a quiz, a question); the same id for another subject
+ * throws `AttemptReusedError`. With no subject a reused id is the caller's to
+ * catch: an agent review's id is issued by the server and checked against the
+ * card on screen (`currentCard`), and a claim compares the stored outcome
+ * (claims.js). IMMEDIATE, so a second process queues rather than races.
+ */
+export function recordOnce(surface, attemptId, write, subject = null) {
+    return recordTx.immediate(surface, attemptId, write, subject == null ? null : String(subject));
 }
 
 /**
@@ -643,7 +667,7 @@ export function estimateProven(nodeId, threshold) {
  * proving rows alone (what `practice_lifted` asks: would they reach the line
  * with no claim at all?).
  */
-function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly } = {}) {
+function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly, trace = null } = {}) {
     const rows = stmt(`
         SELECT id, score, total, metadata FROM mastery_evidence
         WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
@@ -678,6 +702,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
         const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
+        const before = p;
         if (r.total >= MIN_GATE_QUESTIONS) {
             const prior = attempts === 0 ? Math.max(p || 0, BKT_PARAMS.p_L0) : p;
             p = bktBatchUpdate(prior, r.score, r.total, { p_G });
@@ -685,9 +710,30 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
             for (let i = 0; i < r.total; i++) p = bktUpdate(p, i < r.score, { p_G }).p_K_posterior;
         }
         attempts += r.total;
+        trace?.set(r.id, { before, after: p });
     }
     lowerUpTo(Infinity);
     return p;
+}
+
+/**
+ * What each proving answer did to the estimate the gate reads: evidence id →
+ * `{ before, after }`, by the proving-only replay `gateScoreOf` runs, from the
+ * seed the row holds now. So the steps end at the number a learner is shown
+ * (shown_score) unless practice moved it: cards lifted it (shown_score above
+ * the gate's), or missed practice or a wrong agent claim after the last row
+ * lowered it (gate_score under the last step: the gate takes the stored
+ * estimate when lower, and the trailing claim is not a row). The trail says
+ * which in both cases. Practice rows (cards,
+ * drills) and placement rows are not in it: practice does not count toward
+ * proof, and a placement answer's contribution is the seed. Reads only; the
+ * rates are today's, so a step is what that answer is worth now.
+ */
+export function evidenceMoves(nodeId) {
+    const record = stmt('SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
+    const trace = new Map();
+    if (record) replayOwnEvidence(nodeId, seedOf(record), { provingOnly: true, trace });
+    return trace;
 }
 
 /**
@@ -785,8 +831,9 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
 
 /**
  * Get decaying nodes — topics whose mastery has faded and are worth refreshing:
- * a proven-ish topic not touched within `decayDays` (`FADING_TOPIC` in
- * fading.js, which Today's list reads too). Used by the ghost-question /
+ * a proven-ish topic not touched within `decayDays`, or one a mock or look
+ * back found slipped (`RECALL_TOPIC` in fading.js, which Today's list reads
+ * too). Used by the ghost-question /
  * daily-plan paths, whose "cumulative exam" mechanic wants a broad net, and
  * that is how a fading topic comes back: in the feed, by itself.
  *
@@ -802,20 +849,24 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * @returns Array of nodes with decaying mastery
  */
 export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { limit = 10 } = {}) {
+    // A topic that slipped on a look back comes first: it was answered wrong
+    // lately, a fading one only has not been asked in a while.
     return db.prepare(`
         SELECT
             nm.node_id,
             nm.mastery_score,
             nm.last_updated,
             n.title,
-            n.status
+            n.status,
+            ${SLIPPED_TOPIC} AS slipped
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
-          AND ${FADING_TOPIC}
-        ORDER BY nm.last_updated ASC
+          AND ${RECALL_TOPIC}
+        ORDER BY slipped DESC, nm.last_updated ASC
         LIMIT ?
-    `).all(projectId, fadingCutoff(decayDays, now), limit ?? -1);
+    `).all(...slipParams(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1)
+        .map(r => ({ ...r, slipped: r.slipped === 1 }));
 }
 
 /**

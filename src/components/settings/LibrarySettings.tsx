@@ -5,8 +5,8 @@ import { api } from '../../api';
 import { ArrowDownUp, Download, Upload, Trash2, Layers, Terminal, MessageSquareWarning } from 'lucide-react';
 import { Button, ButtonLink } from '../ui/Button';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
-import { Explain, ExpandableSection } from '../ui/Disclosure';
-import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
+import { ExpandableSection } from '../ui/Disclosure';
+import { IMPORT_ACCEPT, importProjectFile, installedEditionOf } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
 import ActivityLogPanel from './ActivityLogPanel';
 import ThisComputerSection from './ThisComputerSection';
@@ -18,6 +18,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     const openAnkiImport = useStore(s => s.openAnkiImport);
     const addToast = useStore(s => s.addToast);
+    const openCourseUpdate = useStore(s => s.openCourseUpdate);
     const projects = useStore(s => s.projects);
     const loadProjects = useStore(s => s.loadProjects);
     const showConfirm = useStore(s => s.showConfirm);
@@ -51,6 +52,12 @@ export default function LibrarySettings({ active }: { active: boolean }) {
         if (!file) return;
         setImporting(true);
         try {
+            // A newer edition of a course already here: the update preview.
+            const edition = await installedEditionOf(file);
+            if (edition) {
+                openCourseUpdate(file, edition);
+                return;
+            }
             const result = await importProjectFile(file);
             await loadProjects();
             // What the importer changed on the way in (a dropped unsafe link, a
@@ -226,12 +233,12 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                                                 the card. */}
                                             <p>
                                                 <span className="font-medium text-slate-700 dark:text-slate-200">{tr("{{count}} reports", { count: visualFeedback.count })}</span>{' · '}
-                                                <code className="text-xs">{visualFeedback.path.split(/[\\/]+/).filter(Boolean).pop()}</code>{' '}
                                                 <span className="whitespace-nowrap">{tr("· {{value}} KB", { value: (visualFeedback.bytes / 1024).toFixed(1) })}</span>
                                             </p>
-                                            <Explain summary={tr("Show the full path")} className="mt-0.5">
-                                                <p className="break-all">{visualFeedback.path}</p>
-                                            </Explain>
+                                            {/* The whole path, not a "Show the full path"
+                                                disclosure: one opened inside this opened
+                                                row was a block inside a block. */}
+                                            <p className="mt-0.5 break-all"><code className="text-xs">{visualFeedback.path}</code></p>
                                         </>
                                     ) : (
                                         // The note above already says how a report

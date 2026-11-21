@@ -19,6 +19,11 @@
  * actually trims, a `detail` cannot smuggle a newline into a line-per-event
  * file, and a project deleted since keeps its row.
  *
+ * The download also opens with a study summary (server/studySummary.js): its
+ * counts are pinned against a seeded library in a non-UTC zone, the library's
+ * text is marked and searched for in the file, and the summary must not move
+ * when the log is empty, cleared, switched off or past its cap.
+ *
  * Deterministic: a scratch database, no model, no network.
  */
 
@@ -49,7 +54,44 @@ const {
     trimActivityLog, sanitizeDetail, invalidateActivityLogSetting, MAX_ROWS,
 } = await import('../server/activityLog.js');
 
+// The study summary at the top of the download. Imported softly so a missing
+// module reads as a failed case, not a crash before the first line.
+const summaryModule = await import('../server/studySummary.js').catch(e => {
+    console.log(`  (server/studySummary.js did not load: ${e.code || e.message})`);
+    return null;
+});
+// One fixed instant for every summary: a gate reads no clock.
+const NOW = Date.parse('2026-11-20T10:00:00.000Z');
+const exportText = () => (summaryModule
+    ? [...summaryModule.activityExport({ now: NOW })].join('')
+    : [...streamActivityLog()].join(''));
+/** `# label   value` lines of the summary block, as a map of label → text. */
+const summaryFields = (text) => {
+    const fields = new Map();
+    for (const m of text.matchAll(/^# {2}([a-z][a-z ]*[a-z]) {2,}(\S.*)$/gm)) fields.set(m[1], m[2]);
+    return fields;
+};
+/** `# 2026-11-16  2  45 ...` week rows of the summary block. */
+const weekRows = (text) => [...text.matchAll(/^# {2}(\d{4}-\d{2}-\d{2})((?: +\d+)+)$/gm)]
+    .map(m => [m[1], ...m[2].trim().split(/ +/).map(Number)]);
+
 console.log('\nActivity log\n');
+
+// ---- a new library: the summary is zeros, never an error -------------------
+
+{
+    let text = '';
+    let threw = null;
+    try { text = exportText(); } catch (e) { threw = e; }
+    check('a new library exports without an error', !threw, threw?.message);
+    const f = summaryFields(text);
+    check('a new library\'s download opens with the study summary', /^# Study summary\b/m.test(text),
+        text.split('\n').slice(0, 6).join(' | '));
+    for (const label of ['study days', 'study minutes', 'proven topics', 'checks', 'questions answered', 'card reviews', 'mock exams finished']) {
+        eq(`a new library counts 0 ${label}`, (f.get(label) || '').split(' ')[0], '0');
+    }
+    eq('a new library has no study week yet', weekRows(text).length, 0);
+}
 
 // ---- the shape of a row -----------------------------------------------------
 
@@ -104,7 +146,7 @@ const exported = [...streamActivityLog()].join('');
 const body = exported.split('\n').filter(l => l && !l.startsWith('#'));
 eq('one line per event, always', body.length, readActivity({ limit: 500 }).length);
 check('the export says what it does not contain',
-    /No topic titles, prompts, notes or model output/.test(exported));
+    /No topic titles, prompts, notes, answers or model output/.test(exported));
 check('the export is oldest first', body[0].includes('ai.request'), body[0]);
 
 // ---- a deleted project keeps its row ---------------------------------------
@@ -152,6 +194,166 @@ many(MAX_ROWS + 500);
 trimActivityLog();
 check('the log is a ring buffer, not an archive',
     activityStats().rows <= MAX_ROWS, String(activityStats().rows));
+
+// ---- the study summary: counts of what the learner did ---------------------
+
+// A seeded library whose every count is known, written straight into the
+// tables (the evidence through the app's own writer, so "proven" is the app's
+// answer and not a hand-set score). Every piece of text a learner or a model
+// could have written carries a CANARY mark, and the file is searched for it.
+//
+// The learner lives in Auckland (UTC+13 in November), so the summary's days
+// are not UTC days: 2026-11-15T20:05Z is Monday 16 November there, which puts
+// it in the week of 16 November, not the UTC week before.
+{
+    const { setSettingValue } = await import('../server/settingsStore.js');
+    const { updateMasteryFromAttempt } = await import('../server/mastery.js');
+    setSettingValue('time_zone', 'Pacific/Auckland');
+
+    const course = Number(db.prepare("INSERT INTO projects (name, position) VALUES ('CANARYCOURSE Thermodynamics', 0)").run().lastInsertRowid);
+    const topic = db.prepare('INSERT INTO nodes (project_id, title, is_note, position) VALUES (?, ?, ?, ?)');
+    const proven = Number(topic.run(course, 'CANARYTOPIC entropy', 0, 0).lastInsertRowid);
+    const cardsOnly = Number(topic.run(course, 'CANARYTOPIC heat engines', 0, 1).lastInsertRowid);
+    const quizzed = Number(topic.run(course, 'CANARYTOPIC enthalpy', 0, 2).lastInsertRowid);
+    topic.run(course, 'CANARYNOTE my own words about Carnot', 1, 3);
+    const card = Number(db.prepare('INSERT INTO flashcards (node_id, front, back) VALUES (?, ?, ?)')
+        .run(cardsOnly, 'CANARYFRONT what is a heat engine', 'CANARYBACK it turns heat into work').lastInsertRowid);
+
+    const MON_9 = '2026-11-08T22:10:00.000Z';   // Auckland Monday 9 Nov
+    const MON_16 = '2026-11-15T20:05:00.000Z';  // Auckland Monday 16 Nov (UTC Sunday 15th)
+    const WED_18 = '2026-11-17T21:30:00.000Z';  // Auckland Wednesday 18 Nov
+
+    const time = db.prepare('INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, ?, ?, ?)');
+    time.run(proven, '2026-11-08T22', 'reading', 30 * 60000);
+    time.run(proven, '2026-11-15T20', 'checks', 20 * 60000);
+    time.run(cardsOnly, '2026-11-15T20', 'cards', 10 * 60000);
+    time.run(quizzed, '2026-11-17T21', 'questions', 15 * 60000);
+
+    const review = db.prepare('INSERT INTO review_log (card_id, reviewed_at, rating, source, external_id) VALUES (?, ?, 3, ?, ?)');
+    for (let i = 0; i < 3; i++) review.run(card, MON_9, 'app', null);
+    for (let i = 0; i < 2; i++) review.run(card, MON_16, 'app', null);
+    // History brought in from another app is not studying done here.
+    review.run(card, MON_9, 'anki', 'imported-1');
+
+    // Evidence through the real writer, then dated: the writer stamps "now".
+    const evidence = [];
+    const attempt = (node, score, total, type, at) => {
+        updateMasteryFromAttempt(node, score, total, type, { answer: 'CANARYANSWER the learner typed this' });
+        evidence.push([Number(db.prepare('SELECT MAX(id) AS id FROM mastery_evidence').get().id), at]);
+    };
+    for (let i = 0; i < 3; i++) attempt(proven, 5, 5, 'mastery_check', MON_16);
+    attempt(proven, 2, 2, 'paper', WED_18);
+    attempt(quizzed, 3, 4, 'quiz', WED_18);
+    for (let i = 0; i < 6; i++) attempt(cardsOnly, 10, 10, 'flashcard', WED_18);
+    const dateEvidence = db.prepare('UPDATE mastery_evidence SET created_at = ? WHERE id = ?');
+    for (const [id, at] of evidence) dateEvidence.run(at, id);
+
+    const paper = Number(db.prepare('INSERT INTO exam_papers (project_id, title, minutes) VALUES (?, ?, 90)')
+        .run(course, 'CANARYPAPER June exam').lastInsertRowid);
+    const sitting = db.prepare(`INSERT INTO mock_sittings (paper_id, question, time_allowed, elapsed, status, started_at, finished_at)
+        VALUES (?, 'CANARYPROMPT question four', 5400, 5400, ?, ?, ?)`);
+    sitting.run(paper, 'done', WED_18, WED_18);
+    sitting.run(paper, 'writing', WED_18, null);
+
+    const text = exportText();
+    const f = summaryFields(text);
+    const count = (label) => (f.get(label) || '').split(' ')[0];
+    eq('study days are counted on the learner\'s days', count('study days'), '3');
+    eq('study minutes are the study clock\'s total', count('study minutes'), '75');
+    eq('a topic proven by checks counts, one with only cards does not', count('proven topics'), '1');
+    eq('checks are the attempts that can prove a topic', f.get('checks'), '5 (mastery checks 3, quizzes 1, paper exercises 1)');
+    eq('questions answered leave card ratings out', count('questions answered'), '21');
+    eq('card reviews are the ones done in this app', count('card reviews'), '5');
+    eq('a mock exam counts once it is finished', count('mock exams finished'), '1');
+    eq('courses are a number', count('courses'), '1');
+    eq('the first study day is the learner\'s date', f.get('first study day'), '2026-11-09');
+    // week of, days, minutes, checks, answers, reviews
+    eq('one line per week, a Monday in the learner\'s calendar',
+        JSON.stringify(weekRows(text)),
+        JSON.stringify([['2026-11-09', 1, 30, 0, 0, 3], ['2026-11-16', 2, 45, 5, 21, 2]]));
+    check('a table that is not cut says nothing about a cut', !/latest \d+ only/.test(text));
+
+    // The finished-project screen (server/completion.js) counts the same
+    // things for one course with its own queries. On a one-course library the
+    // two must agree, or one of them drifted.
+    {
+        const { projectCompletion } = await import('../server/completion.js');
+        const c = projectCompletion(course);
+        eq('proven topics agree with the finished-project screen', count('proven topics'), String(c.mastery.proven));
+        eq('questions answered agree with it', count('questions answered'), String(c.effort.answers));
+        eq('card reviews agree with it', count('card reviews'), String(c.effort.reviews));
+        eq('study days agree with it', count('study days'), String(c.span?.studyDays));
+    }
+
+    check('no title, note, card, answer or prompt from the library is in the file',
+        !text.includes('CANARY'), text.split('\n').find(l => l.includes('CANARY')));
+    check('the file\'s header still says what it does not contain',
+        /No topic titles, prompts, notes, answers or model output/.test(text), text.split('\n').slice(0, 4).join(' | '));
+
+    // The summary does not come from the log, so nothing done to the log moves it.
+    const summaryOf = (t) => t.split('\n').filter(l => /^# {2}/.test(l)).join('\n');
+    const expected = summaryOf(text);
+    clearActivityLog();
+    eq('an empty log still carries the same summary', summaryOf(exportText()), expected);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('activity_log_enabled', 'false')").run();
+    invalidateActivityLogSetting();
+    eq('a log switched off still carries the same summary', summaryOf(exportText()), expected);
+    db.prepare("DELETE FROM settings WHERE key = 'activity_log_enabled'").run();
+    invalidateActivityLogSetting();
+    many(MAX_ROWS + 10);
+    check('the log now holds more rows than it keeps', activityStats().rows > MAX_ROWS, String(activityStats().rows));
+    const full = exportText();
+    eq('a log past its cap still carries the same summary', summaryOf(full), expected);
+    check('and the summary comes before the first event',
+        full.indexOf('# Study summary') >= 0 && full.indexOf('# Study summary') < full.indexOf(' ai.request'));
+    trimActivityLog();
+
+    // The edges the seed above does not reach. Evidence the writer stamped
+    // with CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS', no T, no Z): Thursday 19th
+    // in Auckland. A topic marked done on Friday 20th; a NOTE marked done
+    // the Saturday before, which is not work. A clock row past `now` (Monday
+    // 23rd in Auckland), which folds into this week instead of adding one. And
+    // a row from June 2025, which moves the first day but not the 52-line cap.
+    db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, created_at) VALUES (?, 'quiz', 1, 1, '2026-11-19 08:00:00')").run(quizzed);
+    db.prepare("UPDATE nodes SET completed_at = '2026-11-19 20:00:00' WHERE id = ?").run(quizzed);
+    db.prepare("UPDATE nodes SET completed_at = '2026-11-13 20:00:00' WHERE project_id = ? AND is_note = 1").run(course);
+    time.run(cardsOnly, '2026-11-22T11', 'reading', 10 * 60000);
+    time.run(proven, '2025-06-01T22', 'reading', 5 * 60000);
+    const edges = exportText();
+    const e = summaryFields(edges);
+    eq('a stored timestamp without T or Z lands on its learner\'s day, and a finished topic is a study day',
+        (e.get('study days') || '').split(' ')[0], '7');
+    eq('study minutes include the early and the late row', (e.get('study minutes') || '').split(' ')[0], '90');
+    eq('the CURRENT_TIMESTAMP-shaped check counts', e.get('checks'), '6 (mastery checks 3, quizzes 2, paper exercises 1)');
+    eq('the first study day is the oldest one', e.get('first study day'), '2025-06-02');
+    const rows = weekRows(edges);
+    eq('at most 52 week lines, a row after now included', rows.length, 52);
+    eq('they start 51 weeks before this one', rows[0]?.[0], '2025-11-24');
+    eq('and end on this week, holding the late row and the new days',
+        JSON.stringify(rows.slice(-2)), JSON.stringify([['2026-11-09', 1, 30, 0, 0, 3], ['2026-11-16', 5, 55, 6, 22, 2]]));
+    // The totals cover all of it and the rows a year: the file says so, or
+    // the rows look like they fail to add up.
+    check('a cut week table says it holds the latest 52 weeks only', /^# {2}weeks: the latest 52 only/m.test(edges),
+        edges.split('\n').filter(l => /^# {2}w/.test(l)).join(' | '));
+    // Every row after `now` (a clock set back, a restored library): they all
+    // fold into this week, which still gets its line.
+    const early = summaryModule?.studySummary({ now: Date.parse('2024-01-03T10:00:00.000Z') });
+    eq('rows that all lie after now still give this week its line',
+        JSON.stringify(early?.weeks.map(w => [w.week, w.days])), JSON.stringify([['2024-01-01', early?.studyDays]]));
+
+    // A summary that cannot be read still leaves the events in the file.
+    logActivity({ area: 'server', event: 'server.started' });
+    db.exec('ALTER TABLE mock_sittings RENAME TO mock_sittings_gate_hidden');
+    let broken = '';
+    try { broken = exportText(); } catch (err) { broken = `threw ${err.name}`; }
+    db.exec('ALTER TABLE mock_sittings_gate_hidden RENAME TO mock_sittings');
+    check('a summary that fails says so in one line', /^# Study summary: could not be worked out \(\w+\)\.$/m.test(broken),
+        broken.split('\n').slice(0, 5).join(' | '));
+    check('and the events are still exported', /server\.started/.test(broken));
+    const noted = readActivity({ limit: 5 }).find(r => r.event === 'activity.summary_failed');
+    check('a failed summary is logged as one event with facts only', !!noted && /^[a-z]+(?: · [\w ]+)*$/.test(noted.detail || ''),
+        JSON.stringify(noted));
+}
 
 // ---- every call site keeps the promise --------------------------------------
 
@@ -302,13 +504,48 @@ check('no call site puts an error\'s text in an event (only failureFacts reads a
 
     for (const res of hanging) { try { res.destroy(); } catch { /* gone */ } }
     stub.close();
+
+    // The button's own URL: the summary has to reach the file a person saves,
+    // not only the function this suite calls.
+    const download = await fetch(`http://127.0.0.1:${process.env.PORT}/api/activity/export`)
+        .then(r => r.text()).catch(e => `fetch failed: ${e.message}`);
+    check('the download a person saves opens with the study summary', /^# Study summary\b/m.test(download),
+        download.split('\n').slice(0, 5).join(' | '));
+    eq('and carries the library\'s counts', (summaryFields(download).get('proven topics') || '').split(' ')[0], '1');
+    check('and no text from the library', !download.includes('CANARY'));
+
+    // The button is a plain link, so it carries no X-Time-Zone header: the
+    // zone goes in the URL. With the stored zone at UTC, the page's own zone
+    // (Auckland) still decides the days: 2025-06-01T22Z is 2 June there.
+    {
+        const { setSettingValue } = await import('../server/settingsStore.js');
+        setSettingValue('time_zone', 'UTC');
+        const base = `http://127.0.0.1:${process.env.PORT}/api/activity/export`;
+        const read = (url) => fetch(url).then(r => r.text()).then(t => summaryFields(t).get('first study day'))
+            .catch(e => `fetch failed: ${e.message}`);
+        eq('without a zone the stored one decides', await read(base), '2025-06-01');
+        eq('the zone the page sends decides the days', await read(`${base}?tz=${encodeURIComponent('Pacific/Auckland')}`), '2025-06-02');
+        eq('an unknown zone is not obeyed', await read(`${base}?tz=Mars%2FOlympus`), '2025-06-01');
+        setSettingValue('time_zone', 'Pacific/Auckland');
+    }
 }
 
 // The panel's promise and the exported header have to say the same thing, or
 // one of them is a lie the other cannot see.
 const panel = readFileSync(join(ROOT, 'src/components/settings/ActivityLogPanel.tsx'), 'utf8');
 check('the panel states the rule to the reader',
-    /no topic titles/i.test(panel) && /never what you (?:are )?stud(?:y|ying)\b/i.test(panel));
+    /no topic titles/i.test(panel) && /never the content of your courses/i.test(panel));
+check('the panel no longer calls the file safe to share unread: it now says how much and when you studied',
+    !/safe to share/i.test(panel));
+// The person may well send the file on; what the app promises is that it
+// sends nothing by itself.
+check('the panel says nothing is sent automatically, not that nothing is sent at all',
+    /Nothing is sent automatically/.test(panel) && !/sent anywhere/i.test(panel));
+const apiSource = readFileSync(join(ROOT, 'src/api.ts'), 'utf8');
+check('the download link carries the page\'s time zone',
+    /activityExportUrl:[^\n]*\btz=/.test(apiSource), (apiSource.match(/activityExportUrl:[^\n]*/) || [''])[0]);
+check('the panel says the download starts with a summary of numbers, before it is pressed',
+    /summary of how much and when you studied/i.test(panel) && /numbers only/i.test(panel) && /study days/i.test(panel));
 
 // ---- report -----------------------------------------------------------------
 

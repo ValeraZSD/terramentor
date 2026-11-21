@@ -1,12 +1,17 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import ReadAloudButton from '../ui/ReadAloudButton';
+import ReadingLine from '../ui/ReadingLine';
+import { ExplainBack, PreQuestions } from './LessonPrompts';
+import { useStreamHeading } from './streamCourse';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
-import ReportItem, { reportedLine } from '../ui/ReportItem';
+import ReportItem, { ReportScope, reportedLine } from '../ui/ReportItem';
 import { feedRowRef } from '../../utils/itemReports';
+import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { useReportOn, useSetAside } from '../../utils/itemReportStore';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
@@ -33,6 +38,7 @@ interface Props {
  */
 function EarlierParts({ card }: { card: FeedLessonCard }) {
     const { t } = useTranslation();
+    const PartHeading = useStreamHeading(4);
     const known = card.readBefore ?? [];
     const [parts, setParts] = useState<FeedReadPart[] | null>(null);
     const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -121,9 +127,9 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                             {t("Part {{n}} of {{total}}", { n: p.partIndex, total: p.partCount ?? card.partCount })}
                         </p>
                         {heading && (
-                            <h4 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white leading-snug mb-2">
+                            <PartHeading className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white leading-snug mb-2">
                                 {heading}
-                            </h4>
+                            </PartHeading>
                         )}
                         <Markdown
                             content={body}
@@ -172,6 +178,7 @@ export function splitLessonHeading(markdown: string, partTitle: string | null): 
  */
 export default function LessonCard({ card, done, onDone, offerEarlier = true }: Props) {
     const { t } = useTranslation();
+    const Heading = useStreamHeading(3);
     const consumeFeedCard = useStore(s => s.consumeFeedCard);
     const repairFeedVisual = useStore(s => s.repairFeedVisual);
 
@@ -187,6 +194,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // on only once the save landed, as a question card's does: advancing first
     // scrolled the reader past a lesson that then reopened out of sight.
     const [attemptId] = useState(newAttemptId);
+    const [weakExplain, setWeakExplain] = useState(false);
     const handleContinue = async () => {
         if (read) return;
         const saved = await consumeFeedCard(card.key, {
@@ -211,19 +219,52 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
     const { aside, setAside } = useSetAside(reportRef, card.key, !!reported, release);
     const read = done && !aside;
+    const bodyRef = useRef<HTMLDivElement>(null);
     const flag = reportRef && (
-        <ReportItem
-            itemRef={reportRef}
-            surface="lesson"
-            inStream
-            // Taken off the feed: the stream moves on past it.
-            onReported={() => { if (!done) setAside(); onDone(card.key); }}
-            className="-mt-1 -mr-1"
-        />
+        <span className="inline-flex items-center gap-1">
+            <ReadAloudButton target={bodyRef} className="-mt-1" />
+            <ReportItem
+                itemRef={reportRef}
+                surface="lesson"
+                inStream
+                // Taken off the feed: the stream moves on past it.
+                onReported={() => { if (!done) setAside(); onDone(card.key); }}
+                className="-mt-1 -mr-1"
+            />
+        </span>
     );
 
+    // Questions asked before the part: the part's text waits behind them until
+    // they are answered or skipped, so the guess comes first.
+    // Held on the card in the store, not in local state: settled once, a
+    // remount (away and back) must not ask the round again.
+    const settlePreQuestions = useStore(s => s.settlePreQuestions);
+    const asking = !done && (card.preQuestions?.length ?? 0) > 0;
+    const articleRef = useRef<HTMLElement>(null);
+    // To the top of this part inside whatever scrolls it (the page on a phone).
+    const toTop = () => {
+        const el = articleRef.current;
+        if (!el) return;
+        if (!scrollIntoViewWithin(el, { boundary: document.body, block: 'start', padding: 16 })) {
+            window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 16) });
+        }
+    };
+    const reread = () => {
+        toTop();
+        articleRef.current?.focus({ preventScroll: true });
+    };
+    // The pressed button is gone once the part renders: move focus and view to
+    // the part's top, or a phone is left mid-way down where the questions were.
+    const finishAsking = () => {
+        settlePreQuestions(card.key);
+        requestAnimationFrame(reread);
+    };
+
     return (
-        <article>
+        // One item: the line under a weak explain-back verdict opens this
+        // part's own flag.
+        <ReportScope>
+        <article ref={articleRef} tabIndex={-1} className="outline-none">
             {offerEarlier && <EarlierParts card={card} />}
             {(label || heading) && (
                 <div className="mb-3 flex items-start gap-2">
@@ -232,15 +273,18 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                             <p className="text-2xs font-semibold text-accent-fg">{label}</p>
                         )}
                         {heading && (
-                            <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
+                            <Heading className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
                                 {heading}
-                            </h3>
+                            </Heading>
                         )}
                     </div>
                     {flag}
                 </div>
             )}
 
+            {asking ? (
+                <PreQuestions card={card} onDone={finishAsking} />
+            ) : (<>
             {/* With no heading row the flag floats in the text's top-right
                 corner, so it does not take a line of its own. */}
             <div className="flow-root">
@@ -258,6 +302,8 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </p>
             )}
 
+            <ReadingLine>
+            <div ref={bodyRef}>
             <Markdown
                 content={body}
                 nodeId={card.nodeId}
@@ -272,12 +318,18 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
             />
             </div>
+            </ReadingLine>
+            </div>
 
             {/* Degradation path: with no AI-authored drill in the markdown, offer a
                 practice drill synthesised from the node's own flashcards (renders
                 nothing if there are too few). Once per topic, on the last part. */}
             {card.degraded && card.partIndex >= card.partCount && (
                 <FlashcardDrillLauncher nodeId={card.nodeId} nodeTitle={card.nodeTitle} />
+            )}
+
+            {card.explainBack && card.feedItemId != null && !reported && (
+                <ExplainBack feedItemId={card.feedItemId} onReread={reread} onVerdict={v => setWeakExplain(v === 'weak')} />
             )}
 
             {reported ? (
@@ -289,11 +341,24 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </p>
             ) : (
                 <div className="mt-5 flex justify-end">
-                    <Button variant="primary" onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
-                        {t("Got it, continue")}
-                    </Button>
+                    {/* Under "Not there yet" a primary "Got it" read as the
+                        right answer to a wrong one: the way on stays, quietly,
+                        and says what it is. Two buttons rather than a variant
+                        prop, so each state's group is read whole by the
+                        button-group check. */}
+                    {weakExplain ? (
+                        <Button onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Continue anyway")}
+                        </Button>
+                    ) : (
+                        <Button variant="primary" onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Got it, continue")}
+                        </Button>
+                    )}
                 </div>
             )}
+            </>)}
         </article>
+        </ReportScope>
     );
 }

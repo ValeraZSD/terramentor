@@ -72,7 +72,7 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh new <name> [--ai-key-file F]` | creates the volume and network, sets the password before the first start, starts the copy, adds its site to the proxy |
 | `copy.sh list` | every copy, running or stopped, with its address |
 | `copy.sh backup <name>` / `--all` | an online backup of each copy into `TM_BACKUP_DIR/<name>/` |
-| `copy.sh restore <name> <archive>` | reads the archive, stops the copy, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
+| `copy.sh restore <name> <archive> [--no-backup]` | reads the archive, backs the copy up as it is (needs `TM_BACKUP_DIR`), stops it, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
 | `copy.sh update <name>` / `--all` | recreates the container from `TM_IMAGE`; the library stays |
 | `copy.sh remove <name> [--yes]` | backs the copy up first, then removes it, its volume, network and key |
 
@@ -148,6 +148,79 @@ Behind the proxy a copy trusts `X-Forwarded-For` from private addresses (its
 own network), so the login throttle counts each visitor apart: eight wrong
 guesses from a stranger lock out that stranger, not the person.
 
+## Many people at one address
+
+A copy per person (above) gives each person their own address. The site front desk
+(`server/site/`) puts many people behind one address instead: each person signs in at
+`/site/sign-in` and gets their own library, which is still a separate copy of the app with its
+own database and files. The front desk checks the session, starts the person's library if it is
+not running, passes the request on, and stops the library again when it has been quiet.
+
+**What it needs.** Linux, Node 24.7 or later, and root: the front desk starts each library as a
+user of its own (`SITE_SEPARATE=1`, the default on Linux), with a folder no other library can
+read and a Unix socket inside that folder instead of a port. From the image:
+
+```
+docker run -d --user 0 -v tm-site:/site -e SITE_DIR=/site -e HOST=0.0.0.0 \
+  -e SITE_HOSTS=learn.example.org -e AI_PROVIDER=openai -e AI_BASE_URL=... -e AI_MODEL=... -e AI_API_KEY=... \
+  -p 127.0.0.1:3001:3001 ghcr.io/valerazsd/terramentor:1 node server/site/index.js
+```
+
+Put it behind a TLS proxy (Caddy, as for the copies): the session cookie is `__Host-` and
+`Secure`, so a browser keeps it only over HTTPS (or on `localhost`). `SITE_HOSTS` is the name
+or names the site answers to; any other `Host` gets 421. With `HOST` beyond loopback (as in a
+container) the front desk refuses to start without it.
+
+**Accounts are made by invitation.** There is no public sign-up yet:
+
+```
+$ docker exec <container> node server/site/cli.js invite ann@example.org --url https://learn.example.org
+Invite for ann@example.org, good for 7 days and once:
+https://learn.example.org/site/invite/...
+```
+
+The link opens a page that asks for a password (at least 15 characters; one found in the Pwned
+Passwords list is refused, `SITE_BREACH_CHECK=0` turns that check off) and then opens the
+person's new, empty library. `cli.js accounts` lists accounts, `cli.js sign-out <email>` ends
+every session of one, and `cli.js unlock <email>` turns a password back on after 100 wrong
+guesses in a row switched it off. Inside the app, Settings → Devices & security shows the
+account's email with a Sign out button, and every device it is signed in on, each with its own
+Sign out and, with two or more others, "Sign out of all other devices". What the front desk
+stores and how it signs people in is in `SECURITY.md`, "Accounts on a site".
+
+**Settings.**
+
+| variable | default | what it does |
+|---|---|---|
+| `SITE_DIR` | (required) | the site's folder: `site.db` (accounts, sessions) and `libraries/<n>/` |
+| `PORT`, `HOST` | 3001, 127.0.0.1 | where the front desk listens |
+| `SITE_HOSTS` | (required unless `HOST` is loopback) | the names it answers to, comma-separated; a front desk bound beyond loopback without it refuses to start |
+| `SITE_MAX_AWAKE` | 20 | libraries running at once; the next wake stops the longest-quiet idle one, or answers "busy" |
+| `SITE_LIBRARY_HEAP_MB` | 256 | each library's V8 heap limit |
+| `SITE_LIBRARY_MEMORY_MB` | 400 | resident memory past which a quiet library is stopped |
+| `SITE_IDLE_MINUTES` | 10 | quiet minutes before a library is stopped; never while a stream is open or a task runs |
+| `SITE_UID_BASE` | 100000 | the first user id given to a library |
+| `SITE_BREACH_CHECK` | on | `0` turns off the breached-password check |
+
+**Waking is fast and starts nothing that costs.** A library woken by a request answers in about
+0.6 s (measured on a 24-thread machine; `tools/site-proofs.mjs` prints the number on yours). A
+wake does not start the work an ordinary start does (feed generation, the update check, node
+sync, search words), so a person opening the page never spends model money they did not ask
+for.
+
+**Check it on your server.** `tools/site-proofs.mjs` (Linux, as root) makes two libraries and
+checks that one cannot read the other's files, socket or environment, measures the wake, and
+checks that a wake sends nothing to the model. The image does not carry `tools/`, so run it
+from a checkout of the same version:
+
+```
+docker run --rm --user 0 -v "$PWD/tools:/app/tools:ro" ghcr.io/valerazsd/terramentor:1 node tools/site-proofs.mjs
+```
+
+`tools/site-browser-proof.mjs` checks the last part in a real browser: two people on one
+browser, one after the other, and nothing of the first is served to the second after they sign
+out (it needs a running front desk and two invite links; see the file's header).
+
 ## Backups
 
 `copy.sh backup` copies each library while it runs, through SQLite's backup
@@ -166,7 +239,13 @@ Nightly, from root's crontab:
 off the server too: a backup on the same disk as the library survives a
 mistake, not a lost server.
 
-A restore is `copy.sh restore <name> <archive>`. Try one before you need one;
+A restore is `copy.sh restore <name> <archive>`. It first backs the copy up as
+it is, beside its other backups (and prints that archive's path), so a restore
+from the wrong archive is undone by restoring that one. That needs
+`TM_BACKUP_DIR` set in `hosted/.env`, also on a new server. A library whose
+last restore never finished is not backed up (it cannot be, and this restore
+is the repair); for one too damaged to back up, `--no-backup` goes on without
+the backup. Try one before you need one;
 `hosted/rehearse.sh` deletes a project, restores the backup and checks it is
 back.
 

@@ -49,7 +49,7 @@ await esbuild.build({
             build.onResolve({ filter: /\/store$/ }, () => ({ path: 'store-stub', namespace: 'stub' }));
             build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
                 contents: `
-                    export const THEME_IDS = ['light', 'warm', 'dark', 'black'];
+                    export const THEME_CHOICES = ['system', 'light', 'dark'];
                     export const MIN_UI_SCALE = 80;
                     export const MAX_UI_SCALE = 160;
                 `,
@@ -83,7 +83,7 @@ await esbuild.build({
         setup(build) {
             build.onResolve({ filter: /\/store$/ }, () => ({ path: 'store-stub', namespace: 'stub' }));
             build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-                contents: 'export const THEME_IDS = ["light","warm","dark","black"];'
+                contents: 'export const THEME_CHOICES = ["system","light","dark"];'
                     + 'export const MIN_UI_SCALE = 80; export const MAX_UI_SCALE = 160;',
                 loader: 'js',
             }));
@@ -101,7 +101,7 @@ const check = (label, cond, extra = '') => {
 const section = (name) => console.log(`\n${name}`);
 
 section('the whitelist accepts what it should');
-for (const t of ['light', 'warm', 'dark', 'black']) {
+for (const t of ['system', 'light', 'dark']) {
     const c = validateSettingChange('theme', t);
     check(`theme=${t}`, c?.key === 'theme' && c.value === t, JSON.stringify(c));
 }
@@ -110,10 +110,30 @@ check('a named accent resolves to its hex', validateSettingChange('accent_color'
 check('a hex accent is accepted and normalised', validateSettingChange('accent', '#0e7490')?.value === '#0E7490');
 check('ui_scale accepts a plain number', validateSettingChange('ui_scale', '140')?.value === 140);
 check('ui_scale accepts a percent sign', validateSettingChange('ui_scale', '120%')?.value === 120);
-check('the key separator is normalised', validateSettingChange('week start day', 'monday')?.value === 1);
-check('week_start_day accepts sunday', validateSettingChange('week_start_day', 'sunday')?.value === 0);
+check('the key separator is normalised', validateSettingChange('ui scale', '120')?.value === 120);
+check('the retired week_start_day produces nothing', validateSettingChange('week_start_day', 'sunday') === null);
+check('a legacy theme name is refused: a tint now carries it', validateSettingChange('theme', 'warm') === null);
+
+section('the accessibility rows');
+check('contrast more', validateSettingChange('contrast', 'more')?.value === 'more');
+check('motion reduce, and "reduce motion: on" means the same',
+    validateSettingChange('motion', 'reduce')?.value === 'reduce'
+    && validateSettingChange('reduce motion', 'on')?.key === 'motion' && validateSettingChange('reduce_motion', 'on')?.value === 'reduce'
+    && validateSettingChange('reduce_motion', 'off')?.value === 'full');
+check('spacing words', ['letter_spacing', 'word_spacing', 'line_spacing'].every(k => validateSettingChange(k, 'widest')?.value === 'widest'));
+check('a spacing word off the list is refused', validateSettingChange('line_spacing', 'double') === null);
+check('switches take on/off words and store on/off',
+    validateSettingChange('read_aloud', 'yes')?.value === 'on' && validateSettingChange('reading_line', 'false')?.value === 'off'
+    && validateSettingChange('confirm_answers', 'on')?.value === 'on' && validateSettingChange('card_audio_autoplay', 'off')?.value === 'off'
+    && validateSettingChange('key_shortcuts', 'off')?.value === 'off' && validateSettingChange('larger_ui', 'on')?.value === 'on');
+check('a switch value that is not on or off is refused', validateSettingChange('read_aloud', 'loud') === null);
+check('the drill time limit is a learning row the assistant cannot reach', validateSettingChange('drill_time_scale', 'off') === null);
+check('reading speed in range, refused outside it',
+    validateSettingChange('speech_rate', '140%')?.value === 140 && validateSettingChange('speech_rate', '20') === null
+    && validateSettingChange('speech_rate', '300') === null);
+
 check('every accepted change carries a human label',
-    ['theme:dark', 'accent:red', 'ui_scale:100', 'week_start_day:monday']
+    ['theme:dark', 'accent:red', 'ui_scale:100', 'number_format:auto']
         .every(s => (validateSettingChange(...s.split(':'))?.label || '').length > 4));
 
 section('anything off the whitelist produces NOTHING');
@@ -148,14 +168,14 @@ const partial = splitSettingChanges('Switching now [[set:the', true);
 check('a half-streamed marker does not flash on screen', !partial.body.includes('[['), partial.body);
 
 const many = splitSettingChanges(
-    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:week_start_day:monday]]');
+    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:number_format:auto]]');
 check('at most three changes per message', many.changes.length === 3, String(many.changes.length));
 
 const dupes = splitSettingChanges('[[set:theme:dark]][[set:theme:light]]');
 check('one change per key — the first wins', dupes.changes.length === 1 && dupes.changes[0].value === 'dark');
 
-const spaced = splitSettingChanges('[[ set : theme : warm ]]');
-check('inner spacing is tolerated', spaced.changes[0]?.value === 'warm', JSON.stringify(spaced.changes));
+const spaced = splitSettingChanges('[[ set : theme : dark ]]');
+check('inner spacing is tolerated', spaced.changes[0]?.value === 'dark', JSON.stringify(spaced.changes));
 
 const none = splitSettingChanges('Just an ordinary answer with no markers in it.');
 check('a message with no marker is returned unchanged',
@@ -187,11 +207,14 @@ check('nor is anything that changes what is measured',
     && validateSettingChange('new_cards_per_day', '200') === null);
 
 section('a screen the assistant offered to open');
-const go = splitDestinations('Everything due is on the calendar.\n\n[[go:calendar]]');
-check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'calendar');
-check('the route is the app own, not the model idea of one', go.destinations[0].path === '/calendar');
+const go = splitDestinations('Every course is on the map.\n\n[[go:atlas]]');
+check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'atlas');
+check('the route is the app own, not the model idea of one', go.destinations[0].path === '/atlas');
 check('the marker never survives into the text', !go.body.includes('[[go'));
-check('the prose survives', go.body.trim() === 'Everything due is on the calendar.');
+check('the prose survives', go.body.trim() === 'Every course is on the map.');
+const retired = splitDestinations('It was on the calendar.\n\n[[go:calendar]]');
+check('a screen the app no longer has yields no button, and no marker in the text',
+    retired.destinations.length === 0 && retired.body.trim() === 'It was on the calendar.');
 check('a screen that does not exist yields nothing at all',
     splitDestinations('[[go:dashboard]]').destinations.length === 0);
 check('...and is still stripped from the text',

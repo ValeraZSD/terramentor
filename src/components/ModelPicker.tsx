@@ -13,7 +13,7 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
-import { followVisualViewport, popoverBounds } from './ui/Popover';
+import { followVisualViewport, popoverBounds, FLOAT_LAYER } from './ui/Popover';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -205,7 +205,7 @@ export default function ModelPicker({
             const target = e.target as Node;
             if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
             // The sort dropdown's own list is portalled beside this one: a press in it is a press in the picker.
-            if ((target as Element).closest?.('[data-select-list], [data-bottom-sheet]')) return;
+            if ((target as Element).closest?.('[data-select-list]')) return;
             close(false);
         };
         document.addEventListener('mousedown', onDown);
@@ -223,6 +223,7 @@ export default function ModelPicker({
             // A safety net: if focus is on the trigger while the list is open,
             // Escape must still shut it rather than fall through to the page.
             e.preventDefault();
+            e.stopPropagation();
             close();
         } else if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
             // Type-to-open, the way a native select behaves — except here the
@@ -245,7 +246,9 @@ export default function ModelPicker({
             case 'PageDown': e.preventDefault(); setActive(Math.min(n - 1, active + 8)); break;
             case 'PageUp': e.preventDefault(); setActive(Math.max(0, active - 8)); break;
             case 'Enter': e.preventDefault(); if (rows[active]) commit(rows[active].model); break;
-            case 'Escape': e.preventDefault(); close(); break;
+            // Stopped here: a dialog the picker sits in hears Escape on the document,
+            // and one press must shut the list only, not the dialog under it.
+            case 'Escape': e.preventDefault(); e.stopPropagation(); close(); break;
             case 'Tab': close(false); break;
         }
     };
@@ -299,7 +302,7 @@ export default function ModelPicker({
                         ...(rect.drop === 'down' ? { top: rect.top } : { bottom: window.innerHeight - rect.top }),
                         maxHeight: rect.max,
                     }}
-                    className="z-[70] flex flex-col overflow-hidden rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl"
+                    className={cx(FLOAT_LAYER, 'flex flex-col overflow-hidden rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl')}
                 >
                     <div className="flex items-center gap-2 p-2 border-b border-slate-200 dark:border-slate-700">
                         <div className="relative flex-1 min-w-0">

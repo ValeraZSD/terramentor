@@ -102,7 +102,7 @@ export default function ConnectModel({ onStatus }: {
 
     const refresh = useCallback(async (forWay?: Way) => {
         try {
-            const s = await api.getAIStatus();
+            const s = await api.getAIStatus({ fresh: !!forWay });
             setStatus(s);
             setModel(s.model || '');
             if (isReady(s, forWay ?? wayOf(s))) void loadModels();
@@ -218,7 +218,7 @@ export default function ConnectModel({ onStatus }: {
                                 <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
                                     {opt.label}
                                 </span>
-                                <span className="block text-sm text-slate-500 dark:text-slate-400">{opt.desc}</span>
+                                <span className="block text-sm text-slate-600 dark:text-slate-300">{opt.desc}</span>
                             </span>
                         </label>
                     ))}
@@ -305,6 +305,7 @@ export default function ConnectModel({ onStatus }: {
                     <div className="space-y-3">
                         <SegmentedControl
                             label={t("Which local server")}
+                            block="narrow"
                             value={localKind}
                             onChange={v => { setLocalKind(v); setLocalUrl(LOCAL_DEFAULTS[v]); }}
                             options={[
