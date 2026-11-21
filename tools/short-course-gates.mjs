@@ -275,7 +275,7 @@ const stub = createServer((req, res) => {
             const proposed = (user.match(/PROPOSED TOPICS:\n([\s\S]*?)\n\n/)?.[1] || '').split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
             const titles = proposed.length ? proposed
                 : shortAnswer === 'twelve' ? Array.from({ length: 12 }, (_, i) => `Topic ${i + 1}`)
-                    : ['Why fees matter §2', 'What an index holds', 'Rebalancing once a year (§4)', 'Choosing a fund'];
+                    : ['Why fees matter §2', 'What an index holds', 'Rebalancing once a year (§4)', 'Choosing a fund'].slice(0, shortAnswer === 'two' ? 2 : 4);
             content = JSON.stringify({
                 name: 'Index funds in a few days',
                 description: 'What an index fund is, why its low cost matters, and how to keep one balanced.',
@@ -951,6 +951,34 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
     bodies.length = 0;
     const halfAgain = await api('POST', `/api/short-courses/${halfId}/retry`);
     ok('Retry with one of its chapters not found again refuses too', halfFrom.parts?.length === 2 && halfAgain.status === 409 && bodies.length === 0, [halfFrom.parts?.length, halfAgain.status, bodies.length]);
+}
+{
+    // A course whose first document is a scan with no text, the second a text
+    // file: Retry shows the model only the text file, as source 1, and its
+    // topics must point at the text file, not at the scan.
+    const pid = Number(db.prepare("INSERT INTO projects (name, made_from) VALUES ('A scan, then a text', ?)").run(JSON.stringify({ kind: 'file', file: 'scan.pdf' })).lastInsertRowid);
+    const addDoc = db.prepare("INSERT INTO documents (node_id, project_id, title, content, file_type, original_filename, status) VALUES (NULL, ?, ?, ?, ?, ?, 'ready')");
+    const scanId = Number(addDoc.run(pid, 'A scan', '', 'pdf', 'scan.pdf').lastInsertRowid);
+    const textId = Number(addDoc.run(pid, 'Index funds', `# Why fees matter\n\n${prose(40)}\n\n# Rebalancing\n\n${prose(40)}`, 'text', 'index-funds.md').lastInsertRowid);
+    shortAnswer = 'four';
+    const scanAgain = await api('POST', `/api/short-courses/${pid}/retry`);
+    const built = scanAgain.status === 200 && await waitBuilt(pid);
+    const cited = db.prepare('SELECT DISTINCT ns.document_id d FROM node_sources ns JOIN nodes n ON n.id = ns.node_id WHERE n.project_id = ?').all(pid).map(r => r.d);
+    ok('Retry past a scan with no text cites the text file, not the scan', built && cited.length === 1 && cited[0] === textId,
+        [scanAgain.status, built, { scanId, textId, cited }]);
+    ok('…and its prompt is titled by the text file, not the scan', /Index funds/.test(bodies.at(-1)?.user || '') && !/A scan/.test(bodies.at(-1)?.user || ''));
+}
+{
+    // An answer of two topics is not a short course: it is left failed, with
+    // Retry, rather than written as a course of two.
+    const pid = Number(db.prepare("INSERT INTO projects (name, made_from) VALUES ('Tying knots', ?)").run(JSON.stringify({ kind: 'topic', title: 'Tying knots' })).lastInsertRowid);
+    shortAnswer = 'two';
+    const twoAgain = await api('POST', `/api/short-courses/${pid}/retry`);
+    const built = twoAgain.status === 200 && await waitBuilt(pid);
+    shortAnswer = 'four';
+    const written = db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ? AND is_note = 0').get(pid).c;
+    const listedAs = (await api('GET', '/api/short-courses')).json?.courses?.find(x => x.id === pid)?.state;
+    ok('an answer of two topics writes no course and leaves it failed, with Retry', built && written === 0 && listedAs === 'failed', [twoAgain.status, built, written, listedAs]);
 }
 {
     // A book's preface is a chapter like any other, but alone it is a note.

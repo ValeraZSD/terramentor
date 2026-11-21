@@ -331,12 +331,15 @@ function proposedTopics(raw) {
 }
 
 /** What `made_from` keeps of a staged source's origin: where it came from, never its text. */
-function madeFromOf(origin) {
+function madeFromOf(origin, title = '') {
     const out = { kind: origin.kind };
     if (origin.url) out.url = origin.url;
     if (origin.host) out.host = origin.host;
     if (origin.file) out.file = origin.file;
     if (origin.minutes) out.minutes = origin.minutes;
+    // A source with no site or file to name it (a transcript pasted with no
+    // link) is named by its title on the course's card.
+    if (!out.host && !out.file && title) out.title = String(title).slice(0, 300);
     return out;
 }
 
@@ -417,8 +420,8 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
 
     const sourceOrigin = staged ? (parseJson(staged.origin) || { kind: fileKind(staged.file_type), file: staged.original_filename }) : null;
-    const madeFrom = staged ? madeFromOf(sourceOrigin) : { kind: 'topic', title: topicTitle };
     const sourceTitle = staged ? (staged.map.title || staged.title) : topicTitle;
+    const madeFrom = staged ? madeFromOf(sourceOrigin, sourceTitle) : { kind: 'topic', title: topicTitle };
     const name = given || sourceTitle;
     const language = courseLanguage({
         name: given,
@@ -540,11 +543,12 @@ export async function writeShortCourseNow({ name = '', goal = '', color = '', ic
     if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
     const parsed = parseCreationJson(text);
     const items = topicsFrom(parsed, { src: withText ? src : null, proposed: [], shown: sources?.shown });
-    if (!items.length) throw new Error('The model wrote no topics for this short course.');
+    // Under three topics is not a short course; the run builds it in phases.
+    if (items.length < SHORT.minTopics) throw new Error(`The model wrote ${items.length} topics for this short course.`);
 
     // Where it came from: the first source, and how many more there were.
     const firstOrigin = firstRow ? (parseJson(firstRow.origin) || { kind: fileKind(firstRow.file_type), file: firstRow.original_filename }) : null;
-    const madeFrom = firstOrigin ? madeFromOf(firstOrigin) : { kind: 'topic', title: title.slice(0, 300) };
+    const madeFrom = firstOrigin ? madeFromOf(firstOrigin, firstRow.map?.title || firstRow.title) : { kind: 'topic', title: title.slice(0, 300) };
     if (src.docs.length > 1) madeFrom.sources = src.docs.length;
     const startName = title.slice(0, 500);
     let projectId = null;
@@ -556,8 +560,9 @@ export async function writeShortCourseNow({ name = '', goal = '', color = '', ic
             .run(startName, String(goal || '').trim().slice(0, 5000), projectColour(color) || '#3B82F6', projectIconName(icon) || 'book',
                 language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
         // Every staged row goes into the course, a scan with no text included,
-        // as a course in phases keeps them.
-        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId, afterCommit) : new Map();
+        // as a course in phases keeps them. One another creation claimed while
+        // this one waited on the model throws, and the course is not written.
+        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId, afterCommit, { all: true }) : new Map();
         const documentIdOf = (n) => claimed.get(src.docs[n - 1]?.stagedId) ?? null;
         writeCourse({ projectId, items, parsed, keepName: !!given, startName, src: withText ? src : null, documentIdOf, answered });
     })();
@@ -652,7 +657,8 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 }
                 const parsed = parseCreationJson(text);
                 const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
-                if (!items.length) throw new Error('The model wrote no topics for this short course.');
+                // Under three topics is not a short course: it is left failed, with Retry.
+                if (items.length < SHORT.minTopics) throw new Error(`The model wrote ${items.length} topics for this short course.`);
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
                 return { projectId, topics: items.length };
@@ -783,13 +789,17 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
         }
         src = creationSources(rows);
         if (kept.length) src.docs[0].picked = true;
-        documentIdOf = (n) => docs[n - 1]?.id ?? null;
+        // Source n is the n-th document WITH text (a scan without is left out),
+        // so it is found by its row, not by its place among all documents.
+        const idOf = new Map(rows.map((r, i) => [r.id, docs[i].id]));
+        documentIdOf = (n) => idOf.get(src.docs[n - 1]?.stagedId) ?? null;
     }
     const lang = withLearning(getLanguage(p.content_language) || getLanguage('en'), getLanguage(p.learning_language));
     db.prepare('UPDATE projects SET ai_generating = 1 WHERE id = ?').run(p.id);
     const generated = parseJson(db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(p.id)?.generated_by);
     const keepName = !(generated?.fields || []).includes('name');
-    const title = madeFrom.kind === 'topic' ? madeFrom.title : (docs[0]?.title || p.name);
+    // The first source the model is shown, not a scan with no text before it.
+    const title = madeFrom.kind === 'topic' ? madeFrom.title : (src?.docs[0]?.title || docs[0]?.title || p.name);
     return buildOrFail(p.id, () => startBuild({
         projectId: p.id, name: p.name, keepName, title, proposed: proposedTopics(madeFrom.topics), src, documentIdOf,
         fromTopic: madeFrom.kind === 'topic', lang, origin, words,
@@ -830,7 +840,7 @@ export function listShortCourses() {
             icon: r.icon,
             color: r.color,
             kind: from.kind || 'file',
-            from: from.kind === 'topic' ? null : (from.host || from.file || null),
+            from: from.kind === 'topic' ? null : (from.host || from.file || from.title || null),
             // Made from several sources: how many besides the one named.
             more: Number.isInteger(from.sources) && from.sources > 1 ? from.sources - 1 : 0,
             url: from.url || null,

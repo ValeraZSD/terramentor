@@ -29,7 +29,7 @@ import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
 import { activeGenerations } from '../creationRuns.js';
-import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
+import { claimStaged, filesLanguage as filesLanguageOf, loadStaged, StagedClaimedError } from '../stagedDocuments.js';
 import {
     briefBlock, creationSources, hasSources, languageCheckBlock, sourceRanges, sourcesSummary, thinkBlock,
 } from '../sourceMaterial.js';
@@ -260,6 +260,9 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             // or 'fallback'.
             shape: null,
             shapeBy: null,
+            // How many topics a short course's write made: the tree a
+            // reattached page rebuilds from the database may hold more since.
+            topicsWritten: null,
         },
     };
     activeGenerations.set(pendingGenKey, cancelHandle);
@@ -293,6 +296,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         if (data.failure) s.failure = data.failure;
         if (data.shape === 'short' || data.shape === 'phased') s.shape = data.shape;
         if (data.by === 'bounds' || data.by === 'model' || data.by === 'fallback') s.shapeBy = data.by;
+        if (data.phase === 'topics_written' && Array.isArray(data.topics)) s.topicsWritten = data.topics.length;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
         if (typeof data.currentSubElement === 'string') s.currentSubElement = data.currentSubElement;
@@ -742,7 +746,8 @@ app.post('/api/ai/create-project', (req, res) => {
                     signal,
                 });
             } catch (err) {
-                if (signal?.aborted || err?.name === 'AbortError') throw err;
+                // Its files gone to another course: in phases they are gone too.
+                if (signal?.aborted || err?.name === 'AbortError' || err instanceof StagedClaimedError) throw err;
                 // The short course is made only from a good answer (nothing is
                 // half-written), so a failed one builds the course in phases.
                 console.log(`[AI] Short course failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
@@ -793,26 +798,32 @@ app.post('/api/ai/create-project', (req, res) => {
 
         await checkModel(send);
 
-        const projectResult = db.prepare(
-            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
-        ).run(
-            name.substring(0, 500),
-            (description || name).substring(0, 5000),
-            projectColor,
-            projectIcon,
-            nextProjectPosition(),
-            projectLanguage,
-            learningLanguage,
-            addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
-        );
-        const projectId = projectResult.lastInsertRowid;
-        run.adopt(projectId, name.substring(0, 500));
         // The files move into the new project's vault now, so a run that is
         // cancelled or fails from here on keeps them; their document ids are
         // what every topic's source rows point at.
         // Every staged file goes, a scan with no text layer included (PDF
         // recovery may read it later); only the ones with text shaped the run.
-        const claimedDocs = stagedRows.length ? claimStaged(stagedRows.map(row => row.id), projectId) : new Map();
+        // The project row and the claim are one write: files another creation
+        // claimed while this one waited on the model stop the run here, and
+        // leave no project behind.
+        const afterClaim = [];
+        const { projectId, claimedDocs } = db.transaction(() => {
+            const id = db.prepare(
+                'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
+            ).run(
+                name.substring(0, 500),
+                (description || name).substring(0, 5000),
+                projectColor,
+                projectIcon,
+                nextProjectPosition(),
+                projectLanguage,
+                learningLanguage,
+                addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
+            ).lastInsertRowid;
+            return { projectId: id, claimedDocs: stagedRows.length ? claimStaged(stagedRows.map(row => row.id), id, afterClaim, { all: true }) : new Map() };
+        })();
+        run.adopt(projectId, name.substring(0, 500));
+        for (const job of afterClaim) job();
         const documentIdOf = (n) => claimedDocs.get(src.docs[n - 1]?.stagedId) ?? null;
         // The description is the learner's (or the identity step's) and
         // stays unless there is none, in which case the summary below fills

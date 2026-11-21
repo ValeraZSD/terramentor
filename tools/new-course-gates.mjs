@@ -2,8 +2,10 @@
 //
 // Run:  node tools/new-course-gates.mjs              (this checkout)
 //       node tools/new-course-gates.mjs --root DIR   (another copy of server/ and src/,
-//                                                     e.g. `git archive origin/main server src`,
 //                                                     where it must fail)
+//       The copy goes INSIDE this checkout, so its imports find node_modules:
+//         mkdir -p temp/base && git archive origin/main server src | tar -x -C temp/base
+//         node tools/new-course-gates.mjs --root temp/base
 //
 // A course was started from two places: "New Project" made a course in phases
 // from a name, a goal and files, and a link field on Projects made a SHORT
@@ -92,7 +94,9 @@ const DUTCH = Array.from({ length: 12 }, () => 'Een indexfonds koopt alle bedrij
 
 const calls = [];          // every model call: { kind, system, user }
 let shapeReply = 'short';  // 'short' | 'phased' | 'garbage' | 'fail'
-let shortReply = 'good';   // 'good' | 'garbage'
+let shortReply = 'good';   // 'good' | 'garbage' | 'two' (two topics, under the floor)
+let onShape = null;        // run while the shape call is answered: another request's work meanwhile
+let identityReply = null;  // the identity call's answer; null = that call fails like the rest
 const kindOf = (system) => system.includes('You decide what shape a new course takes') ? 'shape'
     : /SHORT COURSE/.test(system) ? 'short'
         : 'other';
@@ -110,9 +114,12 @@ const stub = createServer((req, res) => {
         const user = msgs.filter(m => m.role === 'user').map(m => m.content).join('\n');
         const kind = kindOf(system);
         calls.push({ kind, system, user });
+        if (kind === 'shape' && onShape) onShape();
         let content = null;
         if (kind === 'shape' && shapeReply !== 'fail') {
             content = shapeReply === 'garbage' ? 'Hard to say, it could go either way.' : `\`\`\`json\n{"shape": "${shapeReply}"}\n\`\`\``;
+        } else if (kind === 'other' && identityReply && system.includes('You review the name and description a learner typed')) {
+            content = identityReply;
         } else if (kind === 'short' && shortReply === 'garbage') {
             content = 'Here are some thoughts on index funds, in no particular format.';
         } else if (kind === 'short') {
@@ -120,6 +127,7 @@ const stub = createServer((req, res) => {
                 name: 'Index funds in a few days',
                 description: 'What an index fund is, why its low cost matters, and how to keep one balanced.',
                 topics: ['Why fees matter', 'What an index holds', 'Rebalancing once a year', 'Choosing a fund']
+                    .slice(0, shortReply === 'two' ? 2 : 4)
                     .map((title, i) => ({ title, description: `What ${title.toLowerCase()} means for a saver.`, sections: [Math.min(i + 1, 3)] })),
             });
         }
@@ -261,7 +269,7 @@ try {
 } catch { /* rolled back, as a failed short write is */ }
 ok('files claimed in a write that rolls back queue nothing until it commits, and stay staged', jobs.length === 1 && !!db.prepare('SELECT 1 FROM staged_documents WHERE id = ?').get(held?.id ?? ''), [jobs.length, held?.id]);
 const shortSource = readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8');
-ok('the short course runs them only after its write commits', /projectId, afterCommit\)/.test(shortSource) && /\}\)\(\);\s+for \(const job of afterCommit\) job\(\);/.test(shortSource));
+ok('the short course runs them only after its write commits', /projectId, afterCommit[,)]/.test(shortSource) && /\}\)\(\);\s+for \(const job of afterCommit\) job\(\);/.test(shortSource));
 const fileTwo = await stage('Fund costs.txt', SMALL.replace(BODY_MARK, ''));
 const two = await create({ name: 'Index funds', description: '', documentIds: [pasted?.stagedId, fileTwo?.id] });
 ok('a link and a file together are one short course', two.done?.shape === 'short', two.frames.map(f => f.phase));
@@ -269,6 +277,39 @@ const twoShape = two.calls.find(c => c.kind === 'shape');
 ok('the shape call is told the pasted source is a video, not a text file', !!twoShape && /video/i.test(twoShape.user), twoShape?.user);
 const twoRow = (await (await fetch(`${base}/api/short-courses`)).json()).courses?.find(c => (c.id ?? c.projectId) === two.done?.projectId);
 ok('its card knows it was made from one more source', twoRow?.more === 1, twoRow);
+{
+    // A transcript pasted with no link names no site: its title names it, so
+    // the card still says what the course was made from and "+1 more".
+    const bare = await (await fetch(`${base}/api/short-courses/read`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ transcript: SECOND, title: 'A talk on fund costs' }),
+    })).json();
+    const withIt = await stage('Fund costs, again.txt', SMALL.replace(BODY_MARK, ''));
+    shapeReply = 'short';
+    const made = await create({ name: 'Fund costs', description: '', documentIds: [bare?.stagedId, withIt?.id] });
+    const card = (await (await fetch(`${base}/api/short-courses`)).json()).courses?.find(c => (c.id ?? c.projectId) === made.done?.projectId);
+    ok('a first source with no site or file is named by its title, and the card says "+1 more"', made.done?.shape === 'short' && card?.from === 'A talk on fund costs' && card.more === 1, [bare?.ok, made.done?.shape, card?.from, card?.more]);
+}
+// Two creations holding the same staged files (a second tab, a double press):
+// the other one claims them while this one waits on the model. This one then
+// stops, leaves no course without its sources, and is not built again in phases.
+for (const shapeIs of ['short', 'phased']) {
+    const raced = await stage('Raced.txt', SMALL.replace(BODY_MARK, ''));
+    const first = Number(db.prepare("INSERT INTO projects (name) VALUES ('Claimed first')").run().lastInsertRowid);
+    const projectsBefore = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+    shapeReply = shapeIs;
+    onShape = () => { sd.claimStaged([raced?.id], first); };
+    const r = await create({ name: `Raced ${shapeIs}`, description: '', documentIds: [raced?.id] });
+    onShape = null;
+    const projectsAfter = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+    const sizes = r.frames.filter(f => f.phase === 'sized').map(f => f.shape).join(',');
+    const said = r.frames.find(f => f.phase === 'error')?.error ?? '';
+    const keptBy = db.prepare('SELECT project_id FROM documents WHERE project_id = ?').all(first).length;
+    ok(`a ${shapeIs} run whose files another run claimed meanwhile stops, says why, and leaves no course`,
+        /no longer available/.test(said) && !r.done && projectsAfter === projectsBefore && sizes === shapeIs && keptBy === 1,
+        [r.frames.map(f => f.phase), said, projectsBefore, projectsAfter, sizes, keptBy]);
+}
+shapeReply = 'short';
 
 // ---- 1b. the bounds and fallbacks, through the route ---------------------------------
 section('1b. the same bounds through the real route');
@@ -280,8 +321,14 @@ ok('it goes on to the phased pipeline', big.calls.some(c => c.kind === 'other') 
 {
     // What a reloaded page reattaches from keeps the reason with the shape.
     const gens = (await (await fetch(`${base}/api/ai/creation-status`)).json()).generations ?? [];
-    const run = gens.find(g => g.shape === 'phased');
+    const run = gens.find(g => g.name === 'Investing');
     ok('the run\'s snapshot says the length decided it', run?.shapeBy === 'bounds', gens.map(g => [g.name, g.shape, g.shapeBy]));
+    // A topic the learner adds afterwards is not one the run wrote: the
+    // snapshot keeps the count, and the reattached page shows it, not its
+    // tree, which it rebuilds from the course.
+    const shortRun = gens.find(g => g.projectId === madeId);
+    ok('a short run\'s snapshot keeps how many topics its write made', shortRun?.topicsWritten === 4, shortRun?.topicsWritten);
+    ok('…and the finished screen says that count', /run\.topicsWritten \?\? run\.tree\.length/.test(readFileSync(join(ROOT, 'src/components/creation/CreationProgress.tsx'), 'utf8')));
 }
 shapeReply = 'garbage';
 const gar = await create({ name: 'Index funds again', description: '' });
@@ -300,6 +347,13 @@ shapeReply = 'short';
     const sizes = bad.frames.filter(f => f.phase === 'sized').map(f => `${f.shape}/${f.by}`);
     ok('an unusable short-course answer builds in phases', sizes.join(',') === 'short/model,phased/fallback' && bad.calls.some(c => c.kind === 'other'), [sizes, bad.calls.map(c => c.kind)]);
     ok('it leaves no short course behind', shortsAfter === shortsBefore && bad.done?.shape !== 'short', [shortsBefore, shortsAfter]);
+    // Two topics are under a short course's three: the same fallback, nothing written.
+    shortReply = 'two';
+    const few = await create({ name: 'Index funds, in two topics', description: '' });
+    shortReply = 'good';
+    const fewSizes = few.frames.filter(f => f.phase === 'sized').map(f => `${f.shape}/${f.by}`).join(',');
+    const fewShorts = (await (await fetch(`${base}/api/short-courses`)).json()).courses?.length ?? -3;
+    ok('a short answer with fewer than three topics builds in phases and writes no short course', fewSizes === 'short/model,phased/fallback' && fewShorts === shortsBefore, [fewSizes, shortsBefore, fewShorts]);
     // A name the window filled in from the file is not the learner's: the
     // short course names itself (the stub answers "Index funds in a few days").
     const fileNamed = await stage('Index funds.txt', SMALL);
@@ -309,8 +363,16 @@ shapeReply = 'short';
     // Material in another language than the learner writes in leaves the
     // language open: the identity call settles it before the short course.
     const dutch = await stage('Indexfondsen.txt', `# Waarom kosten tellen\n\n${DUTCH}\n\n# Wat een index bevat\n\n${DUTCH}\n`);
+    // The identity call answers "it teaches Dutch", which nothing else
+    // settles (the goal is written in English, the material in Dutch): the
+    // short course must follow that answer, in its prompt and in what it stores.
+    identityReply = JSON.stringify({ keep_name: false, keep_description: true, name: 'Index funds in Dutch', explain_in: null, teaches_language: 'nl', reason: 'material' });
     const open = await create({ name: '', description: GOAL, documentIds: [dutch?.id] });
+    identityReply = null;
     ok('a short run whose language is open settles it first, then is a short course', open.done?.shape === 'short' && /^shape,(other,)+short$/.test(open.calls.map(c => c.kind).join(',')), [open.done?.shape, open.calls.map(c => c.kind)]);
+    const openLang = db.prepare('SELECT learning_language FROM projects WHERE id = ?').get(open.done?.projectId ?? -1)?.learning_language;
+    const openShort = open.calls.find(c => c.kind === 'short');
+    ok('the short course teaches the language the identity call settled', openLang === 'nl' && /Dutch|Nederlands/.test(`${openShort?.system}\n${openShort?.user}`), [openLang, `${openShort?.system}\n${openShort?.user}`.match(/.{0,80}(Dutch|Nederlands).{0,40}/)?.[0]]);
     const plain = one.calls.map(c => c.kind).join(',');
     ok('a short run with its language settled makes no identity call', plain === 'shape,short', plain);
     ok('its "writing the topics" step is closed, not left running', bad.frames.some(f => f.phase === 'topics_written' && f.failed === true));
@@ -601,6 +663,14 @@ try {
     const rows = () => all().querySelectorAll('[data-material] ul > li').length;
     ok('links over the 100 a course takes are left out, and it says so', !!toast && rows() === 100, [toast?.message, rows()]);
     ok('a hundred links still go four at a time', reads.length === 9, reads.length);
+    // The same cap holds for files picked one by one, not only a folder's.
+    const capInput = [...all().querySelectorAll('input[type="file"]')].find(i => !i.hasAttribute('webkitdirectory'));
+    const toastsAtCap = useStore.getState().toasts.length;
+    Object.defineProperty(capInput, 'files', { value: [new w.File(['notes'], 'One too many.txt', { type: 'text/plain' })], configurable: true });
+    await act(async () => { capInput.dispatchEvent(new w.Event('change', { bubbles: true })); });
+    await settle();
+    const capToast = useStore.getState().toasts.slice(toastsAtCap).find(x => /at most 100 links and files/.test(x.message));
+    ok('a file picked with the list full is left out too, and it says so', rows() === 100 && !/One too many/.test(all().textContent) && !!capToast, [rows(), capToast?.message]);
 } catch (e) {
     ok('the window\'s cases ran to their end', false, e.stack || e.message);
 }

@@ -219,11 +219,18 @@ export function loadStaged(ids = []) {
  * `jobs` (an array): the indexing and PDF recovery calls go into it, to be run
  * once that transaction commits, so a rollback leaves no job queued for a
  * document that no longer exists.
+ *
+ * `all`: every id must still be staged, else it throws `StagedClaimedError`
+ * and claims none. A course creation loads its staged rows before its model
+ * calls and claims them after; another creation holding the same ids may have
+ * claimed them meanwhile, and a course written without them would have topics
+ * that point at no source.
  */
-export function claimStaged(ids, projectId, jobs = null) {
+export function claimStaged(ids, projectId, jobs = null, { all = false } = {}) {
     const claimed = new Map();
     const take = db.transaction(() => {
         const rows = loadStaged(ids);
+        if (all && rows.length !== new Set(ids.map(String)).size) throw new StagedClaimedError();
         for (const row of rows) {
             const gone = db.prepare('DELETE FROM staged_documents WHERE id = ?').run(row.id);
             if (!gone.changes) continue;
@@ -243,6 +250,15 @@ export function claimStaged(ids, projectId, jobs = null) {
         else afterPersist(docId, kind);
     }
     return new Map([...claimed].map(([k, v]) => [k, v.docId]));
+}
+
+/** A creation's staged files were claimed by another creation while it ran. */
+export class StagedClaimedError extends Error {
+    constructor() {
+        super('Some of this course\'s files are no longer available: another course took them while it was being made.');
+        this.name = 'StagedClaimedError';
+        this.expose = true;
+    }
 }
 
 /** Drop one staged file (the dialog's ✕, or the dialog closed). */
