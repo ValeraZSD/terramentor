@@ -392,9 +392,9 @@ console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its r
 // ---- "Fix this": a rebuild from the learner's note ------------------------------
 //
 // A rebuild that is cancelled, or brings back the same drawing, leaves the block
-// as it was: a good drawing stays on screen (it used to vanish behind "Couldn't
-// render: render failed"), and a block that never drew keeps its error card and
-// its Fix with AI (it used to be marked drawn, with nothing drawn). The footer
+// as it was: a good drawing stays on screen, not behind "Couldn't render:
+// render failed", and a block that never drew keeps its error card and its Fix
+// with AI instead of being marked drawn with nothing drawn. The footer
 // names the job running NOW, and the panel hands focus back to its button.
 {
     const GOOD = '{"data":[{"fn":"sin(x)"}]}';
