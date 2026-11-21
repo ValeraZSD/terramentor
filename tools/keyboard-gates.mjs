@@ -66,9 +66,8 @@ for (const f of ['src/components/atlas/GlobeMap.tsx']) {
         acts.length > 0 && !/\bEscape\s*:/.test(acts), acts ? 'its key table still has an Escape' : 'no key table found');
     // The keys themselves are named in `globeInput.ts`, which the table above
     // answers by action.
-    let keys = null;
-    try { keys = read('src/components/atlas/globeInput.ts'); } catch { /* a checkout from before it */ }
-    if (keys != null) check(`${name}: the map's key names hold no Escape either`, !/\bEscape\s*:/.test(keys));
+    const keys = read('src/components/atlas/globeInput.ts');
+    check(`${name}: the map's key names hold no Escape either`, !/\bEscape\s*:/.test(keys));
     check(`${name}: it answers the page's "is a card open? close it"`,
         /dismissCard: \(\) => \{\s*if \(!hoverRef\.current && !pinnedRef\.current\) return false;/.test(src));
 }

@@ -2094,7 +2094,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         if (!was) return;
         const pin = resolveHeld(pinnedRef.current, placed);
         const hov = resolveHeld(hoverRef.current, placed);
-        if (!pin && !hov) { dismissCard(); return; }
+        if (!pin && !hov) {
+            dismissCard();
+            // The page's selection goes with it when its region is gone, or
+            // Escape spends a press on a layer nobody can see.
+            const sel = live.current.selectedId;
+            if (sel != null && !placed.some(p => p.region.id === sel)) live.current.onSelect(null);
+            return;
+        }
         pinnedRef.current = pin; hoverRef.current = hov;
         setPinned(pin); setHover(hov);
         const a = anchorFor((pin || hov)!);

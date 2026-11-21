@@ -1010,6 +1010,8 @@ console.log('\n--- the hand on the map');
             I.globeKeyAction({ key: '-', ctrlKey: true }) === null);
         check('…and Cmd + plus, Alt + 0 too',
             I.globeKeyAction({ key: '+', metaKey: true }) === null && I.globeKeyAction({ key: '0', altKey: true }) === null);
+        check('AltGr (Ctrl and Alt together on Windows) is not a chord: a layout typing minus with it still zooms',
+            I.globeKeyAction({ key: '-', ctrlKey: true, altKey: true, getModifierState: k => k === 'AltGraph' }) === 'zoomOut');
         check('plain minus still zooms the map out, an arrow still turns it',
             I.globeKeyAction({ key: '-' }) === 'zoomOut' && I.globeKeyAction({ key: 'ArrowLeft' }) === 'left');
 
@@ -1018,6 +1020,8 @@ console.log('\n--- the hand on the map');
         check('the main button, a finger and a pen do',
             I.pressesMap({ pointerType: 'mouse', button: 0 }) && I.pressesMap({ pointerType: 'touch', button: 0 })
             && I.pressesMap({ pointerType: 'pen', button: 0 }));
+        check('a pen\'s barrel button and eraser do not',
+            !I.pressesMap({ pointerType: 'pen', button: 2 }) && !I.pressesMap({ pointerType: 'pen', button: 5 }));
 
         const region = (id, label, topics) => ({ region: { id, label }, topics: topics.map(t => ({ topic: t })) });
         const before = [region(1, 'Mechanics', [{ id: 10, title: 'Momentum' }]), region(2, 'Optics', [{ id: 20, title: 'Lenses' }])];
@@ -1072,7 +1076,9 @@ console.log('\n--- the hand on the map');
         readByDraw.size >= 10 && readByDraw.has('regionNames') && missing.length === 0,
         `read ${readByDraw.size}, missing ${missing.join(', ') || '(none)'}`);
     check('an open card is looked up again whenever the layout is rebuilt',
-        /useLayoutEffect\(\(\) => \{[\s\S]{0,400}?resolveHeld\(pinnedRef\.current, placed\)[\s\S]{0,800}?\}, \[placed\]\)/.test(globe));
+        /useLayoutEffect\(\(\) => \{[\s\S]{0,400}?resolveHeld\(pinnedRef\.current, placed\)[\s\S]{0,1200}?\}, \[placed\]\)/.test(globe));
+    check('…and a card whose region is gone takes the page\'s selection of it away too',
+        /dismissCard\(\);[\s\S]{0,300}?!placed\.some\(p => p\.region\.id === sel\)\) live\.current\.onSelect\(null\)/.test(globe));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

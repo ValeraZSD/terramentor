@@ -5,9 +5,9 @@
  */
 
 /** Roughly one line of text, the size a line-mode wheel step stands for. */
-export const WHEEL_LINE_PX = 33;
+const WHEEL_LINE_PX = 33;
 /** One page-mode wheel step: a big step, but not a whole screen of zoom. */
-export const WHEEL_PAGE_PX = 400;
+const WHEEL_PAGE_PX = 400;
 
 /**
  * A wheel event's vertical travel in pixels, whatever unit it came in.
@@ -36,22 +36,27 @@ const KEYS: Record<string, GlobeKeyAction> = {
  *
  * A press with Ctrl, Cmd or Alt held is the browser's or the system's: Ctrl
  * and minus is the page zoom, and the map taking it left a reader unable to
- * make the page smaller while the map had focus.
+ * make the page smaller while the map had focus. AltGr is not a chord: on
+ * Windows it reports Ctrl and Alt together, and some layouts type `+`, `-` or
+ * `0` with it.
  */
-export function globeKeyAction(
-    e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean },
-): GlobeKeyAction | null {
-    if (e.ctrlKey || e.metaKey || e.altKey) return null;
+export function globeKeyAction(e: {
+    key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean;
+    getModifierState?: (key: 'AltGraph') => boolean;
+}): GlobeKeyAction | null {
+    const altGr = !!e.getModifierState?.('AltGraph');
+    if (!altGr && (e.ctrlKey || e.metaKey || e.altKey)) return null;
     return KEYS[e.key] ?? null;
 }
 
 /**
- * Whether a pointer press may drag or pick. Only the main mouse button does;
- * a right click opens the context menu and a middle click scrolls, and neither
- * may select the region under it. Touch and pen always press with button 0.
+ * Whether a pointer press may drag or pick. Only the main button does: a
+ * finger, a pen's tip, a left click. A right click opens the context menu, a
+ * middle click scrolls, a pen's barrel button and eraser are not its tip, and
+ * none of them may select the region under it.
  */
-export function pressesMap(e: { pointerType: string; button: number }): boolean {
-    return e.pointerType !== 'mouse' || e.button === 0;
+export function pressesMap(e: { button: number }): boolean {
+    return e.button === 0;
 }
 
 /** A card held open over the map: which region, and which topic in it. */
