@@ -21,7 +21,7 @@ import { BATCH_MAX, BATCH_MIN } from './creationEta.js';
 import { COURSE_SIZES, DEFAULT_COURSE_SIZE, keepNew, readCourseSize, titleKey } from './courseSize.js';
 import { findResourcesForSubElement, planSectionQueries } from './resourceSearch.js';
 import { buildSourceMap } from './sourceMap.js';
-import { askFirstLessons, FIRST_LESSON_TOPICS } from './feedGen.js';
+import { askFirstLessons, FIRST_LESSON_TOPICS, requestNode } from './feedGen.js';
 import {
     coverTopLevel, creationSources, hasSources, phaseBlock, planBlock, sectionRefs, subtree, topicsBlock,
     withoutSourceRefs,
@@ -645,14 +645,23 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
 }
 
 /**
- * Ask once per run for the lessons of the topics the course's Study starts on
+ * Ask for the lessons of the topics the course's Study starts on
  * (feedGen.js `askFirstLessons`), as soon as there are any. A continuation
  * calls it before it writes anything, for a course whose topics exist already.
+ * Called after every section: once the topics are picked, each call asks for
+ * the same ones again, because a request lapses after 30 minutes and on a
+ * one-slot local model, shared with the creation, two topics' lessons can take
+ * longer. Asking again for a topic already taught costs no call: the writer
+ * skips it while the creation runs.
  */
 export function firstLessons(ctx) {
-    if (ctx.firstLessonsAsked) return;
+    if (ctx.firstLessonIds) {
+        for (const id of ctx.firstLessonIds) requestNode(id);
+        return;
+    }
     // A first section of one topic asks again after the next section.
-    ctx.firstLessonsAsked = askFirstLessons(ctx.projectId).length >= FIRST_LESSON_TOPICS;
+    const ids = askFirstLessons(ctx.projectId);
+    if (ids.length >= FIRST_LESSON_TOPICS) ctx.firstLessonIds = ids;
 }
 
 /**

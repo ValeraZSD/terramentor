@@ -310,7 +310,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // so in id order an undated course's Study opened on the second phase's
     // title, and a lesson was written for it. While the course is being
     // written, a childless node above the deepest level written so far is a
-    // container waiting for its children, not a topic.
+    // container waiting for its children, not a topic. It reads depth only:
+    // before any topic exists the containers are the deepest level and still
+    // show, and a topic added by hand right under a phase while a continuation
+    // runs is hidden until the run ends.
     let waitingStmt = null;
     const waitingIn = (p) => {
         if (!p.ai_generating) return null;

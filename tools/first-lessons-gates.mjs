@@ -140,10 +140,13 @@ function answer(stage, user) {
 }
 
 const calls = [];
+// A topic title whose next model call answers late, once: the window case 5
+// deletes its course in.
+let slowFor = null;
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
-    req.on('end', () => {
+    req.on('end', async () => {
         if (req.url.endsWith('/models')) {
             res.writeHead(200, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ data: [{ id: 'stub-model' }] }));
@@ -154,6 +157,7 @@ const stub = createServer((req, res) => {
         const user = msgs.filter(m => m.role === 'user').map(m => m.content).join('\n');
         const stage = stageOf(system);
         calls.push({ stage, user });
+        if (slowFor && user.includes(slowFor)) { slowFor = null; await sleep(1200); }
         const content = answer(stage, user);
         if (content == null) {
             res.writeHead(400, { 'content-type': 'application/json' });
@@ -424,6 +428,36 @@ console.log('\n--- 4. a short course is taught as soon as it lands ---');
     const t = firstTopic();
     ok('its first topic is taught without anyone opening it', !!t && await until(() => taught(t.id), 20000),
         t && JSON.stringify({ plan: planParts(t.id), lessons: rowsOf(t.id, 'lesson') }));
+    creation.finish();
+}
+
+/* ── 5. a course deleted while its lesson is written ─────────────────────── */
+console.log('\n--- 5. deleting a course mid-lesson holds up no other course ---');
+{
+    await until(() => !tasks.listTasks().some(t => t.kind === 'feed' && t.status === 'running'), 30000);
+    // Deleting a course still being created is how a learner cancels it, and
+    // the writer is on its first topics then: the step in flight fails on the
+    // missing topic. That is no fault of the writer, so no backoff (15 s and
+    // up) holds back the next course.
+    const creation = tasks.registerExternal({ kind: 'create_project', label: 'Creating another course', cancel: () => { } });
+    const mkCourse = (name, title, position) => {
+        const p = Number(db.prepare('INSERT INTO projects (name, position) VALUES (?, ?)').run(name, position).lastInsertRowid);
+        const n = Number(db.prepare(
+            "INSERT INTO nodes (project_id, parent_id, title, position, role, description) VALUES (?, NULL, ?, 0, ?, 'Overview of the topic.')",
+        ).run(p, title, ROLE_TOPIC).lastInsertRowid);
+        return { p, n };
+    };
+    const doomed = mkCourse('Doppler', 'The Doppler shift', 7);
+    const kept = mkCourse('Standing waves', 'Nodes and antinodes', 8);
+    slowFor = 'The Doppler shift';
+    feedGen.requestNode(doomed.n);
+    await until(() => slowFor === null, 10000);
+    const del = await fetch(`${base}/api/projects/${doomed.p}`, { method: 'DELETE' });
+    ok('the course is deleted while its topic is being written', del.ok && slowFor === null, `${del.status}`);
+    feedGen.requestNode(kept.n);
+    ok("another course's topic is written straight after, not after a backoff", await until(() => taught(kept.n), 9000),
+        JSON.stringify({ plan: planParts(kept.n), lessons: rowsOf(kept.n, 'lesson') }));
+    ok('...and nothing was written for the deleted topic', rowsOf(doomed.n, 'plan') === 0);
     creation.finish();
 }
 

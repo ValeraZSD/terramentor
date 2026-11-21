@@ -1763,6 +1763,16 @@ async function runBurst() {
             if (handle) handle.cancelled();
             return;
         }
+        // The topic's course was deleted while its step ran (deleting a course
+        // still being created is how a learner cancels it, and the writer is on
+        // its first topics then): the write failed on the missing node. The
+        // writer is fine, so no backoff; every other course's work carries on.
+        if (onTopic != null && !db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(onTopic)) {
+            requested.delete(onTopic);
+            if (handle) handle.cancelled();
+            ensureBuffer();
+            return;
+        }
         consecutiveFailures++;
         backoffUntil = Date.now() + Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (consecutiveFailures - 1));
         lastFailure = {
