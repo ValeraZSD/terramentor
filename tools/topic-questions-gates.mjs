@@ -183,6 +183,8 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('...a set whose title adds something shows it', /4 questions/.test(rows[1] ?? '') && /2026-11-01/.test(rows[1] ?? ''), rows[1]);
     const setButtons = [...m.el.querySelectorAll('[data-section="questions"] li button')].map(b => b.getAttribute('aria-label'));
     check('each set offers View and Delete, nothing to sit', setButtons.join('|') === 'View questions|Delete these questions|View questions|Delete these questions', setButtons.join('|'));
+    const viewText = [...m.el.querySelectorAll('[data-section="questions"] li button')].find(b => b.getAttribute('aria-label') === 'View questions')?.textContent.trim();
+    check('...and View says so in a word, not only an eye beside the bin', viewText === 'View', String(viewText));
     const uses = [...m.el.querySelectorAll('section > div > p')].map(p => p.textContent.trim());
     check('each section says where its items are used',
         uses[0] === 'Study asks a few of these each day.'

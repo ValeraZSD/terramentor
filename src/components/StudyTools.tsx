@@ -340,8 +340,11 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                                         </p>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                    <IconButton size="sm" onClick={() => setViewingQuiz(quiz)} label={t("View questions")} icon={<Eye className="w-4 h-4" />} />
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                    {/* A word, not a bare eye beside the bin: learners did not know what the eye did. */}
+                                    <Button size="sm" variant="quiet" onClick={() => setViewingQuiz(quiz)} aria-label={t("View questions")} icon={<Eye className="w-4 h-4" />}>
+                                        {t("View")}
+                                    </Button>
                                     <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz)} label={t("Delete these questions")} icon={<Trash2 className="w-4 h-4" />} />
                                 </div>
                             </li>
