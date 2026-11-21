@@ -212,7 +212,8 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                         )}
                     </div>
 
-                    {awayOff >= AWAY_ASK && sitting.running && (
+                    {/* With no clock there is nothing to take the time off. */}
+                    {awayOff >= AWAY_ASK && sitting.running && timed && (
                         <div role="status" className="mt-4 rounded-xl bg-slate-100 dark:bg-slate-900/60 px-4 py-3">
                             <p className="text-sm text-slate-700 dark:text-slate-200">
                                 {t("You were away from this screen for {{time}}. If you stopped writing (a call, say), take that time off the clock.", { time: duration(awayOff) })}
@@ -250,7 +251,7 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                                     {t("{{used}} used of {{allowed}}", { used: duration(elapsed), allowed: duration(sitting.timeAllowed) })}
                                 </p>
                             ) : (
-                                <p className="text-sm text-slate-600 dark:text-slate-300">{t("Time limits is Off in Settings.")}</p>
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{t("This paper started with no clock.")}</p>
                             )}
                             {sitting.running && canHide && (
                                 <div className="mt-3 [@media(max-height:30rem)]:mt-2">

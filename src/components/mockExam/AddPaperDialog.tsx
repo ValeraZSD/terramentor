@@ -86,8 +86,14 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     const showConfirm = useStore(s => s.showConfirm);
     const [start] = useState(() => JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }));
     const changed = JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }) !== start;
+    // Why Add is held, said beside it: the first thing still to do.
+    const held = !title.trim() ? t("Give the paper a name to add it.")
+        : uploading > 0 ? t("Waiting for the upload to finish.")
+        : printedBad || mismatch ? t("Make the questions add up to the printed total.")
+        : null;
+    // An upload still running would land in the course with nothing pointing at it.
     const leave = async () => {
-        if (busy) return;
+        if (busy || uploading > 0) return;
         if (changed && !(await showConfirm({
             title: t("Discard your changes?"),
             message: t("The paper you typed in will not be added."),
@@ -119,13 +125,13 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             maxWidth="max-w-2xl"
             footer={(
                 <>
-                    {!title.trim() && (
-                        <span className="min-w-[12rem] flex-1 text-sm text-slate-500 dark:text-slate-400">{t("Give the paper a name to add it.")}</span>
+                    {held && (
+                        <span className="min-w-[12rem] flex-1 text-sm text-slate-500 dark:text-slate-400">{held}</span>
                     )}
                     {/* One group, so a narrow footer wraps both buttons under the line, never one of them. */}
                     <div className="ml-auto flex gap-2">
                         <Button onClick={leave}>{t("Cancel")}</Button>
-                        <Button variant="primary" busy={busy} disabled={!title.trim() || mismatch || printedBad || uploading > 0} onClick={save}>{t("Add the paper")}</Button>
+                        <Button variant="primary" busy={busy} disabled={held != null} onClick={save}>{t("Add the paper")}</Button>
                     </div>
                 </>
             )}

@@ -34,8 +34,12 @@
  *      the last five minutes;
  *  14. time away (a call) can be taken off a past paper's running clock, and
  *      only a past paper's;
- *  15. the clock screen fits a phone held either way.
- * (Blocks 10-15 run before 8, which deletes the course.)
+ *  15. the clock screen fits a phone held either way;
+ *  16. the results say nothing extra, and a held Add says why beside it;
+ *  17. Time limits (Settings) stretches a past paper's clock or takes it away,
+ *      by the same rule the screens show (src/components/mockExam/mockClock.ts);
+ *  9b. what the review round found.
+ * (Blocks 10-15 and 17 run before 8, which deletes the course.)
  *
  * --root runs the same cases against another checkout's server; on the code
  * before mock exams existed every case fails.
@@ -48,6 +52,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { request } from 'node:http';
+import { createRequire } from 'node:module';
 
 const argv = process.argv.slice(2);
 const argOf = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };
@@ -56,6 +61,18 @@ const ROOT = resolve(argOf('--root') || repo);
 
 // Set in-process, before any server module is imported.
 const scratch = mkdtempSync(join(tmpdir(), 'mock-exam-gates-'));
+
+// The clock rules the screens use, bundled so the gate runs them rather than
+// reading their text. Null on a tree that has none.
+let rulesModule;
+async function clockRules() {
+    if (rulesModule !== undefined) return rulesModule;
+    const file = join(ROOT, 'src', 'components', 'mockExam', 'mockClock.ts');
+    if (!existsSync(file)) return (rulesModule = null);
+    const outfile = join(scratch, 'mockClock.mjs');
+    await createRequire(import.meta.url)('esbuild').build({ entryPoints: [file], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' });
+    return (rulesModule = await import(pathToFileURL(outfile).href));
+}
 process.env.DB_PATH = join(scratch, 'gate.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 process.env.DATA_DIR = scratch;
@@ -404,10 +421,13 @@ try {
         // A build that wrongly took the refused ones would leave them behind for later blocks.
         for (const r of [off, odd, same]) if (r.body?.paper?.id) mock.deletePaper(r.body.paper.id);
         const dialog = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'AddPaperDialog.tsx'), 'utf8');
+        // Add is disabled by one `held` reason (block 16 pins its order); older trees list the conditions inline.
+        const holds = (cond) => new RegExp(`disabled=\\{[^}]*${cond}`).test(dialog)
+            || (/disabled=\{held != null\}/.test(dialog) && new RegExp(`const held = [^;]*${cond}`).test(dialog));
         check('the dialog sends the printed total and holds Add while the parts disagree with it',
-            /printedTotal/.test(dialog) && /disabled=\{[^}]*mismatch/.test(dialog) && /mismatch\s*=\s*printedTotal != null && printedTotal !== total/.test(dialog));
+            /printedTotal/.test(dialog) && holds('mismatch') && /mismatch\s*=\s*printedTotal != null && printedTotal !== total/.test(dialog));
         check('…and holds Add while what was typed is not a whole number',
-            /printedBad\s*=\s*printed\.trim\(\) !== '' && printedTotal == null/.test(dialog) && /disabled=\{[^}]*printedBad/.test(dialog));
+            /printedBad\s*=\s*printed\.trim\(\) !== '' && printedTotal == null/.test(dialog) && holds('printedBad'));
     });
 
     await block('11. the result names the topic that lost the most points', async () => {
@@ -469,7 +489,8 @@ try {
         // uploaded file stays in the course's files even if the paper never is.
         const pick = dialog.slice(dialog.indexOf('const pick = '));
         check('…refuses another kind before uploading it', /if \(!paperKind\(file\.name\)\)/.test(pick) && pick.indexOf('paperKind(file.name)') < pick.indexOf('uploadDocumentFiles('));
-        check('…holds Add while an upload runs', /disabled=\{[^}]*uploading > 0/.test(dialog));
+        check('…holds Add while an upload runs', /disabled=\{[^}]*uploading > 0/.test(dialog)
+            || (/disabled=\{held != null\}/.test(dialog) && /const held = [^;]*uploading > 0/.test(dialog)));
         check('…and names its two Upload buttons apart', /t\("Upload the paper"\)/.test(dialog) && /t\("Upload the worked solution"\)/.test(dialog) && /aria-label=\{label\}/.test(dialog));
     });
 
@@ -480,7 +501,12 @@ try {
         check('the past paper uses the same hidden-clock state', /useHiddenClock\(/.test(screen));
         const hook = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'mockFormat.ts'), 'utf8');
         check('a hidden clock survives a reload of the tab (kept per mock in this tab)', /sessionStorage/.test(hook) && /mock-clock-hidden:/.test(hook));
-        check('…and shows again with five minutes left', /REVEAL_AT\s*=\s*300/.test(hook));
+        const rules = await clockRules();
+        check('…and shows again with five minutes left: hidden at 5 min 1 s, shown at 5 min, and no longer hideable',
+            rules?.clockHidden(true, 301) === true && rules.clockHidden(true, 300) === false && rules.canHideClock(300) === false);
+        check('…while a clock nobody hid stays shown', rules?.clockHidden(false, 3600) === false);
+        check('the wish to hide is dropped when the last five minutes show the clock, so time taken off never hides it again',
+            /useEffect\(\(\) => \{ if \(wanted && !canHide\) setHidden\(false\); \}/.test(hook));
     });
 
     await block('14. time away from a phone (a call) can be taken off the running clock', async () => {
@@ -572,6 +598,16 @@ try {
             check('a mock keeps the clock it started with when the setting changes', mock.getSitting(running.id, { now: t0 }).timeAllowed === 360 * 60);
             mock.discardSitting(running.id);
             check('the paper keeps the minutes printed on it', mock.getPaper(paper.id).minutes === 180);
+            // The start panel shows what the screens' rule gives; the server must set the same clock.
+            const rules = await clockRules();
+            const differ = [];
+            for (const v of [null, '1', '2', '3', 'off', '5']) {
+                setScale(v);
+                const server = timeFor();
+                const screen = rules?.mockClockSeconds(180 * 60, v ?? '');
+                if (server !== screen) differ.push(`${v}: server ${server}, screen ${screen}`);
+            }
+            check('the start panel and the server give the same clock for every setting', rules != null && differ.length === 0, differ.join('; '));
         } finally {
             setScale(null);
         }
@@ -579,14 +615,13 @@ try {
         const dir = join(ROOT, 'src', 'components', 'mockExam');
         const view = readFileSync(join(dir, 'MockExamView.tsx'), 'utf8');
         const screen = readFileSync(join(dir, 'MockSittingScreen.tsx'), 'utf8');
-        const format = readFileSync(join(dir, 'mockFormat.ts'), 'utf8');
         const clock = screen.slice(screen.indexOf('function ClockScreen'), screen.indexOf('// ---- marking'));
-        check('one rule on the screen for the clock a mock gets: stretched, or 0 when Off',
-            /export function mockClockSeconds\(seconds: number, scale: DrillTimeScale\): number \{\s*return scale === 'off' \? 0 : seconds \* Number\(scale\);/.test(format));
         check('the start panel shows the clock the learner will get, not the printed one',
             /useStore\(s => s\.drillTimeScale\)/.test(view) && /const seconds = mockClockSeconds\(/.test(view));
         check('a past paper with no clock is never "Time is up"',
             /const timed = sitting\.timeAllowed > 0;/.test(clock) && /const timeUp = timed && left <= 0;/.test(clock));
+        check('…it says it started with no clock (not what the setting is now), and offers no time off a clock it has not got',
+            clock.includes('{t("This paper started with no clock.")}') && /awayOff >= AWAY_ASK && sitting\.running && timed && \(/.test(clock));
         check('…and its result says how long it took, with no "of"',
             screen.includes('t("{{paper}} · written in {{used}}", ') && screen.includes('t("Written on paper in {{used}} · graded by you against the worked solution", '));
         const settings = readFileSync(join(ROOT, 'src', 'components', 'settings', 'AccessibilitySettings.tsx'), 'utf8');
@@ -620,9 +655,12 @@ try {
         const dialog = readFileSync(join(dir, 'AddPaperDialog.tsx'), 'utf8');
         check('neither result adds a line about topics showing it as practice',
             !/now shows (?:this paper|in its topic) as practice/.test(screen + course));
-        check('with no name, the dialog footer says a name is needed before Add',
-            /\{!title\.trim\(\) && \(\s*<span [^>]*>\{t\("Give the paper a name to add it\."\)\}<\/span>/.test(dialog)
-                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\}>[^\n]*\n\s*<Button variant="primary"[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+        check('a held Add says why in the footer, the first thing still to do: a name, then the upload, then the points',
+            /const held = !title\.trim\(\) \? t\("Give the paper a name to add it\."\)\s*: uploading > 0 \? t\("Waiting for the upload to finish\."\)\s*: printedBad \|\| mismatch \? t\("Make the questions add up to the printed total\."\)\s*: null;/.test(dialog)
+                && /\{held && \(\s*<span [^>]*>\{held\}<\/span>/.test(dialog)
+                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\}>[^\n]*\n\s*<Button variant="primary"[^\n]*disabled=\{held != null\}[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+        check('Cancel or Escape waits for an upload still running (it would land in the course with nothing pointing at it)',
+            /if \(busy \|\| uploading > 0\) return;/.test(dialog));
         const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
         check('the away offer\'s two buttons are full-size tap targets',
             /takeOff\(awayOff\)/.test(offer) && /I kept writing/.test(offer) && !/size="sm"/.test(offer));

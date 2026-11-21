@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DrillTimeScale } from '../drills/parseDrill';
+import { canHideClock, clockHidden } from './mockClock';
 
 /**
  * A length of exam time as people say it: "3 h", "2 h 51", "45 min".
@@ -18,13 +18,13 @@ export function useDuration() {
     }, [t]);
 }
 
-/** Seconds left at which a hidden clock shows again, the way an invigilator calls the last five minutes. */
-export const REVEAL_AT = 300;
+export { REVEAL_AT, mockClockSeconds } from './mockClock';
 
 /**
  * "Hide the clock", kept per mock in this tab: a reload or a phone turned
  * sideways keeps it hidden. With five minutes left it shows again by itself
- * and cannot be hidden. Storage that refuses is no loss.
+ * and cannot be hidden, and the wish is dropped, so time taken off the clock
+ * later never hides it again. Storage that refuses is no loss.
  */
 export function useHiddenClock(sittingId: number, secondsLeft: number) {
     const key = `mock-clock-hidden:${sittingId}`;
@@ -38,15 +38,7 @@ export function useHiddenClock(sittingId: number, secondsLeft: number) {
             else sessionStorage.removeItem(key);
         } catch { /* private mode: this tab only */ }
     }, [key]);
-    const canHide = secondsLeft > REVEAL_AT;
-    return { hidden: wanted && canHide, canHide, setHidden };
-}
-
-/**
- * The clock a mock will get: its own time stretched by the learner's Time
- * limits setting, or 0 (no clock) when that is Off. The server sets the real
- * clock by the same rule when the mock starts (server/mockExams.js clockSeconds).
- */
-export function mockClockSeconds(seconds: number, scale: DrillTimeScale): number {
-    return scale === 'off' ? 0 : seconds * Number(scale);
+    const canHide = canHideClock(secondsLeft);
+    useEffect(() => { if (wanted && !canHide) setHidden(false); }, [wanted, canHide, setHidden]);
+    return { hidden: clockHidden(wanted, secondsLeft), canHide, setHidden };
 }

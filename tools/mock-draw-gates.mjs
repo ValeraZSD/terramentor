@@ -35,7 +35,9 @@
  *      page pauses;
  *  10. every format the app checks alone leaves no key in the open mock, a
  *      placement answer starts no topic, and reading what a course can draw
- *      costs the same for one topic as for many.
+ *      costs the same for one topic as for many;
+ *  11. Time limits (Settings) stretches the clock a course mock was given, or
+ *      takes it away, by the rule the start panel shows.
  *
  * --root runs the same cases against another checkout's server and screen
  * code; on the code before the draw existed every case fails.
@@ -619,13 +621,31 @@ try {
             const r = await call('POST', `/api/projects/${geo}/mock-exams/draw`, { size: 2, minutes: 30 });
             check('the draw route gives the same stretched clock', r.status === 200 && r.body?.sitting?.timeAllowed === 60 * 60, `${r.status} ${r.body?.sitting?.timeAllowed}`);
             if (r.body?.sitting?.id) mock.discardSitting(r.body.sitting.id);
+            // The panel's "with your extra time" line comes from the screens' rule; the server must agree.
+            const file = join(ROOT, 'src', 'components', 'mockExam', 'mockClock.ts');
+            const outfile = join(scratch, 'mockClock.mjs');
+            const built = await createRequire(import.meta.url)('esbuild')
+                .build({ entryPoints: [file], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' })
+                .then(() => true, () => false);
+            const rules = built ? await import(pathToFileURL(outfile).href) : null;
+            const differ = [];
+            for (const v of [null, '1', '2', '3', 'off', '5']) {
+                setScale(v);
+                const server = draw(45).allowed;
+                const shown = rules?.mockClockSeconds(45 * 60, v ?? '');
+                if (server !== shown) differ.push(`${v}: server ${server}, panel ${shown}`);
+            }
+            check('the start panel and the server give the same clock for every setting', rules != null && differ.length === 0, differ.join('; '));
         } finally {
             setScale(null);
             db.prepare('DELETE FROM projects WHERE id = ?').run(geo);
         }
 
         const screen = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'CourseMock.tsx'), 'utf8');
-        const start = screen.slice(screen.indexOf('export function CourseStartPanel'), screen.indexOf('function RealExamDialog'));
+        const from = screen.indexOf('export function CourseStartPanel');
+        const to = screen.indexOf('function RealExamDialog', from);
+        check('the start panel is where these checks look (CourseStartPanel, then RealExamDialog)', from >= 0 && to > from);
+        const start = screen.slice(from, to);
         check('the start panel shows the stretched clock beside the minutes chosen',
             /useStore\(s => s\.drillTimeScale\)/.test(start) && /mockClockSeconds\(minutes \* 60, timeScale\)/.test(start));
         check('with Time limits Off the start panel offers no clock and says why',
