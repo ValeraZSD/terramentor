@@ -222,8 +222,6 @@ const enPlurals: Record<string, string> = {
     "{{n}} topics were written before it stopped, and all of them are saved._other": "{{n}} topics were written before it stopped, and all of them are saved.",
     "{{n}} topics written_one": "{{n}} topic written",
     "{{n}} topics written_other": "{{n}} topics written",
-    "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline_one": "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline",
-    "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline_other": "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline",
     "{{proven}} of {{count}} topics proven_one": "{{proven}} of {{count}} topic proven",
     "{{proven}} of {{count}} topics proven_other": "{{proven}} of {{count}} topics proven",
     "{{resourceCount}} links_one": "{{resourceCount}} link",

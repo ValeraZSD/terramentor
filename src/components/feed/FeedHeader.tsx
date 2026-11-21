@@ -12,6 +12,7 @@ import { IconButton } from '../ui/Button';
 // One chip, whether it counts or navigates: the row must stay one line tall on
 // a phone, so the touch rule is met by the header's own padding (see `Chip`).
 import { Chip } from '../ui/Chip';
+import { LABEL, MISSES } from '../plan/verdict';
 
 interface Props {
     header: FeedHeaderData;
@@ -152,32 +153,25 @@ export default function FeedHeader({ header, loading }: Props) {
                             </Chip>
                         )}
                         {deadline && (() => {
-                            // The chip picks the project under the MOST time pressure
-                            // (worst pace, then most days behind, then soonest
-                            // deadline). Showing days-LEFT regardless would bury the
-                            // reason it is amber: "30d" reads as relaxed
-                            // while the colour is shouting. Behind → show how far
-                            // behind, which is the number that explains the colour and
-                            // the one the learner can act on; on track → days left,
-                            // which is then the only interesting fact about it.
-                            const behind = deadline.daysBehind > 0 && deadline.paceStatus !== 'on_track';
-                            // An English template literal handed to t() as a
-                            // {{placeholder}} translates the frame and never the
-                            // sentence: the chip would read "22d behind" inside a
-                            // fully Ukrainian header. The day counts are composed
-                            // through the shared plural key so a language with
-                            // more than two forms gets them.
-                            const metric = behind
-                                ? t("{{daysBehind}}d behind", { daysBehind: deadline.daysBehind })
+                            // The chip picks the dated course under the MOST time
+                            // pressure (its verdict against the learner's pace,
+                            // then the soonest date). Showing days-LEFT regardless
+                            // would bury the reason it is amber: "30d" reads as
+                            // relaxed while the colour is shouting. A date that
+                            // misses → the verdict's word, the same one the course
+                            // header shows; otherwise days left, which is then the
+                            // only interesting fact about it.
+                            const misses = MISSES.has(deadline.band);
+                            const metric = misses
+                                ? t(LABEL[deadline.band])
                                 : t("{{daysLeft}}d left", { daysLeft: deadline.daysLeft });
-                            const daysLeftText = t("{{count}} days", { count: deadline.daysLeft });
-                            const tooltip = behind
-                                ? t("{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline", {
-                                    name: deadline.name,
-                                    behindText: t("{{count}} days", { count: deadline.daysBehind }),
-                                    daysLeftText,
-                                })
-                                : t("{{name}} — on track, {{daysLeftText}} left", { name: deadline.name, daysLeftText });
+                            // Pieces that are each translated, joined by marks
+                            // only: no English frame around them.
+                            const tooltip = [
+                                deadline.name,
+                                t(LABEL[deadline.band]),
+                                t("{{count}} days", { count: deadline.daysLeft }),
+                            ].join(' · ');
                             return (
                             <Chip
                                 onClick={() => openProject(deadline.projectId)}
