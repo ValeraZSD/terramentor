@@ -222,7 +222,7 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('...under the usual question', /How well did you know this\?/.test(s1), s1.slice(0, 160));
     const s2 = await rate('Easy');
     check('a card not due yet that you knew keeps its date: Easy writes nothing', JSON.stringify(written) === '[1]' && /Front 3/.test(m.el.textContent), JSON.stringify(written));
-    check('...and the run says so before you rate', /Not due yet: if you knew it, it keeps its date\./.test(s2), s2.slice(0, 200));
+    check('...and the line above the ratings tells you it keeps its date', /Not due yet: if you knew it, it keeps its date\./.test(s2), s2.slice(0, 200));
     await rate('Good');
     check('a card never seen is a first review: Good writes it', JSON.stringify(written) === '[1,3]', JSON.stringify(written));
     m.unmount();
