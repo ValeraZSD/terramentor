@@ -74,7 +74,9 @@ Elsewhere in the app:
   when a word of five letters or more has one letter dropped, doubled or added, or two
   neighbouring letters swapped (two such slips from nine letters), and shows the right
   spelling. Words under five letters, numbers, a changed first or last letter, and words in
-  scripts written without spaces (Chinese, Japanese, Thai) are never forgiven.
+  scripts written without spaces (Chinese, Japanese, Thai) are never forgiven. Nor is a
+  slip in a task about the form itself (a verb form, an ending, an article, spelling): the
+  line under its answer box says spelling counts there.
 - Settings → AI & Models → Describe card pictures lists every card picture beside its
   description, so a description a model wrote can be checked and corrected.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
