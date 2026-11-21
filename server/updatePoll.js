@@ -3,8 +3,26 @@ import {
     appVersion, CHECK_INTERVAL_MS, DUE_TICK_MS, fetchLatestRelease, REPO_URL, RETRY_DELAYS_MS, updateChannel, updateStatus, WAKE_RECHECK_MS,
 } from './version.js';
 import { getSetting, setSettingValue } from './settingsStore.js';
+import { keyed } from './clientError.js';
 
 const currentChannel = () => updateChannel(getSetting('update_channel', 'stable'));
+
+/**
+ * The last check's failure as a body (`error`, and `messageKey` + `params` for
+ * the screen's language). server/version.js may import Node built-ins only
+ * (the release tool loads it alone), so its English is keyed here, where it is
+ * read, and a row stored before this reads the same way. The transport's own
+ * words (a timeout, a name that did not resolve) carry no key: the panel says
+ * those as "could not reach GitHub" (updateView.ts isOfflineError).
+ */
+export function updateErrorBody(text) {
+    if (!text) return { error: null };
+    const status = /^GitHub responded (\d{3})$/.exec(text);
+    if (status) return keyed('GitHub responded {{status}}', { status: Number(status[1]) });
+    if (text === 'No GitHub repository configured') return keyed('No GitHub repository configured');
+    if (text === 'Unexpected response') return keyed('Unexpected response');
+    return { error: text };
+}
 
 /** What the automatic check's schedule needs to know, in this process only:
  *  a new process asks once at startup anyway. Times are wall-clock ms. */
@@ -23,15 +41,19 @@ function readUpdateState() {
         const raw = answered ? getSetting('update_latest', null) : null;
         latest = raw ? JSON.parse(raw) : null;
     } catch { latest = null; }
+    const failed = updateErrorBody(answered ? getSetting('update_last_error', null) || null : null);
     return {
         ...updateStatus({
             current: appVersion().version,
             latest,
             checkedAt: answered ? getSetting('update_last_check', null) : null,
             enabled: getSetting('update_check', 'off') === 'on',
-            error: answered ? getSetting('update_last_error', null) || null : null,
+            error: failed.error,
             channel,
         }),
+        // The error's key, for the panel's language (updateErrorBody).
+        errorKey: failed.messageKey ?? null,
+        errorParams: failed.params ?? null,
         repoUrl: REPO_URL,
         // Whether the person has answered "check for updates?" once, either way.
         asked: getSetting('update_check_asked', '') === '1',

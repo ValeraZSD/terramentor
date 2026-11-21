@@ -573,7 +573,7 @@ async function runNamingSweep(pending, model, onNamed) {
         }
         handle.finish();
     } catch (err) {
-        handle.fail(err?.message);
+        handle.fail(err?.message, err);
     }
     // The atlas cache key reads what the topics and courses draw, not the
     // region names, so the caller must invalidate it or the new names never

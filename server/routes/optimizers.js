@@ -93,7 +93,7 @@ app.post('/api/srs/optimize', async (req, res) => {
         handle.finish();
         res.json(result);
     } catch (err) {
-        if (cancelled) handle.cancelled(); else handle.fail(err.message);
+        if (cancelled) handle.cancelled(); else handle.fail(err.message, err);
         res.status(cancelled ? 409 : 500).json(errorBody(err, cancelled ? 409 : 500));
     } finally {
         srsOptimizeRunning = null;

@@ -1732,7 +1732,7 @@ async function runBurst() {
         // slot spinning) until something else happened to kick the writer.
         kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
-        if (handle) handle.fail(err.message);
+        if (handle) handle.fail(err.message, err);
     }
 }
 

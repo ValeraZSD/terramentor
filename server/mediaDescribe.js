@@ -314,7 +314,7 @@ export async function startDescribeSweep(projectId = null) {
         running = null;
     }).catch(err => {
         console.warn('[Media] describe sweep failed:', err.message);
-        try { handle.fail(err.message); } catch { }
+        try { handle.fail(err.message, err); } catch { }
         running = null;
     });
 

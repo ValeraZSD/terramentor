@@ -33,7 +33,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { apiError, keyed, publicMessage } from '../clientError.js';
+import { apiError, keyed, KeyedError, publicBody } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -45,13 +45,16 @@ const app = routeTable('createProject');
 // snapshot: the fields plainCause reads (src/utils/failureCause.ts) and no
 // more. The stack, the endpoint, its body and the model's raw answer stay in
 // the task's own record, the one built for bug reports. A message that did not
-// come from the model endpoint is the one publicMessage shows: the raw text of
-// a file or database error names a path or a table.
-function screenFailure(record, error, shown) {
+// come from the model endpoint is the one publicBody shows (`said`): the raw
+// text of a file or database error names a path or a table. Either way its key
+// comes with it, so the screen says it in the learner's language.
+function screenFailure(record, error, said) {
     if (!record) return null;
     const fromModel = error?.httpStatus != null || error?.emptyReply === true || error?.looped === true;
+    const { error: text, messageKey, params } = fromModel ? { error: record.message, messageKey: record.messageKey, params: record.params } : said;
     return {
-        message: fromModel ? record.message : shown,
+        message: text,
+        ...(messageKey ? { messageKey, ...(params ? { params } : {}) } : {}),
         httpStatus: record.httpStatus, model: record.model, attempts: record.attempts,
         looped: record.looped, emptyReply: record.emptyReply, reasoningTokens: record.reasoningTokens,
         produced: record.produced,
@@ -249,7 +252,11 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             currentCategoryIndex: null,
             currentElementIndex: null,
             currentSubElementIndex: null,
+            // The error line, and the key it was filled from: `messageKey` and
+            // `params` are the progress line's.
             error: null,
+            errorKey: null,
+            errorParams: null,
             failure: null,
             queuePosition: null,
             track: null,
@@ -282,7 +289,11 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         if (typeof data.overallProgress === 'number') s.overallProgress = data.overallProgress;
         if (typeof data.summary === 'string') s.summary = data.summary;
         if (typeof data.model === 'string') s.model = data.model;
-        if (typeof data.error === 'string') s.error = data.error;
+        if (typeof data.error === 'string') {
+            s.error = data.error;
+            s.errorKey = data.errorKey ?? null;
+            s.errorParams = data.errorParams ?? null;
+        }
         if (data.failure) s.failure = data.failure;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
@@ -387,7 +398,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         try {
             if (finalData) mirrorTask.finish();
             else if (userCancelled) mirrorTask.cancelled();
-            else mirrorTask.fail('AI creation failed');
+            else mirrorTask.fail(keyed('AI creation failed'));
         } catch (err) {
             console.error('[create] settling the creation task failed:', err?.message);
         }
@@ -466,13 +477,13 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
                         // record on the frame (screenFailure).
                         // A record that cannot be built must not cost the frame: without
                         // it the stream just ends, and the screen shows a dropped run.
-                        const shown = publicMessage(error);
+                        const said = publicBody(error);
                         let failure = null;
-                        try { failure = screenFailure(mirrorTask.fail(error.message, error), error, shown); } catch (err) {
-                            // The frame goes out without a record; the screen shows `shown` alone.
+                        try { failure = screenFailure(mirrorTask.fail(error.message, error), error, said); } catch (err) {
+                            // The frame goes out without a record; the screen shows `said` alone.
                             console.error('[create] recording the failure failed:', err?.message);
                         }
-                        send({ phase: 'error', error: shown, failure, projectId });
+                        send({ phase: 'error', error: said.error, errorKey: said.messageKey ?? null, errorParams: said.params ?? null, failure, projectId });
                     } else {
                         // Said on the stream too: a run cancelled from the task dock or
                         // another tab must not look, to this page, like a dropped socket.
@@ -513,16 +524,19 @@ async function checkModel(send) {
     }
     if (!healthCheck.available) {
         // The status rides along, so the failure record can tell a server
-        // still loading its model (503: try again) from a wrong address.
-        throw Object.assign(new Error(`AI provider is not available: ${healthCheck.error}`),
-            healthCheck.httpStatus ? { httpStatus: healthCheck.httpStatus } : {});
+        // still loading its model (503: try again) from a wrong address. The
+        // check's own sentence is the cause, with its key when it has one.
+        const cause = healthCheck.messageKey
+            ? new KeyedError(healthCheck.messageKey, healthCheck.params)
+            : new KeyedError('AI provider is not available: {{reason}}', { reason: healthCheck.error });
+        throw Object.assign(cause, healthCheck.httpStatus ? { httpStatus: healthCheck.httpStatus } : {});
     }
 
     const availableModels = healthCheck.models.map(m => m.name);
     // No built-in default model anymore — an unselected model is a clean
     // "pick one" error for either provider, not a confusing "" lookup.
     if (!aiSettings.model) {
-        throw new Error('No model selected — choose or install one in Settings → AI & Models');
+        throw new KeyedError('No model selected — choose or install one in Settings → AI & Models');
     }
     // Strict only for Ollama — OpenAI-compatible servers may accept
     // aliases that /v1/models doesn't list (llama-swap's `aliases:`),
@@ -530,10 +544,9 @@ async function checkModel(send) {
     if (aiSettings.provider === 'ollama' && !availableModels.includes(aiSettings.model)) {
         // Asked for anyway, it answers 404 and the next model takes over.
         if (chain.length > 1) return;
-        throw new Error(
-            `Model "${aiSettings.model}" is not installed. ` +
-            `Available: ${availableModels.length > 0 ? availableModels.join(', ') : 'none'}`
-        );
+        throw availableModels.length > 0
+            ? new KeyedError('Model "{{model}}" is not installed. Available: {{available}}', { model: aiSettings.model, available: availableModels.join(', ') })
+            : new KeyedError('Model "{{model}}" is not installed, and Ollama has no models yet.', { model: aiSettings.model });
     }
 
     send({
@@ -567,7 +580,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // were stored as sent. Unset (absent, null, "") still means the default.
     const unset = (v) => v === undefined || v === null || v === '';
     const fieldError = projectFieldError({ color: unset(color) ? undefined : color, icon: unset(icon) ? undefined : icon });
-    if (fieldError) return res.status(400).json(keyed(fieldError));
+    if (fieldError) return res.status(400).json(fieldError);
     // The learner's files, read when they were dropped into the dialog
     // (stagedDocuments.js) and in hand before the first model call: with them
     // the course is built FROM the files (sourceMaterial.js), and a name is no

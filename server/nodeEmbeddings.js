@@ -315,7 +315,7 @@ async function runSync({ force = false } = {}) {
             handle.finish();
         } else {
             console.error(`[VEC] topic mapping failed: ${err.message}`);
-            handle.fail(err.message);
+            handle.fail(err.message, err);
         }
         return { embedded, removed, ...publicBody(err), status };
     }
