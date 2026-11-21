@@ -366,11 +366,17 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // on the larger share; the reservation only guarantees the tail exists.
     // Only one with a topic to serve: a short course still being written, or
     // one whose writing failed, would hold a slot and fill it with nothing.
-    // A standing course keeps its slot while a dated one crowds the week (a
-    // deck's cards are another unit; a short course was made to be read now),
-    // but not once the learner paused it.
-    const standingInfos = infos.filter(i => isStanding(i)
-        && capacity?.courses.get(i.project.id)?.status !== 'paused'
+    // An undated standing course keeps its slot while a dated one crowds the
+    // week (a deck's cards are another unit; a short course was made to be
+    // read now), but not once the learner paused it. One with a date still to
+    // come (a deadline and no start) is ranked by that date, so when it waits
+    // behind a nearer one it waits here too.
+    const holdsSlot = (i) => {
+        const status = capacity?.courses.get(i.project.id)?.status;
+        if (status === 'paused') return false;
+        return !(status === 'waiting' && i.project.deadline && i.project.deadline >= today);
+    };
+    const standingInfos = infos.filter(i => isStanding(i) && holdsSlot(i)
         && aheadStmt.all(i.project.id, today, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))

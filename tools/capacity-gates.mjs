@@ -69,6 +69,9 @@ if (typeof share === 'function') {
 
     const tight = share([c('t', 'tight', 2, 14), c('later', 'on_pace', 0.1, 200)], { topics: 3 });
     check('a tight course crowds out a later one even with room left', tight.courses.get('later').status === 'waiting', show(tight.courses.get('later')));
+    const shortCrowd = share([c('a', 'on_pace', 4, 10), c('t', 'tight', 8, 14)], { topics: 10 });
+    check('a tight course that needs more than is left is short, not served, and gets the rest',
+        shortCrowd.courses.get('t').status === 'short' && shortCrowd.courses.get('t').share === 6, show(shortCrowd.courses.get('t')));
 
     const mixed = share([
         c('u', 'no_date', null, null), c('p', 'out_of_reach', 9, 5, { paused: true }),
@@ -190,8 +193,8 @@ try {
     const rowExam = await overviewRow(exam);
     const rowSmall = await overviewRow(small);
     check('the overview says the far course is waiting', rowFar?.capacity?.status === 'waiting', show(rowFar?.capacity));
-    check('…the exam is served second and takes the rest of the week',
-        rowExam?.capacity?.status === 'served' && rowExam?.capacity?.rank === 1 && rowExam.capacity.share > 0, show(rowExam?.capacity));
+    check('…the exam is served second, short, and takes the rest of the week',
+        rowExam?.capacity?.status === 'short' && rowExam?.capacity?.rank === 1 && rowExam.capacity.share > 0, show(rowExam?.capacity));
     check('…the small course is served first', rowSmall?.capacity?.rank === 0, show(rowSmall?.capacity));
     check('…and the exam\'s verdict still offers to pause the others', (rowExam?.verdict?.offers || []).some(o => o.kind === 'pause_others'), show(rowExam?.verdict?.offers));
 
@@ -232,6 +235,19 @@ try {
     db.prepare('UPDATE projects SET paused = 0, start_date = NULL WHERE id = ?').run(small);
     db.prepare('UPDATE projects SET paused = 1 WHERE id = ?').run(exam);
     check('the chip names a dated course that has no start date', buildFeedHeader().deadline?.projectId === small, show(buildFeedHeader().deadline));
+
+    // A short course holds a standing slot. Dated (a deadline, no start) it
+    // waits behind the out-of-reach exam like any dated course; undated it
+    // keeps its slot.
+    db.prepare('UPDATE projects SET paused = 0 WHERE id = ?').run(exam);
+    const quickDated = mkProject('Short course, due later', { deadline: ahead(200) });
+    topics(quickDated, 2, 'quick dated');
+    const quickUndated = mkProject('Short course, no date');
+    topics(quickUndated, 2, 'quick undated');
+    db.prepare("UPDATE projects SET made_from = 'https://example.org/page' WHERE id IN (?, ?)").run(quickDated, quickUndated);
+    const withShort = focusProjects();
+    check('a dated short course waiting behind the exam gets no slot', !withShort.includes(quickDated), show(withShort));
+    check('…an undated one keeps its slot', withShort.includes(quickUndated), show(withShort));
 } catch (err) {
     check('the library half ran to the end', false, err?.stack?.split('\n').slice(0, 3).join(' | '));
 } finally {

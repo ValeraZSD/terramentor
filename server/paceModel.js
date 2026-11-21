@@ -367,8 +367,8 @@ export function shareCapacity(courses, capacity = {}) {
         let share = needed;
         if (u.capacity != null) {
             const left = Math.max(0, u.capacity - u.claimed);
-            if (CROWDING_BANDS.includes(c.band)) { share = left; u.crowdedBy = c.id; }
-            else if (needed > left + EPS) { share = left; status = 'short'; u.crowdedBy = c.id; }
+            if (needed > left + EPS) status = 'short';
+            if (CROWDING_BANDS.includes(c.band) || status === 'short') { share = left; u.crowdedBy = c.id; }
             u.claimed += share;
         }
         out.set(c.id, { status, share: round2(share), rank: order.length });
