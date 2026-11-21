@@ -178,12 +178,6 @@ try {
         ok(`${method} ${url} is refused like its lower-case form`, !!hosted.hostedRefusalOf(method, url));
     }
     ok('a read of the same path is not refused', hosted.hostedRefusalOf('GET', '/API/ai/key/') === null);
-    // A request line may name the whole address; the router routes it by its
-    // path, and a fragment is not part of the path.
-    for (const url of ['http://evil.example/api/ai/key', 'HTTP://x/API/ai/key/', 'https://x:8443/api/auth/disable?x=1', '/api/ai/key#x']) {
-        ok(`PUT ${url} is refused like its path`, !!hosted.hostedRefusalOf('PUT', url));
-    }
-    ok('…and read as that path', hosted.requestPath('HTTP://x/API/ai/key/?a=1') === '/api/ai/key');
     ok('the token is read only in hosted mode', hosted.operatorSetupToken({ TERRAMENTOR_SETUP_TOKEN: TOKEN }) === '');
     ok('a hosted copy trusts the proxy on its private network; off hosted mode only loopback',
         JSON.stringify(hosted.trustProxySetting({ TERRAMENTOR_HOSTED: '1' })) === '["loopback","uniquelocal"]'
@@ -248,8 +242,14 @@ try {
                 ['POST', '/API/auth/disable/', { password: 'a-long-password-1' }],
                 ['PUT', '/Api/AI/Key/', { key: 'sk-test' }],
                 ['POST', '/api/Searxng/Test', { url: 'http://10.0.0.5:8080' }],
-                // A request line naming the whole address, and one with a fragment.
+                // A request line naming the whole address, and one with a
+                // fragment: the router routes each by its path alone, and
+                // its parser reads the odd spellings differently from `URL`.
                 ['PUT', `http://${PUBLIC_NAME}/api/ai/key`, { key: 'sk-test' }],
+                ['PUT', 'HTTP://x/API/ai/key/', { key: 'sk-test' }],
+                ['PUT', 'http:///api/ai/key', { key: 'sk-test' }],
+                ['PUT', 'http://x:99999/api/ai/key', { key: 'sk-test' }],
+                ['POST', 'http://x@/api/auth/disable', { password: 'a-long-password-1' }],
                 ['PUT', '/api/ai/key#x', { key: 'sk-test' }],
             ];
             for (const [method, path, body] of refusedCalls) {

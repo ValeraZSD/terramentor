@@ -123,16 +123,10 @@ const REFUSED = [
 /**
  * A request path as the router sees it. Express matches routes case-blind and
  * with or without a trailing slash, so `/API/ai/Key/` reaches the handler of
- * `/api/ai/key`; the guard must read it the same way. A request line may also
- * name the whole address (`PUT http://host/api/ai/key`), which the router
- * routes by its path alone, and a fragment is never part of the path.
+ * `/api/ai/key`; the guard must read it the same way.
  */
 export function requestPath(url) {
-    let raw = String(url);
-    if (!raw.startsWith('/')) {
-        try { raw = new URL(raw).pathname; } catch { /* not an address: read as written */ }
-    }
-    const path = raw.split(/[?#]/)[0].toLowerCase().replace(/\/{2,}/g, '/');
+    const path = String(url).split('?')[0].toLowerCase().replace(/\/{2,}/g, '/');
     return path.length > 1 ? path.replace(/\/+$/, '') : path;
 }
 
@@ -165,7 +159,12 @@ export function hostedSettingRefusal(spec, key = '') {
 /** Express middleware: refuse what a hosted copy must not do. A no-op off hosted mode. */
 export function hostedGuard(req, res, next) {
     if (!isHosted()) return next();
-    const why = hostedRefusalOf(req.method, req.originalUrl) || siteAuthRefusal(req.method, requestPath(req.originalUrl));
+    // The path the router itself parsed, not the request line: a line may
+    // name the whole address (`PUT http://host/api/ai/key`) or carry a
+    // fragment, and the router routes both by the path alone. Mounted on
+    // /api, so the mount point is put back in front.
+    const path = requestPath(req.baseUrl + req.path);
+    const why = hostedRefusalOf(req.method, path) || siteAuthRefusal(req.method, path);
     if (!why) return next();
     res.status(403).json({ error: why, hosted: true });
 }
