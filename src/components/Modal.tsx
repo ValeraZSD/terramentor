@@ -98,7 +98,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                         role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined}
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
-                            <div className="flex min-w-0 items-center gap-1">
+                            <div className="flex min-w-0 items-center gap-2">
                                 {/* The ✕'s twin at the other end: the same size,
                                     pulled out by the same margin. */}
                                 {onBack && (
