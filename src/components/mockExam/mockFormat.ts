@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { DrillTimeScale } from '../drills/parseDrill';
 
 /**
  * A length of exam time as people say it: "3 h", "2 h 51", "45 min".
@@ -39,4 +40,13 @@ export function useHiddenClock(sittingId: number, secondsLeft: number) {
     }, [key]);
     const canHide = secondsLeft > REVEAL_AT;
     return { hidden: wanted && canHide, canHide, setHidden };
+}
+
+/**
+ * The clock a mock will get: its own time stretched by the learner's Time
+ * limits setting, or 0 (no clock) when that is Off. The server sets the real
+ * clock by the same rule when the mock starts (server/mockExams.js clockSeconds).
+ */
+export function mockClockSeconds(seconds: number, scale: DrillTimeScale): number {
+    return scale === 'off' ? 0 : seconds * Number(scale);
 }

@@ -584,6 +584,53 @@ try {
             dOne === dSix, JSON.stringify({ dOne, dSix }));
         for (const d of drawn) mock.discardSitting(d.sitting.id);
     });
+
+    await block('11. extra time stretches the course mock\'s own clock, and Off takes it away', async () => {
+        const setScale = (v) => (v == null
+            ? db.prepare("DELETE FROM settings WHERE key = 'drill_time_scale'").run()
+            : db.prepare("INSERT INTO settings (key, value) VALUES ('drill_time_scale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(v));
+        const geo = Number(db.prepare("INSERT INTO projects (name) VALUES ('Geography')").run().lastInsertRowid);
+        const rivers = Number(db.prepare(
+            "INSERT INTO nodes (project_id, parent_id, title, position, status) VALUES (?, NULL, 'Rivers', 0, 'in_progress')",
+        ).run(geo).lastInsertRowid);
+        bank(rivers, [mc(rivers, 1), mc(rivers, 2), mc(rivers, 3)]);
+        const draw = (minutes) => {
+            const r = mock.drawCourseMock(geo, { size: 2, minutes, now: T0 });
+            const printed = db.prepare('SELECT e.minutes FROM exam_papers e JOIN mock_sittings s ON s.paper_id = e.id WHERE s.id = ?').get(r.sitting.id).minutes;
+            mock.discardSitting(r.sitting.id);
+            return { allowed: r.sitting.timeAllowed, printed };
+        };
+        try {
+            setScale(null);
+            check('with no setting a 45-minute clock is 45 minutes', draw(45).allowed === 45 * 60);
+            setScale('2');
+            const twice = draw(45);
+            check('twice as long: 45 minutes chosen, 90 on the clock, 45 kept as the mock\'s own',
+                twice.allowed === 90 * 60 && twice.printed === 45, JSON.stringify(twice));
+            setScale('3');
+            check('three times as long: 600 minutes, the most the panel offers, gives 30 hours', draw(600).allowed === 600 * 60 * 3);
+            let refused = false;
+            try { draw(24 * 60 + 1); } catch (e) { refused = e?.status === 400; }
+            check('the minutes chosen keep their own limit (a day): extra time comes on top, never into the check', refused);
+            check('no clock chosen stays no clock', draw(null).allowed === 0);
+            setScale('off');
+            check('Off: a 45-minute clock chosen gives no clock', draw(45).allowed === 0);
+            setScale('2');
+            const r = await call('POST', `/api/projects/${geo}/mock-exams/draw`, { size: 2, minutes: 30 });
+            check('the draw route gives the same stretched clock', r.status === 200 && r.body?.sitting?.timeAllowed === 60 * 60, `${r.status} ${r.body?.sitting?.timeAllowed}`);
+            if (r.body?.sitting?.id) mock.discardSitting(r.body.sitting.id);
+        } finally {
+            setScale(null);
+            db.prepare('DELETE FROM projects WHERE id = ?').run(geo);
+        }
+
+        const screen = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'CourseMock.tsx'), 'utf8');
+        const start = screen.slice(screen.indexOf('export function CourseStartPanel'), screen.indexOf('function RealExamDialog'));
+        check('the start panel shows the stretched clock beside the minutes chosen',
+            /useStore\(s => s\.drillTimeScale\)/.test(start) && /mockClockSeconds\(minutes \* 60, timeScale\)/.test(start));
+        check('with Time limits Off the start panel offers no clock and says why',
+            /timeScale === 'off'\s*\?\s*<span[^>]*>\{t\("No clock: Time limits is Off in Settings"\)\}<\/span>/.test(start));
+    });
 } finally {
     server.close();
     db.close();

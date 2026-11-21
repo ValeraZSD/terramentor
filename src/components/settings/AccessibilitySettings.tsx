@@ -287,7 +287,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
             <SettingGroup title={tr("Time and answers")}>
                 <SettingRow
                     label={tr("Time limits")}
-                    hint={drillTimeScale === 'off' ? tr("Timed drills run without a clock.") : tr("More time on every timed drill, or no clock at all.")}
+                    hint={drillTimeScale === 'off' ? tr("Timed drills and mock exams run without a clock.") : tr("More time on every timed drill and mock exam, or no clock at all.")}
                     block
                     control={
                         <SegmentedControl<DrillTimeScale>

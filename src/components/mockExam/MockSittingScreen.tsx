@@ -86,10 +86,13 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
         return () => window.clearInterval(id);
     }, [sitting.running]);
     const elapsed = base.elapsed + (sitting.running ? Math.floor((Date.now() - base.at) / 1000) : 0);
+    // No time allowed: Time limits was Off when the mock started. The time
+    // written is still kept (the result says it), but no clock counts down.
+    const timed = sitting.timeAllowed > 0;
     const left = sitting.timeAllowed - elapsed;
-    const timeUp = left <= 0;
+    const timeUp = timed && left <= 0;
     const paused = !sitting.running && !timeUp;
-    const { hidden, canHide, setHidden } = useHiddenClock(sitting.id, left);
+    const { hidden, canHide, setHidden } = useHiddenClock(sitting.id, timed ? left : 0);
 
     // Time away from the screen: a call, another app, the phone put down
     // and locked. The clock keeps running, as it would in the exam room, and
@@ -229,6 +232,8 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                                 <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Time is up")}</p>
                             ) : !sitting.running ? (
                                 <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Paused")}</p>
+                            ) : !timed ? (
+                                <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("No time limit")}</p>
                             ) : hidden ? (
                                 <p className="text-3xl font-semibold text-slate-500 dark:text-slate-400">{t("Clock hidden")}</p>
                             ) : (
@@ -240,10 +245,12 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                                 <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
                                     {t("On the real exam you would hand in now. Finish your sentence, then grade what you wrote.")}
                                 </p>
-                            ) : (
+                            ) : timed ? (
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
                                     {t("{{used}} used of {{allowed}}", { used: duration(elapsed), allowed: duration(sitting.timeAllowed) })}
                                 </p>
+                            ) : (
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{t("Time limits is Off in Settings.")}</p>
                             )}
                             {sitting.running && canHide && (
                                 <div className="mt-3 [@media(max-height:30rem)]:mt-2">
@@ -384,7 +391,9 @@ function MarkingScreen({ detail, onChange }: { detail: MockDetail; onChange: (d:
             <div>
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Grade your paper")}</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                    {t("{{paper}} · written in {{used}} of {{allowed}}", { paper: paper.title, used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })}
+                    {sitting.timeAllowed > 0
+                        ? t("{{paper}} · written in {{used}} of {{allowed}}", { paper: paper.title, used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })
+                        : t("{{paper}} · written in {{used}}", { paper: paper.title, used: duration(sitting.elapsed) })}
                 </p>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {t("Points go in halves. Each one is saved as you set it, so you can leave and come back.")}
@@ -465,7 +474,9 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                     {sitting.question ? t("{{paper}}, question {{q}}, {{date}}", { paper: paper.title, q: sitting.question, date }) : t("{{paper}}, {{date}}", { paper: paper.title, date })}
                 </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                    {t("Written on paper in {{used}} of {{allowed}} · graded by you against the worked solution", { used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })}
+                    {sitting.timeAllowed > 0
+                        ? t("Written on paper in {{used}} of {{allowed}} · graded by you against the worked solution", { used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })
+                        : t("Written on paper in {{used}} · graded by you against the worked solution", { used: duration(sitting.elapsed) })}
                 </p>
             </div>
             <Panel>

@@ -536,6 +536,62 @@ try {
         check('the frame sits in <main>, which clears the home indicator and a sideways phone\'s corners', /<main [^>]*className="[^"]*safe-px-0[^"]*safe-pb-0/.test(layout));
     });
 
+    await block('17. extra time stretches a past paper\'s clock, and Off takes the clock away', async () => {
+        const setScale = (v) => (v == null
+            ? db.prepare("DELETE FROM settings WHERE key = 'drill_time_scale'").run()
+            : db.prepare("INSERT INTO settings (key, value) VALUES ('drill_time_scale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(v));
+        const t0 = Date.UTC(2026, 11, 3, 9, 0, 0);
+        const total = mock.getPaper(paper.id).total;
+        const share = Math.ceil(180 * 18 / total) * 60;
+        const timeFor = (question = null) => {
+            const s = mock.startSitting(paper.id, { question, now: t0 });
+            mock.discardSitting(s.id);
+            return s.timeAllowed;
+        };
+        try {
+            setScale(null);
+            check('with no setting the paper keeps its own 3 hours', timeFor() === 180 * 60, String(timeFor()));
+            setScale('1');
+            check('normal time: 3 hours, and question 2 its share', timeFor() === 180 * 60 && timeFor('2') === share, `${timeFor()} ${timeFor('2')}`);
+            setScale('2');
+            check('twice as long: 6 hours', timeFor() === 360 * 60, String(timeFor()));
+            check('one question: twice its share of the paper\'s time', timeFor('2') === share * 2, `${timeFor('2')} vs ${share * 2}`);
+            setScale('3');
+            check('three times as long: 9 hours', timeFor() === 540 * 60, String(timeFor()));
+            setScale('off');
+            const off = mock.startSitting(paper.id, { now: t0 });
+            const tenHours = mock.getSitting(off.id, { now: t0 + 10 * 3600_000 });
+            check('Off: no clock, and ten hours on the time is still not up',
+                off.timeAllowed === 0 && tenHours.timeUp === false && tenHours.elapsed === 36_000, JSON.stringify(tenHours));
+            mock.discardSitting(off.id);
+            setScale('5');
+            check('a value this build does not know gives the normal time', timeFor() === 180 * 60, String(timeFor()));
+            setScale('2');
+            const running = mock.startSitting(paper.id, { now: t0 });
+            setScale('1');
+            check('a mock keeps the clock it started with when the setting changes', mock.getSitting(running.id, { now: t0 }).timeAllowed === 360 * 60);
+            mock.discardSitting(running.id);
+            check('the paper keeps the minutes printed on it', mock.getPaper(paper.id).minutes === 180);
+        } finally {
+            setScale(null);
+        }
+
+        const dir = join(ROOT, 'src', 'components', 'mockExam');
+        const view = readFileSync(join(dir, 'MockExamView.tsx'), 'utf8');
+        const screen = readFileSync(join(dir, 'MockSittingScreen.tsx'), 'utf8');
+        const format = readFileSync(join(dir, 'mockFormat.ts'), 'utf8');
+        const clock = screen.slice(screen.indexOf('function ClockScreen'), screen.indexOf('// ---- marking'));
+        check('one rule on the screen for the clock a mock gets: stretched, or 0 when Off',
+            /export function mockClockSeconds\(seconds: number, scale: DrillTimeScale\): number \{\s*return scale === 'off' \? 0 : seconds \* Number\(scale\);/.test(format));
+        check('the start panel shows the clock the learner will get, not the printed one',
+            /useStore\(s => s\.drillTimeScale\)/.test(view) && /const seconds = mockClockSeconds\(/.test(view));
+        check('a past paper with no clock is never "Time is up"',
+            /const timed = sitting\.timeAllowed > 0;/.test(clock) && /const timeUp = timed && left <= 0;/.test(clock));
+        check('…and its result says how long it took, with no "of"',
+            screen.includes('t("{{paper}} · written in {{used}}", ') && screen.includes('t("Written on paper in {{used}} · graded by you against the worked solution", '));
+        const settings = readFileSync(join(ROOT, 'src', 'components', 'settings', 'AccessibilitySettings.tsx'), 'utf8');
+        check('the Time limits setting says it covers mock exams too', /tr\("More time on every timed drill and mock exam, or no clock at all\."\)/.test(settings));
+    });
 
     await block('8. named for sync, and gone with the course', async () => {
         for (const t of ['exam_papers', 'exam_paper_parts', 'mock_sittings', 'mock_part_scores']) {

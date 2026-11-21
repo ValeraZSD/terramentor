@@ -18,8 +18,8 @@ Last reviewed: 18 November 2026. This page describes the code on `main` on that 
 - **Screen reader.** Card review, quiz answers and maths are read out; this is checked with
   NVDA, and no other screen reader has been tried. Results of drills and quizzes are shown but
   not read out yet.
-- **Time and attention.** Motion → Reduced stops movement. Timed drills can have two or three
-  times as long, or no clock; quizzes have no clock; a mock exam's clock is optional and can
+- **Time and attention.** Motion → Reduced stops movement. Timed drills and mock exams can
+  have two or three times as long, or no clock; quizzes have no clock; a mock exam's clock can
   be paused. In a drill, a right answer moves on by itself after a short pause. The app sends
   no reminders or notifications. Notices on screen close by themselves after 4 seconds (8 for
   an error) unless the pointer or focus is on them. Animations a model writes are not checked
@@ -59,8 +59,8 @@ The [conformance report](#conformance-report-wcag-22) at the end goes through ev
 - Listening: Read aloud adds a speaker button to cards, questions, lessons, notes and
   assistant answers, using the voices installed on the computer; nothing is sent anywhere.
   Reading speed goes from 50 to 200%. Play card recordings by themselves can be switched off.
-- Time and answers: Time limits gives timed drills normal time, twice or three times as long,
-  or no clock. Confirm before grading makes the first press on an answer or a rating select
+- Time and answers: Time limits gives timed drills and mock exams normal time, twice or three
+  times as long, or no clock. Confirm before grading makes the first press on an answer or a rating select
   it and the second grade it.
 
 On a device with a keyboard, the same section lists every keyboard shortcut and has a
@@ -101,7 +101,9 @@ Elsewhere in the app:
   and a switch that is on are marked with an outline in a system colour.
 - Quizzes and the mastery check have no clock. A mock exam drawn from a course's own
   questions has an optional clock of 1 to 600 minutes, and every mock exam clock can be
-  paused.
+  paused. Time limits stretches a mock exam's clock as it starts: a past paper's printed time
+  or the minutes chosen for a course mock, twice or three times as long; Off starts it with
+  no clock. A mock already running keeps the clock it started with.
 
 ## Known gaps
 
@@ -281,7 +283,7 @@ has nothing the criterion is about.
 | 2.1.1 Keyboard | Partially supports | Resizing the sidebar and the detail panel needs a mouse; reordering and dialogs use the keyboard; the atlas map moves and zooms by keyboard, and its topics are picked from its index. |
 | 2.1.2 No Keyboard Trap | Supports | Dialogs keep and return focus; Escape then Tab leaves the code editor. |
 | 2.1.4 Character Key Shortcuts | Supports | Single-key shortcuts can be switched off in Settings → Accessibility. |
-| 2.2.1 Timing Adjustable | Partially supports | Drill clocks scale or switch off; notices close after 4 to 8 seconds unless hovered or focused. |
+| 2.2.1 Timing Adjustable | Partially supports | Drill and mock exam clocks scale or switch off; notices close after 4 to 8 seconds unless hovered or focused. |
 | 2.2.2 Pause, Stop, Hide | Supports | Animations have a pause button and stop when Motion is Reduced. |
 | 2.3.1 Three Flashes or Below Threshold | Supports | Nothing the app itself draws flashes more than three times a second. Animations a model writes are outside this report and are not checked (see Known gaps). |
 | 2.4.1 Bypass Blocks | Supports | A Skip to content link and landmarks on every screen. |

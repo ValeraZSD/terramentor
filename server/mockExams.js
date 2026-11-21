@@ -52,6 +52,21 @@ const MAX_MINUTES = 24 * 60;
 const MAX_POINTS = 1000;
 const iso = (ms) => new Date(ms).toISOString();
 
+/**
+ * The clock a mock gets: its own time stretched by the learner's Time limits
+ * setting (`drill_time_scale`: twice, three times, or 'off' for no clock; 0 is
+ * no clock), the same setting every timed drill follows. Read when the mock
+ * starts and kept in its time allowed, so a change mid-exam never moves a
+ * running clock. A value this build does not know is the normal time
+ * (src/components/drills/parseDrill.ts normalizeDrillTimeScale;
+ * src/components/mockExam/mockFormat.ts mockClockSeconds shows the same).
+ */
+function clockSeconds(seconds) {
+    const scale = stmt("SELECT value FROM settings WHERE key = 'drill_time_scale'").get()?.value;
+    if (scale === 'off') return 0;
+    return scale === '2' || scale === '3' ? seconds * Number(scale) : seconds;
+}
+
 // ---- grading ---------------------------------------------------------------
 
 /** One decimal, as a grade is printed. */
@@ -295,7 +310,7 @@ export function startSitting(paperId, { question = null, now = Date.now() } = {}
     const id = Number(stmt(`
         INSERT INTO mock_sittings (paper_id, question, time_allowed, elapsed, running_since, status, started_at)
         VALUES (?, ?, ?, 0, ?, 'writing', ?)
-    `).run(paperId, question == null ? null : String(question), timeAllowed, iso(now), iso(now)).lastInsertRowid);
+    `).run(paperId, question == null ? null : String(question), clockSeconds(timeAllowed), iso(now), iso(now)).lastInsertRowid);
     return getSitting(id, { now });
 }
 
@@ -716,7 +731,7 @@ export function drawCourseMock(projectId, { size, minutes = null, now = Date.now
         return Number(stmt(`
             INSERT INTO mock_sittings (paper_id, question, time_allowed, elapsed, running_since, status, started_at)
             VALUES (?, NULL, ?, 0, ?, 'writing', ?)
-        `).run(paperId, minutes ? minutes * 60 : 0, iso(now), iso(now)).lastInsertRowid);
+        `).run(paperId, minutes ? clockSeconds(minutes * 60) : 0, iso(now), iso(now)).lastInsertRowid);
     })();
     return { sitting: getSitting(id, { now }), asked: size, drawn: picked.length, short: picked.length < size };
 }

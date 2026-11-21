@@ -23,7 +23,7 @@ import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
 import { Panel } from './Panel';
-import { REVEAL_AT, useDuration, useHiddenClock } from './mockFormat';
+import { REVEAL_AT, mockClockSeconds, useDuration, useHiddenClock } from './mockFormat';
 import { PractiseWeakest } from './PractiseWeakest';
 import { openingPlace, saveState } from './courseMockState';
 import { usePhysicalKeyboard } from '../../utils/platform';
@@ -52,6 +52,8 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
+    const timeScale = useStore(s => s.drillTimeScale);
+    const duration = useDuration();
     const { exam } = course;
     const examSize = exam?.onScreen && exam.questions ? exam.questions : null;
     const sizes = useMemo(() => {
@@ -85,7 +87,7 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
     const drawn = Math.min(size, course.ready);
     const start = () => {
         setBusy(true);
-        api.drawMock(projectId, size, clock ? minutes : null)
+        api.drawMock(projectId, size, clock && timeScale !== 'off' ? minutes : null)
             .then(r => onStarted(r.sitting.id))
             .catch(e => addToast('error', e.message))
             .finally(() => setBusy(false));
@@ -110,10 +112,20 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
                         options={sizes.map(n => ({ value: n, label: sizeLabel(n) }))} />
                 </Row>
                 <Row label={t("Exam clock")}>
-                    <div className="flex items-center gap-3">
-                        {clock && <><Stepper value={minutes} min={1} max={600} step={5} onChange={setMinutes} label={t("Minutes")} className="w-36" /><span className="text-sm text-slate-600 dark:text-slate-300">{t("min")}</span></>}
-                        <Switch checked={clock} onChange={on => { setClock(on); }} label={t("Exam clock")} />
-                    </div>
+                    {/* The minutes are the exam's own; Time limits (Settings) stretches them or takes the clock away. */}
+                    {timeScale === 'off' ? <span className="text-sm text-slate-700 dark:text-slate-200">{t("No clock: Time limits is Off in Settings")}</span> : (
+                        <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-3">
+                                {clock && <><Stepper value={minutes} min={1} max={600} step={5} onChange={setMinutes} label={t("Minutes")} className="w-36" /><span className="text-sm text-slate-600 dark:text-slate-300">{t("min")}</span></>}
+                                <Switch checked={clock} onChange={on => { setClock(on); }} label={t("Exam clock")} />
+                            </div>
+                            {clock && timeScale !== '1' && (
+                                <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                                    {t("{{time}}, with your extra time", { time: duration(mockClockSeconds(minutes * 60, timeScale)) })}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </Row>
                 <Row label={t("The real exam")}>
                     <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
