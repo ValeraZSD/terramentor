@@ -1,4 +1,6 @@
 {
+  "Written by AI": "AIが作成",
+  "Written by AI ({{model}})": "AIが作成 ({{model}})",
   " — stopped early, some pages were not re-read": "— 早期に停止、一部のページは再読されませんでした",
   " ({{answers}} answers)_other": "（{{answers}} 回答）",
   "— they'll appear here as they're ready.": "— 準備ができ次第、ここに表示されます。",

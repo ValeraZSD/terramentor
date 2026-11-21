@@ -8,7 +8,7 @@
 import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from '../api';
-import type { ItemReport, ScreenItem } from './itemReports';
+import type { ItemReport, ScreenItem, WrittenBy } from './itemReports';
 
 /** How many items the assistant hears about: the one on screen and the ones
  *  before it, or a whole results list (a mastery check asks up to 30). */
@@ -21,6 +21,8 @@ interface ScreenEntry extends ScreenItem { current: boolean }
 interface ItemReportState {
     /** A report standing on the ref, null when it has none (or it was undone). */
     byRef: Record<string, ItemReport | null>;
+    /** Which model wrote the ref's item, null when no model did: asked with the reports, shown by the flag. */
+    written: Record<string, WrittenBy | null>;
     screen: ScreenEntry[];
     setReport: (ref: string, report: ItemReport | null) => void;
     /** `setReport` for an answer asked at `mark` (`reportWriteMark()`): skipped when the ref was written since. */
@@ -30,7 +32,7 @@ interface ItemReportState {
     aside: Record<string, string>;
     /** Set the copy aside for the item `ref`, or clear it with null. */
     setAside: (copy: string, ref: string | null) => void;
-    /** Ask the server which of these refs stand reported; refs already known are skipped. */
+    /** Ask the server which of these refs stand reported and which a model wrote; refs already known are skipped. */
     load: (refs: string[]) => Promise<void>;
     /** Ask again about refs whose report may have changed on the server (a reported card was edited). */
     refresh: (refs: string[]) => Promise<void>;
@@ -67,7 +69,9 @@ async function ask(refs: string[]): Promise<void> {
         const askedAt = writes;
         const asked = ++asks;
         try {
-            const { reports } = await api.listItemReports({ refs: part });
+            const { reports, written } = await api.listItemReports({ refs: part });
+            // Who wrote an item does not move with reports: every answer holds.
+            useItemReports.setState(s => ({ written: { ...s.written, ...Object.fromEntries(part.map(r => [r, written?.[r] ?? null])) } }));
             // The list's answer must not write over a newer report, nor over
             // the answer to a list asked after it (two saves of one card each
             // ask, and the answers can arrive in either order). A newer ask
@@ -85,6 +89,7 @@ async function ask(refs: string[]): Promise<void> {
 
 export const useItemReports = create<ItemReportState>((set, get) => ({
     byRef: {},
+    written: {},
     screen: [],
     setReport: (ref, report) => {
         writtenAt.set(ref, ++writes);
@@ -102,8 +107,10 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         return { aside };
     }),
     load: (refs) => {
-        const known = get().byRef;
-        for (const r of refs) if (r && !(r in known) && !asking.has(r)) queued.add(r);
+        // Known = both answers held: a report set by a press elsewhere (the
+        // assistant's) still leaves who wrote the item to ask.
+        const { byRef: known, written } = get();
+        for (const r of refs) if (r && !(r in known && r in written) && !asking.has(r)) queued.add(r);
         if (!queued.size) return flush ?? Promise.resolve();
         flush ??= Promise.resolve().then(() => {
             const wanted = [...queued];

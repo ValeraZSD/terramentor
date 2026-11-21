@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Von KI geschrieben",
+  "Written by AI ({{model}})": "Von KI geschrieben ({{model}})",
   " — stopped early, some pages were not re-read": "— vorzeitig gestoppt, einige Seiten wurden nicht erneut gelesen",
   " ({{answers}} answers)_one": " ({{answers}} Antwort)",
   " ({{answers}} answers)_other": " ({{answers}} Antworten)",

@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Scritto dall'IA",
+  "Written by AI ({{model}})": "Scritto dall'IA ({{model}})",
   " — stopped early, some pages were not re-read": "— interrotto anticipatamente, alcune pagine non sono state rilette",
   " ({{answers}} answers)_many": " ({{answers}} risposte)",
   " ({{answers}} answers)_one": " ({{answers}} risposta)",

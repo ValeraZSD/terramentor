@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Написано ИИ",
+  "Written by AI ({{model}})": "Написано ИИ ({{model}})",
   " — stopped early, some pages were not re-read": "— прервано досрочно, некоторые страницы не были перечитаны",
   " ({{answers}} answers)_few": " ({{answers}} ответа)",
   " ({{answers}} answers)_many": " ({{answers}} ответов)",

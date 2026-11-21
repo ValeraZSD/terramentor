@@ -1,4 +1,6 @@
 {
+  "Written by AI": "由 AI 撰写",
+  "Written by AI ({{model}})": "由 AI 撰写 ({{model}})",
   " — stopped early, some pages were not re-read": "— 提前停止，部分页面未重读",
   " ({{answers}} answers)_other": "（{{answers}} 次作答）",
   "— they'll appear here as they're ready.": "— 它们将在就绪后显示在此处。",

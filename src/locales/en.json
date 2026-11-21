@@ -3697,6 +3697,8 @@
   "Writing topics section by section…": "Writing topics section by section…",
   "Writing topics…": "Writing topics…",
   "Written": "Written",
+  "Written by AI": "Written by AI",
+  "Written by AI ({{model}})": "Written by AI ({{model}})",
   "Written by AI ({{model}}). Check it.": "Written by AI ({{model}}). Check it.",
   "Written by AI. Check it.": "Written by AI. Check it.",
   "Written by the deck's author": "Written by the deck's author",

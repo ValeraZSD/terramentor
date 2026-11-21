@@ -89,6 +89,7 @@ export function ReportScope({ children }: { children: ReactNode }) {
 export default function ReportItem({ itemRef, surface, shown, onReported, onUndone, onEdit, onOpenChange, hideKey, inStream, listed, className }: ReportItemProps) {
     const { t } = useTranslation();
     const report = useItemReports(s => (itemRef ? s.byRef[itemRef] ?? null : null));
+    const writer = useItemReports(s => (itemRef ? s.written[itemRef] ?? null : null));
     const [open, setOpenState] = useState(false);
     const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
     // Filed from this dialog: the button that opened it (the flag, or the line's
@@ -112,6 +113,7 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
 
     return (
         <span className={cx('inline-flex shrink-0 items-center', className)}>
+            {writer && <WrittenByAi model={writer.model} />}
             {report
                 ? <ReportedNote report={report} onUndone={r => { setFiledHere(false); onUndone?.(r); }} onEdit={onEdit} takeFocus={filedHere} />
                 : (
@@ -132,6 +134,23 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
                     onReported={r => { setFiledHere(true); setOpen(false); onReported?.(r); }}
                 />
             )}
+        </span>
+    );
+}
+
+/**
+ * A model wrote this item. EU AI Act Art. 50 asks that a reader be told which
+ * text is a model's; the flag sits on every item that teaches or tests, so the
+ * mark rides beside it. Plain caption text, not a control: the model's name is
+ * on hover and for a screen reader, the report dialog being the place to act.
+ */
+function WrittenByAi({ model }: { model: string | null }) {
+    const { t } = useTranslation();
+    const named = model ? t('Written by AI ({{model}})', { model }) : undefined;
+    return (
+        <span className="me-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400" title={named}>
+            {t('Written by AI')}
+            {model && <span className="sr-only"> ({model})</span>}
         </span>
     );
 }

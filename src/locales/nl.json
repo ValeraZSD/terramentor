@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Geschreven door AI",
+  "Written by AI ({{model}})": "Geschreven door AI ({{model}})",
   " — stopped early, some pages were not re-read": "— vroegtijdig gestopt, sommige pagina's zijn niet opnieuw gelezen",
   " ({{answers}} answers)_one": " ({{answers}} antwoord)",
   " ({{answers}} answers)_other": " ({{answers}} antwoorden)",
