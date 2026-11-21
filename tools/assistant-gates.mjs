@@ -579,12 +579,13 @@ section('the server records only the changes the client applies');
     const keys = ['theme', 'theme_tint', 'page colour', 'page_color', 'tint', 'accent_color', 'accent', 'ui_scale', 'scale', 'text size',
         'ui_language', 'language', 'interface_language', 'number_format', 'numbers', 'number_separator', 'contrast', 'motion', 'reduce motion',
         'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers',
-        'key_shortcuts', 'shortcuts', 'larger_ui', 'speech_rate', 'reading_speed', 'speech_speed', 'drill_time_scale'];
+        'key_shortcuts', 'shortcuts', 'larger_ui', 'speech_rate', 'reading_speed', 'speech_speed', 'drill_time_scale',
+        'Reduce-Motion', 'UI Scale', 'Page-Colour', 'TEXT_SIZE', 'Interface Language'];
     const values = [...new Set([
         'system', 'light', 'Dark', 'auto', 'AUTO', 'automatic', 'warm', 'purple',
         'standard', 'more', 'full', 'reduce', 'normal', 'wider', 'widest', 'default', 'high', 'higher', 'reduced', 'less', 'none', 'double',
         'on', 'off', 'yes', 'no', 'true', 'false', '1', '0', 'enabled', 'disabled', 'loud',
-        '49', '50', '79', '80', '100', '120%', '160', '161', '200', '201', '900', '1e2', 'abc',
+        '49', '50', '79', '80', '100', '120%', '160', '161', '200', '201', '900', '1e2', 'abc', '49.5', '79.5', '160.5', '200.5', '50%',
         '#0e7490', '#ABCDEF', '#abc', 'red2', ...accentNames, ...tintNames,
         ...LANGUAGES.flatMap(l => [l.code, l.name, l.name.toUpperCase()]), 'xx', 'English language',
         ...NUMBER_STYLES.map(s => s.id), ...NUMBER_STYLES.map(s => s.id.replace(/\s/g, ' ')), '1_234.5',

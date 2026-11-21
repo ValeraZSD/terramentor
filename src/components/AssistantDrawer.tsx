@@ -499,13 +499,29 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const loadSeqRef = useRef(0);
     const shownLoadRef = useRef(0);
     const loadsInFlightRef = useRef(0);
-    const loadHistory = useCallback(async (
-        id: number | null = conversationIdRef.current,
-        // Runs on the rows about to be shown, before they render: a turn this
-        // panel followed is marked fresh here, or its first render would only
-        // state its setting change instead of applying it.
-        beforeShow?: (rows: ChatMessage[]) => void,
-    ) => {
+    /**
+     * A turn whose socket dropped after the server took it on (see `send`).
+     * Its answer is read back from history, and whichever load shows it first
+     * marks it fresh — before it renders, or the first render would only state
+     * its setting change instead of applying it. Only a row newer than every
+     * row the panel held at the send, under the question this turn asked: a
+     * turn that finished with no answer stores none, and the last row is then
+     * an older turn's.
+     */
+    const pendingFreshRef = useRef<{ taskId: string; afterId: number; question: string } | null>(null);
+    const markPendingFresh = useCallback((rows: ChatMessage[]) => {
+        const pending = pendingFreshRef.current;
+        if (!pending) return;
+        const status = useStore.getState().aiTasks.find(t => t.id === pending.taskId)?.status;
+        // Still running: the follow-up effect attaches, and the attach marks it.
+        if (status !== 'done') return;
+        pendingFreshRef.current = null;
+        const last = rows[rows.length - 1];
+        const asked = rows[rows.length - 2];
+        if (last?.role === 'assistant' && last.id > pending.afterId
+            && asked?.role === 'user' && asked.content === pending.question) freshIdsRef.current.add(last.id);
+    }, []);
+    const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
         const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
@@ -527,7 +543,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
         }
-        beforeShow?.(rows);
+        markPendingFresh(rows);
         // Ahead of the render, for an older load that answers before it.
         messagesRef.current = rows;
         setMessages(rows);
@@ -539,7 +555,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             return live != null && prev[live] ? { ...traces, [live]: prev[live] } : traces;
         });
         return rows;
-    }, [switchTo]);
+    }, [switchTo, markPendingFresh]);
 
     // A reply arriving token by token is the clearest case of "not a moment to
     // reload": the text on screen is not in the database yet. `UpdatePrompt`
@@ -800,6 +816,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const controller = new AbortController();
         abortRef.current = controller;
         liveTaskRef.current = taskId;
+        // Followed from here on: this attach marks the answer itself.
+        if (pendingFreshRef.current?.taskId === taskId) pendingFreshRef.current = null;
         setStreamingId(assistantId);
         contentStartedRef.current = false;
         setStreamed('');
@@ -1061,6 +1079,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // The newest stored row before this turn: its answer, if read back
+        // from history after a dropped socket, is a row above it.
+        const knownBefore = messagesRef.current.reduce((top, m) => Math.max(top, m.id), 0);
+        pendingFreshRef.current = null;
         // A load still in flight (a change heard on the feed, a return to the
         // page) read the conversation before this question, and applied now
         // it would take the question off the screen. It is outdated instead,
@@ -1162,12 +1184,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // Finished meanwhile: the stored answer is this turn's, fresh
                 // like one that arrived on the socket, so a setting it changes
                 // is applied once (with Undo) rather than only stated.
-                const markFinished = (rows: ChatMessage[]) => {
-                    const last = rows[rows.length - 1];
-                    const task = useStore.getState().aiTasks.find(t => t.id === lost);
-                    if (task?.status === 'done' && last?.role === 'assistant') freshIdsRef.current.add(last.id);
-                };
-                loadHistory(undefined, markFinished).then(rows => {
+                pendingFreshRef.current = { taskId: lost, afterId: knownBefore, question: message };
+                loadHistory().then(rows => {
                     const last = rows?.[rows.length - 1];
                     const task = useStore.getState().aiTasks.find(t => t.id === lost);
                     if (task?.status === 'done' && last?.role === 'assistant' && last.content) say(last.content);
@@ -1309,10 +1327,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (c.id === conversationIdRef.current) { setShowList(false); return; }
         // What was on screen, put back if this one cannot be read: left
         // pointing at a conversation it could not show, the panel would send
-        // the next message into it under an empty view.
-        const prevId = conversationIdRef.current;
-        const prevMessages = messagesRef.current;
-        const prevReasoning = reasoningByMsg;
+        // the next message into it under an empty view. While another open is
+        // still loading, nothing real is on screen yet: a failure then leaves
+        // a new chat, which is what the empty view says.
+        const shownBefore = !loadingHistory;
+        const prevId = shownBefore ? conversationIdRef.current : null;
+        const prevMessages = shownBefore ? messagesRef.current : [];
+        const prevReasoning = shownBefore ? reasoningByMsg : {};
+        const prevError = shownBefore ? turnError : null;
+        const prevStopped = shownBefore && stoppedPartial;
         switchTo(c.id);
         resetView();
         setLoadingHistory(true);
@@ -1324,6 +1347,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 messagesRef.current = prevMessages;
                 setMessages(prevMessages);
                 setReasoningByMsg(prevReasoning);
+                setTurnError(prevError);
+                setStoppedPartial(prevStopped);
             })
             .finally(() => setLoadingHistory(false));
     };

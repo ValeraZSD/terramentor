@@ -92,7 +92,10 @@ function page({ tasks = [] } = {}) {
     const el = w.document.getElementById('root');
     const resizes = [];
     let r = null;
-    const find = (pattern, { method } = {}) => requests.find(q => !q.answered && pattern.test(q.url) && (!method || q.method === method));
+    const find = (pattern, { method, last = false } = {}) => {
+        const open = requests.filter(q => !q.answered && pattern.test(q.url) && (!method || q.method === method));
+        return last ? open.at(-1) : open[0];
+    };
     const answer = async (pattern, response, opts) => {
         const q = find(pattern, opts);
         if (!q) return false;
@@ -167,6 +170,46 @@ section('a setting change in an answer the panel watched arrive is applied once'
     check('…written once', p.themeWrites() === 1, `${p.themeWrites()} writes`);
     p.close();
 }
+/** Send `question`, let the turn be taken on, then drop the socket with the task `done`. */
+async function droppedTurn(p, question, taskId) {
+    await p.type(question);
+    const s = p.stream();
+    await p.answer(/\/ai\/assistant\/stream$/, s.response);
+    await s.frame({ taskId });
+    await s.frame({ conversationId: 7 });
+    p.useStore.setState({ aiTasks: [{ id: taskId, kind: 'today_chat', status: 'done', meta: { conversationId: 7 } }] });
+    await s.close();
+}
+{
+    // The turn finished with nothing to say: the server stores no answer and drops the
+    // question, so the last row is the PREVIOUS turn's answer, which changed the theme.
+    const p = page();
+    await p.mount();
+    await p.answer(/\/ai\/conversations$/, json([conv(7, 'Colours')]));
+    const before = [msg(31, 'user', 'make it dark'), msg(32, 'assistant', MARKED)];
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json(before));
+    await droppedTurn(p, 'and the accent?', 't3');
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json(before));
+    check('dropped socket, no answer stored: an older answer is not applied again',
+        p.useStore.getState().themeChoice === 'light' && p.themeWrites() === 0, `theme ${p.useStore.getState().themeChoice}, ${p.themeWrites()} writes`);
+    p.close();
+}
+{
+    // Another reload (a change heard on the feed) starts after the turn's own and answers
+    // first: whichever load shows the stored answer first marks it.
+    const p = page();
+    await p.mount();
+    await p.answer(/\/ai\/conversations$/, json([conv(7, 'Colours')]));
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json([]));
+    await droppedTurn(p, 'make it dark', 't4');
+    await p.act(async () => { p.useStore.setState({ chatChange: { n: 1, at: { 7: 1 } } }); });
+    const rows = [msg(41, 'user', 'make it dark'), msg(42, 'assistant', MARKED)];
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json(rows), { last: true });
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json(rows));
+    check('dropped socket, a newer reload answers first: the change is still applied',
+        p.useStore.getState().themeChoice === 'dark' && p.themeWrites() === 1, `theme ${p.useStore.getState().themeChoice}, ${p.themeWrites()} writes`);
+    p.close();
+}
 {
     // A turn already running when the panel opens (a reload mid-turn): the panel follows it
     // to its end.
@@ -209,6 +252,28 @@ section('a conversation that fails to open is not where the next message goes');
     const sent = p.requests.find(q => /\/ai\/assistant\/stream$/.test(q.url));
     const target = sent ? JSON.parse(sent.body).conversationId : undefined;
     check('the next message goes to the conversation on screen, not the one that failed', target === 7, `sent to ${target}`);
+    p.close();
+}
+{
+    // Two opens, both failing, the second picked while the first still loads: nothing real
+    // was on screen, so the panel is a new chat, not the first failed one under an empty view.
+    const p = page();
+    await p.mount();
+    const list = [conv(7, 'Colours'), conv(8, 'Broken one'), conv(9, 'Broken two')];
+    await p.answer(/\/ai\/conversations$/, json(list));
+    await p.answer(/\/ai\/conversations\/7\/messages$/, json([msg(41, 'user', 'hello'), msg(42, 'assistant', 'Hi there, colours it is.')]));
+    await p.fire(p.button(/^Conversations$/), 'click');
+    await p.answer(/\/ai\/conversations$/, json(list));
+    await p.fire(p.button(/Broken one/), 'click');
+    await p.fire(p.button(/^Conversations$/), 'click');
+    await p.answer(/\/ai\/conversations$/, json(list));
+    await p.fire(p.button(/Broken two/), 'click');
+    await p.answer(/\/ai\/conversations\/8\/messages$/, json({ error: 'database is locked' }, 500));
+    await p.answer(/\/ai\/conversations\/9\/messages$/, json({ error: 'database is locked' }, 500));
+    await p.type('and now?');
+    const sent = p.requests.find(q => /\/ai\/assistant\/stream$/.test(q.url));
+    const target = sent ? JSON.parse(sent.body).conversationId : undefined;
+    check('two failed opens in a row: the next message starts a new chat', target === null, `sent to ${target}`);
     p.close();
 }
 
