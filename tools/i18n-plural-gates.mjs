@@ -116,14 +116,13 @@ process.stdout.write('\n--- plural forms per locale ---\n');
 /** Bases whose singular and plural are genuinely the same words in that language.
  *  The list is per language, read against that language's own grammar, never global. */
 const SAME_BY_DESIGN = {
-    // German: "Quiz" and "Zeichen" do not change in the plural (Duden: das Quiz, die Quiz).
-    de: ['{{count}} of them.', '{{name}} —', '{{value}} chars', '{{value}} characters', 'Show them now anyway',
-        '{{count}} quizzes in this project', 'quizzes'],
+    // German: "Zeichen" does not change in the plural.
+    de: ['{{count}} of them.', '{{name}} —', '{{value}} chars', '{{value}} characters', 'Show them now anyway'],
     es: ['{{count}} of them.', '{{name}} —'],
-    fr: ['{{count}} of them.', '{{name}} —', '{{count}} quizzes in this project', 'quizzes'],
+    fr: ['{{count}} of them.', '{{name}} —'],
     // Italian nouns ending in a consonant are invariable (le flashcard), so the
     // loanword reads the same after 1 and after 3 — that is the language, not a lapse.
-    it: ['{{count}} of them.', '{{name}} —', '{{count}} AI tasks', 'Attaching', '{{count}} quizzes in this project', 'quizzes',
+    it: ['{{count}} of them.', '{{name}} —', '{{count}} AI tasks', 'Attaching',
         'You reviewed {{count}} flashcards', 'Building from {{count}} files', 'The course is built from {{count}} files.'],
     nl: ['{{count}} of them.', '{{name}} —', '{{count}} occurrences', 'Show them now anyway'],
     pl: ['{{count}} of them.', '{{name}} —', '{{count}} quick questions', 'from {{count}} decks', 'Show them now anyway', 'and keep their'],
@@ -134,7 +133,8 @@ const SAME_BY_DESIGN = {
     uk: ['{{count}} of them.', '{{name}} —', '{{count}} AI tasks', '{{count}} links resolved',
         '{{count}} links found', '{{label}}: {{count}} links found', 'Show them now anyway',
         'and keep their', '{{count}} questions', 'Added {{added}} readings', 'Describe {{pending}} pictures',
-        'Plus {{ghostCorrect}}', 'reviews due in the next', 'Added {{count}} readings', 'Show {{count}} more AI tasks'],
+        'Plus {{ghostCorrect}}', 'reviews due in the next', 'Added {{count}} readings', 'Show {{count}} more AI tasks',
+        'Generate {{count}} questions'],
     // English: neither sentence ties a noun to the count — "1 of them" is as
     // right as "5 of them", and the other reads its numbers out of two
     // placeholders that are formatted before they get here.
@@ -202,7 +202,6 @@ const SAMPLE = [
     ['{{count}} days', { count: 0 }],
     ['{{totalResults}} results', { count: 0, totalResults: 0 }],
     ['{{fmt}} cards', { count: 0, fmt: '0' }],
-    ['quizzes', { count: 0 }],
 ];
 
 const inst = i18next.createInstance();

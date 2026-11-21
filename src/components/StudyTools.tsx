@@ -38,6 +38,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     const { t } = useTranslation();
     const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
+    const showConfirm = useStore(s => s.showConfirm);
 
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
@@ -169,7 +170,17 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         );
     };
 
-    const handleDeleteQuiz = async (quizId: number) => {
+    // A bin beside an eye is one slip away: both deletes ask first, as the
+    // card editor's does.
+    const handleDeleteQuiz = async (quiz: Quiz) => {
+        const ok = await showConfirm({
+            title: t("Delete these {{count}} questions?", { count: quiz.questions.length }),
+            message: t("They are removed from this topic for good."),
+            confirmLabel: t("Delete"),
+            variant: 'danger',
+        });
+        if (!ok) return;
+        const quizId = quiz.id;
         try {
             await api.deleteQuiz(quizId);
             setQuizzes(prev => prev.filter(q => q.id !== quizId));
@@ -180,6 +191,13 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     };
 
     const handleDeleteFlashcard = async (id: number) => {
+        const ok = await showConfirm({
+            title: t("Delete this card?"),
+            message: t("It is removed from this deck for good. Its review history goes with it."),
+            confirmLabel: t("Delete"),
+            variant: 'danger',
+        });
+        if (!ok) return;
         try {
             await api.deleteFlashcard(id);
             setFlashcards(prev => prev.filter(f => f.id !== id));
@@ -191,6 +209,11 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
 
     /** The row is already gone from the server — stop counting it here. */
     const forgetFlashcard = (id: number) => setFlashcards(prev => prev.filter(f => f.id !== id));
+    // The run ends with its last card: left on, it would reopen by itself the
+    // moment "More cards" wrote new ones.
+    useEffect(() => {
+        if (flashcards.length === 0) setPractising(false);
+    }, [flashcards.length]);
 
     if (practising && flashcards.length > 0) {
         return (
@@ -217,10 +240,15 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     // A section's heading with its one way to add more on the same line:
     // making more is reached for now and then, so it is a small button there
     // rather than a full-width bar above the list.
-    const sectionHead = (id: string, title: string, action: ReactNode) => (
-        <div className="flex items-center justify-between gap-2">
-            <h3 id={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h3>
-            {action}
+    // Under it, one line on where the section's items are used: a list you
+    // can only view and delete reads as a dead end without it.
+    const sectionHead = (id: string, title: string, action: ReactNode, use: string) => (
+        <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+                <h3 id={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h3>
+                <div className="flex items-center gap-2">{action}</div>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{use}</p>
         </div>
     );
 
@@ -234,12 +262,11 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                         onClick={() => setShowQuizOptions(v => !v)}
                         disabled={generating !== null}
                         aria-expanded={showQuizOptions}
-                        aria-label={t("Generate more questions")}
                         icon={<Plus className="w-4 h-4" />}
                     >
-                        {t("Generate more")}
+                        {t("More questions")}
                     </Button>
-                ))}
+                ), t("Study asks a few of these each day."))}
 
                 {showQuizOptions && (
                     <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl space-y-4">
@@ -316,7 +343,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                                 </div>
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                     <IconButton size="sm" onClick={() => setViewingQuiz(quiz)} label={t("View questions")} icon={<Eye className="w-4 h-4" />} />
-                                    <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz.id)} label={t("Delete these questions")} icon={<Trash2 className="w-4 h-4" />} />
+                                    <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz)} label={t("Delete these questions")} icon={<Trash2 className="w-4 h-4" />} />
                                 </div>
                             </li>
                             );
@@ -327,33 +354,37 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
 
             <section aria-labelledby={`cards-${nodeId}`} data-section="cards" className="space-y-3">
                 {sectionHead(`cards-${nodeId}`, t("Cards"), (
-                    <Button
-                        size="sm"
-                        variant="neutral"
-                        busy={generating === 'cards'}
-                        disabled={generating === 'questions'}
-                        onClick={handleGenerateFlashcards}
-                        aria-label={t("Generate more cards")}
-                        icon={<Plus className="w-4 h-4" />}
-                    >
-                        {t("Generate more")}
-                    </Button>
-                ))}
+                    <>
+                        {/* Every card of the topic, due or not, once through:
+                            Study serves only the due ones, and this is the run
+                            before an exam. A small button beside More cards,
+                            not a bar: it is reached for now and then, and the
+                            panel's Study is the everyday door. */}
+                        {flashcards.length > 0 && (
+                            <Button
+                                size="sm"
+                                variant="neutral"
+                                icon={<RotateCcw className="w-4 h-4" />}
+                                onClick={() => setPractising(true)}
+                            >
+                                {t("Practise all")}
+                            </Button>
+                        )}
+                        <Button
+                            size="sm"
+                            variant="neutral"
+                            busy={generating === 'cards'}
+                            disabled={generating === 'questions'}
+                            onClick={handleGenerateFlashcards}
+                            icon={<Plus className="w-4 h-4" />}
+                        >
+                            {t("More cards")}
+                        </Button>
+                    </>
+                ), flashcards.length > 0
+                    ? t("Study shows each card on the day it is due. Practise all goes through every one now.")
+                    : t("Study shows each card on the day it is due."))}
                 {generationCounter('cards')}
-
-                {/* Every card of the topic, due or not, once through. Study
-                    serves only the due ones; this is the run before an exam.
-                    The count is on the button because "all" is the point. */}
-                {flashcards.length > 0 && (
-                    <Button
-                        variant="neutral"
-                        block
-                        icon={<RotateCcw className="w-4 h-4" />}
-                        onClick={() => setPractising(true)}
-                    >
-                        {t("Practise all {{count}} cards now", { count: flashcards.length })}
-                    </Button>
-                )}
 
                 {flashcards.length === 0 ? (
                     <p className="text-sm text-slate-500 dark:text-slate-400">{t("No flashcards yet")}</p>

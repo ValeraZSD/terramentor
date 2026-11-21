@@ -14,14 +14,19 @@
 //   3. the tab shows each question set by its size (a set titled after its
 //      topic does not print the topic again) with View and Delete, and no
 //      Take Quiz or best score;
-//   4. "Practise all N cards now" runs EVERY card of the topic, due or not
-//      (Study serves only the due ones); with no cards there is no button;
-//   5. questions written here carry no review questions from other topics
+//   4. "Practise all" runs EVERY card of the topic, due or not (Study serves
+//      only the due ones); with no cards there is no button. In that run a
+//      card that is not due yet and that you knew keeps its date (nothing is
+//      written), a card you missed is recorded, and a due card is reviewed as
+//      Study reviews it;
+//   5. each section says in one line where its items are used, and each
+//      delete asks first;
+//   6. questions written here carry no review questions from other topics
 //      (`includeGhosts` false): those were for a sitting to credit, and in
 //      this list they would read as the topic's own.
 //
 // Static reads for 1-2, the REAL StudyTools mounted in jsdom (api and store
-// stubbed) for 3-5.
+// stubbed) for 3-6.
 
 import { mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -125,8 +130,11 @@ export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16,
 });
 
 const toasts = [];
+const confirms = [];
+globalThis.__confirm = false;
 globalThis.__store = new Proxy({
     addToast: (...a) => toasts.push(a),
+    showConfirm: async (o) => { confirms.push(o.title); return globalThis.__confirm; },
     a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true, largerUi: false },
 }, { get: (o, k) => (k in o ? o[k] : undefined) });
 const today = new Date();
@@ -140,10 +148,15 @@ const mcq = (i) => ({ question: `Question ${i}?`, type: 'multiple_choice', optio
 const set = (id, title, n) => ({ id, node_id: 5, title, questions: Array.from({ length: n }, (_, i) => mcq(i)), created_at: '2026-11-01', best_score: 90 });
 let quizzes = [], cards = [];
 const generated = [];
+const deleted = [];
+const written = [];
 globalThis.__api = {
     getQuizzes: async () => quizzes,
     getFlashcards: async () => cards,
     streamGenerateQuiz: async (...args) => { generated.push(args); return { id: 99 }; },
+    deleteQuiz: async (id) => { deleted.push(['quiz', id]); },
+    deleteFlashcard: async (id) => { deleted.push(['card', id]); },
+    updateFlashcard: async (id, update) => { written.push(id); return { id, ...update }; },
 };
 require(outfile);
 const act = globalThis.__act;
@@ -169,14 +182,61 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('...a set whose title adds something shows it', /4 questions/.test(rows[1] ?? '') && /2026-11-01/.test(rows[1] ?? ''), rows[1]);
     const setButtons = [...m.el.querySelectorAll('[data-section="questions"] li button')].map(b => b.getAttribute('aria-label'));
     check('each set offers View and Delete, nothing to sit', setButtons.join('|') === 'View questions|Delete these questions|View questions|Delete these questions', setButtons.join('|'));
+    const uses = [...m.el.querySelectorAll('section > div > p')].map(p => p.textContent.trim());
+    check('each section says where its items are used',
+        uses[0] === 'Study asks a few of these each day.'
+        && uses[1] === 'Study shows each card on the day it is due. Practise all goes through every one now.', uses.join(' | '));
+
+    console.log('--- deleting asks first ---');
+    const bin = [...m.el.querySelectorAll('[data-section="questions"] li button')].find(b => b.getAttribute('aria-label') === 'Delete these questions');
+    globalThis.__confirm = false;
+    await click(bin);
+    check('deleting a set asks "Delete these 10 questions?" and a No deletes nothing',
+        confirms.at(-1) === 'Delete these 10 questions?' && deleted.length === 0, JSON.stringify({ confirms, deleted }));
+    const cardBin = [...m.el.querySelectorAll('[data-section="cards"] li button')].find(b => b.getAttribute('aria-label') === 'Delete');
+    await click(cardBin);
+    check('deleting a card asks too, and a No deletes nothing', confirms.at(-1) === 'Delete this card?' && deleted.length === 0, JSON.stringify({ confirms, deleted }));
+    globalThis.__confirm = true;
+    await click(bin);
+    check('...a Yes deletes the set', JSON.stringify(deleted) === '[["quiz",1]]', JSON.stringify(deleted));
+    globalThis.__confirm = false;
 
     console.log('--- practise all the cards ---');
-    const practise = button(m.el, 'Practise all 3 cards now');
-    check('the button names how many cards it runs', !!practise, buttons(m.el).map(b => b.textContent.trim()).join(' / '));
+    const practise = button(m.el, 'Practise all');
+    check('the Cards heading has a Practise all button', !!practise, buttons(m.el).map(b => b.textContent.trim()).join(' / '));
     await click(practise);
     await flush();
     const run = m.el.textContent || '';
     check('pressing it runs every card of the topic, due or not (1 of 3)', /Front 1/.test(run) && /(?<!\d)1 of 3(?!\d)/.test(run), run.slice(0, 200));
+
+    // Card 1 is overdue, card 2 due in twenty days, card 3 never seen.
+    const plate = () => m.el.querySelector('[role="button"][aria-pressed]');
+    const rate = async (label) => {
+        await click(plate());
+        const shown = m.el.textContent || '';
+        await click(buttons(m.el).find(b => (b.textContent || '').includes(label)));
+        return shown;
+    };
+    const s1 = await rate('Good');
+    check('a due card is reviewed as Study reviews it: Good writes its new schedule', JSON.stringify(written) === '[1]', JSON.stringify(written));
+    check('...under the usual question', /How well did you know this\?/.test(s1), s1.slice(0, 160));
+    const s2 = await rate('Easy');
+    check('a card not due yet that you knew keeps its date: Easy writes nothing', JSON.stringify(written) === '[1]' && /Front 3/.test(m.el.textContent), JSON.stringify(written));
+    check('...and the run says so before you rate', /Not due yet: if you knew it, it keeps its date\./.test(s2), s2.slice(0, 200));
+    await rate('Good');
+    check('a card never seen is a first review: Good writes it', JSON.stringify(written) === '[1,3]', JSON.stringify(written));
+    m.unmount();
+}
+{
+    // A card you miss is news whenever it happens, due or not.
+    quizzes = []; written.length = 0;
+    cards = [card(2, later)];
+    const m = globalThis.__mount({ nodeId: 7, topicTitle: 'One card' });
+    await flush(); await flush();
+    await click(button(m.el, 'Practise all'));
+    await click(m.el.querySelector('[role="button"][aria-pressed]'));
+    await click(buttons(m.el).find(b => (b.textContent || '').includes('Again')));
+    check('a card not due yet that you missed is recorded (Again writes)', JSON.stringify(written) === '[2]', JSON.stringify(written));
     m.unmount();
 }
 {
@@ -188,9 +248,9 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('...and both sections say they are empty', /No questions yet/.test(text) && /No flashcards yet/.test(text), text.slice(0, 200));
 
     console.log('--- writing more questions ---');
-    await click(buttons(m.el).find(b => b.getAttribute('aria-label') === 'Generate more questions'));
+    await click(button(m.el, 'More questions'));
     const go = button(m.el, 'Generate 5 questions');
-    check('Generate more opens the options with a button that says what it makes', !!go, buttons(m.el).map(b => b.textContent.trim()).join(' / '));
+    check('More questions opens the options with a button that says what it makes', !!go, buttons(m.el).map(b => b.textContent.trim()).join(' / '));
     await click(go);
     check('questions are written without review questions from other topics (includeGhosts false)',
         generated.length === 1 && generated[0][0] === 6 && generated[0][3] === false, JSON.stringify(generated.map(a => a.slice(0, 4))));
