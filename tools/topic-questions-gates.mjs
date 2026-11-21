@@ -140,8 +140,15 @@ globalThis.__store = new Proxy({
     showConfirm: async (o) => { confirms.push(o.title); return globalThis.__confirm; },
     a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true, largerUi: false },
 }, { get: (o, k) => (k in o ? o[k] : undefined) });
-const today = new Date();
-const later = new Date(today.getTime() + 20 * 864e5).toISOString();
+// One instant for the fixtures and for the mounted scheduler: a card's "not due
+// yet", its relearning step and the date on its tile all read this clock.
+const NOW = Date.UTC(2026, 10, 10, 12, 0, 0); // Tue 10 Nov 2026, 12:00 UTC
+const RealDate = Date;
+globalThis.Date = class extends RealDate {
+    constructor(...a) { super(...(a.length ? a : [NOW])); }
+    static now() { return NOW; }
+};
+const later = new Date(NOW + 20 * 864e5).toISOString(); // 30 Nov 2026
 const card = (id, due) => ({
     id, node_id: 5, front: `Front ${id}`, back: `Back ${id}`, difficulty: 0,
     last_reviewed: due ? '2026-11-01T00:00:00.000Z' : null, next_review: due, review_count: due ? 2 : 0, ease_factor: 2.5, last_interval: 0,
@@ -153,10 +160,13 @@ let quizzes = [], cards = [];
 const generated = [];
 const deleted = [];
 const written = [];
+const reads = { questions: 0, cards: 0 };
+let finishCards = null;
 globalThis.__api = {
-    getQuizzes: async () => quizzes,
-    getFlashcards: async () => cards,
+    getQuizzes: async () => { reads.questions++; return quizzes; },
+    getFlashcards: async () => { reads.cards++; return cards; },
     streamGenerateQuiz: async (...args) => { generated.push(args); return { id: 99 }; },
+    streamGenerateFlashcards: () => new Promise(r => { finishCards = r; }),
     deleteQuiz: async (id) => { deleted.push(['quiz', id]); },
     deleteFlashcard: async (id) => { deleted.push(['card', id]); },
     updateFlashcard: async (id, update) => { written.push(id); return { id, ...update }; },
@@ -261,7 +271,7 @@ console.log('--- the tab: sets by their size, no sitting ---');
     // A card already on its relearning ladder (missed in Study, back in ten
     // minutes) is not "not due yet": its step runs.
     written.length = 0;
-    const soon = new Date(Date.now() + 5 * 60_000).toISOString();
+    const soon = new Date(NOW + 5 * 60_000).toISOString();
     cards = [{ ...card(4, soon), state: 3, lapses: 1, learning_steps: 0 }];
     const m = globalThis.__mount({ nodeId: 8, topicTitle: 'Relearning' });
     await flush(); await flush();
@@ -283,10 +293,8 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('a card not due yet offers two tiles, Again and Knew it (Hard, Good and Easy would all keep its date)',
         tiles.length === 2 && /^Again/.test(tiles[0]) && /^Knew it/.test(tiles[1]), JSON.stringify(tiles));
     // In words, not "<10m" beside "20d": Again re-asks in this run, Knew it names the date it had.
-    const d = new Date(later);
-    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    check('...Again says the card comes back in this run, Knew it names the date it keeps',
-        /Back in this run/.test(tiles[0]) && [`Still due ${d.getDate()} ${mon}`, `Still due ${mon} ${d.getDate()}`].some(s => tiles[1].includes(s)) &&!/<\d|\dmo\b|\dd\b/.test(tiles.join(' ')), JSON.stringify(tiles));
+    check('...Again says the card comes back in this run, Knew it names the date it keeps (30 Nov)',
+        /Back in this run/.test(tiles[0]) && ['Still due 30 Nov', 'Still due Nov 30'].some(s => tiles[1].includes(s)) && !/<\d|\dmo\b|\dd\b/.test(tiles.join(' ')), JSON.stringify(tiles));
     // Key 3 (Good on a due card) is Knew it here, as are 2 and 4.
     await act(async () => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: '3', bubbles: true })); });
     await flush();
@@ -312,9 +320,26 @@ console.log('--- the tab: sets by their size, no sitting ---');
     await click(button(m.el, 'More questions'));
     const go = button(m.el, 'Generate 5 questions');
     check('More questions opens the options with a button that says what it makes', !!go, buttons(m.el).map(b => b.textContent.trim()).join(' / '));
+    const before = { ...reads };
     await click(go);
     check('questions are written without review questions from other topics (includeGhosts false)',
         generated.length === 1 && generated[0][0] === 6 && generated[0][3] === false, JSON.stringify(generated.map(a => a.slice(0, 4))));
+    // A card list read here could land after a card was deleted meanwhile and bring it back.
+    check('...and the refresh after it reads the questions only, not the cards',
+        reads.questions === before.questions + 1 && reads.cards === before.cards, JSON.stringify({ before, after: reads }));
+
+    console.log('--- one writer at a time ---');
+    await click(button(m.el, 'More questions'));
+    await click(button(m.el, 'More cards'));
+    const go2 = button(m.el, 'Generate 5 questions');
+    // Pressing it would detach the card stream: this tab would lose its progress and refresh.
+    check('while cards are being written, Generate questions cannot be pressed', !!finishCards && !!go2 && go2.disabled,
+        `${!!finishCards} ${go2 && go2.disabled}`);
+    const mid = { ...reads };
+    await act(async () => { finishCards?.(); });
+    await flush();
+    check('...and the refresh after the cards reads the cards only',
+        reads.cards === mid.cards + 1 && reads.questions === mid.questions, JSON.stringify({ mid, after: reads }));
     m.unmount();
 }
 

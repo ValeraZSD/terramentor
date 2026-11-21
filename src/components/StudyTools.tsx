@@ -93,15 +93,18 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         };
     }, [nodeId]);
 
-    const loadData = async () => {
+    // A refresh after writing one kind reads only that kind: the two lists sit
+    // in one tab, and a card list read during question writing could land after
+    // a card was deleted and bring it back.
+    const loadData = async (only?: 'questions' | 'cards') => {
         setLoading(true);
         try {
             const [quizData, flashcardData] = await Promise.all([
-                api.getQuizzes(nodeId),
-                api.getFlashcards(nodeId)
+                only === 'cards' ? null : api.getQuizzes(nodeId),
+                only === 'questions' ? null : api.getFlashcards(nodeId),
             ]);
-            setQuizzes(quizData);
-            setFlashcards(flashcardData);
+            if (quizData) setQuizzes(quizData);
+            if (flashcardData) setFlashcards(flashcardData);
         } catch (error) {
             console.error('Failed to load study tools:', error);
         } finally {
@@ -127,7 +130,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                 controller.signal,
                 (chars) => setThinkingChars(chars),
             );
-            await loadData();
+            await loadData('questions');
             addToast('success', t("Questions generated"));
             setShowQuizOptions(false);
         } catch (error: any) {
@@ -154,7 +157,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                 (chars) => setThinkingChars(chars),
                 controller.signal,
             );
-            await loadData();
+            await loadData('cards');
             addToast('success', t("Flashcards generated!"));
         } catch (error: any) {
             if (!controller.signal.aborted) addToast('error', t("Failed to generate flashcards"), error.message);
@@ -320,6 +323,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                                 className="flex-1"
                                 onClick={handleGenerateQuiz}
                                 busy={generating === 'questions'}
+                                disabled={generating === 'cards'}
                             >
                                 {t("Generate {{count}} questions", { count: questionCount })}
                             </Button>
