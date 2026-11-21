@@ -145,7 +145,9 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
     );
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+// Letters and digits of ANY script: an ASCII-only class reduced every Cyrillic
+// or Greek title to '', so two different titles compared equal.
+const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
 /**
  * Split the lesson's own leading heading off its body.

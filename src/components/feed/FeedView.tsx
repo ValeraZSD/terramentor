@@ -118,10 +118,11 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         else cardRefs.current.delete(key);
     }, []);
 
-    // The feed's own strip is sticky, and so is every chapter header — which has
-    // to park directly below it. Its height changes with the viewport (the chip
-    // row wraps on a phone), so measure it and publish it as --feed-top rather
-    // than guessing an offset that would overlap on one breakpoint or the other.
+    // The feed's own strip is sticky, so a card the stream scrolls to has to
+    // stop clear of it (chapter headers are not sticky: see ChapterGroup). Its
+    // height changes with the viewport (the chip row wraps on a phone), so
+    // measure it and publish it as --feed-top rather than guessing an offset
+    // that would overlap on one breakpoint or the other.
     const headerWrapRef = useRef<HTMLDivElement | null>(null);
     const [headerHeight, setHeaderHeight] = useState(0);
     useEffect(() => {
