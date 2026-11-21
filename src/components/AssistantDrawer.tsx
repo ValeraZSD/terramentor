@@ -499,7 +499,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const loadSeqRef = useRef(0);
     const shownLoadRef = useRef(0);
     const loadsInFlightRef = useRef(0);
-    const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
+    const loadHistory = useCallback(async (
+        id: number | null = conversationIdRef.current,
+        // Runs on the rows about to be shown, before they render: a turn this
+        // panel followed is marked fresh here, or its first render would only
+        // state its setting change instead of applying it.
+        beforeShow?: (rows: ChatMessage[]) => void,
+    ) => {
         const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
@@ -521,6 +527,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
         }
+        beforeShow?.(rows);
         // Ahead of the render, for an older load that answers before it.
         messagesRef.current = rows;
         setMessages(rows);
@@ -810,6 +817,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // citation markers, and a row's position belongs to one of them.
         let settledContent: string | null = null;
         let settledActions: AiAction[] | null = null;
+        // The row the server stored the answer under (the terminal frame
+        // carries what the turn returned, its id among it).
+        let savedId: number | null = null;
         try {
             for await (const evt of api.attachTask(taskId, controller.signal)) {
                 if (evt.done || evt.cancelled) {
@@ -819,6 +829,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         settledContent = evt.content;
                         settledActions = Array.isArray(evt.actions) ? evt.actions as AiAction[] : null;
                     }
+                    if (typeof evt.assistantMessageId === 'number') savedId = evt.assistantMessageId;
                     break;
                 }
                 if (typeof evt.thinkingChunk === 'string') appendReasoning(assistantId, evt.thinkingChunk);
@@ -861,6 +872,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // otherwise. Never one of each.
                 const shown = settledContent ?? full;
                 const rows = settledContent != null ? settledActions : (looked.length ? looked : null);
+                // Followed live, so fresh as a turn this panel sent: a
+                // `[[set:…]]` change is applied once, with Undo. Under both ids,
+                // as `send` does, so the history reload below keeps the turn
+                // (and its apply-once key) rather than reading it as old.
+                freshIdsRef.current.add(assistantId);
+                if (savedId != null) {
+                    dbIdRef.current.set(assistantId, savedId);
+                    freshIdsRef.current.add(savedId);
+                }
                 setMessages(prev => [...prev, {
                     id: assistantId, role: 'assistant', content: shown,
                     actions: rows,
@@ -1139,7 +1159,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // A turn still running is followed again, and that follow says
                 // its answer; one that finished meanwhile arrives only here.
                 const lost = taskId;
-                loadHistory().then(rows => {
+                // Finished meanwhile: the stored answer is this turn's, fresh
+                // like one that arrived on the socket, so a setting it changes
+                // is applied once (with Undo) rather than only stated.
+                const markFinished = (rows: ChatMessage[]) => {
+                    const last = rows[rows.length - 1];
+                    const task = useStore.getState().aiTasks.find(t => t.id === lost);
+                    if (task?.status === 'done' && last?.role === 'assistant') freshIdsRef.current.add(last.id);
+                };
+                loadHistory(undefined, markFinished).then(rows => {
                     const last = rows?.[rows.length - 1];
                     const task = useStore.getState().aiTasks.find(t => t.id === lost);
                     if (task?.status === 'done' && last?.role === 'assistant' && last.content) say(last.content);
@@ -1279,11 +1307,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const openConversation = (c: ChatConversation) => {
         if (streaming) return;
         if (c.id === conversationIdRef.current) { setShowList(false); return; }
+        // What was on screen, put back if this one cannot be read: left
+        // pointing at a conversation it could not show, the panel would send
+        // the next message into it under an empty view.
+        const prevId = conversationIdRef.current;
+        const prevMessages = messagesRef.current;
+        const prevReasoning = reasoningByMsg;
         switchTo(c.id);
         resetView();
         setLoadingHistory(true);
         loadHistory(c.id)
-            .catch(e => addToast('error', tr("Could not open the conversation"), e.message))
+            .catch(e => {
+                addToast('error', tr("Could not open the conversation"), e.message);
+                if (conversationIdRef.current !== c.id) return;
+                switchTo(prevId);
+                messagesRef.current = prevMessages;
+                setMessages(prevMessages);
+                setReasoningByMsg(prevReasoning);
+            })
             .finally(() => setLoadingHistory(false));
     };
 
@@ -1324,12 +1365,16 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             const next = startWidth + (startX - ev.clientX);
             onResize(Math.max(MIN_WIDTH, Math.min(next, Math.round(window.innerWidth * 0.6))));
         };
+        // A cancel ends the drag too: a touch the browser takes over for a
+        // scroll or a gesture sends pointercancel and never a pointerup.
         const onUp = () => {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     };
 
     // Closing on a backdrop tap is right; closing on the END of a text-selection
@@ -1392,7 +1437,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             e.preventDefault();
             dragDepth.current = nextDragDepth(dragDepth.current, 'drop');
             setDragging(false);
-            if (!streaming) composer.add(e.dataTransfer.files);
+            // Taken during a turn as well, like the "+" menu and a paste: the
+            // file waits in the composer for the next message.
+            composer.add(e.dataTransfer.files);
         },
     };
 
