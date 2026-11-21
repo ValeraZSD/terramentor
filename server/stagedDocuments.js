@@ -53,10 +53,18 @@ export function persistDocument({ nodeId = null, projectId = null, title, text, 
     return out;
 }
 
+// Runs after the document is written, so it never throws: a failed queue
+// (the recovery check reads the database) would otherwise turn a saved
+// upload or a written course into a failed one, and a course creation would
+// fall back to phases for files this course already holds.
 function afterPersist(docId, kind) {
-    indexDocument(docId); // background semantic indexing (serialized; no-op if embeddings off)
-    // PDFs may have dropped their math at the text layer — see pdfRecovery.js.
-    if (kind === 'pdf') queueRecovery(docId);
+    try {
+        indexDocument(docId); // background semantic indexing (serialized; no-op if embeddings off)
+        // PDFs may have dropped their math at the text layer — see pdfRecovery.js.
+        if (kind === 'pdf') queueRecovery(docId);
+    } catch (err) {
+        console.log(`[documents] Could not queue indexing for document ${docId}: ${String(err?.message || err).slice(0, 120)}`);
+    }
 }
 
 /** Forget staged files older than a day, and any original nothing else holds. */
