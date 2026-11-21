@@ -233,22 +233,32 @@ const refusedAs = (code, text, language = '') => {
     const v = verdict(text, language);
     return v.ok === false && v.code === code && /^Description refused: /.test(v.reason);
 };
-for (const text of ['An image.', 'A bar chart.', 'A diagram with boxes and arrows.', 'This image shows a chart.',
-    'A picture of something', 'Een afbeelding.', 'Ein Diagramm.', 'Изображение.']) {
+for (const text of ['An image.', 'A bar chart.', 'A line graph', 'A diagram with shapes and arrows.', 'This image shows a chart.',
+    'A picture of something', 'Een afbeelding.', 'Ein Diagramm.', 'Изображение.', '"A chart."']) {
     check(`says only what kind of picture it is: refused (${text})`, refusedAs('generic', text), JSON.stringify(verdict(text)));
 }
-for (const text of ['A cat', 'A bar chart of rainfall by month, highest in October', 'Text: "Ik ben moe"',
-    'Two red circles', '3 apples']) {
+// Short nouns that are filler in ANOTHER language: "die" is German, "montre"
+// French for "shows", and a table or a map is a thing a picture can show.
+for (const text of ['A cat', 'A die', 'Une montre', 'Eine Karte', 'A table', 'A map of Europe', 'A box',
+    'A bar chart of rainfall by month, highest in October', 'Text: "Ik ben moe"', 'Two red circles', '3 apples']) {
     check(`says what is in it: kept (${text})`, verdict(text).ok === true, JSON.stringify(verdict(text)));
 }
 for (const text of ["I'm sorry, but I can't see images.", 'As an AI, I cannot view pictures.',
-    'No image was provided.', 'I cannot describe this image.', 'None']) {
+    'No image was provided.', 'I cannot describe this image.', 'None', '"I\'m sorry, I can\'t see images."',
+    'Lo siento, no puedo ver imágenes.', 'Het spijt me, ik kan de afbeelding niet zien.', 'Извините, я не могу увидеть изображение.']) {
     check(`a model declining is refused (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
 }
+check('a reply wrapped in quotes is checked as its words, and stored without the quotes',
+    refusedAs('language', '"A dog sleeping on the sofa with the cat"', 'nl') && verdict('"A brown dog asleep"').text === 'A brown dog asleep');
+check('a curly apostrophe is not a quote: "’t Hoekje" leaves the rest of the sentence checked',
+    refusedAs('language', 'A sign for ‘t Hoekje with the cat’s bowl beside the door', 'nl'));
 check('...but a sign in the picture that says sorry is content', verdict('A shop sign that reads "I\'m sorry, we are closed"').ok === true);
 check('nothing at all is refused as empty', refusedAs('empty', '   '));
 check('the preamble the prompt forbids is dropped, the rest kept',
     verdict('This image shows a red apple on a table.').text === 'A red apple on a table.', JSON.stringify(verdict('This image shows a red apple on a table.')));
+check('...and a sentence that only starts like one is left whole',
+    verdict('In the photo booth, two friends pose').text === 'In the photo booth, two friends pose'
+    && verdict('The picture frame holds a drawing of a horse').text === 'The picture frame holds a drawing of a horse');
 check('the refusal names its reason, for the sweep and the Describe route',
     verdict('A chart.').reason.includes('nothing in it') && verdict('The dog is on the sofa with the cat', 'nl').reason.includes('English, not Dutch'),
     JSON.stringify([verdict('A chart.'), verdict('The dog is on the sofa with the cat', 'nl')]));
@@ -260,14 +270,38 @@ check('...and Dutch text QUOTED in an English description does not make it Dutch
     refusedAs('language', 'A shop window with the words "Het is de uitverkoop van het jaar"', 'nl'));
 check('...nor English quoted in a Dutch one make it English',
     verdict('Een bord met de tekst "The end of the road is here"', 'nl').ok === true, JSON.stringify(verdict('Een bord met de tekst "The end of the road is here"', 'nl')));
-check('an English course: a Dutch description is refused', refusedAs('language', 'Een hond die op de bank slaapt', 'en'));
+check('an English course: a description in another script is refused', refusedAs('language', 'Собака спит на диване у окна', 'en'));
+check('...a Latin-script one is not second-guessed (Dutch and English share too many words to refuse on)',
+    verdict('Een hond die op de bank slaapt', 'en').ok === true);
 check('too short to tell: kept, never guessed at', verdict('Een kat', 'en').ok === true && verdict('A cat', 'nl').ok === true);
-check('Norwegian, which the detector reads as Danish: kept',
+check('a Japanese course: a description in Latin letters is refused, Japanese with an English term kept',
+    refusedAs('language', 'A dog sleeping on the sofa with the cat', 'ja') && verdict('ソファで寝ている犬と、Python と書かれたマグカップ', 'ja').ok === true);
+check('Norwegian (no word list of its own): kept',
     verdict('En hund som sover på sofaen og er glad', 'nb').ok === true, JSON.stringify(verdict('En hund som sover på sofaen og er glad', 'nb')));
 check('...but English in a Norwegian course is refused', refusedAs('language', 'A dog sleeping on the sofa with the cat', 'nb'));
 check('a Russian course: English refused, Russian kept',
     refusedAs('language', 'A dog sleeping on the sofa with the cat', 'ru') && verdict('Собака спит на диване', 'ru').ok === true);
 check('no language known: any language kept', verdict('A dog sleeping on the sofa with the cat').ok === true && verdict('Een hond die op de bank slaapt').ok === true);
+// Ordinary descriptions, written for this list and not from the check's word
+// lists, each in the language its course asks for. None may be refused: a
+// refused good description leaves the picture with only its filename.
+const CORPUS = {
+    en: ['A man looking at a map for directions', 'A person at a computer, typing for hours', 'Students looking at a whiteboard for a lesson',
+        'A red bicycle leaning against a brick wall', 'A bar chart of rainfall by month, highest in October', 'Two hands holding a cup of tea'],
+    nl: ['De hond is groot of klein', 'De lijn is stijgend en de balk is rood', 'De staaf is hoog en de lijn is laag',
+        'Een rode fiets tegen een bakstenen muur', 'Twee kinderen spelen in de tuin', 'Kaart van Nederland met de provincies in kleur'],
+    de: ['Ein rotes Fahrrad lehnt an einer Wand', 'Die Katze schläft auf dem Sofa', 'Zwei Kinder spielen im Garten', 'Balkendiagramm des Regens pro Monat'],
+    fr: ['Une montre en or sur une table', 'Le chat dort sur le canapé', 'Deux enfants jouent dans le jardin', 'Carte de France avec les régions en couleur'],
+    es: ['La mujer de la calle', 'El gato duerme en el sofá', 'Dos niños juegan en el jardín', 'Mapa de España con las provincias'],
+    it: ['Il gatto dorme sul divano', 'Due bambini giocano in giardino', 'Una bicicletta rossa contro un muro'],
+    ru: ['Собака спит на диване', 'Двое детей играют в саду', 'Карта Европы с границами стран'],
+    ja: ['ソファで寝ている猫', '庭で遊んでいる二人の子ども', '月ごとの降水量を示す棒グラフ。十月が最も多い'],
+};
+for (const [language, texts] of Object.entries(CORPUS)) {
+    const refused = texts.filter(t => !verdict(t, language).ok);
+    check(`ordinary ${language} descriptions in a ${language} course are all kept (${texts.length})`, refused.length === 0,
+        refused.map(t => `${t} -> ${verdict(t, language).reason}`).join(' | '));
+}
 check('the language asked for: a region dropped, an unknown or "auto" one is none',
     descriptionLanguage('pt-BR') === 'pt' && descriptionLanguage('auto') === '' && descriptionLanguage('xx') === '' && descriptionLanguage(null) === '');
 
@@ -300,12 +334,32 @@ await describeMedia(preambleHash);
 check('a course with no language: the prompt is unchanged and the preamble goes',
     !promptOf().includes('Write the description in') && row(preambleHash).description === 'A cat on a mat', JSON.stringify(row(preambleHash)));
 db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ui_language', 'de')").run();
-visionSays = 'Eine Katze auf einer Matte';
-const germanHash = modelRow('katze.png');
-await describeMedia(germanHash);
-check('...unless the learner chose an interface language: then that one is asked for',
-    promptOf().includes('Write the description in German') && row(germanHash).description === 'Eine Katze auf einer Matte', promptOf().slice(0, 200));
+visionSays = 'A cat asleep on a mat';
+const undeclaredHash = modelRow('katze.png');
+await describeMedia(undeclaredHash);
+check('...even with a German interface: a deck that never said its language is not second-guessed',
+    !promptOf().includes('Write the description in') && row(undeclaredHash).description === 'A cat asleep on a mat', promptOf().slice(0, 200));
 db.prepare("DELETE FROM settings WHERE key = 'ui_language'").run();
+
+// One picture in a course with no language (its first row) and in the Dutch one.
+const { sweepOrder } = await import(S('mediaDescribe.js'));
+visionSays = 'Een kat op een mat';
+const sharedHash = modelRow('gedeeld.png');
+db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'gedeeld.png', 'image/png', 'image', 8)").run(dutchProject, sharedHash);
+await describeMedia(sharedHash, { projectId: dutchProject });
+check('a picture in two courses, swept from the Dutch one: Dutch is asked for', promptOf().includes('Write the description in Dutch'), promptOf().slice(0, 200));
+
+// The sweep's order: a refused picture goes behind the others, so three
+// refusals at the front cannot stop every later run before the rest is tried.
+visionSays = 'An image.';
+const firstHashes = [dutchRow('a1.png'), dutchRow('a2.png'), dutchRow('a3.png')];
+const laterHash = dutchRow('a4.png');
+const before4 = sweepOrder(dutchProject).map(p => p.hash);
+for (const h of firstHashes) await describeMedia(h, { projectId: dutchProject });
+const after4 = sweepOrder(dutchProject).map(p => p.hash);
+check('before: in id order', before4.indexOf(firstHashes[0]) < before4.indexOf(laterHash));
+check('after three refusals: the untried picture comes before them', after4.indexOf(laterHash) < Math.min(...firstHashes.map(h => after4.indexOf(h))), JSON.stringify(after4.map(h => h.slice(0, 6))));
+check('...and the refused ones are still pending, nothing stored', firstHashes.every(h => after4.includes(h) && row(h).description === null));
 await new Promise(ok => visionStub.close(ok));
 
 section('what the card says');

@@ -18,65 +18,83 @@
  * comes. No database and no model: `checkDescription` is a pure function of
  * the text and the language asked for.
  *
- * Precision over recall. A short honest description ("A cat") passes; only a
- * text with NOTHING in it but picture-kind words and filler fails. The
- * language check refuses only where the detector is reliable (see
- * `wrongLanguage`), because a refused good description costs a learner a
- * retry, and a kept odd one can still be corrected in Settings.
+ * Precision over recall. A short honest description ("A cat", "A die", "Une
+ * montre") passes; only a text with NOTHING in it but picture-kind words of one
+ * language fails. The language check refuses the one mistake a model makes when
+ * it ignores the instruction, English instead of the course's language, and a
+ * text in the wrong SCRIPT; it does not try to tell Dutch from German. A good
+ * description refused costs a retry and leaves the picture undescribed; an odd
+ * one kept can still be corrected in Settings.
  */
-import { catalogLanguage, detectWrittenLanguage, LATIN_SETS } from './creationLanguage.js';
+import { catalogLanguage } from './creationLanguage.js';
 
 /**
- * Words that say what KIND of picture it is, or nothing at all. A description
- * made only of these (and of numbers-free filler) describes no content. Kept to
- * the languages a model is most often asked for; any other language simply
- * passes this check.
+ * Per language, the words that say what KIND of picture it is, or nothing at
+ * all. A description made only of one language's words here describes no
+ * content. Per language, because a word empty in one is content in another
+ * ("die" is an article in German and a dice in English). Nouns that are also
+ * real subjects (a table, a map, a box, a card) are left out.
  */
-const EMPTY_WORDS = new Set((
-    // English
-    'a an the this that these it its is are of with and or in on some something things thing object objects '
-    + 'image images picture pictures photo photos photograph illustration drawing sketch figure graphic icon '
-    + 'diagram chart graph plot table map bar line pie scatter flowchart flow shows showing shown depicts depicting '
-    + 'contains containing displays displaying various several shape shapes box boxes arrow arrows label labels '
-    + 'text lines colours colors coloured colored '
-    // Dutch
-    + 'een de het van met en of iets afbeelding plaatje foto tekening figuur diagram grafiek tabel kaart toont '
-    + 'laat zien vormen pijlen tekst '
-    // German
-    + 'ein eine einer der die das von mit und oder etwas bild foto abbildung zeichnung diagramm grafik tabelle '
-    + 'karte zeigt formen pfeile '
-    // French
-    + 'un une le la les des du de et ou quelque chose image photo dessin schéma diagramme graphique tableau carte montre '
-    // Spanish
-    + 'un una el la los las de y o algo imagen foto dibujo esquema diagrama gráfico tabla mapa muestra '
-    // Russian / Ukrainian
-    + 'изображение картинка фото фотография рисунок схема диаграмма график таблица карта что-то '
-    + 'зображення малюнок графік'
-).split(/\s+/).filter(Boolean));
+const EMPTY_WORDS = Object.fromEntries(Object.entries({
+    en: 'a an the this that it its is are of with and or some something thing things object objects image images '
+        + 'picture pictures photo photos photograph illustration drawing sketch figure graphic icon diagram chart graph '
+        + 'plot shows showing shown depicts depicting contains containing displays displaying various several shapes arrows '
+        + 'labels text colourful colorful kind type',
+    nl: 'een de het dit dat van met en of iets afbeelding plaatje foto tekening figuur diagram grafiek toont laat zien '
+        + 'vormen pijlen tekst soort',
+    de: 'ein eine einer einem einen der die das dies von mit und oder etwas bild foto abbildung zeichnung diagramm grafik '
+        + 'zeigt formen pfeile text art',
+    fr: 'un une le la les des du de et ou ceci quelque chose image photo dessin schéma diagramme graphique illustration',
+    es: 'un una el la los las de y o algo imagen foto dibujo esquema diagrama gráfico ilustración muestra',
+    ru: 'это изображение картинка фото фотография рисунок схема диаграмма график что-то',
+    uk: 'це зображення картинка фото фотографія малюнок схема діаграма графік щось',
+}).map(([code, words]) => [code, new Set(words.split(/\s+/).filter(Boolean))]));
 
-/** Quoted text from the picture: content in any language, so it is neither generic nor counted for language. */
-const QUOTED = /"[^"]*"|“[^”]*”|„[^“”]*[“”]|«[^»]*»|‘[^’]*’|「[^」]*」/g;
+/** "A bar chart" is a chart of nothing: the kind words before chart/graph go with it. */
+const CHART_KIND = /\b(?:bar|line|pie|scatter|flow|area|column|staaf|lijn|cirkel|balken|linien|kreis)[\s-]?(chart|graph|diagram|plot|grafiek|diagramm)s?\b/giu;
+
+/**
+ * Quoted text from the picture: content in any language, so it is neither
+ * generic nor counted for language. A single curly quote only where it stands
+ * apart from letters: "kat’s" and "’t" are apostrophes, not quotes.
+ */
+const QUOTED = /"[^"]*"|“[^”]*”|„[^“”]*[“”]|«[^»]*»|(?<![\p{L}\p{N}])‘[^’]*’(?![\p{L}\p{N}])|「[^」]*」/gu;
+
+/** A whole reply wrapped in one pair of quotes: the wrapping goes before any check. */
+const WRAPPED = /^(?:"([^"]*)"|“([^”]*)”|«([^»]*)»|'([^']*)')$/u;
 
 /** "This image shows ...": the prompt forbids it; when a model writes it anyway, it goes. */
-const PREAMBLE = /^(?:(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\s*:?\s*|in\s+(?:this|the)\s+(?:image|picture|photo)\s*,?\s*)/i;
+const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\s*:?\s*/i;
 
-/** A model declining, or saying there is nothing to describe. Checked on the whole reply. */
+/** A model declining, or saying there is nothing to describe, in the languages models fall back to. */
 const REFUSAL = [
     /^(?:unreadable|n\/a|none|null|undefined)\.?$/i,
     /\bI(?:'m| am)\s+(?:sorry|unable|not able)\b/i,
-    /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e|help)\b/i,
+    /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e)\b/i,
     /\bas an (?:AI|language model)\b/i,
     /\bno (?:image|picture|photo) (?:was|is|has been) (?:provided|attached|included|shared)\b/i,
+    /(?<!\p{L})(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|извините|к сожалению|на жаль)(?!\p{L})/iu,
+    /(?<!\p{L})(?:ik kan (?:de |deze )?(?:afbeelding|foto) niet|ich kann (?:das |dieses )?bild nicht|no puedo ver|je ne peux pas voir|non posso vedere|не могу (?:увидеть|просмотреть|открыть)|не можу (?:побачити|переглянути))(?!\p{L})/iu,
 ];
 
 /**
- * Languages the detector tells apart by their own function words (the Latin
- * ones in `creationLanguage.js`). For these, ANY other detected language is a
- * refusal. For every other catalog language (Norwegian reads as Danish there,
- * Serbian in Latin letters as Czech) only English is: English is what a model
- * falls back to when it ignores the instruction.
+ * English words no other catalog language writes, so two of them say a text is
+ * English. Not "is", "of", "in", "at", "for", "die": Dutch, Danish and German
+ * write those too (a Dutch "De hond is groot of klein" holds two of them).
  */
-const WELL_DETECTED = new Set(Object.keys(LATIN_SETS));
+const ENGLISH_ONLY = new Set(('the and with this that from are there their which while behind between '
+    + 'showing shows has have its into onto over under beside next some white black green blue yellow brown '
+    + 'small large big').split(' '));
+
+/** The script a language is written in, for the languages that have their own. Serbian is left out: it is written in Latin letters too. */
+const SCRIPT_OF = {
+    ru: /[Ѐ-ӿ]/gu, uk: /[Ѐ-ӿ]/gu, bg: /[Ѐ-ӿ]/gu,
+    el: /[Ͱ-Ͽ]/gu,
+    ja: /[぀-ヿ一-鿿㐀-䶿]/gu, zh: /[一-鿿㐀-䶿]/gu, ko: /[가-힯ᄀ-ᇿ]/gu,
+    ar: /[؀-ۿ]/gu, he: /[֐-׿]/gu, hi: /[ऀ-ॿ]/gu,
+};
+const LATIN = /[A-Za-zÀ-ɏ]/gu;
+const count = (s, re) => (s.match(re) || []).length;
 
 /** The language asked for as a catalog code, or '' (pt-BR -> pt; unknown -> ''). */
 export function descriptionLanguage(code) {
@@ -84,45 +102,70 @@ export function descriptionLanguage(code) {
     return catalogLanguage(base) ? base : '';
 }
 
-/** Is `text` written in some other language than `wanted`? Null when it cannot be said. */
+/**
+ * Why `text` is not in `wanted`, as a language name or a script, or null when
+ * it is, or when that cannot be said with confidence.
+ *
+ *   * a language with its own script: refused when the text is written mostly
+ *     in Latin letters (at least 8 of them, under a fifth in its own script);
+ *   * any other language but English: refused when the text holds two or more
+ *     words only English writes (`ENGLISH_ONLY`);
+ *   * English: refused when the text is written mostly in another script.
+ */
 export function wrongLanguage(text, wanted) {
     const code = descriptionLanguage(wanted);
     if (!code) return null;
-    const found = detectWrittenLanguage(String(text).replace(QUOTED, ' '), catalogLanguage(code));
-    if (!found || found === code) return null;
-    if (WELL_DETECTED.has(code) || found === 'en') return found;
-    return null;
+    const s = String(text).replace(QUOTED, ' ').toLowerCase();
+    const letters = count(s, /\p{L}/gu);
+    if (letters < 8) return null;
+    const latin = count(s, LATIN);
+    if (SCRIPT_OF[code]) {
+        const own = count(s, SCRIPT_OF[code]);
+        return own < letters * 0.2 && latin >= 8 ? 'Latin letters' : null;
+    }
+    if (code === 'en') return latin < letters * 0.5 ? 'another script' : null;
+    const words = s.match(/\p{L}+/gu) || [];
+    const english = words.filter(w => ENGLISH_ONLY.has(w)).length;
+    return english >= 2 ? 'English' : null;
+}
+
+/** Does every word belong to one language's list of empty words? */
+function onlyEmptyWords(words) {
+    if (!words.length) return true;
+    return Object.values(EMPTY_WORDS).some(set => words.every(w => set.has(w)));
 }
 
 /**
  * Check one cleaned description. Returns `{ ok: true, text }` with the text to
- * store (a forbidden preamble dropped), or `{ ok: false, code, reason }`.
+ * store (a wrapping pair of quotes and a forbidden preamble dropped), or
+ * `{ ok: false, code, reason }`.
  *
  * `code` is one of `empty`, `refusal`, `generic`, `language`; `reason` is the
  * sentence the sweep and the Describe route report.
  */
 export function checkDescription(raw, { language = '' } = {}) {
     let text = String(raw ?? '').trim();
+    const wrapped = WRAPPED.exec(text);
+    if (wrapped) text = (wrapped.slice(1).find(g => g !== undefined) ?? '').trim();
     if (!text) return refuse('empty', 'the model wrote no description');
     // A sign in the picture may say "I'm sorry": quoted text is the picture's, not the model's.
-    if (REFUSAL.some(re => re.test(text.replace(QUOTED, ' ').trim()))) return refuse('refusal', 'the model said it could not describe this image');
+    const unquoted = text.replace(QUOTED, ' ').trim();
+    if (REFUSAL.some(re => re.test(unquoted))) return refuse('refusal', 'the model said it could not describe this image');
 
     const stripped = text.replace(PREAMBLE, '');
     if (stripped !== text && stripped) text = stripped.charAt(0).toLocaleUpperCase() + stripped.slice(1);
 
-    const quoted = text.match(QUOTED) || [];
-    const quotedHasLetters = quoted.some(q => /[\p{L}\p{N}]/u.test(q));
-    const words = text.replace(QUOTED, ' ').toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
-    const content = words.filter(w => !EMPTY_WORDS.has(w));
-    if (!quotedHasLetters && content.length === 0) {
+    const quotedHasLetters = (text.match(QUOTED) || []).some(q => /[\p{L}\p{N}]/u.test(q));
+    const words = text.replace(QUOTED, ' ').toLowerCase().replace(CHART_KIND, '$1')
+        .match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+    if (!quotedHasLetters && onlyEmptyWords(words)) {
         return refuse('generic', `the description names the kind of picture but nothing in it ("${text}")`);
     }
 
     const found = wrongLanguage(text, language);
     if (found) {
         const wanted = catalogLanguage(descriptionLanguage(language))?.name ?? language;
-        const got = catalogLanguage(found)?.name ?? found;
-        return refuse('language', `the description is in ${got}, not ${wanted}`);
+        return refuse('language', `the description is in ${found}, not ${wanted}`);
     }
     return { ok: true, text };
 }

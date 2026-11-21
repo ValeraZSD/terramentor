@@ -37,7 +37,6 @@ import { mediaStorage } from './vaultStorage.js';
 import { transcribeImageToText, aiProvenance, withAnswerScope } from './ai.js';
 import { decidePaperVision } from './paper.js';
 import * as tasks from './tasks.js';
-import { getSetting } from './settingsStore.js';
 import { catalogLanguage } from './creationLanguage.js';
 import { checkDescription, descriptionLanguage } from './descriptionCheck.js';
 
@@ -64,21 +63,30 @@ export function describePrompt(language) {
 
 /**
  * The language a picture's description is written in: the declared language
- * of the course it was imported into (its first row, as in the review list),
- * else the interface language when the learner chose one; '' when neither is
- * known, which keeps the prompt as it was and skips the language check.
+ * of the course it was imported into. A picture in two courses takes the one
+ * being swept (`projectId`), else its first row, as the review list does.
+ * '' when that course declares none, which keeps the prompt as it was and
+ * skips the language check: a deck that never said its language is not
+ * second-guessed from the interface language.
  */
 let languageStmt = null;
-export function describeLanguageFor(hash) {
+export function describeLanguageFor(hash, projectId = null) {
     // Prepared once: the sweep asks this for every picture.
     languageStmt ??= db.prepare(`SELECT p.content_language AS lang FROM media_files m
         LEFT JOIN projects p ON p.id = m.project_id
-        WHERE m.hash = ? ORDER BY m.id LIMIT 1`);
-    const row = languageStmt.get(hash);
-    return descriptionLanguage(row?.lang) || descriptionLanguage(getSetting('ui_language', ''));
+        WHERE m.hash = ? ORDER BY (m.project_id = ?) DESC, m.id LIMIT 1`);
+    return descriptionLanguage(languageStmt.get(hash, projectId)?.lang);
 }
 
 const MAX_DESCRIPTION = 600;
+
+/**
+ * Pictures whose last model answer the gate refused, this process: the sweep
+ * asks them after the rest. In memory on purpose: a restart (a new model, a
+ * fixed language) gives each a fresh first place, and nothing is stored about
+ * an answer that was never stored.
+ */
+const refusedBefore = new Set();
 
 /** Who wrote a description: 'author' (the deck's alt), 'learner' (an edit here), 'vision' (a model). */
 const HUMAN_SOURCES = new Set(['author', 'learner']);
@@ -200,7 +208,7 @@ export function describeStats(projectId = null) {
  * deliberate act, and it still refuses to overwrite an author's own alt text
  * unless that is what was asked for.
  */
-export async function describeMedia(hash, { force = false, model, signal } = {}) {
+export async function describeMedia(hash, { force = false, model, signal, projectId = null } = {}) {
     const row = db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash);
     if (!row) return { ok: false, reason: 'no such media' };
     if (row.kind !== 'image') return { ok: false, reason: 'only images can be described' };
@@ -217,7 +225,7 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
         return { ok: false, reason: 'the file is missing from the media store' };
     }
 
-    const language = describeLanguageFor(hash);
+    const language = describeLanguageFor(hash, projectId);
     let text;
     try {
         text = await transcribeImageToText(bytes, {
@@ -243,7 +251,11 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     // Then the gate (descriptionCheck.js): a refusal, a description of nothing
     // or one in the wrong language is not stored, and the picture stays pending.
     const verdict = checkDescription(cleaned, { language });
-    if (!verdict.ok) return { ok: false, reason: verdict.reason, refused: verdict.code };
+    if (!verdict.ok) {
+        refusedBefore.add(hash);
+        return { ok: false, reason: verdict.reason, refused: verdict.code };
+    }
+    refusedBefore.delete(hash);
     const clean = verdict.text;
 
     // `described_by` stays the mechanism the stats query counts; `generated_by`
@@ -287,10 +299,21 @@ export function cancelDescribeSweep() {
  */
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+/**
+ * The pictures a sweep asks for, in order. Those whose last answer the gate
+ * refused go last: they stay pending, and in id order the same first three
+ * would be asked again on every run and stop it (three failures in a row)
+ * before any other picture was tried.
+ */
+export function sweepOrder(projectId = null) {
+    const all = pendingDescriptions(projectId);
+    return [...all.filter(p => !refusedBefore.has(p.hash)), ...all.filter(p => refusedBefore.has(p.hash))];
+}
+
 export async function startDescribeSweep(projectId = null) {
     if (running) return { started: false, reason: 'already running' };
 
-    const pending = pendingDescriptions(projectId);
+    const pending = sweepOrder(projectId);
     if (!pending.length) return { started: false, reason: 'nothing to describe' };
 
     // Checked BEFORE reporting "started", not inside the chain. For anyone
@@ -336,12 +359,17 @@ export async function startDescribeSweep(projectId = null) {
             if (running?.cancel) break;
             // Its own record of who answered: the row it writes names the
             // model that read THIS picture (ai.js `withAnswerScope`).
-            const res = await withAnswerScope(() => describeMedia(item.hash, { model }));
+            const res = await withAnswerScope(() => describeMedia(item.hash, { model, projectId }));
             if (res.ok) { running.done++; consecutive = 0; }
             else { running.failed++; consecutive++; }
             const pct = Math.round(((running.done + running.failed) / running.total) * 100);
-            handle.update({ progress: pct, percent: pct, message: `${running.done} described, ${running.failed} failed` });
-            if (consecutive >= MAX_CONSECUTIVE_FAILURES) break;
+            // Refusals count toward the stop like any failure: a model that keeps
+            // answering in English for a Dutch course would otherwise be asked
+            // (and paid) for every picture to store nothing. The stop says why.
+            const stop = consecutive >= MAX_CONSECUTIVE_FAILURES;
+            const message = `${running.done} described, ${running.failed} failed`;
+            handle.update({ progress: pct, percent: pct, message: stop && res.reason ? `${message}. Stopped: ${res.reason}` : message });
+            if (stop) break;
             // Yield: better-sqlite3 is synchronous and this process serves SSE.
             await new Promise(r => setImmediate(r));
         }
