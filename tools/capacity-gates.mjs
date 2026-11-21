@@ -100,6 +100,7 @@ if (typeof share === 'function') {
 
     const tie = share([c(12, 'on_pace', 0.5, 30), c(3, 'on_pace', 0.5, 30)], { topics: 3 });
     check('two courses due the same day are served in the order given (the learner\'s own)', show(tie.order) === show([12, 3]), show(tie.order));
+    check('shareCapacity reads no clock', !/Date\.now|new Date\(\)/.test(share.toString()));
 }
 
 // ===========================================================================
@@ -166,6 +167,13 @@ try {
     const chipSrc = readFileSync(new URL('../src/components/feed/FeedHeader.tsx', import.meta.url), 'utf8');
     check('…and the chip prints the verdict\'s word, never "days behind"',
         /t\(LABEL\[deadline\.band\]\)/.test(chipSrc) && !/daysBehind|on track/.test(chipSrc));
+    // Colour and word read the same field: any colour but on-track prints the
+    // verdict's word, so an amber chip never says "17d left".
+    check('…the chip\'s word follows its colour (paceStatus), not a list of bands',
+        /const metric = deadline\.paceStatus !== 'on_track' \? t\(LABEL\[deadline\.band\]\) : daysLeft/.test(chipSrc));
+    const { paceStatusOf } = await import('../server/capacity.js');
+    check('…and an early learner\'s verdict is amber, so it prints its word',
+        paceStatusOf({ band: 'learning', early: true }) === 'falling_behind' && paceStatusOf({ band: 'learning' }) === 'on_track');
 
     // A course held this week is served no new work, so its overdue topics
     // are not work to catch up on (a windowless course keeps stored dates).
