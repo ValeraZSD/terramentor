@@ -17,6 +17,15 @@
 // Recomputed when the file's mtime/size moves, so a rebuild while the server is
 // running (`npm run build` in another terminal, the usual way of working here)
 // is picked up without a restart.
+//
+// The build also writes its id INTO that file, as `<meta name="build-id">`
+// (tools/vite-plugin-build-id.mjs), and this reports the stamped id when there
+// is one. That gives the page its own id to start from: without it the page
+// took whatever its first /api/build answered as "mine", so a page loaded from
+// an old cached shell whose first answer was already the new build never saw
+// itself as behind. The stamp is the hash of the document BEFORE the stamp went
+// in, so it moves exactly when the hash above would; a document with no stamp
+// (an older build) is hashed as before.
 
 import { createHash } from 'node:crypto';
 import { statSync, readFileSync, existsSync } from 'node:fs';
@@ -44,7 +53,7 @@ export function buildId(indexHtmlPath) {
     try {
         const html = readFileSync(indexHtmlPath, 'utf8');
         if (!scriptsExist(html, dirname(indexHtmlPath))) return cached ? cached.id : null;
-        const id = createHash('sha256').update(html).digest('hex').slice(0, 16);
+        const id = stampedBuildId(html) ?? hashId(html);
         cached = { path: indexHtmlPath, id, mtimeMs: st.mtimeMs, size: st.size };
         return id;
     } catch {
@@ -52,6 +61,27 @@ export function buildId(indexHtmlPath) {
         // one. The next poll a second later reads the finished file.
         return cached ? cached.id : null;
     }
+}
+
+const hashId = (html) => createHash('sha256').update(html).digest('hex').slice(0, 16);
+
+const STAMP = /<meta name="build-id" content="([0-9a-f]{16})">/;
+
+/** The id a built `index.html` carries for itself, or null when it has none. */
+export function stampedBuildId(html) {
+    return STAMP.exec(html)?.[1] ?? null;
+}
+
+/**
+ * Write the document's id into it, just before `</head>`. Called by the build
+ * on the finished `index.html` (asset tags in), so the id is the hash of the
+ * same bytes the unstamped document would have been reported by.
+ */
+export function stampBuildId(html) {
+    if (stampedBuildId(html) !== null) return html;
+    const at = html.indexOf('</head>');
+    if (at < 0) return html;
+    return `${html.slice(0, at)}    <meta name="build-id" content="${hashId(html)}">\n${html.slice(at)}`;
 }
 
 /**

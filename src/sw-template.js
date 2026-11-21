@@ -127,7 +127,10 @@ self.addEventListener('fetch', (event) => {
                 const cache = await caches.open(CACHE);
                 try {
                     const res = await fetchWithTimeout(req, 3500);
-                    cache.put('/', res.clone()).catch(() => { });
+                    // Only a real page becomes the offline shell: a proxy's 502
+                    // or a sign-in redirect stored here would be what an offline
+                    // launch shows from then on.
+                    if (res.ok && !res.redirected) cache.put('/', res.clone()).catch(() => { });
                     return res;
                 } catch {
                     return (await cache.match('/')) || (await cache.match('/index.html')) || Response.error();

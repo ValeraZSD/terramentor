@@ -87,6 +87,15 @@ export function canReloadNow(): boolean {
     return true;
 }
 
+/** `<meta name="build-id">`, written by tools/vite-plugin-build-id.mjs. */
+function ownBuildId(): string | null {
+    try {
+        return document.querySelector?.('meta[name="build-id"]')?.getAttribute('content') || null;
+    } catch {
+        return null;
+    }
+}
+
 async function readBuildId(): Promise<string | null> {
     try {
         const res = await fetch(CHECK_URL, { credentials: 'include', cache: 'no-store' });
@@ -109,6 +118,11 @@ export async function checkFreshness(force = false): Promise<void> {
     lastCheck = now;
     const id = await readBuildId();
     if (!id) return;                      // dev, or unreachable
+    // The page's own build, stamped into index.html at build time. Without it
+    // (a dev page, a build older than the stamp) the first answer stands in for
+    // it, which misses one case: a page from an old cached shell whose first
+    // answer is already the new build.
+    if (bootId === null) bootId = ownBuildId();
     if (bootId === null) { bootId = id; return; }
     if (id === bootId) return;
     bootId = id;                          // don't fire again for this one
