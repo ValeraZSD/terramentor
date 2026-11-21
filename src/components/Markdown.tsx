@@ -369,7 +369,11 @@ const htmlComponents: Components = {
     // bullet, costing contrast on every list the tutor writes.
     // `[&>p]:mb-2`: a loose item's paragraphs sit as close as the items do,
     // not a full paragraph gap apart (a title line above a nested list).
-    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed [&>p]:mb-2">{children}</li>,
+    // `[&>p:first-child]:inline`: inside `.prose` the markers are `list-inside`
+    // (index.css), and there a block first paragraph starts on the line BELOW
+    // its number. Inline, it runs beside the marker the way a tight item's text
+    // does; the paragraphs after it stay blocks, `[&>p+p]:mt-2` apart.
+    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed [&>p]:mb-2 [&>p:first-child]:inline [&>p+p]:mt-2">{children}</li>,
 
     /**
      * A collapsible step (see utils/details.ts). Native `<details>`, so the

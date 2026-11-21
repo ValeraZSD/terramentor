@@ -326,6 +326,15 @@ done.`);
     // a paragraph's (jsdom computes no styles: the class that does it is read).
     const titled = blocks('1. **First**\n\n   - a\n   - b\n2. **Second**').querySelector('li');
     check('a loose item\'s paragraphs take the list\'s spacing', !!titled && titled.querySelector(':scope > p') && /\[&>p\]:mb-2/.test(titled.className), String(titled?.className));
+    // Where `.prose` sets its markers `list-inside` (index.css), a block first
+    // paragraph starts on the line under its number. The item's first
+    // paragraph has to run inline beside the marker, as a tight item's text does.
+    const css = readFileSync(join(repoRoot, 'src/index.css'), 'utf8');
+    const proseInside = /\.prose\s+(?:ol|ul)\s*\{[^}]*list-inside/.test(css);
+    check('a loose item\'s first paragraph sits beside its number in prose lists',
+        !proseInside || (!!loose && /\[&>p:first-child\]:inline/.test(loose.className) && loose.firstElementChild?.tagName === 'P'),
+        `prose list-inside=${proseInside} li=${String(loose?.className)}`);
+    check('…and the paragraphs after it keep a gap', !proseInside || /\[&>p\+p\]:mt-\d/.test(String(loose?.className)), String(loose?.className));
     rmSync(mdScratch, { recursive: true, force: true });
 }
 
