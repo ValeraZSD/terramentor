@@ -116,7 +116,7 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
     // answered here (`spent`) it is no longer an offer, as in the banner.
     const heroHeadStart = heroTask?.headStart && !heroTask.headStart.spent ? heroTask.headStart : null;
     const offerCheck = heroReady || !!heroHeadStart;
-    // A topic finished or a quiz taken: the course is being studied, and
+    // A topic finished or a question set made: the course is being studied, and
     // "N quick questions … before any of it is taught" is no longer the page's
     // first question. The offer moves to Tools (`PlacementTool`).
     const underWay = stats.completedNodes > 0 || quizSummary.totalQuizzes > 0;

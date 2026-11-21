@@ -326,7 +326,7 @@ export default function DetailPanel() {
                     more. No count on it: one number for two kinds of thing
                     (question sets, cards) means neither, and inside each
                     count stands where it means something (a set's questions,
-                    the cards on the practise button). */}
+                    the card list). */}
                 <button data-tab="questions"
                     onClick={() => setActiveTab('questions')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'questions'

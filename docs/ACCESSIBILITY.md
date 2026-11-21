@@ -11,15 +11,15 @@ Last reviewed: 18 November 2026. This page describes the code on `main` on that 
   line (a band under the line you point at, like a ruler). Read aloud speaks cards, questions,
   lessons, notes and assistant answers with your computer's own voices, at 50 to 200% speed.
   No screen has been checked for cut-off text at the widest spacing.
-- **Keyboard only.** Studying, card review and quizzes work from the keyboard, and lists and
+- **Keyboard only.** Studying, card review and answering questions work from the keyboard, and lists and
   cards move without a drag. Resizing the sidebar and the detail panel still needs a mouse. In
   a card review a digit key rates the card even when a button has focus; Confirm before
   grading makes every answer and rating take two presses.
-- **Screen reader.** Card review, quiz answers and maths are read out; this is checked with
-  NVDA, and no other screen reader has been tried. Results of drills and quizzes are shown but
-  not read out yet.
+- **Screen reader.** Card review, answers and maths are read out; this is checked with
+  NVDA, and no other screen reader has been tried. Results of drills are shown but not read
+  out yet.
 - **Time and attention.** Motion → Reduced stops movement. Timed drills can have two or three
-  times as long, or no clock; quizzes have no clock; a mock exam's clock is optional and can
+  times as long, or no clock; the mastery check has no clock; a mock exam's clock is optional and can
   be paused. In a drill, a right answer moves on by itself after a short pause. The app sends
   no reminders or notifications. Notices on screen close by themselves after 4 seconds (8 for
   an error) unless the pointer or focus is on them. Animations a model writes are not checked
@@ -98,7 +98,7 @@ Elsewhere in the app:
   lists the same regions, courses and topics as text.
 - In Windows High Contrast and other forced-colour modes, the current page, the chosen option
   and a switch that is on are marked with an outline in a system colour.
-- Quizzes and the mastery check have no clock. A mock exam drawn from a course's own
+- The mastery check has no clock. A mock exam drawn from a course's own
   questions has an optional clock of 1 to 600 minutes, and every mock exam clock can be
   paused.
 
