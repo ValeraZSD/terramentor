@@ -58,8 +58,6 @@ async function gradeByRunning(question: QuizQuestion, answer: string): Promise<G
 }
 
 const norm = (s: string) => s.toLowerCase().trim();
-/** The form task's comparison, as the server makes it: spaces folded, case kept. */
-const squash = (s: string) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
  * Verdict for a locally graded format; null when the format needs the checker.
@@ -152,7 +150,10 @@ export async function gradeAnswer(
     } catch {
         // Grader unreachable — the same bare comparison the server would have
         // made, and reported as such so it is never written as evidence.
-        const same = form ? squash(answer) === squash(question.correct_answer) : norm(answer) === norm(question.correct_answer);
+        // On a form task every letter counts, but capitals and punctuation
+        // only when the task is about them, which a bare comparison cannot
+        // tell: the server's fallback leaves both out the same way.
+        const same = form ? normalizeTyped(answer) === normalizeTyped(question.correct_answer) : norm(answer) === norm(question.correct_answer);
         return { correct: same, answer, gradedBy: 'fallback', explanation: question.explanation };
     }
 }

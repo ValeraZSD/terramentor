@@ -34,7 +34,7 @@ import db from './database.js';
 import { masteryCheckTarget } from './today.js';
 import { drawFromNode } from './questionLog.js';
 import { getGateConfig, getSetting } from './settingsStore.js';
-import { formTested, gradeLocally, hasUsableKey } from './answerFormats.js';
+import { formTested, gradeLocally, hasUsableKey, normalizeTyped } from './answerFormats.js';
 import { getNodeLanguage } from './language.js';
 import { missedOf, missedText, shownAnswer, shownKey } from './checkFeedback.js';
 import { checkAnswerWithAI } from './ai.js';
@@ -195,8 +195,9 @@ async function gradeOne(q, raw, { form = false, forgiveSpelling = false, nodeId 
         });
         return { correct: !!res?.correct, answer, explanation: text(res?.explanation) || text(q.explanation) };
     } catch {
-        // Case counts on a form task, as in checkAnswerWithAI's own comparison.
-        const norm = (s) => { const v = String(s ?? '').replace(/\s+/g, ' ').trim(); return testsForm ? v : v.toLowerCase(); };
+        // A form task: every letter counts, capitals and punctuation do not,
+        // as in checkAnswerWithAI's own fallback.
+        const norm = (s) => testsForm ? normalizeTyped(s) : String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
         return { correct: norm(answer) === norm(q.correct_answer), answer, explanation: text(q.explanation) };
     }
 }
