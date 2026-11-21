@@ -176,32 +176,66 @@ function drillSources(nodeId) {
     return out;
 }
 
-function findDrillItem(nodeId, drillKey, itemKey) {
+/** Every drill in a node's texts, parsed once: `{ key, parsed, by }`. */
+function drillsOf(nodeId) {
+    const out = [];
+    for (const { text, by } of drillSources(nodeId)) {
+        for (const d of findDrills(text)) out.push({ key: drillKeyOf(d.body), body: d.body, by });
+    }
+    return out;
+}
+
+function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
     if (drillKey === 'cards') {
         const m = /^c(\d+)$/.exec(itemKey);
         const card = m ? stmt('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
         return card && card.node_id === nodeId
             ? { prompt: card.front, answer: card.back, cardId: card.id, by: stampWriter(card.generated_by) } : null;
     }
-    for (const { text, by } of drillSources(nodeId)) {
-        for (const d of findDrills(text)) {
-            if (drillKeyOf(d.body) !== drillKey) continue;
-            const parsed = parseDrillBody(d.body);
-            const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
-            if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by };
-        }
+    for (const { key, body, by } of drills ?? drillsOf(nodeId)) {
+        if (key !== drillKey) continue;
+        const parsed = parseDrillBody(body);
+        const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
+        if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by };
     }
     return null;
+}
+
+/**
+ * Every bank holding each of these questions, in one pass over the banks:
+ * `banksHolding` for many uuids at once.
+ */
+function banksHoldingAll(uuids) {
+    const out = new Map(uuids.map(u => [u, []]));
+    if (!uuids.length) return out;
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')}`).all(...uuids);
+    for (const r of rows) {
+        const qs = safeParse(r.questions);
+        if (!Array.isArray(qs)) continue;
+        qs.forEach((q, index) => {
+            const list = q && typeof q === 'object' ? out.get(q.uuid) : null;
+            if (list) list.push({ quizId: r.id, nodeId: r.node_id, index, question: q, stamp: r.generated_by });
+        });
+    }
+    return out;
 }
 
 /**
  * Who wrote the item a ref names, for the "Written by AI" its flag shows (EU AI
  * Act Art. 50: a reader is told which text a model wrote). `{ model }` when a
  * model did, `model` null for a model's row older than its stamp; null when a
- * person did, a file claimed nothing, or the item is gone. Never a guess: an
- * unstamped bank question or card is a person's.
+ * person did, a file claimed nothing, or the item is gone.
+ *
+ * Read from what the row says, never from its text. A feed row or placement
+ * question is a model's by where it lives (only feedGen and placement.js write
+ * them), stamped or not. A bank question, card or topic is a model's only when
+ * stamped: one made before its table had the column reads as a person's. A
+ * stamped text keeps its stamp when a person edits it in the app; a course
+ * update that rewrites it takes the file's claim instead (courseUpdate.js).
+ *
+ * `memo` (from `writtenByRefs`) holds what one request already read.
  */
-export function writtenBy(ref) {
+export function writtenBy(ref, memo = null) {
     const p = typeof ref === 'string' ? parseRef(ref) : ref;
     if (!p) return null;
     if (p.type === 'fi') {
@@ -210,7 +244,7 @@ export function writtenBy(ref) {
         return row && ['lesson', 'question', 'practice'].includes(row.kind) ? { model: stampModel(safeParse(row.meta, {})) } : null;
     }
     if (p.type === 'q') {
-        const holders = banksHolding(p.uuid);
+        const holders = memo?.banks.get(p.uuid) ?? banksHolding(p.uuid);
         const own = holders.find(h => !h.question.isGhost);
         // The question's own claim (a course file's), else its bank's stamp. A
         // review copy's bank is the practice quiz that borrowed it, so a copy
@@ -221,18 +255,31 @@ export function writtenBy(ref) {
     if (p.type === 'card') return stampWriter(stmt('SELECT generated_by FROM flashcards WHERE id = ?').get(p.cardId)?.generated_by);
     if (p.type === 'probe') {
         // Only placement.js writes these, each a model's.
-        const q = getProbeById(p.probeId)?.questions?.[p.index];
+        const probes = memo?.probes;
+        if (probes && !probes.has(p.probeId)) probes.set(p.probeId, getProbeById(p.probeId));
+        const q = (probes ? probes.get(p.probeId) : getProbeById(p.probeId))?.questions?.[p.index];
         return q ? { model: stampModel(q.generated_by) } : null;
     }
-    if (p.type === 'drill') return findDrillItem(p.nodeId, p.drillKey, p.itemKey)?.by ?? null;
+    if (p.type === 'drill') {
+        const drills = memo?.drills;
+        if (drills && !drills.has(p.nodeId)) drills.set(p.nodeId, drillsOf(p.nodeId));
+        return findDrillItem(p.nodeId, p.drillKey, p.itemKey, drills?.get(p.nodeId) ?? null)?.by ?? null;
+    }
     return null;
 }
 
-/** `writtenBy` for each ref, keyed by the ref as asked; a ref no model wrote is left out. */
+/**
+ * `writtenBy` for each ref, keyed by the ref as asked; a ref no model wrote is
+ * left out. One request reads the banks once, and each topic's drills and each
+ * placement once, however many refs name them.
+ */
 export function writtenByRefs(refs) {
+    const asked = [...new Set((refs || []).filter(r => typeof r === 'string'))];
+    const uuids = [...new Set(asked.map(parseRef).filter(p => p?.type === 'q').map(p => p.uuid))];
+    const memo = { banks: banksHoldingAll(uuids), drills: new Map(), probes: new Map() };
     const out = {};
-    for (const ref of refs || []) {
-        const by = writtenBy(ref);
+    for (const ref of asked) {
+        const by = writtenBy(ref, memo);
         if (by) out[ref] = by;
     }
     return out;

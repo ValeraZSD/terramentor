@@ -61,6 +61,8 @@ export function reportWriteMark(): number {
 /** Each list request by a running count, and per ref the count of the answer last applied. */
 let asks = 0;
 const appliedAsk = new Map<string, number>();
+/** Per ref the count of the ask whose answer last set who wrote it. */
+const writerAsk = new Map<string, number>();
 
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
@@ -70,8 +72,11 @@ async function ask(refs: string[]): Promise<void> {
         const asked = ++asks;
         try {
             const { reports, written } = await api.listItemReports({ refs: part });
-            // Who wrote an item does not move with reports: every answer holds.
-            useItemReports.setState(s => ({ written: { ...s.written, ...Object.fromEntries(part.map(r => [r, written?.[r] ?? null])) } }));
+            // Who wrote an item does not move with reports, so a report pressed
+            // meanwhile does not stale it; only the answer to a later ask does.
+            const writers = part.filter(r => (writerAsk.get(r) ?? -1) < asked);
+            for (const r of writers) writerAsk.set(r, asked);
+            useItemReports.setState(s => ({ written: { ...s.written, ...Object.fromEntries(writers.map(r => [r, written?.[r] ?? null])) } }));
             // The list's answer must not write over a newer report, nor over
             // the answer to a list asked after it (two saves of one card each
             // ask, and the answers can arrive in either order). A newer ask
