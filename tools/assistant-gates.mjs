@@ -541,6 +541,64 @@ section('the chat draws the timeline, and the terminal frame pairs text with row
     check('the tutor panel is gone, so there is one chat surface', !existsSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url))));
 }
 
+// The server records what each change replaced (server/assistantSettings.js),
+// and tells the model so on the next turn. A marker the client refuses changes
+// nothing, so recording it would tell the model it replaced a value it never
+// touched; a fourth key is dropped by the client's cap the same way.
+section('the server records only the changes the client applies');
+{
+    const { settingKeysIn, settingsBefore } = await import('../server/assistantSettings.js');
+    const outTables = join(scratch, 'tables.mjs');
+    await esbuild.build({
+        stdin: {
+            contents: "export { LANGUAGES } from './src/i18n'; export { NUMBER_STYLES } from './src/utils/numberFormat';",
+            resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts',
+        },
+        bundle: true, format: 'esm', platform: 'node', outfile: outTables, logLevel: 'silent',
+    });
+    const { LANGUAGES, NUMBER_STYLES } = await import(pathToFileURL(outTables).href);
+    const settingsSrc = readFileSync(fileURLToPath(new URL('../src/utils/assistantSettings.ts', import.meta.url)), 'utf8');
+    const namesIn = (table) => [...(settingsSrc.match(new RegExp(`const ${table}[^=]*= \\{([\\s\\S]*?)\\n\\};`))?.[1] ?? '')
+        .matchAll(/(\w+): '#/g)].map(m => m[1]);
+    const accentNames = namesIn('ACCENT_NAMES');
+    const tintNames = namesIn('TINT_NAMES');
+    check('the name tables were read off the client', accentNames.length >= 16 && tintNames.length >= 20, `${accentNames.length} accents, ${tintNames.length} tints`);
+
+    check('a value the client refuses records nothing: theme purple',
+        settingKeysIn('[[set:theme:purple]]').length === 0, JSON.stringify(settingKeysIn('[[set:theme:purple]]')));
+    check('…nor an interface size of 900', settingKeysIn('[[set:ui_scale:900]]').length === 0);
+    check('…and no value is recorded as replaced', settingsBefore('[[set:theme:purple]] [[set:ui_scale:900]]', () => null) === null);
+    check('a value it applies is recorded', settingKeysIn('[[set:theme:dark]]').join(',') === 'theme');
+    check('a fourth distinct key is dropped, as the client drops it',
+        settingKeysIn('[[set:theme:dark]] [[set:ui_scale:120]] [[set:contrast:more]] [[set:motion:reduce]]').join(',') === 'theme,ui_scale,contrast');
+    check('a refused marker does not take one of the three places',
+        settingKeysIn('[[set:theme:purple]] [[set:ui_scale:120]] [[set:contrast:more]] [[set:motion:reduce]]').join(',') === 'ui_scale,contrast,motion');
+    check('a key spelled like an object property is nothing', settingKeysIn('[[set:constructor:on]] [[set:contrast:none]]').length === 0);
+
+    // Every key and alias against every value either side knows, plus refusals.
+    const keys = ['theme', 'theme_tint', 'page colour', 'page_color', 'tint', 'accent_color', 'accent', 'ui_scale', 'scale', 'text size',
+        'ui_language', 'language', 'interface_language', 'number_format', 'numbers', 'number_separator', 'contrast', 'motion', 'reduce motion',
+        'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers',
+        'key_shortcuts', 'shortcuts', 'larger_ui', 'speech_rate', 'reading_speed', 'speech_speed', 'drill_time_scale'];
+    const values = [...new Set([
+        'system', 'light', 'Dark', 'auto', 'AUTO', 'automatic', 'warm', 'purple',
+        'standard', 'more', 'full', 'reduce', 'normal', 'wider', 'widest', 'default', 'high', 'higher', 'reduced', 'less', 'none', 'double',
+        'on', 'off', 'yes', 'no', 'true', 'false', '1', '0', 'enabled', 'disabled', 'loud',
+        '49', '50', '79', '80', '100', '120%', '160', '161', '200', '201', '900', '1e2', 'abc',
+        '#0e7490', '#ABCDEF', '#abc', 'red2', ...accentNames, ...tintNames,
+        ...LANGUAGES.flatMap(l => [l.code, l.name, l.name.toUpperCase()]), 'xx', 'English language',
+        ...NUMBER_STYLES.map(s => s.id), ...NUMBER_STYLES.map(s => s.id.replace(/\s/g, ' ')), '1_234.5',
+    ])];
+    const disagree = [];
+    for (const key of keys) for (const value of values) {
+        const client = validateSettingChange(key, value)?.key ?? null;
+        const server = settingKeysIn(`[[set:${key}:${value}]]`)[0] ?? null;
+        if (client !== server) disagree.push(`${key}:${value} client=${client} server=${server}`);
+    }
+    check(`the server's table agrees with the client's on ${keys.length * values.length} markers`, disagree.length === 0,
+        `${disagree.length} disagree, e.g. ${disagree.slice(0, 4).join('; ')}`);
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

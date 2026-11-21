@@ -43,6 +43,66 @@ const NO_TINT = '#ffffff';
 const SET_MARKER_RE = /\[\[\s*set\s*:\s*([a-z_ -]+?)\s*:\s*([^\]]+?)\s*\]\]/gi;
 
 /**
+ * The values the client's `validateSettingChange` accepts, mirrored so a marker
+ * it refuses (and so never applies) is not recorded here as a change either:
+ * a recorded one would tell the model it replaced a value it never touched.
+ * tools/assistant-gates.mjs runs both over the same markers and holds them equal.
+ */
+const THEME_WORDS = ['system', 'light', 'dark', 'auto', 'automatic'];
+const ON_WORDS = ['on', 'true', 'yes', '1', 'enabled'];
+const OFF_WORDS = ['off', 'false', 'no', '0', 'disabled'];
+const CHOICE_ALIASES = {
+    default: ['system', 'normal'], auto: ['system'], automatic: ['system'],
+    normal: ['normal', 'standard'], standard: ['standard', 'normal'], high: ['more'], higher: ['more'],
+    reduced: ['reduce'], less: ['reduce'], none: ['reduce'],
+};
+const ACCENT_WORDS = ['sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose',
+    'red', 'orange', 'amber', 'green', 'emerald', 'teal', 'ink', 'paper'];
+const TINT_WORDS = ['warm', 'cream', 'sepia', 'black', 'oled', 'ink', 'none', 'paper', 'white', 'neutral',
+    'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose',
+    'red', 'orange', 'amber', 'green', 'emerald', 'teal'];
+/** The interface languages (src/i18n/index.ts LANGUAGES), code and own name. */
+const UI_LANGUAGES = [['en', 'English'], ['de', 'Deutsch'], ['es', 'Español'], ['fr', 'Français'],
+    ['it', 'Italiano'], ['ja', '日本語'], ['nl', 'Nederlands'], ['pl', 'Polski'], ['pt', 'Português'],
+    ['ru', 'Русский'], ['uk', 'Українська'], ['zh', '中文']];
+/** src/utils/numberFormat.ts NUMBER_STYLES ids, whitespace flattened. */
+const NUMBER_STYLE_IDS = ['1,234.5', '1.234,5', '1 234,5', '1 234.5', '1234.5'];
+const HEX6 = /^#[0-9a-f]{6}$/i;
+const flat = s => s.replace(/\s+/g, ' ');
+const percentIn = (value, min, max) => {
+    const n = Math.round(Number(value.replace('%', '')));
+    return Number.isFinite(n) && n >= min && n <= max;
+};
+
+/** Whether the client would apply `[[set:<raw key>:<value>]]`; the canonical key or null. */
+function acceptedKey(rawKey, rawValue) {
+    const raw = rawKey.trim().toLowerCase().replace(/[\s-]+/g, '_');
+    // Own properties only: `constructor` is a word the marker's key can spell.
+    const key = SETTABLE_KEYS.includes(raw) ? raw : Object.hasOwn(ALIASES, raw) ? ALIASES[raw] : null;
+    const value = rawValue.trim();
+    if (!key || !value) return null;
+    const v = value.toLowerCase();
+    if (key === 'theme') return THEME_WORDS.includes(v) ? key : null;
+    if (Object.hasOwn(CHOICES, key)) {
+        const spaced = flat(v);
+        const word = raw === 'reduce_motion'
+            ? (ON_WORDS.includes(spaced) ? 'reduce' : OFF_WORDS.includes(spaced) ? 'full' : spaced)
+            : spaced;
+        const values = CHOICES[key];
+        const aliases = Object.hasOwn(CHOICE_ALIASES, word) ? CHOICE_ALIASES[word] : [];
+        return values.includes(word) || aliases.some(c => values.includes(c)) ? key : null;
+    }
+    if (Object.hasOwn(SWITCHES, key)) return ON_WORDS.includes(v) || OFF_WORDS.includes(v) ? key : null;
+    if (key === 'speech_rate') return percentIn(value, 50, 200) ? key : null;
+    if (key === 'ui_scale') return percentIn(value, 80, 160) ? key : null;
+    if (key === 'theme_tint') return TINT_WORDS.includes(v) || HEX6.test(value) ? key : null;
+    if (key === 'accent_color') return ACCENT_WORDS.includes(v) || HEX6.test(value) ? key : null;
+    if (key === 'ui_language') return v === 'auto' || UI_LANGUAGES.some(([code, name]) => code === v || name.toLowerCase() === v) ? key : null;
+    if (key === 'number_format') return v === 'auto' || NUMBER_STYLE_IDS.includes(flat(value)) ? key : null;
+    return null;
+}
+
+/**
  * Every settable value as the app currently shows it, each written as a value
  * the marker accepts — so "put it back" can copy one verbatim.
  */
@@ -76,13 +136,16 @@ export function readSettable(getSetting) {
     };
 }
 
-/** The settable keys an answer's markers name, canonical and once each. */
+/**
+ * The settable keys an answer's markers change, canonical and once each: the
+ * ones the client applies, so a value it refuses is skipped and, like its
+ * `splitSettingChanges`, at most three.
+ */
 export function settingKeysIn(content) {
     const keys = [];
     for (const m of String(content || '').matchAll(SET_MARKER_RE)) {
-        const raw = m[1].trim().toLowerCase().replace(/[\s-]+/g, '_');
-        const key = SETTABLE_KEYS.includes(raw) ? raw : ALIASES[raw];
-        if (key && !keys.includes(key)) keys.push(key);
+        const key = acceptedKey(m[1], m[2]);
+        if (key && keys.length < 3 && !keys.includes(key)) keys.push(key);
     }
     return keys;
 }
