@@ -1,6 +1,6 @@
 // Project row helpers shared by the route files.
 import db from '../database.js';
-import { k, keyed } from '../clientError.js';
+import { apiError, keyed } from '../clientError.js';
 
 // DB helpers
 
@@ -32,19 +32,21 @@ function requireProject(req, res) {
 // AI create (routes/createProject.js) and the Anki import (routes/anki.js).
 // A course file's fields are bounded by its reader instead (curriculumSchema.js
 // `token`), and a short course maps them to the palette (projectFields.js).
-// Returns the refusal, or null.
+// Returns the refusal's body, or null: a missing name is the learner's
+// (keyed), the rest only a program sends (a screen picks colour, icon and
+// position from its own lists), so they stay English (apiError).
 const PROJECT_TOKEN_MAX = 64;
 function projectFieldError({ name, description, color, icon, position }) {
-    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return k('A project needs a name');
-    if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return keyed('A project needs a name');
+    if (description !== undefined && description !== null && typeof description !== 'string') return apiError('description must be text');
     // Not null or blank either: every reader of a project expects a colour and
     // an icon, and a PUT stored `null` as sent.
     for (const [label, v] of [['color', color], ['icon', icon]]) {
         if (v !== undefined && (typeof v !== 'string' || !v.trim() || v.length > PROJECT_TOKEN_MAX)) {
-            return `${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`;
+            return apiError(`${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`);
         }
     }
-    if (position !== undefined && !(Number.isSafeInteger(position) && position >= 0)) return 'position must be a whole number, 0 or more';
+    if (position !== undefined && !(Number.isSafeInteger(position) && position >= 0)) return apiError('position must be a whole number, 0 or more');
     return null;
 }
 

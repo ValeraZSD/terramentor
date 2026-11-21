@@ -1,5 +1,5 @@
 import db from './database.js';
-import { apiError, keyed } from './clientError.js';
+import { apiError, k, keyed } from './clientError.js';
 
 /**
  * Search providers — "look this topic up somewhere else".
@@ -66,19 +66,19 @@ const MAX_DESCRIPTION = 300;
  * Never throws — this runs on untrusted input from an install endpoint.
  */
 export function validateManifest(raw) {
-    const err = (msg) => ({ ok: false, error: msg });
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return err('manifest must be a JSON object');
+    const err = (key, params) => ({ ok: false, ...keyed(key, params) });
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return err(k('manifest must be a JSON object'));
 
     const id = String(raw.id || '').trim();
     if (!ID_RE.test(id)) {
-        return err('id must be 1-40 chars, lowercase letters, digits and hyphens, not starting or ending with a hyphen');
+        return err(k('id must be 1-40 chars, lowercase letters, digits and hyphens, not starting or ending with a hyphen'));
     }
 
     const kind = String(raw.kind || '').trim();
-    if (!PROVIDER_KINDS.includes(kind)) return err(`kind must be one of: ${PROVIDER_KINDS.join(', ')}`);
+    if (!PROVIDER_KINDS.includes(kind)) return err(k('kind must be one of: {{kinds}}'), { kinds: PROVIDER_KINDS.join(', ') });
 
     const label = String(raw.label || '').trim();
-    if (!label || label.length > MAX_LABEL) return err(`label is required and must be at most ${MAX_LABEL} characters`);
+    if (!label || label.length > MAX_LABEL) return err(k('label is required and must be at most {{max}} characters'), { max: MAX_LABEL });
 
     // `label` is what a LINK says where the learner is studying ("Watch on
     // YouTube"); `name` is what the DESTINATION is called ("YouTube"), which is
@@ -87,12 +87,12 @@ export function validateManifest(raw) {
     // is a poor card title. Optional — a provider that gives only a label shows
     // that label everywhere, exactly as before.
     const name = String(raw.name || '').trim();
-    if (name.length > MAX_NAME) return err(`name must be at most ${MAX_NAME} characters`);
+    if (name.length > MAX_NAME) return err(k('name must be at most {{max}} characters'), { max: MAX_NAME });
 
     const description = String(raw.description || '').trim().slice(0, MAX_DESCRIPTION);
 
     const icon = String(raw.icon || 'search').trim();
-    if (!PROVIDER_ICONS.includes(icon)) return err(`icon must be one of: ${PROVIDER_ICONS.join(', ')}`);
+    if (!PROVIDER_ICONS.includes(icon)) return err(k('icon must be one of: {{icons}}'), { icons: PROVIDER_ICONS.join(', ') });
 
     if (kind === KIND_SEARCH_PROVIDER) {
         const check = validateUrlTemplate(raw.urlTemplate);
@@ -100,7 +100,7 @@ export function validateManifest(raw) {
 
         let surfaces = Array.isArray(raw.surfaces) ? raw.surfaces.map(String) : [...PROVIDER_SURFACES];
         surfaces = surfaces.filter(s => PROVIDER_SURFACES.includes(s));
-        if (!surfaces.length) return err(`surfaces must include at least one of: ${PROVIDER_SURFACES.join(', ')}`);
+        if (!surfaces.length) return err(k('surfaces must include at least one of: {{surfaces}}'), { surfaces: PROVIDER_SURFACES.join(', ') });
 
         return {
             ok: true,
@@ -114,7 +114,7 @@ export function validateManifest(raw) {
         };
     }
 
-    return err(`unsupported kind "${kind}"`);
+    return err(k('unsupported kind "{{kind}}"'), { kind });
 }
 
 /**
@@ -138,18 +138,18 @@ export function validateManifest(raw) {
  * bookmark, not a channel.
  */
 export function validateUrlTemplate(value) {
-    const err = (msg) => ({ ok: false, error: msg });
+    const err = (key, params) => ({ ok: false, ...keyed(key, params) });
     const template = String(value || '').trim();
-    if (!template) return err('urlTemplate is required');
-    if (template.length > MAX_URL_TEMPLATE) return err(`urlTemplate must be at most ${MAX_URL_TEMPLATE} characters`);
+    if (!template) return err(k('urlTemplate is required'));
+    if (template.length > MAX_URL_TEMPLATE) return err(k('urlTemplate must be at most {{max}} characters'), { max: MAX_URL_TEMPLATE });
 
     const placeholders = [...template.matchAll(PLACEHOLDER_RE)].map(m => m[1]);
     for (const p of placeholders) {
         if (!ALLOWED_PLACEHOLDERS.has(p)) {
-            return err(`unknown placeholder {${p}} — only {query} and {lang} are available`);
+            return err(k('unknown placeholder {{placeholder}} — only {query} and {lang} are available'), { placeholder: `{${p}}` });
         }
     }
-    if (!placeholders.includes('query')) return err('urlTemplate must contain {query}');
+    if (!placeholders.includes('query')) return err(k('urlTemplate must contain {query}'));
 
     // Parse with the placeholders filled by inert sample text, so the URL is
     // judged in the shape it will actually have.
@@ -157,11 +157,11 @@ export function validateUrlTemplate(value) {
     try {
         url = new URL(template.replace(PLACEHOLDER_RE, 'x'));
     } catch {
-        return err('urlTemplate is not a valid URL');
+        return err(k('urlTemplate is not a valid URL'));
     }
-    if (url.protocol !== 'https:') return err('urlTemplate must use https');
-    if (url.username || url.password) return err('urlTemplate must not contain credentials');
-    if (!url.hostname || !url.hostname.includes('.')) return err('urlTemplate must have a real hostname');
+    if (url.protocol !== 'https:') return err(k('urlTemplate must use https'));
+    if (url.username || url.password) return err(k('urlTemplate must not contain credentials'));
+    if (!url.hostname || !url.hostname.includes('.')) return err(k('urlTemplate must have a real hostname'));
 
     return { ok: true, urlTemplate: template };
 }
@@ -354,7 +354,7 @@ export function saveProvider(raw) {
     const { manifest } = result;
 
     const existing = db.prepare('SELECT builtin FROM search_providers WHERE id = ?').get(manifest.id);
-    if (existing?.builtin) return { ok: false, error: `"${manifest.id}" is a built-in provider and cannot be replaced` };
+    if (existing?.builtin) return { ok: false, ...keyed('"{{id}}" is a built-in provider and cannot be replaced', { id: manifest.id }) };
 
     db.prepare(`
         INSERT INTO search_providers (id, kind, manifest, enabled, builtin)

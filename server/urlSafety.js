@@ -37,15 +37,27 @@ const HOST_WITH_PORT = /^[^/\s:?#]+:\d+(?:[/?#]|$)/;
  */
 const NON_WEB_SCHEMES = ['javascript:', 'data:', 'mailto:', 'tel:', 'sms:', 'file:', 'ftp:', 'blob:', 'vbscript:', 'about:', 'urn:'];
 
+// A refusal is said two ways. `reason` is a fragment for a line of English
+// that frames it ("Invalid URL in …: <reason>": an import's warnings, the
+// assistant's checks the model reads). `messageKey` + `params` are the whole
+// sentence a learner reads, translated from src/locales (server/clientError.js
+// `keyed` fills the English); one sentence per reason, since a fragment
+// cannot be translated into another language's frame. `k` marks the keys for
+// tools/lib/i18nKeys.mjs, here and not imported, to keep this module bare.
+const k = (key) => key;
+const refused = (reason, messageKey, params) => ({ ok: false, reason, messageKey, ...(params ? { params } : {}) });
+
 /**
  * @param {unknown} value
- * @returns {{ok: true, url: string} | {ok: false, reason: string}}
+ * @returns {{ok: true, url: string} | {ok: false, reason: string, messageKey: string, params?: object}}
  *   `ok` with an empty string means "no URL", which is a valid resource.
  */
 export function sanitizeUrl(value) {
     const raw = String(value == null ? '' : value).trim();
     if (!raw) return { ok: true, url: '' };
-    if (raw.length > MAX_URL_LENGTH) return { ok: false, reason: `longer than ${MAX_URL_LENGTH} characters` };
+    if (raw.length > MAX_URL_LENGTH) {
+        return refused(`longer than ${MAX_URL_LENGTH} characters`, k('The link is longer than {{max}} characters.'), { max: MAX_URL_LENGTH });
+    }
 
     let url = parse(raw);
 
@@ -62,18 +74,21 @@ export function sanitizeUrl(value) {
         && !NON_WEB_SCHEMES.includes(url.protocol) && HOST_WITH_PORT.test(raw);
     if (!url || hostWithPort) {
         const prefixed = parse(`https://${raw}`);
-        if (!prefixed) return { ok: false, reason: 'not a valid URL' };
+        if (!prefixed) return refused('not a valid URL', k('The link is not a valid web address.'));
         url = prefixed;
         normalized = `https://${raw}`;
     }
 
     if (!SAFE_URL_PROTOCOLS.includes(url.protocol)) {
-        return { ok: false, reason: `scheme "${url.protocol}" is not allowed (http or https only)` };
+        return refused(`scheme "${url.protocol}" is not allowed (http or https only)`,
+            k('This link starts with {{scheme}}; only http and https links can be saved.'), { scheme: url.protocol });
     }
     // Browsers still honour https://user:pass@host/, which makes a hostile URL
     // read as a familiar one at a glance.
-    if (url.username || url.password) return { ok: false, reason: 'must not contain credentials' };
-    if (!url.hostname) return { ok: false, reason: 'has no hostname' };
+    if (url.username || url.password) {
+        return refused('must not contain credentials', k('A link must not contain a user name or password.'));
+    }
+    if (!url.hostname) return refused('has no hostname', k('The link has no website name in it.'));
 
     return { ok: true, url: normalized };
 }

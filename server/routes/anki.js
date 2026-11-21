@@ -71,7 +71,7 @@ app.post('/api/import/anki/commit', (req, res) => {
     const pickedName = unset(projectName) ? undefined : projectName;
     const pickedColor = unset(color) ? undefined : color;
     const fieldError = projectFieldError({ name: pickedName, color: pickedColor });
-    if (fieldError) return res.status(400).json(keyed(fieldError));
+    if (fieldError) return res.status(400).json(fieldError);
     try {
         const result = commitImport(parsed, {
             projectName: pickedName?.trim(),

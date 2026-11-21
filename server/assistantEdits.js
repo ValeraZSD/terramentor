@@ -301,7 +301,7 @@ export function saveAssistantLink({ projectId = null, nodeId, url, title = '', s
     if (!node) throw new EditError(404, 'That topic does not exist.');
     if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
     const checked = sanitizeUrl(url);
-    if (!checked.ok) throw new EditError(400, 'Not a link the app can open: {{reason}}.', { fields: ['url'] }, { reason: checked.reason });
+    if (!checked.ok) throw new EditError(400, checked.messageKey, { fields: ['url'] }, checked.params);
     const same = db.prepare('SELECT id FROM resources WHERE node_id = ? AND url = ?').get(node.id, checked.url);
     if (same) return { existed: true, resourceId: same.id };
     const name = oneLine(String(title || ''), LINK_TITLE_MAX) ?? checked.url.slice(0, LINK_TITLE_MAX);
