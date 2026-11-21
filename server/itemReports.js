@@ -114,12 +114,12 @@ const projectOf = (nodeId) => stmt('SELECT project_id FROM nodes WHERE id = ?').
 
 /** Every bank row holding this question: its own copy and review copies elsewhere. */
 function banksHolding(uuid) {
-    const rows = stmt(`SELECT id, node_id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(uuid);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM quizzes WHERE instr(questions, ?) > 0`).all(uuid);
     const out = [];
     for (const r of rows) {
         const qs = safeParse(r.questions);
         if (!Array.isArray(qs)) continue;
-        qs.forEach((q, index) => { if (q && typeof q === 'object' && q.uuid === uuid) out.push({ quizId: r.id, nodeId: r.node_id, index, question: q }); });
+        qs.forEach((q, index) => { if (q && typeof q === 'object' && q.uuid === uuid) out.push({ quizId: r.id, nodeId: r.node_id, index, question: q, stamp: r.generated_by }); });
     }
     return out;
 }
@@ -142,35 +142,100 @@ function questionView(q) {
     return out;
 }
 
-/** Text of a drill's home: the topic's Overview, its Material notes and its lesson rows. */
+/**
+ * The model id in a provenance stamp: `{"provider","model"}` (`aiProvenance()`),
+ * `{"model","via":"import"}` (a course file's claim), a meta blob holding
+ * `model`, or the bare id a question's own claim carries. Null when it names none.
+ */
+function stampModel(stamp) {
+    const v = typeof stamp === 'string' && stamp.trim().startsWith('{') ? safeParse(stamp) : stamp;
+    const model = v && typeof v === 'object' ? v.model : v;
+    return typeof model === 'string' && model.trim() ? model.trim() : null;
+}
+
+/** A row's `generated_by` as who wrote it: `{ model }`, or null when no model did (NULL = none). */
+const stampWriter = (stamp) => {
+    const model = stampModel(stamp);
+    return model ? { model } : null;
+};
+
+/**
+ * Text of a drill's home, each with who wrote it: the topic's Overview and its
+ * Material notes (the node's own stamp), and its lesson rows (always a model's).
+ */
 function drillSources(nodeId) {
-    const texts = [];
-    const node = stmt('SELECT description FROM nodes WHERE id = ?').get(nodeId);
-    if (node?.description) texts.push(node.description);
-    for (const n of stmt('SELECT description FROM nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
-        if (n.description) texts.push(n.description);
+    const out = [];
+    const node = stmt('SELECT description, generated_by FROM nodes WHERE id = ?').get(nodeId);
+    if (node?.description) out.push({ text: node.description, by: stampWriter(node.generated_by) });
+    for (const n of stmt('SELECT description, generated_by FROM nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
+        if (n.description) out.push({ text: n.description, by: stampWriter(n.generated_by) });
     }
-    for (const r of stmt(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
-        if (r.content) texts.push(r.content);
+    for (const r of stmt(`SELECT content, meta FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
+        if (r.content) out.push({ text: r.content, by: { model: stampModel(safeParse(r.meta, {})) } });
     }
-    return texts;
+    return out;
 }
 
 function findDrillItem(nodeId, drillKey, itemKey) {
     if (drillKey === 'cards') {
         const m = /^c(\d+)$/.exec(itemKey);
-        const card = m ? stmt('SELECT id, node_id, front, back FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
-        return card && card.node_id === nodeId ? { prompt: card.front, answer: card.back, cardId: card.id } : null;
+        const card = m ? stmt('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
+        return card && card.node_id === nodeId
+            ? { prompt: card.front, answer: card.back, cardId: card.id, by: stampWriter(card.generated_by) } : null;
     }
-    for (const text of drillSources(nodeId)) {
+    for (const { text, by } of drillSources(nodeId)) {
         for (const d of findDrills(text)) {
             if (drillKeyOf(d.body) !== drillKey) continue;
             const parsed = parseDrillBody(d.body);
             const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
-            if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null };
+            if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by };
         }
     }
     return null;
+}
+
+/**
+ * Who wrote the item a ref names, for the "Written by AI" its flag shows (EU AI
+ * Act Art. 50: a reader is told which text a model wrote). `{ model }` when a
+ * model did, `model` null for a model's row older than its stamp; null when a
+ * person did, a file claimed nothing, or the item is gone. Never a guess: an
+ * unstamped bank question or card is a person's.
+ */
+export function writtenBy(ref) {
+    const p = typeof ref === 'string' ? parseRef(ref) : ref;
+    if (!p) return null;
+    if (p.type === 'fi') {
+        // Only feedGen writes the rows a learner reads here, each a model's.
+        const row = stmt('SELECT kind, meta FROM feed_items WHERE id = ?').get(p.feedItemId);
+        return row && ['lesson', 'question', 'practice'].includes(row.kind) ? { model: stampModel(safeParse(row.meta, {})) } : null;
+    }
+    if (p.type === 'q') {
+        const holders = banksHolding(p.uuid);
+        const own = holders.find(h => !h.question.isGhost);
+        // The question's own claim (a course file's), else its bank's stamp. A
+        // review copy's bank is the practice quiz that borrowed it, so a copy
+        // on its own speaks only through its own claim.
+        if (own) return stampWriter(own.question.generated_by) ?? stampWriter(own.stamp);
+        return holders.map(h => stampWriter(h.question.generated_by)).find(Boolean) ?? null;
+    }
+    if (p.type === 'card') return stampWriter(stmt('SELECT generated_by FROM flashcards WHERE id = ?').get(p.cardId)?.generated_by);
+    if (p.type === 'probe') {
+        // Only placement.js writes these, each a model's.
+        const q = getProbeById(p.probeId)?.questions?.[p.index];
+        return q ? { model: stampModel(q.generated_by) } : null;
+    }
+    if (p.type === 'drill') return findDrillItem(p.nodeId, p.drillKey, p.itemKey)?.by ?? null;
+    return null;
+}
+
+/** `writtenBy` for each ref, keyed by the ref as asked; a ref no model wrote is left out. */
+export function writtenByRefs(refs) {
+    const out = {};
+    for (const ref of refs || []) {
+        const by = writtenBy(ref);
+        if (by) out[ref] = by;
+    }
+    return out;
 }
 
 /**

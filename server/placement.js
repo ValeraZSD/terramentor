@@ -61,7 +61,7 @@
 import db from './database.js';
 import { applySeededPrior, forgetSeed, GUESS_BY_QUESTION_TYPE } from './mastery.js';
 import { layTopicDates } from './scheduling.js';
-import { AI_PROMPTS, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
+import { AI_PROMPTS, aiProvenanceFields, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
 import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
@@ -705,6 +705,7 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             context, phaseTitle: target.phase_title, lang, priorFault,
         });
         let parsed;
+        let writer;
         try {
             // `operation: 'questions'` buys the 300s budget (a thinking local model
             // blows the 120s default on most targets) and the `high` effort a
@@ -712,6 +713,8 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             const resp = await generateResponse(user, system, [], {
                 temperature: 0.4, signal, operation: 'questions',
             });
+            // Read now, before the verifier answers: the model that wrote it.
+            writer = aiProvenanceFields().model ?? null;
             if (!/\{[\s\S]*\}/.test(resp)) { priorFault = 'the reply contained no JSON object'; continue; }
             parsed = parseQuestionReply(resp);
         } catch (err) {
@@ -753,6 +756,9 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             // before carry `false`, and `applyProbeSeeds` refuses to seed from
             // those.
             verified: true,
+            // The model id alone, as a question's own claim is written
+            // (courseFiles.js); the learner's flag says "Written by AI" from it.
+            ...(writer ? { generated_by: writer } : {}),
         };
     }
     console.warn(`[Placement] dropped target "${target.title}": ${priorFault}`);
