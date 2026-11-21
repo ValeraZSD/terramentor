@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import ReadAloudButton from '../ui/ReadAloudButton';
 import ReadingLine from '../ui/ReadingLine';
 import { ExplainBack, PreQuestions } from './LessonPrompts';
+import { useStreamHeading } from './streamCourse';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
@@ -37,6 +38,7 @@ interface Props {
  */
 function EarlierParts({ card }: { card: FeedLessonCard }) {
     const { t } = useTranslation();
+    const PartHeading = useStreamHeading(4);
     const known = card.readBefore ?? [];
     const [parts, setParts] = useState<FeedReadPart[] | null>(null);
     const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -125,9 +127,9 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                             {t("Part {{n}} of {{total}}", { n: p.partIndex, total: p.partCount ?? card.partCount })}
                         </p>
                         {heading && (
-                            <h4 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white leading-snug mb-2">
+                            <PartHeading className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white leading-snug mb-2">
                                 {heading}
-                            </h4>
+                            </PartHeading>
                         )}
                         <Markdown
                             content={body}
@@ -176,6 +178,7 @@ export function splitLessonHeading(markdown: string, partTitle: string | null): 
  */
 export default function LessonCard({ card, done, onDone, offerEarlier = true }: Props) {
     const { t } = useTranslation();
+    const Heading = useStreamHeading(3);
     const consumeFeedCard = useStore(s => s.consumeFeedCard);
     const repairFeedVisual = useStore(s => s.repairFeedVisual);
 
@@ -270,9 +273,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                             <p className="text-2xs font-semibold text-accent-fg">{label}</p>
                         )}
                         {heading && (
-                            <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
+                            <Heading className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
                                 {heading}
-                            </h3>
+                            </Heading>
                         )}
                     </div>
                     {flag}

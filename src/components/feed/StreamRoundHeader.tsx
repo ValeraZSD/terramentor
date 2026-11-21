@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import { useStreamHeading } from './streamCourse';
 
 /**
  * The head of a round in the study stream (the recall round, the look back,
@@ -10,13 +11,14 @@ export default function StreamRoundHeader({ icon: Icon, title, detail }: {
     title: string;
     detail: string;
 }) {
+    const Heading = useStreamHeading(2);
     return (
-        <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+        <Heading className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
             <Icon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>
                 {title}
                 <span className="block font-normal text-slate-600 dark:text-slate-400">{detail}</span>
             </span>
-        </h2>
+        </Heading>
     );
 }

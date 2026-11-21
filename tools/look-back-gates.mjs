@@ -24,8 +24,9 @@
  *   5. the mock window: a real exam (a date that cannot move, or the exam
  *      described) 1 to 21 days away turns the offer into the full mock, at
  *      most once a week, and no look back is offered inside it;
- *   6. the stream: the offer heads the opening page of a course stream and of
- *      Today (one card, for one course), never a topic's stream or a later page;
+ *   6. the stream: the offer heads the opening page of a course stream, and on
+ *      Today the block of the first course that has one (one card a visit),
+ *      never a topic's stream or a later page of a course;
  *   7. the routes and the card: offer, start and skip over HTTP; the card holds
  *      two buttons and the stream renders it.
  *
@@ -354,13 +355,30 @@ try {
         wellAfter.log(1, 'quiz', 1, new Date(missMs + 2 * 60_000));
         check('another of its questions right two minutes after: the missed one no longer leads', wellAfter.order()[0] !== 2, JSON.stringify(wellAfter.order()));
 
-        // On Today the round reviews the course studied next (Biology here) when
-        // it has topics fading; a slip in another course joins it all the same.
+        // On Today each course's block opens with its own round: Biology's
+        // fading topic in Biology's, and a slip in another course at the head
+        // of that course's block, never inside Biology's.
         db.prepare("UPDATE node_mastery SET mastery_score = 0.9, last_updated = ? WHERE node_id = ?").run(sqlStamp(at(0)), c1);
         db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, last_updated) VALUES (?, 0.3, 1, ?)').run(optics, sqlStamp(at(20, 2)));
-        const today = composeFeed({ now: later, excludeKeys: new Set() });
+        // Optics also has cards due, so a stream that mixes courses would
+        // bring Optics back lower down the page, after Biology's items.
+        for (let i = 0; i < 4; i++) {
+            db.prepare('INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, ?)')
+                .run(optics, `lens front ${i}`, `lens back ${i}`, at(19).toISOString());
+        }
+        const today =composeFeed({ now: later, excludeKeys: new Set() });
         const recallOn = today.items.filter(i => i.kind === 'recall').map(i => i.nodeId);
-        check("Today: another course's slip is in the round beside the next course's fading topic", recallOn.includes(c1) && recallOn.includes(optics), JSON.stringify(recallOn));
+        const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
+        const opensItsBlock = (nodeId) => {
+            const at_ = today.items.findIndex(i => i.kind === 'recall' && i.nodeId === nodeId);
+            if (at_ < 0) return false;
+            const course = today.items[at_].projectId;
+            return today.items.slice(today.items.findIndex(i => courseOf(i) === course), at_ + 1)
+                .every(i => i.kind === 'recall' && i.projectId === course);
+        };
+        check("Today: another course's slip opens that course's own block, in its round", opensItsBlock(c1) && opensItsBlock(optics), JSON.stringify(recallOn));
+        const runs = today.items.map(courseOf).filter((c, i, all) => c != null && c !== all[i - 1]);
+        check("...and never sits inside another course's block: no course comes back lower on the page", new Set(runs).size === runs.length, JSON.stringify(runs));
         const todayList = buildTodayData({ today: studyToday({ now: later.getTime() }), now: later }).decayingTopics.map(d => d.nodeId);
         check("Today's list puts the slip ahead of a topic fading longer", todayList.indexOf(optics) > -1 && todayList.indexOf(optics) < todayList.indexOf(c1), JSON.stringify(todayList));
         db.prepare("UPDATE node_mastery SET last_updated = ? WHERE node_id = ?").run(sqlStamp(at(20, 2)), c1);
@@ -445,6 +463,12 @@ try {
         const home = composeFeed({ now, excludeKeys: new Set() });
         check('Today carries one offer, for one course', home.items.filter(i => i.kind === 'lookback').length === 1,
             JSON.stringify(home.items.filter(i => i.kind === 'lookback').map(i => i.key)));
+        const offer = home.items.find(i => i.kind === 'lookback');
+        const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
+        // A guard: with one course offering, the old single head passed this too.
+        check("...and it opens its own course's block, ahead of that course's round (a guard)",
+            offer != null && home.items.find(i => courseOf(i) === offer.projectId) === offer,
+            JSON.stringify(home.items.slice(0, 4).map(i => [i.kind, courseOf(i)])));
 
         // An offer with nothing else to serve: the stream still says why (no
         // model here), and never "all caught up" over a look back it offers.
@@ -491,7 +515,7 @@ try {
         // never a title inside it: the offer names no nodeTitle and both use StreamRoundHeader.
         check('it wears the recall round\'s header, above its card', /<StreamRoundHeader\b/.test(card) && /<StreamRoundHeader\b/.test(view) && !/nodeTitle=/.test(card));
         // On a course's own page the header names the course: no card under it repeats that line.
-        // Today mixes courses and keeps it (the provider gives null there).
+        // On Today each course block's header does the same (course-blocks-gates.mjs).
         const shell = readFileSync(join(ROOT, 'src', 'components', 'feed', 'FeedCardShell.tsx'), 'utf8');
         const chapter = readFileSync(join(ROOT, 'src', 'components', 'feed', 'ChapterGroup.tsx'), 'utf8');
         check('a card on a course\'s page does not repeat the course name',
