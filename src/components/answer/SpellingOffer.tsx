@@ -35,6 +35,9 @@ export default function SpellingOffer({ question, answer, projectId, className =
     const [pressed, setPressed] = useState(false);
     const focusLine = useRef(false);
     const confirmed = pressed && on;
+    // The save failed and the offer is back: a later turn-on from elsewhere
+    // must not pull focus to this line.
+    if (pressed && !on) focusLine.current = false;
     if (!plainCourse || (on && !pressed) || !answer || spellingSlipOf(question, answer) === null) return null;
     const line = cx('text-sm text-slate-600 dark:text-slate-400', className);
     // One live region for both lines, like the report line beside it. The
