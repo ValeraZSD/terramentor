@@ -215,10 +215,12 @@ await block('2. paging through the whole visit', async () => {
     }
 
     // The reader is mid-Physics when Dutch becomes more urgent (new overdue
-    // topics): Physics continues before Dutch opens.
+    // topics, and a nearer date: the library's week serves the nearest date
+    // first): Physics continues before Dutch opens.
     const page1 = feed({ limit: 5 });
     check('a short first page ends inside Physics’ block', courseOf(page1.items.at(-1)) === physics, named(blocksOf(page1.items)));
     const extra = ['Werkwoorden', 'Bijzinnen', 'Voorzetsels', 'Telwoorden', 'Klokkijken'].map(t => lesson(dutch, t));
+    db.prepare(`UPDATE projects SET deadline = '2098-01-01' WHERE id = ?`).run(dutch);
     try {
         const exclude = new Set(page1.items.map(i => i.key));
         const told = feed({ limit: 5, excludeKeys: exclude, courses: blocksOf(page1.items) });
@@ -272,6 +274,7 @@ await block('2. paging through the whole visit', async () => {
         }
     } finally {
         for (const id of extra) db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
+        db.prepare(`UPDATE projects SET deadline = '2099-01-01' WHERE id = ?`).run(dutch);
     }
 });
 
