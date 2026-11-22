@@ -4,6 +4,7 @@ import { projectProgress, projectCountsInCards } from './progress.js';
 import { headStartsForProject, scheduleShare } from './headStart.js';
 import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
 import { topicDatesOf } from './topicDates.js';
+import { k, keyed } from './clientError.js';
 
 // Constants
 
@@ -123,10 +124,10 @@ export function isScheduleDate(value) {
  * check behind every door that writes or schedules a window.
  */
 export function scheduleWindowError(startDate, deadline) {
-    if (!isScheduleDate(startDate)) return 'Start date must be a date written YYYY-MM-DD.';
-    if (!isScheduleDate(deadline)) return 'Deadline must be a date written YYYY-MM-DD.';
-    if (startDate > deadline) return 'Start date must be before deadline.';
-    if (daysBetween(startDate, deadline) > MAX_SCHEDULE_DAYS) return 'A schedule can span at most 20 years.';
+    if (!isScheduleDate(startDate)) return k('Start date must be a date written YYYY-MM-DD.');
+    if (!isScheduleDate(deadline)) return k('Deadline must be a date written YYYY-MM-DD.');
+    if (startDate > deadline) return k('Start date must be before deadline.');
+    if (daysBetween(startDate, deadline) > MAX_SCHEDULE_DAYS) return k('A schedule can span at most 20 years.');
     return null;
 }
 
@@ -146,7 +147,7 @@ export function lockedDeadlineError(projectId, deadline, lock) {
     lockStmt ??= db.prepare('SELECT deadline, deadline_fixed FROM live_projects projects WHERE id = ?');
     const row = lockStmt.get(projectId);
     if (!row || !row.deadline_fixed || (deadline ?? null) === row.deadline) return null;
-    return 'This date is marked as an exam date that cannot move. Take the mark off to change it.';
+    return k('This date is marked as an exam date that cannot move. Take the mark off to change it.');
 }
 
 /**
@@ -545,16 +546,16 @@ export function allocateSchedule(projectId, startDate, deadline, studyDays) {
     const { leaves, nodeMap } = getLeafNodesSequential(projectId);
 
     if (leaves.length === 0) {
-        return { success: false, error: 'No actionable items to schedule. Add topics first.' };
+        return { success: false, ...keyed('No actionable items to schedule. Add topics first.') };
     }
 
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
 
     const validDates = getValidStudyDates(startDate, deadline, studyDays);
 
     if (validDates.length === 0) {
-        return { success: false, error: 'No valid study days between start date and deadline.' };
+        return { success: false, ...keyed('No valid study days between start date and deadline.') };
     }
 
     // Step 1: Weight every leaf (user override or depth-discounted default,
@@ -652,10 +653,10 @@ function cardTotals(projectId) {
  */
 function allocateCardWindow(projectId, startDate, deadline, studyDays) {
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
     const validDays = countStudyDays(startDate, deadline, studyDays);
     if (validDays === 0) {
-        return { success: false, error: 'No valid study days between start date and deadline.' };
+        return { success: false, ...keyed('No valid study days between start date and deadline.') };
     }
     const { cards } = cardTotals(projectId);
     const cardsPerDay = Math.round((cards / validDays) * 10) / 10;
@@ -817,12 +818,12 @@ export function recalibrateSchedule(projectId) {
     // A deadline with no start date is no window: nothing derives its topic
     // dates (`layTopicDates`), so a "recalibrated" plan would change nothing.
     if (!project || !project.deadline || !project.start_date) {
-        return { success: false, error: 'No schedule exists for this project. Create one first.' };
+        return { success: false, ...keyed('No schedule exists for this project. Create one first.') };
     }
     // Its plan is the window, and there are no topic dates to move — the clock
     // cannot be spread again, only the window changed.
     if (projectCountsInCards(projectId)) {
-        return { success: false, error: 'This project is measured in cards and has no topics to reschedule. Change its dates instead.' };
+        return { success: false, ...keyed('This project is measured in cards and has no topics to reschedule. Change its dates instead.') };
     }
     return layOpenFromToday(projectId, project.deadline, readStudyDays(project.study_days));
 }
@@ -838,7 +839,7 @@ function layOpenFromToday(projectId, deadline, studyDays) {
         const suggestedDeadline = addDays(startDate, Math.ceil(neededDays));
         return {
             success: false,
-            error: `Deadline (${deadline}) has already passed.`,
+            ...keyed('Deadline ({{deadline}}) has already passed.', { deadline }),
             suggestedDeadline,
         };
     }
@@ -854,12 +855,12 @@ function layOpenFromToday(projectId, deadline, studyDays) {
     // Today to the stored deadline: a row written before the routes checked
     // windows may hold anything, and must fail here rather than loop.
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
 
     const validDates = getValidStudyDates(startDate, deadline, studyDays);
 
     if (validDates.length === 0) {
-        return { success: false, error: 'No valid study days remaining between today and deadline.' };
+        return { success: false, ...keyed('No valid study days remaining between today and deadline.') };
     }
 
     // Calculate weights for open leaves only, then run the SAME phase-aware

@@ -66,6 +66,7 @@ import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agen
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
 import { isUnverified } from './questionTrust.js';
+import { KeyedError } from './clientError.js';
 
 // Long enough to say something, short enough to still read as a warm-up. An
 // unfinished probe seeds only what it measured.
@@ -392,7 +393,7 @@ export function createProbe(projectId, { limit = MAX_PROBE_QUESTIONS } = {}) {
     withdrawPlacement(projectId);
     db.prepare('DELETE FROM placement_probes WHERE project_id = ?').run(projectId);
     const targets = selectProbeTargets(projectId, { limit });
-    if (targets.length === 0) throw new Error('This project has no unmeasured topics left to place.');
+    if (targets.length === 0) throw new KeyedError('This project has no unmeasured topics left to place.');
     db.prepare(
         "INSERT INTO placement_probes (project_id, state, targets) VALUES (?, 'generating', ?)"
     ).run(projectId, JSON.stringify(targets));
@@ -418,8 +419,8 @@ export function failProbe(probeId, message) {
  */
 export function recordProbeAnswer(probeId, { questionIndex, correct }) {
     const probe = hydrateProbe(probeRow.get(probeId));
-    if (!probe) throw new Error('Probe not found');
-    if (probe.state === 'done') throw new Error('This probe is already finished');
+    if (!probe) throw new KeyedError('Probe not found');
+    if (probe.state === 'done') throw new KeyedError('This probe is already finished');
 
     const question = probe.questions[questionIndex];
     if (!question) throw new Error(`No probe question at index ${questionIndex}`);
@@ -792,7 +793,7 @@ export async function generateProbeQuestions(probe, { emit, signal } = {}) {
     }
     if (questions.length === 0) {
         failProbe(probe.id, 'no question could be written soundly');
-        throw new Error('No probe question could be written soundly — the model may be unreachable. You can start studying without a placement; the feed works the same way.');
+        throw new KeyedError('No probe question could be written soundly — the model may be unreachable. You can start studying without a placement; the feed works the same way.');
     }
     setProbeQuestions(probe.id, questions);
     emit?.({ phase: 'ready', written: questions.length, total: probe.targets.length });
@@ -807,7 +808,7 @@ export async function generateProbeQuestions(probe, { emit, signal } = {}) {
  */
 export async function answerProbeQuestion(probeId, questionIndex, userAnswer) {
     const probe = getProbeById(probeId);
-    if (!probe) throw new Error('Probe not found');
+    if (!probe) throw new KeyedError('Probe not found');
     const q = probe.questions[questionIndex];
     if (!q) throw new Error(`No probe question at index ${questionIndex}`);
 

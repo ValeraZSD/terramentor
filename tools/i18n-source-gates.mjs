@@ -302,6 +302,9 @@ check('every sentence a ternary can render is a translation key, not a literal',
 // translation is gone in eleven languages. The keys with no client call site
 // are marked with k() (SERVER_CREATION_MESSAGE_KEYS in ProjectsGrid.tsx); this
 // is the net for the one somebody adds server-side and forgets to mark.
+// Every server file is read: the frames moved out of server/index.js into
+// routes/createProject.js and creationStages.js, and a scan of index.js alone
+// read nothing and passed. A plural key lives in en.json as `_one`/`_other`.
 const scanServerMessageKeys = (src) => {
     const out = [];
     for (const m of src.matchAll(/\bmessageKey:\s*('((?:[^'\\]|\\.)*)'|`([^`]*)`)/g)) {
@@ -313,11 +316,38 @@ const scanServerMessageKeys = (src) => {
     }
     return out;
 };
-const serverIndexSrc = decomment(readFileSync(join(root, 'server', 'index.js'), 'utf8'));
-const missingServerKeys = scanServerMessageKeys(serverIndexSrc)
-    .filter((key) => !(key in en))
-    .map((key) => `server/index.js  ${JSON.stringify(key)}`);
-check('every messageKey the server sends is a key in en.json', missingServerKeys);
+function walkServer(dir, out = []) {
+    for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) { if (f !== 'node_modules') walkServer(p, out); }
+        else if (f.endsWith('.js')) out.push(p);
+    }
+    return out;
+}
+const serverFiles = new Map(walkServer(join(root, 'server')).map((f) => [f, decomment(readFileSync(f, 'utf8'))]));
+const inEn = (key) => key in en || `${key}_other` in en;
+const missingServerKeys = [];
+let messageKeysSeen = 0;
+for (const [file, src] of serverFiles) {
+    const keys = scanServerMessageKeys(src);
+    messageKeysSeen += keys.length;
+    for (const key of keys) if (!inEn(key)) missingServerKeys.push(`${relative(root, file).replace(/\\/g, '/')}  ${JSON.stringify(key)}`);
+}
+check(`every messageKey the server sends is a key in en.json (${messageKeysSeen} read)`,
+    messageKeysSeen === 0 ? ['no messageKey literal found under server/: the scan reads nothing'] : missingServerKeys);
+
+// --- 7b. an error body a route sends goes through a helper -----------------------
+// `res.json({ error: 'Topic not found' })` reaches the learner in English under
+// every interface language: the app has no key to translate it from. A route
+// answers a refusal with `keyed(key, params)` (the learner's), `apiError(text)`
+// (a request only a program gets wrong), `errorFields(refusal)` or
+// `errorBody(err)`; each says which it is, and the first carries the key.
+const scanBareErrorBodies = (src) => [...src.matchAll(/\.(?:json|send)\(\s*\{\s*(?:ok:\s*false\s*,\s*)?error\b/g)];
+const bareErrorBodies = [];
+for (const [file, src] of serverFiles) {
+    for (const m of scanBareErrorBodies(src)) bareErrorBodies.push(at(file, src, m.index));
+}
+check('every error body a server route sends is built by keyed/apiError/errorFields/errorBody', bareErrorBodies);
 
 // --- 8. every task labelKey the server sends is a key in en.json -------------
 // Same shape as 7, for the background-task dock: `tasks.createTask({ label,
@@ -332,7 +362,6 @@ const scanServerLabelKeys = (src) => {
     }
     return out;
 };
-const inEn = (key) => key in en || `${key}_other` in en;
 const serverDir = join(root, 'server');
 const missingLabelKeys = [];
 let labelKeysSeen = 0;
@@ -432,8 +461,14 @@ const PRE_FIX = [
         'ProjectsGrid.tsx', `const primaryMessage = isComplete ? 'Project fully created!' : isCancelled ? 'Creation cancelled — partial content saved' : isError ? 'An error occurred' : aiProgress?.message || 'Initializing...';`,
         (s) => scanTernaryProse(s).length >= 3],
     ['a server messageKey en.json has dropped',
-        'server/index.js', `messageKey: 'Model "{{model}}" is ready.'`,
+        'server/routes/createProject.js', `messageKey: 'Model "{{model}}" is ready.'`,
         (s) => scanServerMessageKeys(s).includes('Model "{{model}}" is ready.')],
+    ['a route answering in bare English',
+        'server/routes/decks.js', `if (!data) return res.status(404).json({ error: 'Project not found' });
+        if (check.wrong) { res.status(401).json({ error }); return true; }
+        return res.status(404).json(keyed('Project not found'));
+        res.json({ recorded: recordBuildFailure({ hash, error: new Error(message) }) });`,
+        (s) => scanBareErrorBodies(s).length === 2],
     ['a task labelKey en.json does not hold',
         'server/bulkGen.js', `labelKey: project?.name ? 'Study material · {{project}}' : 'Not a key anywhere',`,
         (s) => scanServerLabelKeys(s).filter((key) => !inEn(key)).join() === 'Not a key anywhere'],

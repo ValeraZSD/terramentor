@@ -14,7 +14,7 @@ import { isNodeWeight } from '../curriculumSchema.js';
 import { projectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, errorFields, keyed } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
 import { refreshTopicDates } from '../topicDates.js';
 import { libraryPace, projectVerdict } from '../pace.js';
@@ -157,7 +157,7 @@ app.get('/api/schedule/overview', (req, res) => {
         res.json({ projects: rows, today: library?.today ?? studyToday() });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -168,22 +168,22 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     // older client may still send it, and it is ignored rather than rejected.
     const { startDate, deadline, studyDays, deadlineFixed } = req.body;
 
-    if (!startDate || !deadline) return res.status(400).json({ error: 'Start date and deadline are required.' });
+    if (!startDate || !deadline) return res.status(400).json(keyed('Start date and deadline are required.'));
     if (deadlineFixed !== undefined && typeof deadlineFixed !== 'boolean') {
-        return res.status(400).json({ error: 'deadlineFixed must be true or false.' });
+        return res.status(400).json(apiError('deadlineFixed must be true or false.'));
     }
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return res.status(400).json({ error: windowError });
+    if (windowError) return res.status(400).json(keyed(windowError));
 
     if (studyDays != null && (!Array.isArray(studyDays) || studyDays.length === 0)) {
-        return res.status(400).json({ error: 'At least one study day must be selected.' });
+        return res.status(400).json(keyed('At least one study day must be selected.'));
     }
     // Through the one reader, like PUT /api/projects/:id: deduped, 1–7 only.
     const days = readStudyDays(studyDays == null ? null : JSON.stringify(studyDays));
 
     if (!requireProject(req, res)) return;
     const lockError = lockedDeadlineError(id, deadline, deadlineFixed);
-    if (lockError) return res.status(400).json({ error: lockError });
+    if (lockError) return res.status(400).json(keyed(lockError));
 
     try {
         const reply = (extra) => {
@@ -212,13 +212,13 @@ app.post('/api/projects/:id/schedule', (req, res) => {
         }
 
         const result = allocateSchedule(id, startDate, deadline, days);
-        if (!result.success) return res.status(400).json({ error: result.error });
+        if (!result.success) return res.status(400).json(errorFields(result));
         // A course under way with open topics and no study day left before
         // its date: the plan this write asks for cannot be laid.
         const today = studyToday();
         if (startDate < today && deadline >= today && !projectCountsInCards(id)
             && countStudyDays(today, deadline, days) === 0 && openTopicStmt().get(id)) {
-            return res.status(400).json({ error: 'No valid study days remaining between today and deadline.' });
+            return res.status(400).json(keyed('No valid study days remaining between today and deadline.'));
         }
 
         // The ONE write path for a window: the window, the study week and the
@@ -237,7 +237,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
         reply({ warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Schedule] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -248,7 +248,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
     try {
         const result = recalibrateSchedule(id);
         if (!result.success) {
-            return res.status(400).json({ error: result.error, suggestedDeadline: result.suggestedDeadline });
+            return res.status(400).json({ ...errorFields(result), suggestedDeadline: result.suggestedDeadline });
         }
         if (result.unchanged) return res.json({ success: true, message: 'All tasks completed!', unchanged: true });
 
@@ -264,7 +264,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Recalibrate] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -281,7 +281,7 @@ app.get('/api/projects/:id/pace', (req, res) => {
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -295,14 +295,14 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
         // A date marked "cannot move" is not removed either: the mark comes
         // off first, as it must before any other change to the date.
         const lockError = lockedDeadlineError(id, null, undefined);
-        if (lockError) return res.status(400).json({ error: lockError });
+        if (lockError) return res.status(400).json(keyed(lockError));
         // Window, node dates and baseline go; the study week stays (see
         // `removeSchedule` in server/scheduling.js).
         const { nodesCleared } = removeSchedule(id);
         res.json({ success: true, nodesCleared });
     } catch (err) {
         console.error('[Delete Schedule] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -310,16 +310,16 @@ app.put('/api/nodes/:id/weight', (req, res) => {
     const { id } = req.params;
     const { estimated_weight } = req.body;
     if (!isNodeWeight(estimated_weight)) {
-        return res.status(400).json({ error: 'Weight must be a non-negative number.' });
+        return res.status(400).json(keyed('Weight must be a non-negative number.'));
     }
     try {
         const node = db.prepare('SELECT id FROM live_nodes nodes WHERE id = ?').get(id);
-        if (!node) return res.status(404).json({ error: 'Node not found.' });
+        if (!node) return res.status(404).json(keyed('Node not found.'));
         db.prepare(`UPDATE nodes SET estimated_weight = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(estimated_weight, id);
         const updated = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(id);
         res.json(updated);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

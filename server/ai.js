@@ -24,7 +24,7 @@ import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
-import { endpointError, learnerError, publicMessage } from './clientError.js';
+import { endpointBody, keyed, learnerError, ownWords, publicBody } from './clientError.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -1249,15 +1249,19 @@ export async function checkOllamaHealth(settings = getAISettings()) {
             // with a reply. Read as "unavailable", it would stop the assistant
             // and refuse to start a course (aiConnections.js testSettings).
             if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { available: true, models: [], listed: false };
-            let errorMessage = error?.message || 'Cannot connect to the API endpoint';
-            if (error?.name === 'TimeoutError' || error?.name === 'AbortError') errorMessage = 'Connection timed out';
-            else if (error?.cause?.code === 'ECONNREFUSED' || errorMessage === 'fetch failed')
+            const code = error?.cause?.code;
+            let body;
+            if (error?.name === 'TimeoutError' || error?.name === 'AbortError') body = keyed('Connection timed out');
+            else if (code === 'ECONNREFUSED' || error?.message === 'fetch failed') {
                 // undici reports every transport failure as the bare "fetch failed"
                 // and hides the reason in `cause`; a first-run card printing
                 // "fetch failed" tells a stranger nothing.
-                errorMessage = `Nothing is listening at ${normalizeOpenAIBaseUrl(settings.baseUrl)}. Is the server (llama-swap / llama.cpp / LM Studio) running?`
-                    + (error?.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
-            return { available: false, error: errorMessage, httpStatus: error?.httpStatus ?? null };
+                const url = normalizeOpenAIBaseUrl(settings.baseUrl);
+                body = code && code !== 'ECONNREFUSED'
+                    ? keyed('Nothing is listening at {{url}}. Is the server (llama-swap / llama.cpp / LM Studio) running? ({{code}})', { url, code })
+                    : keyed('Nothing is listening at {{url}}. Is the server (llama-swap / llama.cpp / LM Studio) running?', { url });
+            } else body = error?.message ? ownWords(error) : keyed('Cannot connect to the API endpoint');
+            return { available: false, ...body, httpStatus: error?.httpStatus ?? null };
         }
     }
     // ollama.list() takes no signal, so enforce the timeout by racing it —
@@ -1277,15 +1281,18 @@ export async function checkOllamaHealth(settings = getAISettings()) {
             models: models.models || []
         };
     } catch (error) {
-        let errorMessage = 'Cannot connect to Ollama';
-        if (error.name === 'AbortError') errorMessage = 'Connection timed out';
-        else if (error.cause?.code === 'ECONNREFUSED' || error.message === 'fetch failed')
+        const code = error.cause?.code;
+        let body = keyed('Cannot connect to Ollama');
+        if (error.name === 'AbortError') body = keyed('Connection timed out');
+        else if (code === 'ECONNREFUSED' || error.message === 'fetch failed') {
             // undici's bare "fetch failed" is every transport failure at once;
             // say what a person can act on and keep the code when there is one.
-            errorMessage = `Ollama is not running at ${settings.ollamaUrl || 'its configured URL'}. Please start Ollama first.`
-                + (error.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
-        else if (error.message) errorMessage = error.message;
-        return { available: false, error: errorMessage, httpStatus: error.status_code ?? null };
+            const url = settings.ollamaUrl || DEFAULT_OLLAMA_URL;
+            body = code && code !== 'ECONNREFUSED'
+                ? keyed('Ollama is not running at {{url}}. Please start Ollama first. ({{code}})', { url, code })
+                : keyed('Ollama is not running at {{url}}. Please start Ollama first.', { url });
+        } else if (error.message) body = ownWords(error);
+        return { available: false, ...body, httpStatus: error.status_code ?? null };
     } finally {
         clearTimeout(timeoutId);
     }
@@ -1348,8 +1355,8 @@ export function statusHealth(settings = getAISettings(), { check = checkOllamaHe
 export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
     const chain = job ? (await aiJobs()).chainFor(job) : [getAISettings()];
     const settings = chain[0];
-    if (!settings.enabled) return { ok: false, error: 'AI features are disabled' };
-    if (!settings.model) return { ok: false, error: 'No model selected — choose one in Settings → AI & Models' };
+    if (!settings.enabled) return { ok: false, ...keyed('AI features are disabled') };
+    if (!settings.model) return { ok: false, ...keyed('No model selected — choose one in Settings → AI & Models') };
     try {
         if (settings.provider === 'openai') {
             await openAIListModels(settings, { timeoutMs });
@@ -1372,13 +1379,13 @@ export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
         // Only a failure the call itself would move on from: a first model that
         // does not answer in time would hold the call until its own timeout.
         if (chain.length > 1 && (await aiJobs()).fallsOver(error)) return { ok: true };
-        let msg = endpointError('The AI server', error);
+        let body = endpointBody(null, error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-            msg = 'The AI server did not respond in time';
+            body = keyed('The AI server did not respond in time');
         } else if (error?.cause?.code === 'ECONNREFUSED') {
-            msg = 'Nothing is listening at the AI endpoint — is your model server (llama-swap / Ollama / LM Studio) running?';
+            body = keyed('Nothing is listening at the AI endpoint — is your model server (llama-swap / Ollama / LM Studio) running?');
         }
-        return { ok: false, error: msg };
+        return { ok: false, ...body };
     }
 }
 
@@ -1391,7 +1398,7 @@ export async function getInstalledModels() {
         } catch (error) {
             // A lab with no model list: nothing to choose from, nothing wrong (checkOllamaHealth).
             if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { success: true, models: [], listed: false };
-            return { success: false, error: endpointError('The API endpoint', error), models: [] };
+            return { success: false, ...endpointBody(null, error), models: [] };
         }
     }
     try {
@@ -1407,9 +1414,9 @@ export async function getInstalledModels() {
             }))
         };
     } catch (error) {
-        let errorMessage = 'Cannot connect to Ollama';
-        if (error.cause?.code === 'ECONNREFUSED') errorMessage = 'Ollama is not running';
-        return { success: false, error: errorMessage, models: [] };
+        let body = keyed('Cannot connect to Ollama');
+        if (error.cause?.code === 'ECONNREFUSED') body = keyed('Ollama is not running');
+        return { success: false, ...body, models: [] };
     }
 }
 
@@ -1429,14 +1436,14 @@ export async function* pullModel(modelName) {
 
 export async function deleteModel(modelName) {
     if (getAISettings().provider !== 'ollama') {
-        return { success: false, error: 'Removing models is only available with the Ollama provider' };
+        return { success: false, ...keyed('Removing models is only available with the Ollama provider') };
     }
     try {
         const ollama = createOllamaClient();
         await ollama.delete({ model: modelName });
         return { success: true };
     } catch (error) {
-        return { success: false, error: publicMessage(error) };
+        return { success: false, ...publicBody(error) };
     }
 }
 
@@ -2580,7 +2587,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
             .slice(0, maxLength);
         return { success: true, content, url };
     } catch (error) {
-        return { success: false, error: publicMessage(error), content: '', url };
+        return { success: false, ...publicBody(error), content: '', url };
     } finally {
         clearTimeout(timeoutId);
     }

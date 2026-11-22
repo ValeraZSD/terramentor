@@ -5,7 +5,7 @@ import { addAssistantCard, undoAssistantCard } from '../assistantWrites.js';
 import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssistantAttachment, saveAssistantLink, undoAssistantEdit } from '../assistantEdits.js';
 import { checkCards, checkLink, peekLink } from '../assistantChecks.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('assistantWrites');
 
@@ -21,11 +21,11 @@ app.post('/api/assistant/cards', async (req, res) => {
     try {
         if (front && back) {
             const [check] = await checkCards([{ nodeId, front: String(front), back: String(back) }]);
-            if (check?.verdict === 'disputed') return res.status(409).json({ error: `Not added: ${check.reason}.`, check });
+            if (check?.verdict === 'disputed') return res.status(409).json({ ...keyed('Not added: {{reason}}.', { reason: check.reason }), check });
         }
         res.json(addAssistantCard({ nodeId, front, back, extra }));
     } catch (e) {
-        res.status(400).json({ error: clientError(e, 400) });
+        res.status(400).json(errorBody(e, 400));
     }
 });
 
@@ -39,13 +39,13 @@ app.post('/api/assistant/checks', async (req, res) => {
     const links = Array.isArray(req.body?.links) ? req.body.links.slice(0, 3) : [];
     try {
         const usable = cards.filter(c => c && Number.isInteger(Number(c.nodeId)) && String(c.front ?? '').trim() && String(c.back ?? '').trim());
-        if (usable.length !== cards.length) return res.status(400).json({ error: 'A card needs a topic, a front and a back.' });
+        if (usable.length !== cards.length) return res.status(400).json(keyed('A card needs a topic, a front and a back.'));
         const cardVerdicts = await checkCards(usable.map(c => ({ nodeId: Number(c.nodeId), front: String(c.front), back: String(c.back) })));
         const linkVerdicts = [];
         for (const url of links) linkVerdicts.push(peekLink(String(url ?? '')));
         res.json({ cards: cardVerdicts, links: linkVerdicts });
     } catch (e) {
-        res.status(500).json({ error: clientError(e) });
+        res.status(500).json(errorBody(e));
     }
 });
 
@@ -56,10 +56,10 @@ app.post('/api/assistant/checks', async (req, res) => {
 // overwritten unseen.
 const sendEditError = (res, e) => {
     if (e instanceof EditError) {
-        const { status, message, ...extra } = e;
-        return res.status(status).json({ error: message, ...extra });
+        const { status, messageKey, params, ...extra } = e;
+        return res.status(status).json({ ...errorBody(e, status), ...extra });
     }
-    return res.status(500).json({ error: clientError(e) });
+    return res.status(500).json(errorBody(e));
 };
 
 app.get('/api/assistant/targets/:kind/:id', (req, res) => {
@@ -97,7 +97,7 @@ app.post('/api/assistant/links', async (req, res) => {
     const { projectId, nodeId, url, title, source } = req.body || {};
     try {
         const check = await checkLink(String(url ?? ''));
-        if (check.verdict === 'disputed') return res.status(409).json({ error: `Not saved: ${check.reason}.`, check });
+        if (check.verdict === 'disputed') return res.status(409).json({ ...keyed('Not saved: {{reason}}.', { reason: check.reason }), check });
         res.json({ ...saveAssistantLink({ projectId, nodeId, url, title: check.detail?.title || title, source }), check });
     } catch (e) {
         sendEditError(res, e);
@@ -120,7 +120,7 @@ app.delete('/api/assistant/cards/:id', (req, res) => {
     try {
         res.json(undoAssistantCard(req.params.id));
     } catch (e) {
-        res.status(400).json({ error: clientError(e, 400) });
+        res.status(400).json(errorBody(e, 400));
     }
 });
 

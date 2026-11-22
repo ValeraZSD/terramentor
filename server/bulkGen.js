@@ -30,7 +30,7 @@ import { refreshTopicDates } from './topicDates.js';
 import { MIN_GATE_QUESTIONS } from './mastery.js';
 import * as tasks from './tasks.js';
 import { readAverageMs, recordAverageMs } from './durationAverages.js';
-import { publicMessage } from './clientError.js';
+import { KeyedError, publicBody } from './clientError.js';
 
 /** Model calls this many topics past the reader before checking for interactive work. */
 const YIELD_POLL_MS = 5000;
@@ -219,20 +219,20 @@ async function waitForModel(j) {
  */
 export function startBulk({ projectId, nodeIds, kinds, questionCount = 5, cardCount = 8, skipExisting = true }) {
     if (job && job.status === 'running') {
-        const err = new Error('A bulk generation is already running. Wait for it or cancel it first.');
+        const err = new KeyedError('A bulk generation is already running. Wait for it or cancel it first.');
         err.status = 409;
         throw err;
     }
     const settings = getAISettings();
     if (!settings.enabled || !settings.model) {
-        const err = new Error('AI is off or no model is selected.');
+        const err = new KeyedError('AI is off or no model is selected.');
         err.status = 400;
         throw err;
     }
     const asked = (Array.isArray(kinds) ? kinds : []).map(normalizeKind);
     const wanted = BULK_KINDS.filter(k => asked.includes(k));
     if (!wanted.length) {
-        const err = new Error('Pick at least one of: mastery check, flashcards.');
+        const err = new KeyedError('Pick at least one of: mastery check, flashcards.');
         err.status = 400;
         throw err;
     }
@@ -364,7 +364,7 @@ async function runJob(j) {
                     // One topic's failure is a line in the report, not the end
                     // of the run — the next topic is a completely independent
                     // request and may well succeed.
-                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, error: publicMessage(err) });
+                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, ...publicBody(err) });
                     j.done++;
                     console.warn(`[Bulk] ${target.title} (${kind}) failed: ${err.message}`);
                 }

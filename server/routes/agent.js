@@ -20,7 +20,7 @@ import {
 } from '../agentSittings.js';
 import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody } from '../clientError.js';
 
 const app = routeTable('agent');
 
@@ -40,7 +40,7 @@ function answer(res, read) {
         res.json(read());
     } catch (err) {
         console.error('[Agent] read failed:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 }
 
@@ -75,9 +75,9 @@ app.post('/api/agent/claims', (req, res) => {
     } catch (err) {
         // A ClaimError is a 4xx refusal written for the caller: clientError
         // sends it as written (a path in it replaced), never a raw message.
-        if (err instanceof ClaimError) return res.status(err.status).json({ error: clientError(err, err.status) });
+        if (err instanceof ClaimError) return res.status(err.status).json(errorBody(err, err.status));
         console.error('[Agent] claim failed:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -92,10 +92,10 @@ function sitting(res, run) {
         .then((out) => res.json(out))
         .catch((err) => {
             if (err instanceof SittingError || err instanceof AttemptReusedError) {
-                return res.status(err.status).json({ error: clientError(err, err.status) });
+                return res.status(err.status).json(errorBody(err, err.status));
             }
             console.error('[Agent] sitting failed:', err.message);
-            res.status(500).json({ error: clientError(err) });
+            res.status(500).json(errorBody(err));
         });
 }
 const token = (req) => (typeof req.body?.token === 'string' ? req.body.token : '');

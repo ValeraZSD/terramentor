@@ -36,7 +36,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { publicMessage } from '../clientError.js';
+import { apiError, keyed, publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -582,7 +582,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // were stored as sent. Unset (absent, null, "") still means the default.
     const unset = (v) => v === undefined || v === null || v === '';
     const fieldError = projectFieldError({ color: unset(color) ? undefined : color, icon: unset(icon) ? undefined : icon });
-    if (fieldError) return res.status(400).json({ error: fieldError });
+    if (fieldError) return res.status(400).json(keyed(fieldError));
     // The learner's files, read when they were dropped into the dialog
     // (stagedDocuments.js) and in hand before the first model call: with them
     // the course is built FROM the files (sourceMaterial.js), and a name is no
@@ -591,7 +591,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // A link read in the dialog is a staged row too (a page or a video):
     // its origin, not "text", names what kind of source it is.
     const src = creationSources(asSourceRows(stagedRows));
-    if (!name && !hasSources(src)) return res.status(400).json({ error: 'Project name is required' });
+    if (!name && !hasSources(src)) return res.status(400).json(keyed('Project name is required'));
     const learnerName = String(name || '');
     // What the run is called until the identity step has named it.
     const runName = learnerName.trim() || src.docs[0]?.suggested || learnerName;
@@ -1085,9 +1085,9 @@ function creationUnfinished(projectId, finished) {
 /** Whether the course page offers "Continue creating" (`running`: a run is writing it now). */
 app.get('/api/ai/continue-creation/:projectId', (req, res) => {
     const projectId = requestedId(req.params.projectId);
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    if (!projectId) return res.status(400).json(apiError('projectId is required'));
     const project = db.prepare('SELECT id, kind, creation_finished, made_from FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
     const running = activeGenerations.has(projectId);
     // A short course is one flat list of topics by design: its topics are not
     // phases waiting for sections.
@@ -1118,25 +1118,25 @@ app.get('/api/ai/continue-creation/:projectId', (req, res) => {
  */
 app.post('/api/ai/continue-creation', async (req, res) => {
     const projectId = requestedId(req.body?.projectId);
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    if (!projectId) return res.status(400).json(apiError('projectId is required'));
     const project = db.prepare('SELECT id, name, description, summary, color, kind, made_from FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (project.kind === 'deck') return res.status(400).json({ error: 'A card project has no outline to continue' });
-    if (project.made_from != null) return res.status(400).json({ error: 'A short course has no outline to continue' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
+    if (project.kind === 'deck') return res.status(400).json(keyed('A card project has no outline to continue'));
+    if (project.made_from != null) return res.status(400).json(keyed('A short course has no outline to continue'));
     // A run stopped a moment ago may still be unwinding its last call: Stop
     // and then Continue is waited out, a run still going is not. While it
     // waits this request is in no registry a Stop could find, so a client
     // that gave up (pressed Stop, closed the page) ends it here.
     const prior = activeGenerations.get(projectId);
     if (prior) {
-        if (!prior.stopping) return res.status(409).json({ error: 'This course is already being created' });
+        if (!prior.stopping) return res.status(409).json(keyed('This course is already being created'));
         let gone = false;
         res.on('close', () => { gone = true; });
         const settled = await settledWithin(prior.settled, STOP_GRACE_MS);
         if (gone) return;
-        if (!settled) return res.status(409).json({ error: 'The stopped run is still stopping; try again in a moment' });
+        if (!settled) return res.status(409).json(keyed('The stopped run is still stopping; try again in a moment'));
     }
-    if (activeGenerations.has(projectId)) return res.status(409).json({ error: 'This course is already being created' });
+    if (activeGenerations.has(projectId)) return res.status(409).json(keyed('This course is already being created'));
 
     const curate = getSetting('creation_find_resources', 'true') !== 'false';
     // The stopped run's record is this run's from the start, so one that

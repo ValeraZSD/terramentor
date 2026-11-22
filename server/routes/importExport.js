@@ -12,7 +12,7 @@ import {
 } from '../courseFiles.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 import { recordInstalledBase } from '../courseUpdate.js';
 
 const app = routeTable('importExport');
@@ -20,7 +20,7 @@ const app = routeTable('importExport');
 app.get('/api/export/:projectId', (req, res) => {
     const { includeNotes, includeResources, includeProgress } = req.query;
     const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(req.params.projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
     const allNodes = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position').all(req.params.projectId);
     const childrenOf = childrenLookup(allNodes);
     const buildExportTree = (parentId) => {
@@ -108,7 +108,7 @@ app.post('/api/import', (req, res) => {
             warnings: [...header.warnings, ...tree.warnings],
         };
     } catch (err) {
-        if (err instanceof ImportError) return res.status(400).json({ error: clientError(err, 400) });
+        if (err instanceof ImportError) return res.status(400).json(errorBody(err, 400));
         throw err;
     }
 
@@ -175,7 +175,7 @@ app.post('/api/import', (req, res) => {
         console.error('Import error:', err);
         // The tree was validated above, so what fails here is the write: the
         // server's fault, not the file's.
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

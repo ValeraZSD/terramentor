@@ -8,6 +8,7 @@ import { getGateConfig } from './settingsStore.js';
 import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
 import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
 import { refreshTopicDates } from './topicDates.js';
+import { k } from './clientError.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -150,8 +151,8 @@ export function nodeLabels(ids) {
  */
 export function masteryCheckTarget(nodeId) {
     const node = db.prepare(`SELECT n.status, (${WORK_LEAF}) as work FROM live_nodes n WHERE n.id = ?`).get(Number(nodeId));
-    if (!node) return { refused: 'That topic no longer exists.', code: 'not_found', httpStatus: 404 };
-    if (!node.work) return { refused: 'A mastery check is taken on a topic, not on a section, a note or a deck stage.', code: 'not_a_topic', httpStatus: 400 };
+    if (!node) return { refused: k('That topic no longer exists.'), code: 'not_found', httpStatus: 404 };
+    if (!node.work) return { refused: k('A mastery check is taken on a topic, not on a section, a note or a deck stage.'), code: 'not_a_topic', httpStatus: 400 };
     return { status: node.status };
 }
 

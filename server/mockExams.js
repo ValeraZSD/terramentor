@@ -24,6 +24,7 @@
 // (tools/mock-exam-gates.mjs) never read the wall clock.
 
 import db from './database.js';
+import { KeyedError, k } from './clientError.js';
 import { ATTEMPT_ID_ERROR, readAttemptId, recordOnce, updateMasteryFromAttempt } from './mastery.js';
 import { WORK_LEAF } from './today.js';
 import { banksOfProject, logAsked, orderForAsking } from './questionLog.js';
@@ -31,14 +32,14 @@ import { isUnverified } from './questionTrust.js';
 import { ANSWER_FORMATS, gradeLocally } from './answerFormats.js';
 
 /** An error whose message is safe to show and whose status the route sends. */
-export class MockExamError extends Error {
-    constructor(status, message) {
-        super(message);
+export class MockExamError extends KeyedError {
+    constructor(status, key, params) {
+        super(key, params);
         this.status = status;
         this.expose = true;
     }
 }
-const bad = (message) => new MockExamError(400, message);
+const bad = (key, params) => new MockExamError(400, key, params);
 
 const cache = new Map();
 const stmt = (sql) => {
@@ -123,9 +124,9 @@ export function getPaper(id) {
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const MAX_GRADE = 1000;
-const optNumber = (v, name) => {
+const optNumber = (v, refusal) => {
     if (v === null || v === undefined || v === '') return null;
-    if (!finite(v) || v < 0 || v > MAX_GRADE) throw bad(`${name} must be a number from 0 to ${MAX_GRADE}`);
+    if (!finite(v) || v < 0 || v > MAX_GRADE) throw bad(refusal, { max: MAX_GRADE });
     return v;
 };
 /** The kinds a browser shows inline, so the paper and its solution open beside the points. */
@@ -138,43 +139,44 @@ function readPaperInput(projectId, input) {
     if (!title || title.length > 200) throw bad('A paper needs a title (up to 200 characters)');
     const minutes = input.minutes;
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES) throw bad('The time allowed must be a whole number of minutes, at least 1');
-    const gradeMin = optNumber(input.gradeMin, 'The lowest grade');
-    const gradeMax = optNumber(input.gradeMax, 'The highest grade');
-    const passGrade = optNumber(input.passGrade, 'The pass grade');
+    const gradeMin = optNumber(input.gradeMin, k('The lowest grade must be a number from 0 to {{max}}'));
+    const gradeMax = optNumber(input.gradeMax, k('The highest grade must be a number from 0 to {{max}}'));
+    const passGrade = optNumber(input.passGrade, k('The pass grade must be a number from 0 to {{max}}'));
     if ((gradeMin == null) !== (gradeMax == null)) throw bad('A grade formula needs both its lowest and its highest grade');
     if (gradeMin != null && !(gradeMax > gradeMin)) throw bad('The highest grade must be above the lowest');
     if (passGrade != null && (gradeMin == null || passGrade < gradeMin || passGrade > gradeMax)) {
         throw bad('The pass grade must lie between the lowest and the highest grade');
     }
-    const doc = (v, name) => {
+    const doc = (v, refusal) => {
         if (v == null) return null;
         if (!Number.isInteger(v) || !stmt(`
             SELECT 1 FROM live_documents documents WHERE id = ? AND project_id = ? AND file_hash IS NOT NULL
                 AND status IS NOT 'failed' AND file_type IN (${SHOWN_KINDS_SQL})
         `).get(v, projectId)) {
-            throw bad(`The ${name} must be a file of this course`);
+            throw bad(refusal);
         }
         return v;
     };
-    const paperDocumentId = doc(input.paperDocumentId, 'paper');
-    const solutionDocumentId = doc(input.solutionDocumentId, 'worked solution');
+    const paperDocumentId = doc(input.paperDocumentId, k('The paper must be a file of this course'));
+    const solutionDocumentId = doc(input.solutionDocumentId, k('The worked solution must be a file of this course'));
 
     const raw = Array.isArray(input.parts) ? input.parts : [];
     if (raw.length === 0) throw bad('A paper needs at least one question with its points');
-    if (raw.length > MAX_PARTS) throw bad(`A paper has at most ${MAX_PARTS} parts`);
+    if (raw.length > MAX_PARTS) throw bad('A paper has at most {{count}} parts', { count: MAX_PARTS });
     const seen = new Set();
     const parts = raw.map((p, i) => {
         const question = String(p?.question ?? '').trim();
         const part = String(p?.part ?? '').trim();
-        if (!question || question.length > 20 || part.length > 20) throw bad(`Part ${i + 1} needs a question number`);
+        if (!question || question.length > 20 || part.length > 20) throw bad('Part {{number}} needs a question number', { number: i + 1 });
         const key = `${question}\u0000${part}`;
-        if (seen.has(key)) throw bad(`Question ${question}${part} is listed twice`);
+        const named = { question: question + part };
+        if (seen.has(key)) throw bad('Question {{question}} is listed twice', named);
         seen.add(key);
-        if (!Number.isInteger(p.points) || p.points < 1 || p.points > MAX_POINTS) throw bad(`Question ${question}${part} needs its points, a whole number of at least 1`);
+        if (!Number.isInteger(p.points) || p.points < 1 || p.points > MAX_POINTS) throw bad('Question {{question}} needs its points, a whole number of at least 1', named);
         let nodeId = null;
         if (p.nodeId != null) {
             if (!Number.isInteger(p.nodeId) || !stmt(`SELECT 1 FROM live_nodes n WHERE n.id = ? AND n.project_id = ? AND ${WORK_LEAF}`).get(p.nodeId, projectId)) {
-                throw bad(`The topic of question ${question}${part} is not in this course`);
+                throw bad('The topic of question {{question}} is not in this course', named);
             }
             nodeId = p.nodeId;
         }
@@ -281,7 +283,7 @@ export function startSitting(paperId, { question = null, now = Date.now() } = {}
     if (question != null) {
         const q = String(question);
         const pts = paper.parts.filter(p => p.question === q).reduce((a, p) => a + p.points, 0);
-        if (!pts) throw bad(`This paper has no question ${q}`);
+        if (!pts) throw bad('This paper has no question {{question}}', { question: q });
         timeAllowed = Math.ceil(paper.minutes * pts / paper.total) * 60;
     }
     const id = Number(stmt(`
@@ -351,7 +353,7 @@ export function setPartScore(sittingId, partId, points) {
         stmt('DELETE FROM mock_part_scores WHERE sitting_id = ? AND part_id = ?').run(sittingId, partId);
     } else {
         if (!finite(points) || points < 0 || points > part.points || !Number.isInteger(points * 2)) {
-            throw bad(`Points for this part are 0 to ${part.points}, in halves`);
+            throw bad('Points for this part are 0 to {{max}}, in halves', { max: part.points });
         }
         stmt(`
             INSERT INTO mock_part_scores (sitting_id, part_id, points) VALUES (?, ?, ?)
@@ -531,7 +533,7 @@ export function setExam(projectId, input) {
     if (typeof input.onScreen !== 'boolean') throw bad('onScreen is true or false');
     if (!input.onScreen) { write.run(0, null, null, null, projectId); return getExam(projectId); }
     const { questions, minutes = null, passRight = null } = input;
-    if (!Number.isInteger(questions) || questions < 1 || questions > MAX_DRAW) throw bad(`The real exam has 1 to ${MAX_DRAW} questions`);
+    if (!Number.isInteger(questions) || questions < 1 || questions > MAX_DRAW) throw bad('The real exam has 1 to {{max}} questions', { max: MAX_DRAW });
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) throw bad('The real exam\'s time is a whole number of minutes, at least 1');
     if (passRight != null && (!Number.isInteger(passRight) || passRight < 0 || passRight > questions)) throw bad('The pass line is a number of right answers, at most the number of questions');
     write.run(1, questions, minutes, passRight, projectId);
@@ -624,7 +626,7 @@ function askedKeys(entries) {
  */
 export function drawCourseMock(projectId, { size, minutes = null, now = Date.now(), lookBack = false } = {}) {
     if (!stmt('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
-    if (!Number.isInteger(size) || size < 1 || size > MAX_DRAW) throw bad(`A mock asks 1 to ${MAX_DRAW} questions`);
+    if (!Number.isInteger(size) || size < 1 || size > MAX_DRAW) throw bad('A mock asks 1 to {{max}} questions', { max: MAX_DRAW });
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) throw bad('The clock is a whole number of minutes, at least 1');
     const { banks } = courseBanks(projectId);
     const all = banks.flatMap(b => b.ready);

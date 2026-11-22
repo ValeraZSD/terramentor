@@ -18,7 +18,7 @@ import { getGateConfig } from '../settingsStore.js';
 import { softDelete } from '../softDelete.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, errorFields, k, keyed } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
 import { refreshTopicDates } from '../topicDates.js';
 import { headStartsForProject } from '../headStart.js';
@@ -38,7 +38,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     const unknown = Object.keys(req.query).filter(k => !NODES_QUERY_PARAMS.includes(k));
     if (unknown.length > 0) {
         return res.status(400).json({
-            error: `Unknown query parameter(s): ${unknown.join(', ')}`,
+            ...apiError(`Unknown query parameter(s): ${unknown.join(', ')}`),
             supported: NODES_QUERY_PARAMS,
         });
     }
@@ -46,7 +46,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     const { status, leavesOnly } = req.query;
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
         return res.status(400).json({
-            error: `Invalid status "${status}"`,
+            ...apiError(`Invalid status "${status}"`),
             valid: VALID_NODE_STATUSES,
         });
     }
@@ -130,34 +130,34 @@ const projectNodesStmt = db.prepare('SELECT * FROM live_nodes nodes WHERE projec
 
 app.put('/api/nodes/reorder', (req, res) => {
     const { nodeIds, parentId } = req.body;
-    if (!Array.isArray(nodeIds)) return res.status(400).json({ error: 'nodeIds must be an array' });
+    if (!Array.isArray(nodeIds)) return res.status(400).json(apiError('nodeIds must be an array'));
     // A missing parentId bound as NULL and moved every listed node to the top
     // level. The top level is `null`, said on purpose.
-    if (parentId === undefined) return res.status(400).json({ error: 'parentId is required (null for the top level)' });
-    if (parentId !== null && !isId(parentId)) return res.status(400).json({ error: 'parentId must be a node id or null' });
-    if (!nodeIds.every(isId)) return res.status(400).json({ error: 'nodeIds must be node ids' });
-    if (new Set(nodeIds).size !== nodeIds.length) return res.status(400).json({ error: 'nodeIds names a node twice' });
+    if (parentId === undefined) return res.status(400).json(apiError('parentId is required (null for the top level)'));
+    if (parentId !== null && !isId(parentId)) return res.status(400).json(apiError('parentId must be a node id or null'));
+    if (!nodeIds.every(isId)) return res.status(400).json(apiError('nodeIds must be node ids'));
+    if (new Set(nodeIds).size !== nodeIds.length) return res.status(400).json(apiError('nodeIds names a node twice'));
 
     // This path re-parents too, so it owes the same guard as /move and /:id:
     // a cycle in parent_id makes buildTree drop the loop from every view and
     // never terminates the recursive CTE in DELETE /api/nodes/:id. It had none.
     const rows = nodeIds.map(id => nodeProjectStmt.get(id));
     for (let i = 0; i < nodeIds.length; i++) {
-        if (!rows[i]) return res.status(400).json({ error: 'Node not found' });
+        if (!rows[i]) return res.status(400).json(keyed('Node not found'));
         if (rows[i].project_id !== rows[0].project_id) {
-            return res.status(400).json({ error: 'A node cannot be moved into another project' });
+            return res.status(400).json(keyed('A node cannot be moved into another project'));
         }
         const bad = reparentError(nodeIds[i], parentId ?? null);
-        if (bad) return res.status(400).json({ error: bad });
+        if (bad) return res.status(400).json(keyed(bad));
     }
     // reparentError only checks the parent against the node it is given, so a
     // null parentId (a move to the root) still needs the batch pinned to one
     // project — otherwise a mixed batch silently adopts rows from elsewhere.
     if (parentId != null) {
         const parent = nodeProjectStmt.get(parentId);
-        if (!parent) return res.status(400).json({ error: 'Parent node not found' });
+        if (!parent) return res.status(400).json(keyed('Parent node not found'));
         if (rows.length && parent.project_id !== rows[0].project_id) {
-            return res.status(400).json({ error: 'A node cannot be moved into another project' });
+            return res.status(400).json(keyed('A node cannot be moved into another project'));
         }
     }
 
@@ -189,12 +189,12 @@ app.put('/api/nodes/reorder', (req, res) => {
 // Returns `{ status, error }` or null.
 function newNodePlacementError(projectId, parentId, isNote = 0) {
     const project = db.prepare('SELECT id FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return { status: 404, error: 'Project not found' };
+    if (!project) return { status: 404, ...keyed('Project not found') };
     if (parentId == null) return null;
     const parent = db.prepare('SELECT id, project_id, is_note FROM live_nodes nodes WHERE id = ?').get(parentId);
-    if (!parent) return { status: 400, error: 'Parent node not found' };
-    if (parent.project_id !== project.id) return { status: 400, error: 'The parent node belongs to another project' };
-    if (parent.is_note && !isNote) return { status: 400, error: TOPIC_UNDER_NOTE };
+    if (!parent) return { status: 400, ...keyed('Parent node not found') };
+    if (parent.project_id !== project.id) return { status: 400, ...keyed('The parent node belongs to another project') };
+    if (parent.is_note && !isNote) return { status: 400, ...keyed(TOPIC_UNDER_NOTE) };
     return null;
 }
 
@@ -204,8 +204,8 @@ function newNodePlacementError(projectId, parentId, isNote = 0) {
 // at a note, so the project card and the tree on screen disagreed; and
 // replacing a topic's material deletes its notes, which cascaded into any topic
 // under them. Every door that re-parents a node or flips its note flag asks.
-const TOPIC_UNDER_NOTE = 'A topic cannot go under a note: notes are material, not containers.';
-const NOTE_HOLDING_TOPICS = 'This has topics under it, so it cannot become a note. Move them out first.';
+const TOPIC_UNDER_NOTE = k('A topic cannot go under a note: notes are material, not containers.');
+const NOTE_HOLDING_TOPICS = k('This has topics under it, so it cannot become a note. Move them out first.');
 
 // The mastery gate on marking a node `completed`, for every route that can.
 // `override` lets the learner consciously mark a topic done without proving
@@ -226,9 +226,12 @@ function completionGateRefusal(nodeId, override) {
     // to a ceiling under the line): "best mastery 99% (need 85%)" would
     // be a refusal that contradicts itself.
     return {
-        error: eligibility.own_answers > 0
-            ? `Not proven yet — best mastery ${(eligibility.shown_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
-            : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
+        ...(eligibility.own_answers > 0
+            ? keyed('Not proven yet — best mastery {{score}}% (need {{threshold}}%, or pass a mastery check).',
+                { score: (eligibility.shown_score * 100).toFixed(0), threshold: (eligibility.threshold * 100).toFixed(0) })
+            : gate.mode === 'advisory'
+                ? keyed('Not proven yet. Take a quiz or mastery check to verify mastery, or mark it done anyway.')
+                : keyed('Not proven yet. Take a quiz or mastery check to verify mastery.')),
         mastery_gate: true,
         advisory: gate.mode === 'advisory',
         // The number the end card prints (`shown_score`), so the two never
@@ -256,7 +259,7 @@ const isId = (v) => Number.isSafeInteger(v) && v > 0;
 // 500. Description and notes are text, or null for empty. Returns the refusal,
 // or null; `creating` makes the title required.
 function nodeTextError({ title, description, notes }, creating) {
-    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return 'A topic needs a title.';
+    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return k('A topic needs a title.');
     if (description != null && typeof description !== 'string') return 'description must be text.';
     if (notes != null && typeof notes !== 'string') return 'notes must be text.';
     return null;
@@ -273,16 +276,16 @@ class GateRefused extends Error {
 app.post('/api/nodes', (req, res) => {
     const { project_id, parent_id, title, description, notes, status, is_note } = req.body;
     const textError = nodeTextError(req.body, true);
-    if (textError) return res.status(400).json({ error: textError });
-    if (!isId(project_id)) return res.status(400).json({ error: 'project_id must be a project id.' });
-    if (parent_id && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
+    if (textError) return res.status(400).json(keyed(textError));
+    if (!isId(project_id)) return res.status(400).json(apiError('project_id must be a project id.'));
+    if (parent_id && !isId(parent_id)) return res.status(400).json(apiError('parent_id must be a node id or null.'));
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
-        return res.status(400).json({ error: `Invalid status "${status}".` });
+        return res.status(400).json(apiError(`Invalid status "${status}".`));
     }
     const note = noteFlag(is_note ?? 0);
-    if (note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
+    if (note === undefined) return res.status(400).json(apiError('is_note must be 0 or 1.'));
     const bad = newNodePlacementError(project_id, parent_id || null, note);
-    if (bad) return res.status(bad.status).json({ error: bad.error });
+    if (bad) return res.status(bad.status).json(errorFields(bad));
     // A node created `completed` meets the same gate as one marked completed
     // later, and gets its completed_at the same way. The gate is asked of the
     // inserted row, so the insert is undone when it refuses.
@@ -321,18 +324,18 @@ app.put('/api/nodes/:id', (req, res) => {
     // Asked first: a missing id ran the UPDATE and answered 200 with no body,
     // and a `completed` one reached the mastery gate's foreign key as a 500.
     const current = nodeExistsStmt.get(req.params.id);
-    if (!current) return res.status(404).json({ error: 'Node not found' });
+    if (!current) return res.status(404).json(keyed('Node not found'));
     const textError = nodeTextError(req.body, false);
-    if (textError) return res.status(400).json({ error: textError });
-    if (parent_id != null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
+    if (textError) return res.status(400).json(keyed(textError));
+    if (parent_id != null && !isId(parent_id)) return res.status(400).json(apiError('parent_id must be a node id or null.'));
     const note = is_note === undefined ? undefined : noteFlag(is_note);
-    if (is_note !== undefined && note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
+    if (is_note !== undefined && note === undefined) return res.status(400).json(apiError('is_note must be 0 or 1.'));
     if (position !== undefined && !isPosition(position)) {
-        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+        return res.status(400).json(keyed('Position must be a whole number, 0 or more.'));
     }
     // null clears the weight back to the default (computeLeafWeight).
     if (estimated_weight !== undefined && estimated_weight !== null && !isNodeWeight(estimated_weight)) {
-        return res.status(400).json({ error: 'Weight must be a non-negative number.' });
+        return res.status(400).json(keyed('Weight must be a non-negative number.'));
     }
     const setClauses = [];
     const values = [];
@@ -342,7 +345,7 @@ app.put('/api/nodes/:id', (req, res) => {
     if (notes !== undefined) { setClauses.push('notes = ?'); values.push(notes ?? ''); }
     if (status !== undefined) {
         if (!VALID_NODE_STATUSES.includes(status)) {
-            return res.status(400).json({ error: `Invalid status "${status}".` });
+            return res.status(400).json(apiError(`Invalid status "${status}".`));
         }
 
         if (status === 'completed') {
@@ -361,7 +364,7 @@ app.put('/api/nodes/:id', (req, res) => {
     if (position !== undefined) { setClauses.push('position = ?'); values.push(position); }
     if (parent_id !== undefined) {
         const bad = reparentError(current.id, parent_id, { isNote: note });
-        if (bad) return res.status(400).json({ error: bad });
+        if (bad) return res.status(400).json(keyed(bad));
         setClauses.push('parent_id = ?'); values.push(parent_id);
         // A node moved under another parent kept its old number among its new
         // siblings, tied with one of them. With no position given it goes last.
@@ -371,11 +374,11 @@ app.put('/api/nodes/:id', (req, res) => {
         }
     }
     if (note === 1 && db.prepare('SELECT 1 FROM live_nodes nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
-        return res.status(400).json({ error: NOTE_HOLDING_TOPICS });
+        return res.status(400).json(keyed(NOTE_HOLDING_TOPICS));
     }
     if (note === 0 && parent_id === undefined && db.prepare(
         'SELECT 1 FROM live_nodes n JOIN live_nodes p ON p.id = n.parent_id WHERE n.id = ? AND p.is_note = 1').get(req.params.id)) {
-        return res.status(400).json({ error: TOPIC_UNDER_NOTE });
+        return res.status(400).json(keyed(TOPIC_UNDER_NOTE));
     }
     if (note !== undefined) { setClauses.push('is_note = ?'); values.push(note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
@@ -413,7 +416,7 @@ app.put('/api/nodes/:id', (req, res) => {
 app.delete('/api/nodes/:id', (req, res) => {
     // Marked deleted with its subtree; its documents and their files stay until
     // the topic is removed for good (server/softDelete.js).
-    if (!softDelete('nodes', Number(req.params.id))) return res.status(404).json({ error: 'Node not found' });
+    if (!softDelete('nodes', Number(req.params.id))) return res.status(404).json(keyed('Node not found'));
     scheduleNodeSync();   // a deleted topic is no longer embeddable: the sweep drops its vector
     res.json({ success: true });
 });
@@ -431,15 +434,15 @@ function reparentError(nodeId, parentId, { isNote } = {}) {
     if (parentId == null) return null;
     const child = db.prepare('SELECT id, project_id, is_note FROM live_nodes nodes WHERE id = ?').get(nodeId);
     const parent = db.prepare('SELECT id, project_id, parent_id, is_note FROM live_nodes nodes WHERE id = ?').get(parentId);
-    if (!child) return 'Node not found';
-    if (!parent) return 'Parent node not found';
-    if (parent.project_id !== child.project_id) return 'A node cannot be moved into another project';
-    if (parent.id === child.id) return 'A node cannot be its own parent';
+    if (!child) return k('Node not found');
+    if (!parent) return k('Parent node not found');
+    if (parent.project_id !== child.project_id) return k('A node cannot be moved into another project');
+    if (parent.id === child.id) return k('A node cannot be its own parent');
     if (parent.is_note && !(isNote ?? child.is_note)) return TOPIC_UNDER_NOTE;
     const seen = new Set([parent.id]);
     let cur = parent;
     while (cur && cur.parent_id != null) {
-        if (cur.parent_id === child.id) return 'A node cannot be moved under one of its own descendants';
+        if (cur.parent_id === child.id) return k('A node cannot be moved under one of its own descendants');
         if (seen.has(cur.parent_id)) break;
         seen.add(cur.parent_id);
         cur = db.prepare('SELECT id, parent_id FROM live_nodes nodes WHERE id = ?').get(cur.parent_id);
@@ -450,17 +453,17 @@ function reparentError(nodeId, parentId, { isNote } = {}) {
 app.put('/api/nodes/:id/move', (req, res) => {
     const { parent_id, position } = req.body;
     const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(req.params.id);
-    if (!node) return res.status(404).json({ error: 'Node not found' });
+    if (!node) return res.status(404).json(keyed('Node not found'));
     // A missing parent_id bound as NULL and moved the node to the top level;
     // the top level is `null`, said on purpose. A position past the end is the
     // end; none at all is the end too (it was the start).
-    if (parent_id === undefined) return res.status(400).json({ error: 'parent_id is required (null for the top level)' });
-    if (parent_id !== null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null' });
+    if (parent_id === undefined) return res.status(400).json(apiError('parent_id is required (null for the top level)'));
+    if (parent_id !== null && !isId(parent_id)) return res.status(400).json(apiError('parent_id must be a node id or null'));
     if (position !== undefined && !isPosition(position)) {
-        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+        return res.status(400).json(keyed('Position must be a whole number, 0 or more.'));
     }
     const bad = reparentError(node.id, parent_id);
-    if (bad) return res.status(400).json({ error: bad });
+    if (bad) return res.status(400).json(keyed(bad));
     db.transaction(() => {
         const siblings = siblingGroupStmt.all(node.project_id, parent_id).filter(s => s.id !== node.id);
         db.prepare('UPDATE nodes SET parent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
@@ -484,8 +487,8 @@ app.get('/api/nodes/:nodeId/resources', (req, res) => {
 // would be captured by the :id route (id="reorder") and always fail.
 app.put('/api/resources/reorder', (req, res) => {
     const { resourceIds } = req.body;
-    if (!Array.isArray(resourceIds)) return res.status(400).json({ error: 'resourceIds must be an array' });
-    if (!resourceIds.every(isId)) return res.status(400).json({ error: 'resourceIds must be resource ids' });
+    if (!Array.isArray(resourceIds)) return res.status(400).json(apiError('resourceIds must be an array'));
+    if (!resourceIds.every(isId)) return res.status(400).json(apiError('resourceIds must be resource ids'));
     db.transaction(() => {
         resourceIds.forEach((id, index) => resourcePositionStmt.run(index, id));
     })();
@@ -494,13 +497,13 @@ app.put('/api/resources/reorder', (req, res) => {
 
 app.post('/api/resources', (req, res) => {
     const { node_id, title, url, type } = req.body;
-    if (node_id == null) return res.status(400).json({ error: 'node_id is required' });
-    if (typeof title !== 'string') return res.status(400).json({ error: 'A resource needs a title' });
-    if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(node_id)) return res.status(404).json({ error: 'Node not found' });
+    if (node_id == null) return res.status(400).json(apiError('node_id is required'));
+    if (typeof title !== 'string') return res.status(400).json(keyed('A resource needs a title'));
+    if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(node_id)) return res.status(404).json(keyed('Node not found'));
     // A resource URL is rendered as an href, so the scheme is checked at every
     // write path, not just on import (see server/urlSafety.js).
     const checked = sanitizeUrl(url);
-    if (!checked.ok) return res.status(400).json({ error: `Invalid URL: ${checked.reason}` });
+    if (!checked.ok) return res.status(400).json(keyed('Invalid URL: {{reason}}', { reason: checked.reason }));
     const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM live_resources resources WHERE node_id = ?').get(node_id);
     const result = db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)')
         .run(node_id, title, checked.url, sanitizeResourceType(type), maxPos.pos);
@@ -515,15 +518,15 @@ const resourcePositionStmt = db.prepare('UPDATE resources SET position = ? WHERE
 
 app.put('/api/resources/:id', (req, res) => {
     const { title, url, type, completed } = req.body;
-    if (!db.prepare('SELECT 1 FROM live_resources resources WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Resource not found' });
-    if (title != null && typeof title !== 'string') return res.status(400).json({ error: 'A resource title is text' });
-    if (completed != null && !RESOURCE_DONE.has(completed)) return res.status(400).json({ error: 'completed must be 0 or 1' });
+    if (!db.prepare('SELECT 1 FROM live_resources resources WHERE id = ?').get(req.params.id)) return res.status(404).json(keyed('Resource not found'));
+    if (title != null && typeof title !== 'string') return res.status(400).json(keyed('A resource title is text'));
+    if (completed != null && !RESOURCE_DONE.has(completed)) return res.status(400).json(apiError('completed must be 0 or 1'));
     // COALESCE means undefined leaves the stored URL alone; only a supplied one
     // is checked (and normalized — "example.com/x" becomes an https URL).
     let nextUrl = url;
     if (url !== undefined && url !== null) {
         const checked = sanitizeUrl(url);
-        if (!checked.ok) return res.status(400).json({ error: `Invalid URL: ${checked.reason}` });
+        if (!checked.ok) return res.status(400).json(keyed('Invalid URL: {{reason}}', { reason: checked.reason }));
         nextUrl = checked.url;
     }
     // Same vocabulary gate the POST applies — the PUT wrote `type` straight
@@ -541,7 +544,7 @@ app.put('/api/resources/:id', (req, res) => {
 });
 
 app.delete('/api/resources/:id', (req, res) => {
-    if (!softDelete('resources', Number(req.params.id))) return res.status(404).json({ error: 'Resource not found' });
+    if (!softDelete('resources', Number(req.params.id))) return res.status(404).json(keyed('Resource not found'));
     res.json({ success: true });
 });
 
@@ -567,7 +570,7 @@ app.post('/api/nodes/labels', (req, res) => {
 app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
     const nodeId = Number(req.params.id);
     const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(nodeId);
-    if (!node) return res.status(404).json({ error: 'Node not found' });
+    if (!node) return res.status(404).json(keyed('Node not found'));
 
     const project = db.prepare('SELECT name, summary FROM live_projects projects WHERE id = ?').get(node.project_id);
 
@@ -606,7 +609,7 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
         });
     } catch (error) {
         console.error('[Resources] On-demand curation failed:', error);
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 

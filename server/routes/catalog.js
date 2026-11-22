@@ -5,6 +5,7 @@ import {
     saveProvider, setProviderEnabled,
 } from '../searchProviders.js';
 import { routeTable } from './routeTable.js';
+import { apiError, errorFields, keyed } from '../clientError.js';
 
 const app = routeTable('catalog');
 
@@ -33,20 +34,20 @@ app.get('/api/search-providers', (req, res) => {
 
 app.post('/api/search-providers', (req, res) => {
     const result = saveProvider(req.body);
-    if (!result.ok) return res.status(400).json({ error: result.error });
+    if (!result.ok) return res.status(400).json(errorFields(result));
     res.json(result.provider);
 });
 
 app.put('/api/search-providers/:id', (req, res) => {
     const { enabled } = req.body;
-    if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
-    if (!setProviderEnabled(req.params.id, enabled)) return res.status(404).json({ error: 'Search provider not found' });
+    if (typeof enabled !== 'boolean') return res.status(400).json(apiError('enabled must be a boolean'));
+    if (!setProviderEnabled(req.params.id, enabled)) return res.status(404).json(keyed('Search provider not found'));
     res.json(getProvider(req.params.id));
 });
 
 app.delete('/api/search-providers/:id', (req, res) => {
     const result = deleteProvider(req.params.id);
-    if (!result.ok) return res.status(result.error === 'not found' ? 404 : 400).json({ error: result.error });
+    if (!result.ok) return res.status(result.error === 'not found' ? 404 : 400).json(errorFields(result));
     res.json({ success: true });
 });
 

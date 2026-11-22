@@ -41,6 +41,7 @@ import { markLearnerEdit } from './courseUpdate.js';
 import { aiProvenance } from './ai.js';
 import { persistDocument } from './stagedDocuments.js';
 import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
+import { KeyedError } from './clientError.js';
 
 /** What a saved link's title is cut to. */
 export const LINK_TITLE_MAX = 200;
@@ -55,10 +56,11 @@ const learnerEdited = (kind, table, id, field) => {
 };
 
 /** An error the route turns into a status: 400 a value no rule accepts, 404 a
- *  target that does not exist, 409 a preview that is out of date. */
-export class EditError extends Error {
-    constructor(status, message, extra = {}) {
-        super(message);
+ *  target that does not exist, 409 a preview that is out of date. The words are
+ *  a message key (server/clientError.js), filled from `params`. */
+export class EditError extends KeyedError {
+    constructor(status, key, extra = {}, params = undefined) {
+        super(key, params);
         this.status = status;
         Object.assign(this, extra);
     }
@@ -163,7 +165,8 @@ function readTarget(kind, targetId) {
     const id = Number(targetId);
     if (!Number.isInteger(id) || id <= 0) throw new EditError(400, 'A change needs the id of what it changes.');
     const row = k.read(id);
-    if (!row) throw new EditError(404, `That ${k.label} does not exist.`);
+    if (!row && k.label === 'topic') throw new EditError(404, 'That topic does not exist.');
+    if (!row) throw new EditError(404, 'That course does not exist.');
     return { k, id, row };
 }
 
@@ -196,7 +199,9 @@ export function applyAssistantEdit({ kind, targetId, projectId = null, changes, 
         if (v === null || v === undefined) invalid.push(field);
         else next[field] = v;
     }
-    if (invalid.length) throw new EditError(400, `Not a value the app accepts: ${invalid.join(', ')}.`, { fields: invalid });
+    if (invalid.length) {
+        throw new EditError(400, 'Not a value the app accepts: {{fields}}.', { fields: invalid }, { fields: invalid.join(', ') });
+    }
     if (!Object.keys(next).length) throw new EditError(400, 'Nothing to change.');
 
     const shown = viewOf(k, row);
@@ -297,7 +302,7 @@ export function saveAssistantLink({ projectId = null, nodeId, url, title = '', s
     if (!node) throw new EditError(404, 'That topic does not exist.');
     if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
     const checked = sanitizeUrl(url);
-    if (!checked.ok) throw new EditError(400, `Not a link the app can open: ${checked.reason}.`, { fields: ['url'] });
+    if (!checked.ok) throw new EditError(400, 'Not a link the app can open: {{reason}}.', { fields: ['url'] }, { reason: checked.reason });
     const same = db.prepare('SELECT id FROM live_resources resources WHERE node_id = ? AND url = ?').get(node.id, checked.url);
     if (same) return { existed: true, resourceId: same.id };
     const name = oneLine(String(title || ''), LINK_TITLE_MAX) ?? checked.url.slice(0, LINK_TITLE_MAX);

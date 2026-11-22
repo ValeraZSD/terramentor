@@ -7,6 +7,7 @@
 //   DELETE /api/deleted[?upTo=<iso>]         remove every listed row for good
 import { CONTENT_TABLES, emptyDeleted, listDeleted, purge, restore } from '../softDelete.js';
 import { logActivity } from '../activityLog.js';
+import { apiError, keyed } from '../clientError.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { routeTable } from './routeTable.js';
 
@@ -26,12 +27,12 @@ app.get('/api/deleted', (_req, res) => {
 
 app.post('/api/deleted/:table/:id/restore', (req, res) => {
     const t = target(req);
-    if (!t) return res.status(400).json({ error: 'Nothing of that kind can be restored.' });
+    if (!t) return res.status(400).json(apiError('Nothing of that kind can be restored.'));
     const out = restore(t.table, t.id);
     if (out.error === 'parent_deleted') {
-        return res.status(409).json({ error: 'What this was in is deleted too. Restore that first.', code: 'parent_deleted' });
+        return res.status(409).json({ ...keyed('What it was in is deleted too. Restore that first.'), code: 'parent_deleted' });
     }
-    if (out.error) return res.status(404).json({ error: 'That is not in Recently deleted.' });
+    if (out.error) return res.status(404).json(keyed('That is not in Recently deleted.'));
     if (t.table === 'projects' || t.table === 'nodes') scheduleNodeSync();
     logActivity({
         area: 'project', event: 'item.restored',
@@ -43,10 +44,10 @@ app.post('/api/deleted/:table/:id/restore', (req, res) => {
 
 app.delete('/api/deleted/:table/:id', (req, res) => {
     const t = target(req);
-    if (!t) return res.status(400).json({ error: 'Nothing of that kind can be removed here.' });
+    if (!t) return res.status(400).json(apiError('Nothing of that kind can be removed here.'));
     // Only a row the list offers: one taken along comes back with its parent.
     const out = purge(t.table, t.id, { listed: true });
-    if (out.error) return res.status(404).json({ error: 'That is not in Recently deleted.' });
+    if (out.error) return res.status(404).json(keyed('That is not in Recently deleted.'));
     if (t.table === 'projects' || t.table === 'nodes') scheduleNodeSync();
     logActivity({ area: 'project', event: 'item.purged', level: 'warn', detail: `${t.table} · ${out.docs} document(s)` });
     res.json({ removed: true });
@@ -55,7 +56,7 @@ app.delete('/api/deleted/:table/:id', (req, res) => {
 app.delete('/api/deleted', (req, res) => {
     // `upTo`: the newest delete the learner was shown; anything later stays.
     const upTo = typeof req.query.upTo === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(req.query.upTo) ? req.query.upTo : null;
-    if (req.query.upTo !== undefined && !upTo) return res.status(400).json({ error: 'upTo must be an ISO timestamp.' });
+    if (req.query.upTo !== undefined && !upTo) return res.status(400).json(apiError('upTo must be an ISO timestamp.'));
     const removed = emptyDeleted({ upTo });
     if (removed) scheduleNodeSync();
     logActivity({ area: 'project', event: 'deleted.emptied', level: 'warn', detail: `${removed} item(s)` });

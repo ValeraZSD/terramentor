@@ -14,6 +14,7 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
 import { nowIso } from './siteDb.js';
+import { keyed } from '../clientError.js';
 import {
     hashPassword, isBreached, needsRehash, passwordShapeProblem, spendLikeAPasswordCheck, verifyPassword,
 } from './passwords.js';
@@ -167,17 +168,17 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
      */
     async function acceptInvite(token, password, ua) {
         const invite = inviteOf(token);
-        if (!invite) return { error: 'This invite link has expired or was already used. Ask for a new one.', spent: true };
+        if (!invite) return { ...keyed('This invite link has expired or was already used. Ask for a new one.'), spent: true };
         const shape = passwordShapeProblem(password);
         if (shape) return { error: shape };
         if (await breachCheck(password, { env }) === true) {
-            return { error: 'This password has appeared in a known data breach, so it is among the first ones guessed. Choose another.' };
+            return keyed('This password has appeared in a known data breach, so it is among the first ones guessed. Choose another.');
         }
         const hash = await hashPassword(password);
         // Spend the link first: a second tab submitting the same link at once
         // must not make two libraries.
         if (q.useInvite.run(nowIso(), invite.id).changes !== 1) {
-            return { error: 'This invite link has expired or was already used. Ask for a new one.', spent: true };
+            return { ...keyed('This invite link has expired or was already used. Ask for a new one.'), spent: true };
         }
         let libraryId;
         try {

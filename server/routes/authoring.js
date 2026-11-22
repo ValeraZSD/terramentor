@@ -9,7 +9,7 @@ import {
 } from '../curriculumSchema.js';
 import { buildMaterialBrief, buildOutlineBrief } from '../authoringBrief.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('authoring');
 
@@ -36,7 +36,7 @@ app.post('/api/authoring/outline-brief', (req, res) => {
 app.get('/api/projects/:projectId/authoring/phases', (req, res) => {
     const projectId = Number(req.params.projectId);
     const project = db.prepare('SELECT id, name FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     const phases = db.prepare(`
         SELECT id, title FROM live_nodes nodes
@@ -76,13 +76,13 @@ app.get('/api/projects/:projectId/authoring/phases', (req, res) => {
 app.get('/api/projects/:projectId/authoring/material-brief', (req, res) => {
     const projectId = Number(req.params.projectId);
     const project = db.prepare('SELECT id, name, description, content_language FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     const phaseId = Number(req.query.phaseId);
     const phase = phaseId
         ? db.prepare('SELECT id, title FROM live_nodes nodes WHERE id = ? AND project_id = ?').get(phaseId, projectId)
         : null;
-    if (phaseId && !phase) return res.status(404).json({ error: 'Phase not found in this project' });
+    if (phaseId && !phase) return res.status(404).json(keyed('Phase not found in this project'));
 
     // "Unwritten" = no attached reading AND an Overview still the length of a
     // signpost (MATERIAL_MIN_CHARS): pass two writes into the Overview.
@@ -131,13 +131,13 @@ app.get('/api/projects/:projectId/authoring/material-brief', (req, res) => {
 app.post('/api/projects/:projectId/authoring/material', (req, res) => {
     const projectId = Number(req.params.projectId);
     const project = db.prepare('SELECT id, name FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     let payload;
     try {
         payload = normalizeMaterialPayload(req.body);
     } catch (err) {
-        if (err instanceof ImportError) return res.status(400).json({ error: clientError(err, 400) });
+        if (err instanceof ImportError) return res.status(400).json(errorBody(err, 400));
         throw err;
     }
 
@@ -154,7 +154,7 @@ app.post('/api/projects/:projectId/authoring/material', (req, res) => {
 
     if (!matches.length) {
         return res.status(400).json({
-            error: 'None of the topics in this file matched a topic in this project.',
+            ...keyed('None of the topics in this file matched a topic in this project.'),
             unmatched,
             warnings: payload.warnings,
         });

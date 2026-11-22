@@ -14,6 +14,7 @@ import {
 import { notifyChatChanged } from '../chatEvents.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { apiError, keyed } from '../clientError.js';
 
 const app = routeTable('chat');
 
@@ -51,22 +52,22 @@ app.post('/api/ai/assistant/stream', (req, res) => {
         ? [...new Set(req.body.attachments.map(Number).filter(Number.isInteger))]
         : [];
     if (attachments.length > ATTACH_MAX_FILES) {
-        return res.status(400).json({ error: `A message may carry at most ${ATTACH_MAX_FILES} files.` });
+        return res.status(400).json(keyed('A message may carry at most {{count}} files.', { count: ATTACH_MAX_FILES }));
     }
     if (!String(message).trim() && !attachments.length) {
-        return res.status(400).json({ error: 'Missing required field: message' });
+        return res.status(400).json(apiError('Missing required field: message'));
     }
     // A file is sent once: an id that is unknown, swept, or already another
     // message's is refused by name, so the composer can mark exactly those.
     const missing = unavailableAttachments(attachments);
     if (missing.length) {
-        return res.status(409).json({ error: 'An attached file is no longer available. Remove it and attach it again.', missing });
+        return res.status(409).json({ ...keyed('An attached file is no longer available. Remove it and attach it again.'), missing });
     }
     // One turn at a time across every conversation: they share one model, and
     // a second question while one is still generating must reattach to it,
     // not fork a parallel turn against stale history.
     if (tasks.findActive({ kind: 'today_chat' })) {
-        return res.status(409).json({ error: 'The assistant is still answering. Wait for it to finish or stop it first.' });
+        return res.status(409).json(keyed('The assistant is still answering. Wait for it to finish or stop it first.'));
     }
     // The client sends only WHERE it is (a view name and ids). The description
     // is built from the database, so the prompt can never be fed prose the
@@ -117,7 +118,7 @@ app.get('/api/ai/conversations', (req, res) => {
 app.get('/api/ai/conversations/:id/messages', (req, res) => {
     const id = Number(req.params.id);
     if (!db.prepare('SELECT 1 FROM chat_conversations WHERE id = ?').get(id)) {
-        return res.status(404).json({ error: 'Conversation not found' });
+        return res.status(404).json(keyed('Conversation not found'));
     }
     const messages = db.prepare(`
         SELECT id, role, content, reasoning, actions, created_at
@@ -133,13 +134,13 @@ app.get('/api/ai/conversations/:id/messages', (req, res) => {
 app.delete('/api/ai/conversations/:id', (req, res) => {
     const id = Number(req.params.id);
     if (turnRunningIn(id)) {
-        return res.status(409).json({ error: 'The assistant is still answering in this conversation. Stop it first.' });
+        return res.status(409).json(keyed('The assistant is still answering in this conversation. Stop it first.'));
     }
     const removed = db.transaction(() => {
         db.prepare('DELETE FROM chat_messages WHERE conversation_id = ?').run(id);
         return db.prepare('DELETE FROM chat_conversations WHERE id = ?').run(id).changes;
     })();
-    if (!removed) return res.status(404).json({ error: 'Conversation not found' });
+    if (!removed) return res.status(404).json(keyed('Conversation not found'));
     // Its files go with it, and their bytes unless a library document holds them.
     deleteConversationAttachments(id);
     res.json({ success: true });
@@ -153,10 +154,10 @@ app.put('/api/ai/chat/message/:id', (req, res) => {
     const id = Number(req.params.id);
     const { content, from } = req.body || {};
     if (typeof content !== 'string' || !content.trim()) {
-        return res.status(400).json({ error: 'content (non-empty string) required' });
+        return res.status(400).json(apiError('content (non-empty string) required'));
     }
     const row = db.prepare('SELECT conversation_id FROM chat_messages WHERE id = ?').get(id);
-    if (!row) return res.status(404).json({ error: 'Message not found' });
+    if (!row) return res.status(404).json(keyed('Message not found'));
     db.prepare('UPDATE chat_messages SET content = ? WHERE id = ?').run(content, id);
     // Every other device showing this conversation reloads it (the task feed
     // carries the news), so a repair made on one reaches all of them. `from`
