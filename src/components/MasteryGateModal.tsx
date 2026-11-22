@@ -704,7 +704,37 @@ export default function MasteryGateModal({
                                 : <AlertTriangle className="w-10 h-10 text-amber-500 mb-3" />}
                             <p className="text-slate-600 dark:text-slate-300">{error}</p>
 
-                            {showRawOutput && (
+                            {/* At most two ways on, centred under the message: a
+                                fresh try, and ONE way past the topic so a learner
+                                with no AI is never stuck: done without the check
+                                where the check is advice, else Skip topic. Close
+                                is the X and Escape. */}
+                            {(!uncheckedOnly || offerMarkAnyway || offerSkip) && (
+                                // A grid column, so the two match in width.
+                                <div className="mt-6 grid w-full max-w-xs gap-2">
+                                    {!uncheckedOnly && (
+                                        <Button variant="primary" onClick={() => setDrawSeq(s => s + 1)}>
+                                            {t("Try again")}
+                                        </Button>
+                                    )}
+                                    {offerMarkAnyway ? (
+                                        <Button onClick={onMarkAnyway}>
+                                            {t("Mark done without the check")}
+                                        </Button>
+                                    ) : offerSkip && (
+                                        <Button onClick={onSkip}>
+                                            {t("Skip topic")}
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
+                            {rawOutput && (
+                                <Button variant="quiet" size="sm" className="mt-3" onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
+                                    {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
+                                </Button>
+                            )}
+
+                            {showRawOutput && rawOutput && (
                                 <div className="mt-4 w-full p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-left overflow-auto max-h-[30vh]">
                                     <pre className="text-xs text-slate-800 dark:text-slate-300 whitespace-pre-wrap font-mono">
                                         {rawOutput || t("No raw output was provided by the server. Check if your backend route includes \"rawResponse: ...\" in the error payload.")}
@@ -883,33 +913,6 @@ export default function MasteryGateModal({
                 {/* Every phase's way on sits in the foot, outside the scroll: a
                     result with a long "Review answers" list put Continue and
                     Retry below the window, as the questions once did Submit. */}
-                {error && !submitted && (
-                    // One group: the learner is never stuck — even with the AI
-                    // unavailable, they can move on honestly. No primary: with
-                    // no check to take, closing the topic without one is a way
-                    // out, never the default. All outlined, since next to
-                    // outlined buttons a bare "Close" reads as text.
-                    <DialogFooter inset="px-6">
-                        <Button onClick={onClose}>
-                            {t("Close")}
-                        </Button>
-                        {!uncheckedOnly && (
-                            <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
-                                {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
-                            </Button>
-                        )}
-                        {offerSkip && (
-                            <Button onClick={onSkip}>
-                                {t("Skip topic")}
-                            </Button>
-                        )}
-                        {offerMarkAnyway && (
-                            <Button onClick={onMarkAnyway}>
-                                {t("Mark done without the check")}
-                            </Button>
-                        )}
-                    </DialogFooter>
-                )}
                 {submitted && shownResult && (
                     <DialogFooter inset="px-6">
                         {shownResult.passed ? (
