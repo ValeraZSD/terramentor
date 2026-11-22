@@ -55,6 +55,9 @@ const SUPPRESSED = {
     'src/components/answer/FillInInput.tsx': {
         'jsx-a11y/no-autofocus': 'the answer box takes focus only when the question surface asks for it',
     },
+    'src/components/feed/InlineQuestion.tsx': {
+        'jsx-a11y/no-autofocus': 'the box takes the caret only when the learner\'s Check opened a second try',
+    },
 };
 const require = createRequire(import.meta.url);
 const OXLINT = join(dirname(require.resolve('oxlint/package.json')), 'bin', 'oxlint');

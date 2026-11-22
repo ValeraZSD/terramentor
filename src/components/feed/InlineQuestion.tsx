@@ -160,6 +160,8 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                         onSubmit={() => { if (open) void checkAgain(); else if (submittable) void submit(); }}
                         disabled={checking}
                         result={open ? null : final}
+                        // Only after the learner's own Check opened the second try.
+                        // eslint-disable-next-line jsx-a11y/no-autofocus -- see above
                         autoFocus={open}
                     />
                 )}
