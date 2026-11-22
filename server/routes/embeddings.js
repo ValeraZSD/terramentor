@@ -5,7 +5,7 @@ import {
 import { nodeEmbeddingStats, reindexAllNodes } from '../nodeEmbeddings.js';
 import { invalidateAtlas } from '../atlas.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('embeddings');
 
@@ -21,7 +21,7 @@ app.get('/api/embeddings/status', async (req, res) => {
         res.json({ config, stats, probe });
     } catch (err) {
         console.error('[Embeddings/status] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -42,7 +42,7 @@ app.post('/api/embeddings/settings', (req, res) => {
 // Re-embed every ready document (after enabling the feature or switching model).
 app.post('/api/embeddings/reindex', (req, res) => {
     if (!getEmbeddingConfig().vecAvailable)
-        return res.status(400).json({ error: 'sqlite-vec extension is not loaded — semantic search is unavailable on this build.' });
+        return res.status(400).json(keyed('sqlite-vec extension is not loaded — semantic search is unavailable on this build.'));
     res.json(reindexAll());
 });
 
@@ -56,13 +56,13 @@ app.get('/api/node-embeddings/status', (req, res) => {
         res.json({ config: getEmbeddingConfig(), stats: nodeEmbeddingStats() });
     } catch (err) {
         console.error('[NodeEmbeddings/status] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
 app.post('/api/node-embeddings/reindex', (req, res) => {
     if (!getEmbeddingConfig().vecAvailable)
-        return res.status(400).json({ error: 'sqlite-vec extension is not loaded — semantic search is unavailable on this build.' });
+        return res.status(400).json(keyed('sqlite-vec extension is not loaded — semantic search is unavailable on this build.'));
     invalidateAtlas();   // every vector is about to be rewritten
     res.json(reindexAllNodes());
 });

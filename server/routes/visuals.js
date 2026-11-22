@@ -16,7 +16,7 @@ import { appVersion } from '../version.js';
 import { firstChoice } from '../aiJobs.js';
 import { attachTaskStream, requestOrigin, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, errorFields, keyed } from '../clientError.js';
 
 const app = routeTable('visuals');
 
@@ -122,7 +122,7 @@ app.post('/api/ai/repair-visual', (req, res) => {
     // that a working spec "failed with error: the axes do not move" sends it
     // looking for a syntax fault that is not there.
     const { kind, code, error, feedback, brief, feedbackId, theme } = req.body || {};
-    if (!kind || !code) return res.status(400).json({ error: 'Missing required fields: kind, code' });
+    if (!kind || !code) return res.status(400).json(apiError('Missing required fields: kind, code'));
     const kindText = String(kind);
     const codeText = String(code);
     const errorText = error ? String(error) : '';
@@ -157,7 +157,7 @@ app.post('/api/ai/repair-visual', (req, res) => {
 // calling it done. VisualBlock keeps the original spec and says so.
 app.post('/api/ai/repair-visual/:id/unusable', (req, res) => {
     const result = tasks.resultUnusable(req.params.id);
-    if (!result.ok) return res.status(409).json({ error: result.error });
+    if (!result.ok) return res.status(409).json(errorFields(result));
     res.json({ success: true });
 });
 
@@ -166,13 +166,13 @@ app.post('/api/ai/repair-visual/:id/unusable', (req, res) => {
 // of context; the learner edits the words before saving, this only drafts them.
 app.post('/api/ai/visual/caption', async (req, res) => {
     const { kind, spec, context } = req.body || {};
-    if (typeof kind !== 'string' || !kind.trim()) return res.status(400).json({ error: 'kind required' });
-    if (typeof spec !== 'string' || !spec.trim()) return res.status(400).json({ error: 'spec required' });
+    if (typeof kind !== 'string' || !kind.trim()) return res.status(400).json(apiError('kind required'));
+    if (typeof spec !== 'string' || !spec.trim()) return res.status(400).json(apiError('spec required'));
     try {
         res.json(await captionVisual(kind.trim(), spec, typeof context === 'string' ? context : ''));
     } catch (err) {
         console.error('Visual caption error:', err.message);
-        res.status(502).json({ error: clientError(err) });
+        res.status(502).json(errorBody(err));
     }
 });
 
@@ -188,10 +188,10 @@ app.post('/api/ai/visual/caption', async (req, res) => {
 app.post('/api/visual-feedback', (req, res) => {
     const { kind, language, spec, feedback, surface, nodeId, messageId, theme } = req.body || {};
     if (typeof feedback !== 'string' || !feedback.trim()) {
-        return res.status(400).json({ error: 'feedback (non-empty string) required' });
+        return res.status(400).json(apiError('feedback (non-empty string) required'));
     }
     if (typeof spec !== 'string' || !spec.trim()) {
-        return res.status(400).json({ error: 'spec (non-empty string) required' });
+        return res.status(400).json(apiError('spec (non-empty string) required'));
     }
     // The model that drew it is part of the report: a lesson authored by a 4B
     // and one authored by a 30B are not the same artifact (the provenance rule).
@@ -205,7 +205,7 @@ app.post('/api/visual-feedback', (req, res) => {
     // No id means no line was written (the log is full, or the volume refused
     // it). Handing back an id anyway would tell the learner their report was kept
     // and tie a later outcome to a record that does not exist.
-    if (!id) return res.status(507).json({ error: 'The report log is full or cannot be written, so this report was not saved.' });
+    if (!id) return res.status(507).json(keyed('The report log is full or cannot be written, so this report was not saved.'));
     res.json({ id });
 });
 
@@ -324,7 +324,7 @@ async function trackedBuild({ hash, kind, signal }, build) {
 app.post('/api/ai/widget/compile', (req, res) => {
     const { spec, error, previousHtml } = req.body || {};
     const specText = typeof spec === 'string' ? spec.trim() : '';
-    if (!specText) return res.status(400).json({ error: 'Missing required field: spec' });
+    if (!specText) return res.status(400).json(apiError('Missing required field: spec'));
     const specHash = specHashOf(specText);
     const dedupeKey = `widget:${specHash}`;
 
@@ -365,7 +365,7 @@ app.post('/api/ai/visual/build-failed', (req, res) => {
     const text = typeof spec === 'string' ? spec.trim() : '';
     const kindText = typeof kind === 'string' ? kind.trim() : '';
     if (!text || !['widget', 'animation', 'p5'].includes(kindText)) {
-        return res.status(400).json({ error: 'kind (widget | animation | p5) and spec are required' });
+        return res.status(400).json(apiError('kind (widget | animation | p5) and spec are required'));
     }
     const hash = kindText === 'widget' ? specHashOf(text) : visualBriefHash(kindText, text);
     const message = typeof error === 'string' && error.trim() ? error : 'the build did not run';
@@ -381,9 +381,9 @@ app.post('/api/ai/visual/author', (req, res) => {
     const { kind, brief, error, previousSpec } = req.body || {};
     const kindText = typeof kind === 'string' ? kind.trim() : '';
     const briefText = typeof brief === 'string' ? brief.trim() : '';
-    if (!briefText) return res.status(400).json({ error: 'Missing required field: brief' });
+    if (!briefText) return res.status(400).json(apiError('Missing required field: brief'));
     if (!VISUAL_BRIEF_KINDS.has(kindText)) {
-        return res.status(400).json({ error: `"${kindText}" is not authored by the specialist pass` });
+        return res.status(400).json(apiError(`"${kindText}" is not authored by the specialist pass`));
     }
     const briefHash = visualBriefHash(kindText, briefText);
     const dedupeKey = `visual:${briefHash}`;

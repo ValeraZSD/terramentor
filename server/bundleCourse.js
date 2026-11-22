@@ -7,11 +7,11 @@ import { MAX_MEDIA_BYTES, storeMediaBuffer } from './ankiMedia.js';
 import { readZipEntry } from './extract.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from './curriculumSchema.js';
 import { IMPORT_QUESTION_DEPS } from './courseFiles.js';
-import { publicMessage } from './clientError.js';
+import { KeyedError, publicMessage } from './clientError.js';
 
 /** A bundle refused for what is in it. The message is the answer and the
  *  status is always 400. */
-export class BundleRefusal extends Error {}
+export class BundleRefusal extends KeyedError {}
 
 // What a refusal says about the error under it. A bundle is somebody else's
 // file, so its manifest failing to parse is the bundle's fault and said so;

@@ -18,7 +18,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectKeys, englishEntries, pluralCategories } from './lib/i18nKeys.mjs';
+import { collectAppKeys, englishEntries, pluralCategories } from './lib/i18nKeys.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
@@ -38,7 +38,7 @@ const baseKey = (k) => k.replace(/_(zero|one|two|few|many|other)$/, '');
 
 // --- the source list -------------------------------------------------------------
 console.log('--- en.json against the source ---');
-const used = collectKeys(srcDir);
+const used = collectAppKeys(repoRoot);
 ok('the source uses translation keys', used.size > 1000, `${used.size} distinct keys`);
 const en = JSON.parse(readFileSync(join(localesDir, 'en.json'), 'utf8'));
 const expected = {};

@@ -13,6 +13,7 @@
 import db from './database.js';
 import { aiProvenance } from './ai.js';
 import { LEAF_NODE } from './today.js';
+import { KeyedError } from './clientError.js';
 
 /** A side longer than this is a paragraph, not a card. */
 export const CARD_SIDE_MAX = 2000;
@@ -29,17 +30,17 @@ export function addAssistantCard({ nodeId, front, back, extra = null }) {
     const f = String(front ?? '').trim();
     const b = String(back ?? '').trim();
     const x = extra == null ? null : String(extra).trim() || null;
-    if (!f || !b) throw new Error('A card needs a front and a back.');
+    if (!f || !b) throw new KeyedError('A card needs a front and a back.');
     if (f.length > CARD_SIDE_MAX || b.length > CARD_SIDE_MAX || (x && x.length > CARD_SIDE_MAX)) {
         throw new Error(`A card side is limited to ${CARD_SIDE_MAX} characters.`);
     }
     const node = db.prepare(`SELECT n.id, n.is_note, (${LEAF_NODE}) AS leaf FROM nodes n WHERE n.id = ?`).get(Number(nodeId));
-    if (!node) throw new Error('That topic does not exist.');
+    if (!node) throw new KeyedError('That topic does not exist.');
     // A note is a topic's reading material; its cards belong to the topic.
-    if (node.is_note) throw new Error('A card belongs to a topic, not to a note.');
+    if (node.is_note) throw new KeyedError('A card belongs to a topic, not to a note.');
     // A section is structure: its cards would count towards no topic's
     // progress and no topic's evidence. A deck's stage is a leaf and takes cards.
-    if (!node.leaf) throw new Error('A card belongs to a topic, not to a section.');
+    if (!node.leaf) throw new KeyedError('A card belongs to a topic, not to a section.');
 
     const same = db.prepare('SELECT id FROM flashcards WHERE node_id = ? AND lower(trim(front)) = lower(?)').get(node.id, f);
     if (same) return { id: same.id, existed: true };

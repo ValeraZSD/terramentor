@@ -12,7 +12,7 @@ import { writeCard } from '../cardWrite.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError, publicMessage } from '../clientError.js';
+import { apiError, errorBody, keyed, publicBody } from '../clientError.js';
 
 const app = routeTable('flashcards');
 
@@ -53,7 +53,7 @@ app.post('/api/ai/flashcards', async (req, res) => {
     } catch (error) {
         console.error('Flashcard generation error:', error);
         res.status(500).json({
-            error: publicMessage(error),
+            ...publicBody(error),
             rawResponse: aiResponse
         });
     }
@@ -88,9 +88,9 @@ async function runFlashcardGeneration({ nodeId, count, emit, signal }) {
 
 app.post('/api/ai/flashcards/stream', (req, res) => {
     const { nodeId, count = 10 } = req.body;
-    if (!nodeId) return res.status(400).json({ error: 'Missing required field: nodeId' });
+    if (!nodeId) return res.status(400).json(apiError('Missing required field: nodeId'));
     const info = nodeTaskInfo(Number(nodeId));
-    if (!info) return res.status(404).json({ error: 'Node not found' });
+    if (!info) return res.status(404).json(keyed('Node not found'));
 
     const cardsOrigin = requestOrigin(req, { surface: 'topic', detail: 'flashcards', nodeId: Number(nodeId), projectId: info.projectId });
     const { task } = tasks.createTask({
@@ -166,7 +166,7 @@ app.get('/api/projects/:projectId/flashcards', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -186,7 +186,7 @@ app.get('/api/projects/:projectId/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -207,7 +207,7 @@ app.get('/api/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

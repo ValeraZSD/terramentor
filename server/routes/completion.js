@@ -1,6 +1,6 @@
 // /api/projects/:projectId/completion: the finished-project screen.
 import { markCelebrated, projectCompletion } from '../completion.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 
@@ -15,11 +15,11 @@ app.get('/api/projects/:projectId/completion', (req, res) => {
     const { projectId } = req.params;
     try {
         const summary = projectCompletion(projectId);
-        if (!summary) return res.status(404).json({ error: 'Project not found' });
+        if (!summary) return res.status(404).json(keyed('Project not found'));
         res.json(summary);
     } catch (err) {
         console.error('[Completion] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -33,7 +33,7 @@ app.post('/api/projects/:projectId/completion/seen', (req, res) => {
         markCelebrated(projectId);
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
