@@ -68,7 +68,7 @@ const QUOTED = /"[^"]*"|“[^”]*”|„[^“”]*[“”]|«[^»]*»|(?<![\p{L
 const WRAPPED = /^(?:"([^"]*)"|“([^”]*)”|«([^»]*)»|'([^']*)')[.!]?$/u;
 
 /** A label a model puts before its answer ("Description: ..."): never content. */
-const LABEL = /^(?:description|alt(?:[\s-]?text)?|caption|beschrijving|beschreibung|descripción|descrizione|descrição|описание|опис)\s*:\s*/iu;
+const LABEL = /^(?:description|alt(?:[\s-]?text)?|caption|beschrijving|beschreibung|descripción|descrizione|descrição|opis|beskrivelse|beskrivning|açıklama|описание|опис|説明|描述|설명|الوصف)\s*[:：]\s*/iu;
 
 /** "This image shows ...": the prompt forbids it; when a model writes it anyway, it goes. */
 const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\s*:?\s*/i;
@@ -80,9 +80,12 @@ const REFUSAL = [
     /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e)\b/i,
     /\bas an (?:AI|language model)\b/i,
     /\bno (?:image|picture|photo) (?:was|is|has been) (?:provided|attached|included|shared)\b/i,
-    /^sorry\b/i,
-    /\bthere(?:'s|’s| is) no (?:image|picture|photo)\b/i,
-    /(?<!\p{L})(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|przepraszam|извините|к сожалению|вибачте|на жаль|申し訳|抱歉|对不起)(?!\p{L})/iu,
+    /^sorry\s*[,.!]/i,
+    /^there(?:'s|’s| is) no (?:image|picture|photo)(?: (?:attached|provided|included|shared|here|to describe))?\s*[.!]?$/i,
+    // An apology only where a reply starts: inside a caption the same words are
+    // content, and in a language course they are vocabulary ("对不起" on a card).
+    // and the apology is a clause of its own ("Lo siento, ..."), not a caption's first word.
+    /^(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|przepraszam|извините|к сожалению|вибачте|на жаль|抱歉|对不起)\s*[,.!，。！]|^申し訳(?:ありません|ございません)/iu,
     /(?<!\p{L})(?:ik kan (?:de |deze )?(?:afbeelding|foto) niet|ik zie geen (?:afbeelding|foto|plaatje)|ich kann (?:das |dieses )?bild nicht|ich kann keine bilder|ich sehe kein(?:e|en)? bild|no puedo ver|je ne peux pas (?:voir|décrire)|non posso vedere|nie mogę zobaczyć|не могу (?:увидеть|просмотреть|открыть)|не можу (?:побачити|переглянути))(?!\p{L})/iu,
     /(?:画像|图片|圖片)(?:を)?(?:見る|表示する|確認する)?(?:ことができません|を?見られません)|无法(?:查看|看到)|無法(?:查看|看到)/u,
 ];
@@ -95,7 +98,8 @@ const REFUSAL = [
  * "big" (Dutch), "large" (French), "has", "are" (Spanish, Romanian).
  */
 const ENGLISH_ONLY = new Set(('the with this that there their which while behind between '
-    + 'showing shows into onto beside white black green yellow brown small').split(' '));
+    + 'showing shows into onto beside white black green yellow brown small '
+    + 'sitting standing holding looking walking playing wearing woman children kitchen street').split(' '));
 
 /** The script a language is written in, for the languages that have their own. Serbian is left out: it is written in Latin letters too. */
 const SCRIPT_OF = {
@@ -136,7 +140,10 @@ export function wrongLanguage(text, wanted) {
         // description ("代码截图: for i in range(10)"): only a text with next
         // to nothing in its own script is in the wrong one.
         const own = count(s, SCRIPT_OF[code]);
-        return own < 3 && latin >= 8 ? 'Latin letters' : null;
+        // A Chinese, Japanese or Korean word is often two characters
+        // ("Photoshop界面"): there one character of the script is enough.
+        const floor = ['zh', 'ja', 'ko'].includes(code) ? 1 : 3;
+        return own < floor && latin >= 8 ? 'Latin letters' : null;
     }
     if (code === 'en') return latin < letters * 0.5 ? 'another script' : null;
     // A capitalised word inside a sentence is a name or a title ("Hoes van The
