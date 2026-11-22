@@ -131,8 +131,9 @@ export const autostartLoaded = isDesktop() && launchTarget()
  *  person may have deleted it from the Startup folder by hand. */
 const startsAtLogin = () => !!(autostart.supported && existsSync(autostart.path));
 
-/** Write or remove that file. Windows needs PowerShell to make a .lnk (it is a
- *  COM object); removing one is an ordinary unlink on all three platforms.
+/** Write or remove that file. Windows needs PowerShell to make a .lnk (the
+ *  shell's COM objects fill it in); removing one is an ordinary unlink on all
+ *  three platforms.
  *  `marker`, beside the library, records what this library wrote, so a later
  *  start can tell its own item from another library's — see refreshLoginItem. */
 function setStartAtLogin(on, marker = null) {
