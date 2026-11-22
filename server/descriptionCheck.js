@@ -27,6 +27,7 @@
  * one kept can still be corrected in Settings.
  */
 import { catalogLanguage } from './creationLanguage.js';
+import { k } from './clientError.js';
 
 /**
  * Per language, the words that say what KIND of picture it is, or nothing at
@@ -166,16 +167,17 @@ function onlyEmptyWords(words) {
  * `{ ok: false, code, reason }`.
  *
  * `code` is one of `empty`, `refusal`, `generic`, `language`; `reason` is the
- * sentence the sweep and the Describe route report.
+ * English sentence the sweep reports, `messageKey` what the Describe route
+ * sends for the app to translate.
  */
 export function checkDescription(raw, { language = '' } = {}) {
     let text = String(raw ?? '').trim().replace(LABEL, '');
     const wrapped = WRAPPED.exec(text);
     if (wrapped) text = (wrapped.slice(1).find(g => g !== undefined) ?? '').trim();
-    if (!text) return refuse('empty', 'the model wrote no description');
+    if (!text) return refuse('empty', k('Description refused: the model wrote no description'));
     // A sign in the picture may say "I'm sorry": quoted text is the picture's, not the model's.
     const unquoted = text.replace(QUOTED, ' ').trim();
-    if (REFUSAL.some(re => re.test(unquoted))) return refuse('refusal', 'the model said it could not describe this image');
+    if (REFUSAL.some(re => re.test(unquoted))) return refuse('refusal', k('Description refused: the model said it could not describe this image'));
 
     const stripped = text.replace(PREAMBLE, '');
     if (stripped !== text && stripped) text = stripped.charAt(0).toLocaleUpperCase() + stripped.slice(1);
@@ -184,17 +186,21 @@ export function checkDescription(raw, { language = '' } = {}) {
     const words = text.replace(QUOTED, ' ').toLowerCase().replace(CHART_KIND, '$1')
         .match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
     if (!quotedHasLetters && onlyEmptyWords(words)) {
-        return refuse('generic', `the description names the kind of picture but nothing in it ("${text}")`);
+        return refuse('generic', k('Description refused: the description names the kind of picture but nothing in it'));
     }
 
     const found = wrongLanguage(text, language);
     if (found) {
         const wanted = catalogLanguage(descriptionLanguage(language))?.name ?? language;
-        return refuse('language', `the description is in ${found}, not ${wanted}`);
+        return refuse('language', k('Description refused: the description is not in the course language'), `${found}, not ${wanted}`);
     }
     return { ok: true, text };
 }
 
-function refuse(code, reason) {
-    return { ok: false, code, reason: `Description refused: ${reason}` };
+/**
+ * `messageKey` is the sentence the Describe route sends for the app to translate;
+ * `reason` adds the English detail (which languages) for the sweep and the log.
+ */
+function refuse(code, messageKey, detail) {
+    return { ok: false, code, reason: detail ? `${messageKey} (${detail})` : messageKey, messageKey };
 }
