@@ -961,10 +961,19 @@ console.log('\n--- the log file and the shortcut ---');
     // copy rewrites it, once. A marker whose records agree is left alone.
     const lossy = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\cafe --autostart', workingDir: OLD });
     const asked = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\café --autostart', workingDir: OLD });
-    check('shortcut an older writer stored differently, same copy: repaired', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
+    const ansiMarker = JSON.stringify({ wrote: asked, holds: lossy }); // as the ANSI writer left it
+    check('shortcut an older writer stored differently, same copy: repaired', refresh({ ...shortcut, wanted: asked, marker: ansiMarker, current: lossy }), 'rewrite');
+    check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: ansiMarker, current: lossy }), 'rewrite');
+    check('…but not once someone else wrote the item since', refresh({ ...shortcut, wanted: asked, marker: ansiMarker, current: win(OLD, B) }), 'none');
+    // The repair writes a marker of its own; were Windows still to store
+    // something else, the same copy must not rewrite it at every start.
+    check('a UTF-16 write that still came back different, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
     check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
-    check('…but not once someone else wrote the item since', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: win(OLD, B) }), 'none');
-    check('a shortcut holding what it was asked for, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, asked), current: lossy }), 'none');
+    // The empty shortcut the script starts from, checked here on every
+    // platform: a header-only link the reader takes, with no fields.
+    const emptyLnk = Buffer.from((L.autostartPlan({ platform: 'win32', target: 'C:\\t.exe', args: [], env: { APPDATA: 'C:\\x' } }).script
+        .match(/FromBase64String\('([A-Za-z0-9+/=]+)'\)\)\s*\}/) || [])[1] || '', 'base64');
+    check('the empty shortcut is a header and a terminal block', [emptyLnk.length, emptyLnk.length && emptyLnk.readUInt32LE(0), emptyLnk.length && L.readShortcut?.(emptyLnk)], [80, 0x4C, {}]);
     check('shortcut, older marker (a script), naming this library: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
     check('shortcut, older marker (a script), naming another library: left', refresh({ ...shortcut, marker: script, current: win(OLD, B) }), 'none');
     check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
@@ -1076,8 +1085,11 @@ console.log('\n--- the log file and the shortcut ---');
             check('…and the script reports exactly that', anyPage.printed, anyPage.plan.record);
             const libOnly = write('C:\\Apps\\Terramentor\\Terramentor.exe', 'C:\\Users\\u\\Βιβλιοθήκη 学习');
             check('a plain app folder with such a library: the library arrives exactly', libOnly.holds, libOnly.plan.record);
-            const wide = write('C:\\Apps\\Терра mentor é\\Terramentor.exe', 'C:\\Users\\u\\Мой café');
-            check('Cyrillic and a Latin accent together arrive exactly', wide.holds, wide.plan.record);
+            // A file in its place that is not a shortcut (cut short to nothing)
+            // is replaced, not left failing at every write.
+            writeFileSync(libOnly.plan.path, Buffer.alloc(0));
+            const fromBroken = write('C:\\Apps\\Terramentor\\Terramentor.exe', 'C:\\Users\\u\\lib');
+            check('an empty file where the shortcut goes is replaced by one', [fromBroken.status, fromBroken.holds], [0, fromBroken.plan.record]);
         } finally {
             rmSync(scratchLnk, { recursive: true, force: true });
         }

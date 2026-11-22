@@ -765,7 +765,13 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
         `$name = ${psValue(name + '.lnk')}`,
         '$lnk = Join-Path $dir $name',
-        `if (-not (Test-Path -LiteralPath $lnk)) { [IO.File]::WriteAllBytes($lnk, [Convert]::FromBase64String('${EMPTY_LNK}')) }`,
+        // A file that is not a shortcut (empty, cut short) is replaced too; one
+        // this script started is removed again if filling it fails, so a
+        // failure never leaves an empty shortcut in the Startup folder.
+        '$old = if (Test-Path -LiteralPath $lnk) { [IO.File]::ReadAllBytes($lnk) } else { $null }',
+        '$made = $null -eq $old -or $old.Length -lt 76 -or $old[0] -ne 0x4C',
+        `if ($made) { [IO.File]::WriteAllBytes($lnk, [Convert]::FromBase64String('${EMPTY_LNK}')) }`,
+        'try {',
         '$s = (New-Object -ComObject Shell.Application).NameSpace($dir).ParseName($name).GetLink',
         `$s.Path = ${psValue(target)}`,
         args ? `$s.Arguments = ${psValue(args)}` : null,
@@ -782,6 +788,7 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         '$s.ShowCommand = 7',
         `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
+        '} catch { if ($made) { Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue }; throw }',
         // `report`: print what this shortcut object now holds, base64 so no
         // console code page can touch it. From this object, never by reading
         // the file back: another library may write the same file in between
@@ -1269,8 +1276,9 @@ export function unpinnedLibraryOf(root, { platform = process.platform, env = pro
  *   which sends fields through the ANSI code page, so `é` on a Cyrillic
  *   system came back as `e`): `holds`, read back from the file, says whose it
  *   is; `wrote`, what this copy asked for, says whether this copy would write
- *   anything different. A marker whose two records differ is such a lossy
- *   write, and is repaired by the next start that owns it.
+ *   anything different. An older marker whose two records differ is such a
+ *   lossy write, and is repaired by the next start that owns it; a marker
+ *   this writer left (`utf16`) is never repaired for that alone.
  * - With no marker (an item from before markers, or a marker from before
  *   shortcut records, which held the script), the item is this library's when
  *   its own `--data-dir` is this library — the whole path, not a prefix — or
@@ -1289,9 +1297,11 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
         let m = null;
         try { m = JSON.parse(marker); } catch { /* the script */ }
         if (typeof m?.wrote === 'string' && typeof m?.holds === 'string') {
-            // `holds` unlike `wrote`: an older copy's lossy write, so even the
-            // same copy rewrites it once. The rewrite holds what it wrote.
-            return current === m.holds && (m.wrote !== wanted || m.holds !== m.wrote) ? 'rewrite' : 'none';
+            // `holds` unlike `wrote` in a marker the ANSI writer left: a lossy
+            // write, so even the same copy rewrites it once. The rewrite's
+            // marker says `utf16`, so whatever it holds, it is not redone.
+            const lossy = m.utf16 !== true && m.holds !== m.wrote;
+            return current === m.holds && (m.wrote !== wanted || lossy) ? 'rewrite' : 'none';
         }
         marker = null;
     }
@@ -1305,8 +1315,8 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
     return opens != null && sameLibrary(opens, dataDir, platform) ? 'rewrite' : 'none';
 }
 
-/** The marker a shortcut write leaves: what was asked for, and what the file
- *  Windows wrote turned out to hold. */
-export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds });
+/** The marker a shortcut write leaves: what was asked for, what the file
+ *  Windows wrote turned out to hold, and that the UTF-16 writer wrote it. */
+export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds, utf16: true });
 
 export { userDataDir, dirname };
