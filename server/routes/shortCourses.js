@@ -1,7 +1,7 @@
 // Short courses from a link or a file (server/shortCourses.js): read a source,
 // make a course of it, list them for the strip on Projects, write one again.
 import multer from 'multer';
-import { createShortCourse, discardSource, listShortCourses, readSource, retryShortCourse, ShortCourseError } from '../shortCourses.js';
+import { createShortCourse, discardSource, listShortCourses, readSource, readSourceFor, retryShortCourse, ShortCourseError } from '../shortCourses.js';
 import { MAX_FILE_BYTES } from '../extract.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
@@ -40,7 +40,9 @@ function fail(res, e) {
 app.post('/api/short-courses/read', async (req, res) => {
     const { url, transcript, title } = req.body || {};
     try {
-        res.json(await readSource({ url, transcript, title }, { acceptLanguage: req.headers['accept-language'], signal: closedSignal(res) }));
+        // null: the window was closed or the row removed while it read.
+        const out = await readSourceFor({ url, transcript, title }, { acceptLanguage: req.headers['accept-language'], signal: closedSignal(res) });
+        if (out) res.json(out);
     } catch (e) {
         fail(res, e);
     }

@@ -54,7 +54,7 @@ const stubs = {
     api: 'export const api = {\n'
         + '  async *createProjectWithAI() { for (const f of globalThis.__frames) yield f; },\n'
         + '  async getCreationStatus() { return globalThis.__status(); },\n'
-        + '  async getNodes() { return []; },\n'
+        + '  async getNodes() { return globalThis.__nodes ? globalThis.__nodes() : []; },\n'
         + '  async cancelProjectWithAI() {},\n'
         + '  async dismissTask() {},\n'
         + '};\n',
@@ -64,7 +64,8 @@ const stubs = {
 };
 for (const [name, src] of Object.entries(stubs)) writeFileSync(join(stubDir, `${name}.js`), src);
 globalThis.window = globalThis;
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+// The log a reloaded page saved: `__saved`, when a case sets it.
+globalThis.localStorage = { getItem: (k) => (k === 'ai-creation-logs' && globalThis.__saved ? JSON.stringify(globalThis.__saved) : null), setItem() {}, removeItem() {} };
 globalThis.document = { visibilityState: 'visible' };
 globalThis.__status = async () => ({ generations: [] });
 
@@ -146,6 +147,61 @@ section('a failed first status request is asked again');
         calls === 2 && Object.values(client.useCreationRuns.getState().runs).some(r => r.runId === 'srv1'), `${calls} call(s)`);
     await client.reattachCreationRuns();
     check('once it has answered it does not ask again', calls === 2, `${calls} call(s)`);
+}
+
+// Reattaching happens once per page: each case below loads the store afresh.
+const freshClient = async (tag) => import(`${pathToFileURL(bundle).href}?${tag}`);
+// One fixed instant for the saved logs and the snapshots: nothing below reads the clock.
+const PINNED = 1_763_700_000_000;
+
+section('a page reloaded mid-fallback keeps no success for the short write it gave up');
+{
+    // Saved before the reload: the size said short, the short write was
+    // spinning. The server has since fallen back to phases and finished.
+    globalThis.__saved = { srv2: { savedAt: PINNED, log: [
+        { id: 'size', message: 'A short course', status: 'success' },
+        { id: 'short-topics', message: 'Writing the topics', status: 'running' },
+    ] } };
+    globalThis.__status = async () => ({ generations: [{
+        runId: 'srv2', name: 'Index funds', outcome: 'complete', phase: 'complete', shape: 'phased', shapeBy: 'fallback',
+        startedAt: PINNED, thinkingVersion: 0,
+    }] });
+    const c2 = await freshClient('fallback');
+    await c2.reattachCreationRuns();
+    const run = c2.useCreationRuns.getState().runs.srv2;
+    const row = (id) => run?.log.find(e => e.id === id);
+    check('the short write it gave up is a warning, not a success', row('short-topics')?.status === 'warning', JSON.stringify(row('short-topics')));
+    check('the size row says what the run became', !!row('size') && row('size').message !== 'A short course', JSON.stringify(row('size')));
+    globalThis.__saved = null;
+}
+
+section('a reattached short course whose tree read fails asks for it again');
+{
+    let reads = 0;
+    globalThis.__nodes = async () => {
+        reads++;
+        if (reads === 1) throw new Error('Failed to fetch');
+        return [{ id: 1, parent_id: null, title: 'Why fees matter', is_note: 0 }, { id: 2, parent_id: null, title: 'Rebalancing', is_note: 0 }];
+    };
+    // Closed while the topics were being written; they were written meanwhile.
+    globalThis.__saved = { srv3: { savedAt: PINNED, log: [
+        { id: 'size', message: 'A short course', status: 'success' },
+        { id: 'short-topics', message: 'Writing the topics', status: 'running' },
+    ] } };
+    globalThis.__status = async () => ({ generations: [{
+        runId: 'srv3', name: 'Index funds', projectId: 9, outcome: 'complete', phase: 'complete', shape: 'short', shapeBy: 'model',
+        topicsWritten: 2, startedAt: PINNED, thinkingVersion: 0,
+    }] });
+    const c3 = await freshClient('tree');
+    await c3.reattachCreationRuns();
+    const treeOf = () => c3.useCreationRuns.getState().runs.srv3?.tree ?? [];
+    for (let i = 0; i < 400 && treeOf().length === 0; i++) await new Promise(r => setTimeout(r, 10));
+    check('the settled run gets its topics after a failed read', treeOf().length === 2 && reads === 2, `${reads} read(s), ${treeOf().length} row(s)`);
+    check('it keeps how many topics the write made', c3.useCreationRuns.getState().runs.srv3?.topicsWritten === 2);
+    const written = c3.useCreationRuns.getState().runs.srv3?.log.find(e => e.id === 'short-topics');
+    check('its "Writing the topics" step says what was written, not a bare tick', written?.status === 'success' && written.message === '2 topics written', JSON.stringify(written));
+    globalThis.__nodes = null;
+    globalThis.__saved = null;
 }
 
 console.log(`\ncreation run screen gates: ${pass} passed, ${fail} failed${HEAD ? ' (against HEAD)' : ''}`);

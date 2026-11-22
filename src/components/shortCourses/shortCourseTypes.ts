@@ -73,6 +73,8 @@ export interface ShortCourseRow {
     from: string | null;
     url: string | null;
     minutes: number | null;
+    /** Made from several sources: how many besides the one `from` names. */
+    more: number;
     topics: number;
     done: number;
     state: ShortRowState;
