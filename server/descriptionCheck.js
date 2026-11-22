@@ -77,7 +77,7 @@ const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|
 /** A model declining, or saying there is nothing to describe, in the languages models fall back to. */
 const REFUSAL = [
     /^(?:unreadable|n\/a|none|null|undefined)\.?$/i,
-    /\bI(?:'m| am)\s+(?:sorry|unable|not able)\b/i,
+    /\bI(?:['’]m| am)\s+(?:sorry|unable|not able)\b/i,
     /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e)\b/i,
     /\bas an (?:AI|language model)\b/i,
     /\bno (?:image|picture|photo) (?:was|is|has been) (?:provided|attached|included|shared)\b/i,
