@@ -71,6 +71,7 @@ const APKG_ZIP_LIMITS = { maxEntries: 200_000, maxTotalBytes: MAX_MEDIA_TOTAL_BY
 export const MAX_COLLECTION_BYTES = 512 * 1024 * 1024;
 
 import { importAnkiRevlog } from './reviewLog.js';
+import { KeyedError } from './clientError.js';
 
 // ---- reading the collection -------------------------------------------------
 
@@ -109,7 +110,7 @@ async function loadCollectionDb(zip, workDir, limits) {
         return { collection, schemaFile: cand.name };
     }
     if (lastEmpty) return { collection: lastEmpty.collection, schemaFile: lastEmpty.cand.name, empty: true };
-    throw new Error('No Anki collection was found inside this file. Is it an .apkg exported from Anki?');
+    throw new KeyedError('No Anki collection was found inside this file. Is it an .apkg exported from Anki?');
 }
 
 
@@ -126,7 +127,7 @@ export async function parseApkg(buffer, { importMedia = true, onProgress, limits
         try {
             zip = await JSZip.loadAsync(buffer);
         } catch (err) {
-            throw new Error('That file is not a readable .apkg (it could not be unzipped).');
+            throw new KeyedError('That file is not a readable .apkg (it could not be unzipped).');
         }
         // An .apkg usually comes from the internet. The archive's declared numbers
         // are checked here (free); what each entry inflates to is bounded where it

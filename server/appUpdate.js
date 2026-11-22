@@ -38,6 +38,7 @@ import { appVersion, compareVersions, downloadPrefix, readBuildInfo, updateChann
 // own fetch for the stand-in GitHub on loopback.
 import { safeFetch } from './netSafety.js';
 import { appPlacement, macBundleOf } from './appPlacement.js';
+import { keyed } from './clientError.js';
 
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -688,8 +689,8 @@ export function channelChanged({ channel = followedChannel(), log = console } = 
  *  channel this copy follows. */
 export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel(), now = Date.now() } = {}) {
     const state = installState({ appRoot, current, latest, deployment, channel });
-    if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
-    if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
+    if (!state.supported) return { ok: false, status: 409, ...keyed('This copy of Terramentor cannot install updates itself.') };
+    if (state.phase !== 'ready') return { ok: false, status: 409, ...keyed('No downloaded update is ready to install.'), overtaken: state.overtaken !== null };
     // Restart pressed in two tabs: each waited on GitHub (freshUpdateState),
     // and both land here together. One updater runs; the other press hears
     // the same answer. A window rather than a flag, so an updater that could

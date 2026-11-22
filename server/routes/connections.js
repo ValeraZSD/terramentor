@@ -13,7 +13,7 @@ import { isLocalNetworkUrl } from '../netSafety.js';
 // A model connected or changed: courses still without search words are asked
 // now (debounced), not at the next start.
 import { scheduleSearchWords } from '../searchWords.js';
-import { clientError, endpointError } from '../clientError.js';
+import { apiError, endpointBody, errorBody, keyed } from '../clientError.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -24,7 +24,7 @@ const idOf = (req) => Number(req.params.id) || 0;
 // and keeps its words; anything else is clientError's fixed sentence.
 const fail = (res, err) => {
     const status = Number(err?.status) || 500;
-    res.status(status).json({ error: clientError(err, status) });
+    res.status(status).json(errorBody(err, status));
 };
 
 app.get('/api/ai/connections', (req, res) => {
@@ -42,11 +42,11 @@ app.get('/api/ai/connections', (req, res) => {
 app.post('/api/ai/connections', wrap(async (req, res) => {
     const { kind, apiKey = '', baseUrl, region, model = '', use = false, saveAnyway = false } = req.body || {};
     const k = CONNECTION_KINDS[kind];
-    if (!k || kind === 'chatgpt') return res.status(400).json({ error: 'Unknown kind of connection' });
+    if (!k || kind === 'chatgpt') return res.status(400).json(keyed('Unknown kind of connection'));
     if (typeof apiKey !== 'string' || (baseUrl != null && typeof baseUrl !== 'string') || (region != null && typeof region !== 'string') || typeof model !== 'string') {
-        return res.status(400).json({ error: 'apiKey, baseUrl, region and model must be strings' });
+        return res.status(400).json(apiError('apiKey, baseUrl, region and model must be strings'));
     }
-    if (k.key === 'required' && !apiKey.trim()) return res.status(400).json({ error: 'This connection needs an API key' });
+    if (k.key === 'required' && !apiKey.trim()) return res.status(400).json(keyed('This connection needs an API key'));
     let base;
     try { base = baseUrlOf(kind, { baseUrl, region }); } catch (err) { return fail(res, err); }
     // Always tested: there is no way to save an untested connection.
@@ -93,7 +93,7 @@ app.post('/api/ai/connections/:id/use', (req, res) => {
 app.patch('/api/ai/connections/:id', (req, res) => {
     const { model, apiKey, baseUrl, region } = req.body || {};
     for (const v of [model, apiKey, baseUrl, region]) {
-        if (v !== undefined && typeof v !== 'string') return res.status(400).json({ error: 'Fields must be strings' });
+        if (v !== undefined && typeof v !== 'string') return res.status(400).json(apiError('Fields must be strings'));
     }
     try { updateConnection(idOf(req), { model, apiKey, baseUrl, region }); scheduleSearchWords(); res.json(listConnections()); } catch (err) { fail(res, err); }
 });
@@ -107,7 +107,7 @@ app.delete('/api/ai/connections/:id', wrap(async (req, res) => {
 
 app.get('/api/ai/connections/:id/models', wrap(async (req, res) => {
     try { res.json({ success: true, models: await modelsForConnection(idOf(req)) }); }
-    catch (err) { res.json({ success: false, models: [], error: endpointError('The endpoint', err) }); }
+    catch (err) { res.json({ success: false, models: [], ...endpointBody('The endpoint', err) }); }
 }));
 
 app.post('/api/ai/connections/:id/plan-notice', (req, res) => {
@@ -120,7 +120,7 @@ app.post('/api/ai/connections/:id/plan-notice', (req, res) => {
 app.get('/api/ai/efforts', wrap(async (req, res) => {
     const id = Number(req.query.connection) || null;
     const settings = id ? settingsForConnection(id) : getAISettings();
-    if (!settings) return res.status(404).json({ error: 'No such connection' });
+    if (!settings) return res.status(404).json(keyed('No such connection'));
     const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
     try { res.json(await effortChoices(settings, model)); } catch { res.json({ levels: null }); }
 }));
@@ -129,7 +129,7 @@ app.get('/api/ai/efforts', wrap(async (req, res) => {
  * reasoning levels, price (where published) and whether it reads pictures. */
 app.get('/api/ai/model-facts', wrap(async (req, res) => {
     const settings = settingsForConnection(Number(req.query.connection) || 0);
-    if (!settings) return res.status(404).json({ error: 'No such connection' });
+    if (!settings) return res.status(404).json(keyed('No such connection'));
     const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
     res.json(await modelFacts(settings, model, { pictures: req.query.pictures === '1' }));
 }));
@@ -159,9 +159,9 @@ app.put('/api/ai/jobs/:job', (req, res) => {
  * else is told so instead of being sent to its own 127.0.0.1. */
 app.post('/api/ai/chatgpt/start', wrap(async (req, res) => {
     const origin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    if (!isLocalBrowser(origin)) return res.status(409).json({ error: 'not-local' });
+    if (!isLocalBrowser(origin)) return res.status(409).json(apiError('not-local'));
     const { returnPath = '/settings#ai', connectionId = null } = req.body || {};
-    if (typeof returnPath !== 'string' || returnPath.length > 200) return res.status(400).json({ error: 'returnPath must be a short path' });
+    if (typeof returnPath !== 'string' || returnPath.length > 200) return res.status(400).json(apiError('returnPath must be a short path'));
     try { res.json(await startSignIn({ appOrigin: origin, returnPath, connectionId: Number(connectionId) || null })); }
     catch (err) { fail(res, err); }
 }));

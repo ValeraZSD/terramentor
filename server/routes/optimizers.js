@@ -8,7 +8,7 @@ import { DEFAULT_W, MIN_FIT_REVIEWS, readStoredFit, retentionReport, scoredRevie
 import { fit as fitBktRates, loadAttemptSequences, MIN_FIT_ATTEMPTS } from '../bktOptimizer.js';
 import { getSetting, setSettingValue } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('optimizers');
 
@@ -45,18 +45,18 @@ app.get('/api/srs/status', (req, res) => {
             running: !!srsOptimizeRunning,
         });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
 let srsOptimizeRunning = null;
 app.post('/api/srs/optimize', async (req, res) => {
-    if (srsOptimizeRunning) return res.status(409).json({ error: 'An optimisation is already running.' });
+    if (srsOptimizeRunning) return res.status(409).json(keyed('An optimisation is already running.'));
     const sequences = loadReviewSequences();
     const predicted = scoredReviewCount(sequences);
     if (predicted < MIN_FIT_REVIEWS) {
         return res.status(400).json({
-            error: `Needs at least ${MIN_FIT_REVIEWS} day-level reviews to fit on — there are ${predicted}. Keep reviewing; the log fills as you go.`,
+            ...keyed('Needs at least {{count}} day-level reviews to fit on — there are {{predicted}}. Keep reviewing; the log fills as you go.', { count: MIN_FIT_REVIEWS, predicted }),
             predicted, minReviews: MIN_FIT_REVIEWS,
         });
     }
@@ -94,7 +94,7 @@ app.post('/api/srs/optimize', async (req, res) => {
         res.json(result);
     } catch (err) {
         if (cancelled) handle.cancelled(); else handle.fail(err.message);
-        res.status(cancelled ? 409 : 500).json({ error: clientError(err, cancelled ? 409 : 500) });
+        res.status(cancelled ? 409 : 500).json(errorBody(err, cancelled ? 409 : 500));
     } finally {
         srsOptimizeRunning = null;
     }
@@ -122,7 +122,7 @@ app.get('/api/mastery/model', (req, res) => {
             meta,
         });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -137,7 +137,7 @@ app.post('/api/mastery/optimize', (req, res) => {
         }
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

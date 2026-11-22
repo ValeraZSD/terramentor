@@ -38,6 +38,7 @@
 
 import net from 'node:net';
 import os from 'node:os';
+import { apiError, keyed } from './clientError.js';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
@@ -237,7 +238,7 @@ export function originGuard(req, res, next) {
     // An empty Host is an HTTP/1.0 client, not a browser; browsers always send one.
     if (host && !isLocalHostname(host) && !(isOwnMachineName(host) && isLoopbackSocket(req))) {
         return res.status(403).json({
-            error: `Requests to "${host}" are refused. This app answers on loopback, your LAN or your tailnet; if you front it with another name, list it in ALLOWED_HOSTS.`,
+            ...keyed('Requests to "{{host}}" are refused. This app answers on loopback, your LAN or your tailnet; if you front it with another name, list it in ALLOWED_HOSTS.', { host }),
         });
     }
     // An mDNS name is answered by whichever device on the network replies
@@ -248,14 +249,12 @@ export function originGuard(req, res, next) {
     // socket and is unaffected; only that name on loopback is refused.
     if (host.endsWith('.local') && !EXTRA_HOSTS.has(host) && isLoopbackSocket(req)) {
         return res.status(403).json({
-            error: `Requests to "${host}" from this computer are refused. Open the app at localhost, or list the name in ALLOWED_HOSTS.`,
+            ...keyed('Requests to "{{host}}" from this computer are refused. Open the app at localhost, or list the name in ALLOWED_HOSTS.', { host }),
         });
     }
     const origin = req.headers.origin;
     if (!isAllowedOrigin(origin, req) || !isOwnFetch(req)) {
-        return res.status(403).json({
-            error: 'Cross-origin request refused. Only this app may call its own API; set ALLOWED_ORIGINS if you are embedding it deliberately.',
-        });
+        return res.status(403).json(apiError('Cross-origin request refused. Only this app may call its own API; set ALLOWED_ORIGINS if you are embedding it deliberately.'));
     }
     next();
 }

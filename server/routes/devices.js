@@ -5,6 +5,7 @@
 import { routeTable } from './routeTable.js';
 import { wrap } from './request.js';
 import { isAuthEnabled, ownerPresent, passwordThroughThrottle } from '../auth.js';
+import { apiError, keyed } from '../clientError.js';
 import {
     createPairingOffer, listDevices, phoneAddress, removeDevice, servedHere, serveOnTailnet, setTailscaleTrust, tailscaleOwner,
     tailscaleTrustOn,
@@ -42,7 +43,7 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
     // This changes the computer's own Tailscale setup, so a device let in
     // without the password (a paired phone) may not press it.
-    if (!ownerPresent(req)) return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    if (!ownerPresent(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
     if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command, problem: served.problem });
@@ -59,7 +60,7 @@ async function passwordRefused(req, res) {
     if (!isAuthEnabled()) return false;
     const check = await passwordThroughThrottle(req, req.body && req.body.password);
     if (check.refused) { res.status(check.refused.status).json(check.refused.body); return true; }
-    if (check.wrong) { res.status(403).json({ error: 'Password is incorrect', passwordRequired: true }); return true; }
+    if (check.wrong) { res.status(403).json({ ...keyed('Password is incorrect'), passwordRequired: true }); return true; }
     return false;
 }
 
@@ -71,16 +72,16 @@ function offerAt(base) {
 }
 
 app.delete('/api/devices/:id', (req, res) => {
-    if (!removeDevice(req.params.id)) return res.status(404).json({ error: 'No such device' });
+    if (!removeDevice(req.params.id)) return res.status(404).json(keyed('No such device'));
     res.json({ ok: true });
 });
 
 app.put('/api/devices/tailscale', (req, res) => {
     // Whether the owner's Tailscale sign-in lets anyone in is the computer's to
     // decide, like the serve route above.
-    if (!ownerPresent(req)) return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    if (!ownerPresent(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     const on = req.body && req.body.on;
-    if (typeof on !== 'boolean') return res.status(400).json({ error: '`on` must be true or false' });
+    if (typeof on !== 'boolean') return res.status(400).json(apiError('`on` must be true or false'));
     setTailscaleTrust(on);
     res.json({ on });
 });

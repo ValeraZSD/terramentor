@@ -48,6 +48,7 @@ import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, op
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
+import { KeyedError } from './clientError.js';
 
 const FORMAT = 'terramentor-secrets';
 const VERSION = 1;
@@ -191,7 +192,7 @@ export function setSecrets(changes) {
         // Changing one now would leave the library's older copy to be moved
         // over it on the next start, or a deleted one to come back. Refused
         // until a start has moved them, which every start tries again.
-        throw Object.assign(new Error('Saved keys cannot be changed right now: they could not be moved out of the library file on this start. Restart the app; see its log for why.'), { status: 503 });
+        throw Object.assign(new KeyedError('Saved keys cannot be changed right now: they could not be moved out of the library file on this start. Restart the app; see its log for why.'), { status: 503 });
     }
     return writeChanges(changes);
 }

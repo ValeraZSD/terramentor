@@ -9,6 +9,7 @@ import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } 
 import { recordCardEvidence } from './cardEvidence.js';
 import { cardEdited, parkedByReport } from './itemReports.js';
 import { markLearnerEdit } from './courseUpdate.js';
+import { apiError, keyed } from './clientError.js';
 
 /**
  * Apply `body` (the fields PUT /api/ai/flashcards/:id takes) to card `id`.
@@ -20,21 +21,21 @@ export function writeCard(id, body = {}) {
     // The row as it was, for the review log: a review is "this rating, from
     // this state, after this many days" and only the pre-update row knows it.
     const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id);
-    if (!before) return { status: 404, json: { error: 'Flashcard not found' } };
+    if (!before) return { status: 404, json: keyed('Flashcard not found') };
     // The memory state is read back by the scheduler, which refuses anything but
     // a finite number: text stored here would break the card's next review. The
     // counts (lapses, review_count, learning_steps) are coerced below instead.
     for (const [name, v] of [['stability', stability], ['stability_fast', stability_fast], ['fsrs_difficulty', fsrs_difficulty],
         ['last_interval', last_interval], ['ease_factor', ease_factor]]) {
         if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
-            return { status: 400, json: { error: `${name} must be a non-negative number or null.` } };
+            return { status: 400, json: apiError(`${name} must be a non-negative number or null.`) };
         }
     }
     // The two traces are one memory state: a fast trace written beside a slow
     // one from another review would describe neither. The scheduler and the
     // undo snapshot always send both.
     if (stability_fast !== undefined && stability === undefined) {
-        return { status: 400, json: { error: 'stability_fast is written only together with stability.' } };
+        return { status: 400, json: apiError('stability_fast is written only together with stability.') };
     }
     // A rating arriving TWICE — a request retried after its answer was lost, a
     // double press that raced — carries the same `last_reviewed` stamp, and
@@ -63,7 +64,7 @@ export function writeCard(id, body = {}) {
             return { status: 200, json: before };
         }
         return { status: 409, json: {
-            error: 'This card was reviewed again after that rating, so the rating can no longer be taken back.',
+            ...keyed('This card was reviewed again after that rating, so the rating can no longer be taken back.'),
             conflict: 'reviewed_since',
         } };
     }
@@ -75,7 +76,7 @@ export function writeCard(id, body = {}) {
     // in the log would outlive the report and count after its Undo.
     const writesReview = next_review !== undefined || last_reviewed !== undefined || !!normalizeRating(rating) || undo_review === true;
     if (writesReview && parkedByReport(before)) {
-        return { status: 409, json: { error: 'This card is reported. Undo the report or edit the card first.', conflict: 'reported' } };
+        return { status: 409, json: { ...keyed('This card is reported. Undo the report or edit the card first.'), conflict: 'reported' } };
     }
     const updates = [];
     const values = [];

@@ -7,6 +7,7 @@ import db, { NOW_ISO } from './database.js';
 import { ENTITY_FIELDS, KINDS, PROJECT_FIELDS, fieldHash } from './courseMerge.js';
 import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { claimUuid } from './courseFiles.js';
+import { k } from './clientError.js';
 
 const ORDERED = new Set(['node', 'resource']);
 /** Statements prepared once: the readers and the writer run one per item. A
@@ -264,8 +265,8 @@ function courseFingerprint(projectId) {
 }
 
 const UNDO_REFUSED = {
-    changed: 'The course has changed since the update, so the update can no longer be undone.',
-    progress: 'You have studied something the update added; undoing it would delete that progress.',
+    changed: k('The course has changed since the update, so the update can no longer be undone.'),
+    progress: k('You have studied something the update added; undoing it would delete that progress.'),
 };
 
 // Why this undo would take more than the update wrote, or null when it is safe.

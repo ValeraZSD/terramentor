@@ -285,6 +285,23 @@ check('...and a sentence that only starts like one is left whole',
 check('the refusal names its reason, for the sweep and the Describe route',
     verdict('A chart.').reason.includes('nothing in it') && verdict('The dog is on the sofa with the cat', 'nl').reason.includes('English, not Dutch'),
     JSON.stringify([verdict('A chart.'), verdict('The dog is on the sofa with the cat', 'nl')]));
+{
+    // A learner reads the refusal in their interface language: each of the four
+    // sends a fixed key (no picture text or language name inside it) that every
+    // locale translates, and the Describe route sends that key, not the English.
+    const localesDir = join(repoRoot, 'src/locales');
+    const locales = ['de', 'en', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']
+        .map(l => [l, JSON.parse(readFileSync(join(localesDir, `${l}.json`), 'utf8'))]);
+    const four = [verdict(''), verdict("I'm sorry, I can't see the image."), verdict('A chart.'), verdict('The dog is on the sofa with the cat', 'nl')];
+    const missing = four.flatMap(v => locales.filter(([, t]) => !(typeof t[v.messageKey] === 'string' && t[v.messageKey].trim()))
+        .map(([l]) => `${v.code}:${l}`));
+    check('each refusal sends a fixed key that every locale translates',
+        four.map(v => v.code).join() === 'empty,refusal,generic,language'
+        && four.every(v => typeof v.messageKey === 'string' && !/chart|English|Dutch/.test(v.messageKey)) && missing.length === 0,
+        JSON.stringify({ codes: four.map(v => v.code), keys: four.map(v => v.messageKey), missing }));
+    check('...and the Describe route sends that key',
+        /status\(422\)\.json\(keyed\(result\.messageKey \?\? result\.reason\)\)/.test(readFileSync(join(repoRoot, 'server/routes/media.js'), 'utf8')));
+}
 
 check('a Dutch course: an English description is refused',
     refusedAs('language', 'A dog sleeping on the sofa in the living room', 'nl'), JSON.stringify(verdict('A dog sleeping on the sofa in the living room', 'nl')));

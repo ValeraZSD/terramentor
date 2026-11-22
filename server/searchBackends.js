@@ -20,7 +20,7 @@
 // already a monolith and every one of these is a small, self-contained shape:
 // one endpoint, one parser, one error rule.
 
-import { endpointError } from './clientError.js';
+import { endpointBody, keyed } from './clientError.js';
 import { getSecret, setSecret } from './secrets.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
@@ -280,9 +280,9 @@ export async function testSearchBackend(provider) {
         // A key that answers 200 with nothing is not a working key: the query
         // is a dictionary word, so an empty answer means the plan, the quota or
         // the parser — not the question.
-        if (!results.length) return { configured: true, ok: false, error: 'Answered with no results' };
+        if (!results.length) return { configured: true, ok: false, ...keyed('Answered with no results') };
         return { configured: true, ok: true };
     } catch (e) {
-        return { configured: true, ok: false, error: endpointError({ tavily: 'Tavily', brave: 'Brave', jina: 'Jina' }[provider], e) };
+        return { configured: true, ok: false, ...endpointBody({ tavily: 'Tavily', brave: 'Brave', jina: 'Jina' }[provider], e) };
     }
 }

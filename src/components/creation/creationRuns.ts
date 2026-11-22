@@ -17,7 +17,7 @@
  * never guessed from the project row.
  */
 import { create } from 'zustand';
-import { api, type AIProjectProgress, type CreationTrack } from '../../api';
+import { api, type AIProjectProgress, type CreationTrack, type ShapeBy } from '../../api';
 import type { AITaskSummary, StagedDocument } from '../../types';
 import type { FailureFacts } from '../../utils/failureCause';
 import i18n from '../../i18n';
@@ -34,12 +34,13 @@ import { type LogEntry, eventToLogEntry } from './creationLog';
  *  Import or pressing Create never resizes the dialog under the reader — the
  *  content changes inside a frame that stays put, and what does not fit
  *  scrolls. */
-// 35rem holds the form with one file read and a goal typed (548px measured at
-// 1280x800); a second file scrolls, with the shade saying so. Below
-// `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`), the
-// fields wrap and the foot stacks, so 35rem cut the language select off on a
-// 390x844 phone: there it takes up to 90% of the screen's height instead.
-export const COURSE_DIALOG_SIZE = { maxWidth: 'max-w-2xl', className: 'h-[min(48rem,90dvh)] sm:h-[min(35rem,90vh)]' } as const;
+// 44rem holds the form with several sources and a failed link's fix open
+// (35rem held only one file and cut the material list); a window lower than
+// that gets 90% of its height and the rest scrolls, with the shade saying so.
+// Below `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`),
+// the fields wrap and the foot stacks: there it takes up to 90% of the screen's
+// height.
+export const COURSE_DIALOG_SIZE = { maxWidth: 'max-w-2xl', className: 'h-[min(48rem,90dvh)] sm:h-[min(44rem,90vh)]' } as const;
 
 export type CreationStatus ='starting' | 'live' | 'reattached' | 'complete' | 'cancelled' | 'error';
 
@@ -78,6 +79,14 @@ export interface CreationRun {
     /** Client clock when `track` arrived — the countdown runs from here. */
     trackAt: number;
     tree: LiveNode[];
+    /** What the run judged the course to be (server/courseShape.js), once it
+     *  has: a short course's tree is one level of topics. */
+    shape: 'short' | 'phased' | null;
+    /** What judged it: 'bounds' = the material's length alone. */
+    shapeBy: ShapeBy | null;
+    /** How many topics a short course's write made; `tree` follows the
+     *  database after a reload, which the learner may have added to since. */
+    topicsWritten: number | null;
     log: LogEntry[];
     model: string;
     summary: string;
@@ -182,7 +191,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
-        tree: [], log: [], model: '', summary: '', thinking: '', totalResources: 0,
+        tree: [], shape: null, shapeBy: null, topicsWritten: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
         error: null, failure: null, startedAt: Date.now(), finishedAt: null,
         attempt: 0, inputKnown: true,
         ...over,
@@ -215,6 +224,19 @@ function applyFrame(key: string, f: AIProjectProgress) {
 
         let tree = run.tree;
         switch (f.phase) {
+            case 'sized':
+                if (f.shape === 'short' || f.shape === 'phased') next.shape = f.shape;
+                if (f.by) next.shapeBy = f.by;
+                break;
+            case 'topics_written':
+                // A short course: its topics are the whole tree, one level.
+                // Drawn as topic rows (depth 1), not as phase headings.
+                if (f.topics?.length) {
+                    next.topicsWritten = f.topics.length;
+                    tree = addCategories([], f.topics.map((t, index) => ({ index, title: t.title, description: t.description || '' })))
+                        .map(node => ({ ...node, depth: 1 }));
+                }
+                break;
             case 'categories_generated':
                 if (f.categories?.length) tree = addCategories(tree, f.categories);
                 break;
@@ -519,6 +541,38 @@ export function liveRunForProject(projectId: number): CreationRun | null {
 
 type Snapshot = Awaited<ReturnType<typeof api.getCreationStatus>>['generations'][number];
 
+/** Tries, and the wait between them, for a reattached run's tree when its
+ *  read fails: a run already settled has no poll to retry it. */
+const TREE_TRIES = 3;
+const TREE_RETRY_MS = 1500;
+
+/**
+ * The log a reloaded page saved, beside what the server says the run became.
+ * The page may have closed between "A short course" / "Writing the topics" and
+ * the frames of the fallback to phases: the size row then says what the run
+ * became, and a short write still spinning is the warning the fallback's own
+ * frame would have made, never a success when the phased run completes.
+ */
+function reconcileShapeLog(log: LogEntry[], g: Snapshot): LogEntry[] {
+    if (g.shape !== 'short' && g.shape !== 'phased') return log;
+    const own = (e: LogEntry, id: string) => e.id === id || e.id.endsWith(`:${id}`);
+    const same = (a: LogEntry, b: LogEntry) => a.message === b.message && a.status === b.status;
+    // The same array when nothing changed: this runs on every poll.
+    const replace = (rows: LogEntry[], id: string, entry: LogEntry | null) =>
+        entry && rows.some(e => own(e, id) && !same(e, entry))
+            ? rows.map(e => (own(e, id) ? { ...entry, id: e.id } : e))
+            : rows;
+    let next = replace(log, 'size', eventToLogEntry({ phase: 'sized', shape: g.shape, by: g.shapeBy }));
+    const writing = next.some(e => own(e, 'short-topics') && e.status === 'running');
+    if (writing && g.shape === 'phased') {
+        next = replace(next, 'short-topics', eventToLogEntry({ phase: 'topics_written', failed: true }));
+    } else if (writing && g.shape === 'short' && g.topicsWritten != null) {
+        // Written while the page was away: "N topics written", as its frame says.
+        next = replace(next, 'short-topics', eventToLogEntry({ phase: 'topics_written', topics: Array.from({ length: g.topicsWritten }) }));
+    }
+    return next;
+}
+
 function applySnapshot(key: string, g: Snapshot) {
     const now = Date.now();
     patch(key, run => ({
@@ -539,6 +593,10 @@ function applySnapshot(key: string, g: Snapshot) {
         totalResources: g.resourceTotal || run.totalResources,
         error: g.error ?? run.error,
         failure: g.failure ?? run.failure,
+        shape: g.shape ?? run.shape,
+        shapeBy: g.shapeBy ?? run.shapeBy,
+        topicsWritten: g.topicsWritten ?? run.topicsWritten,
+        log: reconcileShapeLog(run.log, g),
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
         thinkingVersion.set(key, g.thinkingVersion);
@@ -548,11 +606,23 @@ function applySnapshot(key: string, g: Snapshot) {
     const sig = [g.phase, g.currentCategoryIndex, g.currentElementIndex, g.currentSubElementIndex, g.resourceTotal].join('|');
     if (g.projectId && sig !== treeSig.get(key)) {
         treeSig.set(key, sig);
-        api.getNodes(g.projectId).then(nodes => {
-            if (treeSig.get(key) !== sig) return; // a newer tick won
-            const tree = buildLiveTreeFromDB(nodes as any, g);
-            patch(key, () => ({ tree: g.outcome === 'complete' ? markAllCreated(tree) : tree }));
-        }).catch(() => { /* the next tick retries */ });
+        const projectId = g.projectId;
+        const load = (triesLeft: number) => {
+            api.getNodes(projectId).then(nodes => {
+                if (treeSig.get(key) !== sig) return; // a newer tick won
+                const built = buildLiveTreeFromDB(nodes as any, g);
+                // A short course's top-level rows are topics, drawn as on its stream.
+                const tree = g.shape === 'short' ? built.map(node => ({ ...node, depth: 1 })) : built;
+                patch(key, () => ({ tree: g.outcome === 'complete' ? markAllCreated(tree) : tree }));
+            }).catch(() => {
+                // Asked again on its own: a settled run has no next tick. Out of
+                // tries, a live run's next tick may ask once more.
+                if (treeSig.get(key) !== sig) return;
+                if (triesLeft > 1) window.setTimeout(() => load(triesLeft - 1), TREE_RETRY_MS);
+                else treeSig.delete(key);
+            });
+        };
+        load(TREE_TRIES);
     }
 }
 

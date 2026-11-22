@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api, type OllamaModel } from '../../api';
 import type { AIStatus } from '../../types';
 import { connectOpenRouter } from '../../utils/openRouterConnect';
+import { serverText } from '../../utils/serverText';
 import { Button } from '../ui/Button';
 import { Field, PasswordInput, TextInput } from '../ui/Field';
 import Radio from '../ui/Radio';
@@ -157,7 +158,7 @@ export default function ConnectModel({ onStatus }: {
         if (apiKey.trim()) await api.setAIKey(apiKey.trim(), url);
         setApiKey('');
         const s = await refresh('key');
-        if (s && !s.available) throw new Error(s.error || t("The provider did not answer at that address."));
+        if (s && !s.available) throw new Error(serverText(s) || t("The provider did not answer at that address."));
     });
 
     const checkLocal = () => run(async () => {
@@ -172,7 +173,7 @@ export default function ConnectModel({ onStatus }: {
         }
         await api.setSetting('ai_enabled', 'true');
         const s = await refresh('local');
-        if (s && !s.available) throw new Error(s.error || t("Nothing answered at that address. Is the server running?"));
+        if (s && !s.available) throw new Error(serverText(s) || t("Nothing answered at that address. Is the server running?"));
     });
 
     const chooseModel = (id: string) => {

@@ -1,24 +1,25 @@
-// server/shortCourses.js — a small course of its own from ONE source.
+// server/shortCourses.js — a small course: one level of 3–8 topics.
 //
-// A learner who pastes a link (a web page, a PDF, a YouTube video) or drops a
-// file on Projects wants to learn what that one thing teaches, now, without
-// planning a course: one level of 3–8 topics, sized by the source, each topic
-// taught from the source's own part of it (`node_sources`), no dates, and a
-// standing place in the feed (feed.js `isStanding`).
+// The New course window has one Create form, and its material is any mix of
+// files and links (a web page, a PDF, a YouTube video). When the run judges
+// the input small (courseShape.js), the course is short: one level of 3–8
+// topics, sized by the material, each topic taught from its own part of it
+// (`node_sources`), no dates, and a standing place in the feed (feed.js
+// `isStanding`). The assistant's short-course cards create one directly.
 //
-// A source is READ first (`readSource`), at the press of Read, and staged
-// like a file dropped into the New course dialog (stagedDocuments.js): the
-// learner sees its title and size before anything is made, and a source that
-// cannot be read says why and what to do next (linkReader.js READ_REASONS).
-// A title alone is never a source. The one exception is "Write it from the
-// title", which the learner presses on a video that has no captions, and the
-// course it makes names no video anywhere: it was not built from one.
+// A link is READ first (`readSource`), when it is pasted, dropped or added in
+// the window, and staged like a file (stagedDocuments.js): the learner sees
+// its title and size before anything is made, and a link that cannot be read
+// says why and what to do next (linkReader.js READ_REASONS). A title alone is
+// never a source. The one exception is "Use its title as the name", offered
+// on a video with no captions: the course it makes names no video anywhere,
+// since it was not built from one.
 //
-// Creating is ONE model call (`AI_PROMPTS.short_course`) with the source
-// itself inside the SOURCES boundary (sourceMaterial.js `shortBlock`), run as
-// a background task so the strip shows it being written and the dock can
-// cancel it. `projects.made_from` says where a course came from and marks it
-// as short; it stays on the strip until it grows a phase.
+// Writing one is ONE model call (`AI_PROMPTS.short_course`) with the material
+// inside the SOURCES boundary (sourceMaterial.js `shortBlock`), inside the
+// creation run (`writeShortCourseNow`). `projects.made_from` says where a
+// course came from and marks it as short; it stays listed among short
+// courses until it grows a phase.
 
 import db from './database.js';
 import { AI_PROMPTS, aiProvenance, getAISettings } from './ai.js';
@@ -39,6 +40,7 @@ import { buildSourceMap, pageSpans, withoutPageMarks } from './sourceMap.js';
 import { claimStaged, discardStaged, loadStaged, stagedLanguage, stagedSummary, stageFile } from './stagedDocuments.js';
 import * as tasks from './tasks.js';
 import vaultStorage from './vaultStorage.js';
+import { KeyedError, k } from './clientError.js';
 
 /** The bounds of a short course. Under `minWords` a source is too little for
  *  a course; over `maxWords` it is a book, which wants a full course or a few of
@@ -63,9 +65,9 @@ export function sizeOf(words) {
 }
 
 /** A short-course failure the route answers with: a status and a body. */
-export class ShortCourseError extends Error {
-    constructor(status, message, extra = {}) {
-        super(message);
+export class ShortCourseError extends KeyedError {
+    constructor(status, key, extra = {}, params = undefined) {
+        super(key, params);
         this.status = status;
         this.extra = extra;
     }
@@ -85,6 +87,8 @@ export function aiReady() {
 /** A video transcript's time marks, which are not words. */
 const TIME_MARK = /\[\d{1,2}:\d\d(?::\d\d)?\]\s*/g;
 const wordsOf = (text) => wordCount(withoutPageMarks(String(text || '')).replace(TIME_MARK, ' '));
+/** A source's words as a short course counts them: no page or time marks. */
+export const sourceWords = wordsOf;
 
 /** A file name a page or a transcript is kept under in the vault. */
 const fileNameFor = (title, ext) => `${String(title || 'source').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'source'}.${ext}`;
@@ -184,11 +188,12 @@ function finishStaging(stagedId, origin) {
         language: origin.language ?? null,
         // Writing it needs a model; reading it did not.
         ai: aiReady(),
-        // A book: its chapters to pick a few from, and the file as the New
-        // course dialog takes it, for a full course instead.
+        // The source as the New course window lists its material: a link read
+        // there goes to the creation with the files, by this id.
+        staged: stagedSummary(loadStagedRow(stagedId)),
+        // A book: its chapters to pick a few from (the assistant's card).
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
-            staged: stagedSummary(loadStagedRow(stagedId)),
             // The chapters picked must come to this many words, and no more
             // than this, as any source must.
             minWords: SHORT.minWords,
@@ -327,24 +332,30 @@ function proposedTopics(raw) {
 }
 
 /** What `made_from` keeps of a staged source's origin: where it came from, never its text. */
-function madeFromOf(origin) {
+function madeFromOf(origin, title = '') {
     const out = { kind: origin.kind };
     if (origin.url) out.url = origin.url;
     if (origin.host) out.host = origin.host;
     if (origin.file) out.file = origin.file;
     if (origin.minutes) out.minutes = origin.minutes;
+    // A source with no site or file to name it (a transcript pasted with no
+    // link) is named by its title on the course's card.
+    if (!out.host && !out.file && title) out.title = String(title).slice(0, 300);
     return out;
 }
 
 const parseJson = (s) => { try { return JSON.parse(s || 'null'); } catch { return null; } };
 
-/** The language a short course is written in: the learner's, as a new course decides it. */
-function courseLanguage({ name, filesLanguage, acceptLanguage }) {
+/** The language a short course is written in: the learner's, as a new course
+ *  decides it. `explicit`: the New course window's own choice, when made. */
+function courseLanguage({ name, description = '', filesLanguage, acceptLanguage, explicit = '' }) {
     const appLanguage = getUiLanguage();
     const browserLanguages = languagesFromAcceptHeader(acceptLanguage);
-    const typed = findLearningLanguage({ name, description: '' });
+    const typed = findLearningLanguage({ name, description });
     const choice = resolveCreationLanguage({
+        explicit,
         name,
+        description,
         filesLanguage,
         uiLanguage: appLanguage || browserLanguages[0] || null,
         appLanguage,
@@ -410,8 +421,8 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
 
     const sourceOrigin = staged ? (parseJson(staged.origin) || { kind: fileKind(staged.file_type), file: staged.original_filename }) : null;
-    const madeFrom = staged ? madeFromOf(sourceOrigin) : { kind: 'topic', title: topicTitle };
     const sourceTitle = staged ? (staged.map.title || staged.title) : topicTitle;
+    const madeFrom = staged ? madeFromOf(sourceOrigin, sourceTitle) : { kind: 'topic', title: topicTitle };
     const name = given || sourceTitle;
     const language = courseLanguage({
         name: given,
@@ -425,7 +436,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         if (readHere) discardStaged(staged.id);
         throw new ShortCourseError(status, message, extra);
     };
-    if (staged && body?.parts != null && !picked) refuse(400, 'Pick at least one chapter.');
+    if (staged && body?.parts != null && !picked) refuse(400, k('Pick at least one chapter.'));
     // A page or a transcript is a text file in the vault; the model is told
     // what it really is.
     const asKind = sourceOrigin && ['page', 'video'].includes(sourceOrigin.kind) && staged.file_type === 'text' ? sourceOrigin.kind : staged?.file_type;
@@ -447,14 +458,14 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // in by: the strip asks before Create, the assistant's card does not. Every
     // chapter of a book picked is still the whole book.
     if (staged && sizeOf(words) === 'too-big') {
-        refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
-            : 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+        refuse(413, picked ? k('Too much for one short course: pick fewer chapters.')
+            : k('This source is too long for one short course: make a course of it with New course on Projects.'), { reason: 'too_big' });
     }
     // A source under the floor is a note, not three topics, whichever door it
     // came in by: the strip offers no Create for it, the card can still send it.
     // Chapters picked are measured as what was picked.
     if (staged && sizeOf(words) === 'too-small') {
-        refuse(400, picked ? 'Too little for a course: pick a longer chapter, or more of them.' : 'Too little for a course.', { reason: 'too_small' });
+        refuse(400, picked ? k('Too little for a course: pick a longer chapter, or more of them.') : k('Too little for a course.'), { reason: 'too_small' });
     }
 
     // A second press of the same card that came in while the first was still
@@ -481,6 +492,84 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
             fromTopic: !staged, lang: language.lang, origin, words,
         });
     });
+}
+
+/**
+ * Staged rows as the model is shown them: a page or a transcript is a text
+ * file in the vault, and the prompt says what it really is.
+ */
+export function asSourceRows(rows = []) {
+    return rows.map(row => {
+        const origin = parseJson(row.origin);
+        return origin && ['page', 'video'].includes(origin.kind) && row.file_type === 'text' ? { ...row, file_type: origin.kind } : row;
+    });
+}
+
+/**
+ * Write a short course NOW, inside a creation run (routes/createProject.js),
+ * when the New course window's input was judged to be a short course
+ * (courseShape.js): its name, goal, colour, icon and language, and its
+ * material, any number of staged files and links, or none (then it is
+ * written from the name, like "Write it from the title").
+ *
+ * The one model call comes FIRST and the course is made only from its answer,
+ * in one transaction: a failed or cancelled call leaves no half-made course,
+ * only the staged material, which the window takes back on "Back".
+ * Returns `{ projectId, name, topics: [{ title, description }] }`.
+ */
+export async function writeShortCourseNow({ name = '', goal = '', color = '', icon = '', language: explicit = '', rows = [], acceptLanguage = '', signal, answered = {} } = {}) {
+    const given = cleanLine(name, 500);
+    const shown = asSourceRows(rows);
+    const src = creationSources(shown);
+    const withText = hasSources(src);
+    const words = withText ? src.docs.reduce((n, d) => n + wordsOf(d.text), 0) : 0;
+    const firstRow = withText ? shown.find(r => r.id === src.docs[0].stagedId) : null;
+    const title = given || (firstRow ? (firstRow.map.title || firstRow.title) : '');
+    if (!title) throw new ShortCourseError(400, 'A short course needs a name or some material.');
+    const longest = withText ? shown.reduce((best, r) => (!best || r.content.length > best.content.length ? r : best), null) : null;
+    // A creation run hands over the language it already resolved; otherwise
+    // the learner's choice (or none) is resolved here the short courses' way.
+    const language = explicit && typeof explicit === 'object' ? explicit : courseLanguage({
+        name: given,
+        description: cleanLine(goal, 2000),
+        filesLanguage: longest ? stagedLanguage(longest.content, getUiLanguage()) : null,
+        acceptLanguage,
+        explicit: typeof explicit === 'string' ? explicit : '',
+    });
+    const sources = withText ? shortBlock(src) : null;
+    const prompt = AI_PROMPTS.short_course(promptTitle(title), {
+        topics: withText ? topicCountFor(words) : 4, proposed: [], fromTopic: !withText, lang: language.lang, sources, goal,
+    });
+    const text = await structureCall(prompt, { signal, label: 'Short course', answered });
+    if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    const parsed = parseCreationJson(text);
+    const items = topicsFrom(parsed, { src: withText ? src : null, proposed: [], shown: sources?.shown });
+    // Under three topics is not a short course; the run builds it in phases.
+    if (items.length < SHORT.minTopics) throw new Error(`The model wrote ${items.length} topics for this short course.`);
+
+    // Where it came from: the first source, and how many more there were.
+    const firstOrigin = firstRow ? (parseJson(firstRow.origin) || { kind: fileKind(firstRow.file_type), file: firstRow.original_filename }) : null;
+    const madeFrom = firstOrigin ? madeFromOf(firstOrigin, firstRow.map?.title || firstRow.title) : { kind: 'topic', title: title.slice(0, 300) };
+    if (src.docs.length > 1) madeFrom.sources = src.docs.length;
+    const startName = title.slice(0, 500);
+    let projectId = null;
+    const afterCommit = [];
+    db.transaction(() => {
+        projectId = Number(db.prepare(`INSERT INTO projects
+            (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
+            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects), ?, ?, 0, NULL, ?)`)
+            .run(startName, String(goal || '').trim().slice(0, 5000), projectColour(color) || '#3B82F6', projectIconName(icon) || 'book',
+                language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
+        // Every staged row goes into the course, a scan with no text included,
+        // as a course in phases keeps them. One another creation claimed while
+        // this one waited on the model throws, and the course is not written.
+        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId, afterCommit, { all: true }) : new Map();
+        const documentIdOf = (n) => claimed.get(src.docs[n - 1]?.stagedId) ?? null;
+        writeCourse({ projectId, items, parsed, keepName: !!given, startName, src: withText ? src : null, documentIdOf, answered });
+    })();
+    for (const job of afterCommit) job();
+    const finalName = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId)?.name || startName;
+    return { projectId, name: finalName, topics: items.map(t => ({ title: t.title, description: t.description })) };
 }
 
 /**
@@ -569,7 +658,9 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 }
                 const parsed = parseCreationJson(text);
                 const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
-                if (!items.length) throw new Error('The model wrote no topics for this short course.');
+                // Under three topics is not a short course: it is left failed, with Retry.
+                if (!items.length) throw new KeyedError('The model wrote no topics for this short course.');
+                if (items.length < SHORT.minTopics) throw new KeyedError('The model wrote too few topics for this short course.');
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
                 return { projectId, topics: items.length };
@@ -700,13 +791,17 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
         }
         src = creationSources(rows);
         if (kept.length) src.docs[0].picked = true;
-        documentIdOf = (n) => docs[n - 1]?.id ?? null;
+        // Source n is the n-th document WITH text (a scan without is left out),
+        // so it is found by its row, not by its place among all documents.
+        const idOf = new Map(rows.map((r, i) => [r.id, docs[i].id]));
+        documentIdOf = (n) => idOf.get(src.docs[n - 1]?.stagedId) ?? null;
     }
     const lang = withLearning(getLanguage(p.content_language) || getLanguage('en'), getLanguage(p.learning_language));
     db.prepare('UPDATE projects SET ai_generating = 1 WHERE id = ?').run(p.id);
     const generated = parseJson(db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(p.id)?.generated_by);
     const keepName = !(generated?.fields || []).includes('name');
-    const title = madeFrom.kind === 'topic' ? madeFrom.title : (docs[0]?.title || p.name);
+    // The first source the model is shown, not a scan with no text before it.
+    const title = madeFrom.kind === 'topic' ? madeFrom.title : (src?.docs[0]?.title || docs[0]?.title || p.name);
     return buildOrFail(p.id, () => startBuild({
         projectId: p.id, name: p.name, keepName, title, proposed: proposedTopics(madeFrom.topics), src, documentIdOf,
         fromTopic: madeFrom.kind === 'topic', lang, origin, words,
@@ -747,7 +842,9 @@ export function listShortCourses() {
             icon: r.icon,
             color: r.color,
             kind: from.kind || 'file',
-            from: from.kind === 'topic' ? null : (from.host || from.file || null),
+            from: from.kind === 'topic' ? null : (from.host || from.file || from.title || null),
+            // Made from several sources: how many besides the one named.
+            more: Number.isInteger(from.sources) && from.sources > 1 ? from.sources - 1 : 0,
             url: from.url || null,
             minutes: from.minutes || null,
             topics: r.topics,
@@ -762,4 +859,19 @@ export function listShortCourses() {
 /** Drop a source Read staged and the learner did not use. */
 export function discardSource(stagedId) {
     return discardStaged(stagedId);
+}
+
+/**
+ * `readSource` for a client that may leave before the answer: when `signal`
+ * fired while it read (the window closed, the row removed), nobody will claim
+ * or discard what was staged, so it goes now rather than at the daily sweep,
+ * and null comes back.
+ */
+export async function readSourceFor(input, opts = {}) {
+    const out = await readSource(input, opts);
+    if (opts.signal?.aborted && out?.ok && out.stagedId) {
+        discardStaged(out.stagedId);
+        return null;
+    }
+    return out;
 }

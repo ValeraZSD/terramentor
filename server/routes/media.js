@@ -10,6 +10,7 @@ import {
 } from '../mediaDescribe.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { apiError, k, keyed } from '../clientError.js';
 
 const app = routeTable('media');
 
@@ -34,14 +35,14 @@ const MEDIA_HASH_RE = /^[a-f0-9]{64}$/;
 
 app.get('/api/media/:hash', (req, res) => {
     const hash = String(req.params.hash || '').replace(/\.[a-z0-9]+$/i, '');
-    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json({ error: 'Bad media id' });
+    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json(keyed('Bad media id'));
 
     // The registry first, then any live staging record — an import that has been
     // inspected but not committed has its bytes on disk and no row yet, and the
     // preview screen is exactly the moment those bytes need serving.
     const row = db.prepare('SELECT mime, kind, filename FROM media_files WHERE hash = ? LIMIT 1').get(hash)
         || findStagedMedia(hash);
-    if (!row) return res.status(404).json({ error: 'No such media' });
+    if (!row) return res.status(404).json(keyed('No such media'));
 
     let filePath;
     try {
@@ -49,7 +50,7 @@ app.get('/api/media/:hash', (req, res) => {
     } catch {
         // The row survived and the bytes did not — the one state the orphan
         // sweep cannot produce, and worth saying plainly rather than 500ing.
-        return res.status(404).json({ error: 'That file is missing from the media store.' });
+        return res.status(404).json(keyed('That file is missing from the media store.'));
     }
     res.setHeader('Content-Type', row.mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -74,18 +75,18 @@ app.get('/api/media/:hash', (req, res) => {
         const status = Number.isInteger(err.status) && err.status >= 400 ? err.status : 500;
         if (err.headers) res.set(err.headers);
         if (status === 416 || status === 412) return res.status(status).end();
-        res.status(status).json({ error: status === 404 ? 'That file is missing from the media store.' : 'That file could not be read.' });
+        res.status(status).json(keyed(status === 404 ? k('That file is missing from the media store.') : k('That file could not be read.')));
     });
 });
 
 /** What is known ABOUT a file — the description the tutor and a screen reader read. */
 app.get('/api/media/:hash/info', (req, res) => {
     const hash = String(req.params.hash || '');
-    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json({ error: 'Bad media id' });
+    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json(keyed('Bad media id'));
     const row = db.prepare(
         'SELECT hash, filename, mime, kind, size, description, described_by, project_id FROM media_files WHERE hash = ? LIMIT 1'
     ).get(hash);
-    if (!row) return res.status(404).json({ error: 'No such media' });
+    if (!row) return res.status(404).json(keyed('No such media'));
     res.json(row);
 });
 
@@ -114,23 +115,23 @@ app.get('/api/media-descriptions', (req, res) => {
 /** The learner's correction. Theirs from then on; an empty text clears it. */
 app.put('/api/media/:hash/description', (req, res) => {
     const hash = String(req.params.hash || '');
-    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json({ error: 'Bad media id' });
+    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json(keyed('Bad media id'));
     const value = req.body?.description;
-    if (value !== null && typeof value !== 'string') return res.status(400).json({ error: 'description must be text' });
+    if (value !== null && typeof value !== 'string') return res.status(400).json(apiError('description must be text'));
     const result = setLearnerDescription(hash, value ?? '');
-    if (!result.ok) return res.status(404).json({ error: result.reason });
+    if (!result.ok) return res.status(404).json(keyed(result.reason));
     res.json({ description: result.description, described_by: result.described_by });
 });
 
 app.post('/api/media/:hash/describe', wrap(async (req, res) => {
     const hash = String(req.params.hash || '');
-    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json({ error: 'Bad media id' });
+    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json(keyed('Bad media id'));
     const { use, model } = await decidePaperVision();
     if (use !== 'yes') {
-        return res.status(503).json({ error: 'No verified vision model is available — set one in Settings → AI & Models.' });
+        return res.status(503).json(keyed('No verified vision model is available — set one in Settings → AI & Models.'));
     }
     const result = await describeMedia(hash, { force: !!req.body?.force, model });
-    if (!result.ok) return res.status(422).json({ error: result.reason });
+    if (!result.ok) return res.status(422).json(keyed(result.messageKey ?? result.reason));
     res.json(result);
 }));
 
