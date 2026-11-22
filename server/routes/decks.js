@@ -5,7 +5,7 @@ import {
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('decks');
 
@@ -21,10 +21,10 @@ app.get('/api/projects/:projectId/deck', (req, res) => {
         const data = buildDeckData(projectId, {
             forecastDays: Math.min(60, Math.max(7, Number.parseInt(req.query.days, 10) || 14)),
         });
-        if (!data) return res.status(404).json({ error: 'Project not found' });
+        if (!data) return res.status(404).json(keyed('Project not found'));
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -59,7 +59,7 @@ app.get('/api/projects/:projectId/deck/queue', (req, res) => {
         const { reviews, fresh, counts } = studyQueue(projectId, { newLimit, stageId, aheadDays });
         res.json({ cards: [...reviews, ...fresh], counts, reviews: reviews.length, fresh: fresh.length });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -80,7 +80,7 @@ app.put('/api/projects/:projectId/teaching', (req, res) => {
             : setProjectTeaches(projectId, !(on === false || on === 'false' || on === 0 || on === '0'));
         res.json({ teaches });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -92,7 +92,7 @@ app.put('/api/projects/:projectId/deck/settings', (req, res) => {
         if (req.body?.retention != null) {
             retention = setRetention(projectId, req.body.retention);
             if (retention == null) {
-                return res.status(400).json({ error: 'retention must be a number from 0.7 to 0.97' });
+                return res.status(400).json(apiError('retention must be a number from 0.7 to 0.97'));
             }
         }
         const newPerDay = req.body?.newPerDay != null
@@ -100,7 +100,7 @@ app.put('/api/projects/:projectId/deck/settings', (req, res) => {
             : getNewPerDay(projectId);
         res.json({ newPerDay, retention });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -112,7 +112,7 @@ app.get('/api/projects/:projectId/deck/retention-forecast', (req, res) => {
     try {
         res.json(retentionForecast(Number(projectId)));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

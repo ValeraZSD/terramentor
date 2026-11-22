@@ -16,7 +16,7 @@ import { hostedGuard, trustProxySetting } from './hosted.js';
 import { siteNoteReader } from './siteLibrary.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
-import { clientError } from './clientError.js';
+import { errorBody, keyed } from './clientError.js';
 import { buildId } from './buildId.js';
 import { SANDBOX_FRAME_PATH, sendSandboxFrame } from './sandboxFrame.js';
 import { RUNNER_FRAME_PATH, sendRunnerFrame } from './runnerFrame.js';
@@ -326,10 +326,10 @@ app.use((err, req, res, next) => {
         if (status >= 400 && status < 500) {
             // Nothing is logged: a malformed body is the caller's mistake, and
             // a stack per bad request would let anyone fill the log.
-            const said = err.expose === false || !err.message ? 'Bad request' : clientError(err, status);
-            return res.status(status).json({ error: said });
+            const said = err.expose === false || !err.message ? keyed('Bad request') : errorBody(err, status);
+            return res.status(status).json(said);
         }
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
     // If headers were already sent (e.g. SSE stream), just end the response
     else {
@@ -427,7 +427,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // computer, and the panel stays readable from anywhere.
     const onTheComputer = (req, res, next) => {
         if (req.method === 'GET' || ownerPresent(req)) return next();
-        res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+        res.status(403).json(keyed('Only on the computer itself, or with the password'));
     };
     app.use('/api/desktop', onTheComputer);
     app.use('/api/updates', onTheComputer);

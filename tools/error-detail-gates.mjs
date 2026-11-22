@@ -172,7 +172,7 @@ console.log('\n--- no route sends an error\'s own text ---');
 
     const app = readFileSync(new URL('../server/app.js', import.meta.url), 'utf8');
     const handler = app.slice(app.indexOf('app.use((err, req, res, next)'), app.indexOf('const tailMiddleware'));
-    ok('the global error handler sends no raw message on a 500', handler.length > 0 && !/detail:[^\n]*err\.message/.test(handler) && /clientError\(/.test(handler), handler.slice(0, 80));
+    ok('the global error handler sends no raw message on a 500', handler.length > 0 && !/detail:[^\n]*err\.message/.test(handler) && /\.json\(errorBody\(err\)\)/.test(handler), handler.slice(0, 80));
 
     const launcher = readFileSync(new URL('../desktop/launcher.js', import.meta.url), 'utf8');
     const at = launcher.search(/process\.env\.NODE_ENV\s*(\?\?|\|\|)?=\s*(process\.env\.NODE_ENV\s*\|\|\s*)?['"]production['"]/);

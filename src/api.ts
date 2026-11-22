@@ -4,6 +4,7 @@ import type { ClientSettingKey } from './settingKeys';
 import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
+import { serverText } from './utils/serverText';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
@@ -33,7 +34,7 @@ async function siteRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Pro
     const res = await fetch(path, { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
     const body = await res.json().catch(() => ({}));
     if (res.status === 401 && body?.site) goToSiteSignIn();
-    if (!res.ok) throw new Error(body?.error || `Error ${res.status}`);
+    if (!res.ok) throw new Error(serverText(body) || `Error ${res.status}`);
     return body as T;
 }
 
@@ -103,9 +104,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
 
             try {
                 errorData = await res.json();
-                if (errorData.error) {
-                    errorMessage = errorData.error;
-                }
+                errorMessage = serverText(errorData) ?? errorMessage;
             } catch {
                 // Response body is not JSON — fall back to the HTTP status
             }
@@ -404,6 +403,9 @@ export interface LiveTreeNode {
     depth: number;
 }
 
+/** What decided a new course's size (server/courseShape.js). */
+export type ShapeBy = 'bounds' | 'model' | 'fallback';
+
 export interface AIProjectProgress {
     phase: string;
     message: string;
@@ -489,6 +491,15 @@ export interface AIProjectProgress {
     track?: CreationTrack;
     /** 1-based place in line while the run waits for a model slot. */
     queuePosition?: number;
+    /** On `sized`: what the course became (server/courseShape.js). */
+    shape?: 'short' | 'phased';
+    /** On `sized`: what judged it; 'bounds' = the material's length alone. */
+    by?: ShapeBy;
+    /** On `topics_written`: a short course's topics, written in one call. */
+    topics?: Array<{ title: string; description: string }>;
+    /** On `topics_written`: the short course's answer was unusable, and the
+     *  run goes on in phases. */
+    failed?: boolean;
 }
 
 /**
@@ -617,7 +628,7 @@ async function courseUpdateUpload<T>(step: 'inspect' | 'commit', file: File, fie
     const res = await apiFetch(`${BASE}/course-updates/${step}`, { method: 'POST', body: form });
     if (!res.ok) {
         let msg = `Update failed: ${res.status}`;
-        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+        try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
         throw Object.assign(new Error(msg), { status: res.status });
     }
     return res.json();
@@ -672,7 +683,7 @@ async function* streamChatSse(
     if (!response.ok) {
         let msg = `Chat request failed (HTTP ${response.status})`;
         let data: any = null;
-        try { data = await response.json(); if (data?.error) msg = data.error; } catch { /* non-JSON */ }
+        try { data = await response.json(); msg = serverText(data) ?? msg; } catch { /* non-JSON */ }
         // `data` rides along: a 409 for attached files names which (`missing`).
         throw Object.assign(new Error(msg), { data, status: response.status });
     }
@@ -726,7 +737,7 @@ async function* streamChatSse(
                     // frame, whose list is the STORED one (below) — measured in
                     // the stored text, not in the streamed text still on screen.
                     if (Array.isArray(json.actions) && !json.done && !json.cancelled) onActions?.(json.actions as AiAction[]);
-                    if (json.error) throw new Error(json.error);
+                    if (json.error) throw new Error(serverText(json) ?? String(json.error));
                     if (json.done || json.cancelled) {
                         // On cancel the server already persisted the partial
                         // turn (with reasoning) — same finalize path as done.
@@ -786,13 +797,11 @@ async function* streamCreationSse(path: string, payload: unknown, signal?: Abort
         if (!response.ok) {
             let errorMessage = `API error: ${response.status} ${response.statusText}`;
             try {
+                // The server's own sentence, in the interface language; an
+                // English "Server error:" glued in front would not be.
                 const errorData = await response.json();
-                if (errorData.error) {
-                    errorMessage = errorData.error;
-                }
-                if (response.status === 500) errorMessage = `Server error: ${errorMessage}`;
-                else if (response.status === 400) errorMessage = `Request error: ${errorMessage}`;
-                else if (response.status === 503) errorMessage = `Service unavailable. Is Ollama running?`;
+                errorMessage = serverText(errorData)
+                    ?? (response.status === 503 ? 'Service unavailable. Is Ollama running?' : errorMessage);
             } catch {
                 errorMessage = `Server returned ${response.status}: ${response.statusText}`;
             }
@@ -943,6 +952,11 @@ export const api = {
             finishedAt: number | null;
             queuePosition: number | null;
             track: CreationTrack | null;
+            /** Once judged: short (one level of topics) or in phases. */
+            shape?: 'short' | 'phased' | null;
+            shapeBy?: ShapeBy | null;
+            /** How many topics a short course's write made. */
+            topicsWritten?: number | null;
         }>;
     }>('/ai/creation-status'),
     getProject: (id: number) => request<Project>(`/projects/${id}`),
@@ -1100,7 +1114,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/export/${projectId}/bundle?${bundleParams(options)}`);
         if (!res.ok) {
             let msg = `Export failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* binary */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* binary */ }
             throw new Error(msg);
         }
         return { blob: await res.blob(), filename: filenameFrom(res, `project-${projectId}.studyvault`) };
@@ -1117,7 +1131,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/export/${projectId}/anki`);
         if (!res.ok) {
             let msg = `Export failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* binary */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* binary */ }
             throw new Error(msg);
         }
         let stats: AnkiExportStats | null = null;
@@ -1131,7 +1145,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/import/bundle`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Import failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
         return res.json();
@@ -1288,7 +1302,7 @@ export const api = {
                             throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
                         }
                         if (json.error) {
-                            throw Object.assign(new Error(json.error), { rawResponse: json.rawResponse ?? null });
+                            throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
                         }
                         if (json.done) return { stats: json.stats, insights: json.insights };
                     } catch (e) {
@@ -1403,7 +1417,7 @@ export const api = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Failed to pull model');
+            throw new Error(serverText(error) || 'Failed to pull model');
         }
 
         const body = response.body;
@@ -1487,14 +1501,14 @@ export const api = {
                 const body: any = xhr.response;
                 if (xhr.status >= 200 && xhr.status < 300 && body?.attachments?.[0]) {
                     const first = body.attachments[0];
-                    return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : first);
+                    return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : { ...first, error: serverText(first) ?? first.error });
                 }
                 if (xhr.status === 401 && body?.authRequired) authRequired(body);
                 // A refused body (too big, too many) is an answer about the file.
                 if (xhr.status === 413 || (xhr.status === 400 && body?.reason)) {
-                    return resolve({ ok: false, name, reason: body?.reason || 'too_large', error: body?.error || 'Upload refused' });
+                    return resolve({ ok: false, name, reason: body?.reason || 'too_large', error: serverText(body) || 'Upload refused' });
                 }
-                reject(Object.assign(new Error(body?.error || `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
+                reject(Object.assign(new Error(serverText(body) || `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
             };
             xhr.onerror = () => reject(new Error('The upload could not reach the app.'));
             xhr.onabort = () => reject(Object.assign(new Error('Cancelled'), { name: 'AbortError' }));
@@ -1568,7 +1582,7 @@ export const api = {
             let raw: string | null = null;
             try {
                 const errData: any = await response.json();
-                if (errData?.error) message = errData.error;
+                message = serverText(errData) ?? message;
                 raw = errData?.rawResponse ?? errData?.raw_response ?? null;
             } catch { /* body wasn't JSON — keep the status-based message */ }
             throw Object.assign(new Error(message), { rawResponse: raw });
@@ -1603,7 +1617,7 @@ export const api = {
                 throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
             }
             if (json.error) {
-                throw Object.assign(new Error(json.error), { rawResponse: json.rawResponse ?? null });
+                throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
             }
             if (json.done) return { id: json.id, questions: json.questions };
             return undefined;
@@ -1822,7 +1836,7 @@ export const api = {
             body: JSON.stringify({ kind, spec, context }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data?.error || `caption request failed (${response.status})`);
+        if (!response.ok) throw new Error(serverText(data) || `caption request failed (${response.status})`);
         return { title: String(data?.title || ''), caption: String(data?.caption || '') };
     },
 
@@ -1874,7 +1888,7 @@ export const api = {
         // failure reason behind the stale original render error.
         if (!response.ok) {
             let msg = `Visual repair failed (HTTP ${response.status})`;
-            try { const d: any = await response.json(); if (d?.error) msg = d.error; } catch { /* non-JSON */ }
+            try { const d: any = await response.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
 
@@ -1912,7 +1926,7 @@ export const api = {
                             });
                         }
                         if (json.cancelled) throw Object.assign(new Error('the rebuild was cancelled.'), { cancelled: true });
-                        if (json.error) throw new Error(json.error);
+                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
                         if (json.done) { fixed = json.code || ''; return { code: fixed, redrawn: !!json.redrawn }; }
                     } catch (e) {
                         if (e instanceof SyntaxError) continue;
@@ -1956,7 +1970,7 @@ export const api = {
             let msg = `widget build request failed (${response.status})`;
             try {
                 const j = await response.json();
-                if (j?.error) msg = j.error;
+                msg = serverText(j) ?? msg;
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
@@ -1993,7 +2007,7 @@ export const api = {
                         if (json.cancelled) {
                             throw Object.assign(new Error('the widget build was cancelled.'), { cancelled: true });
                         }
-                        if (json.error) throw new Error(json.error);
+                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
                         if (json.miss) {
                             return {
                                 html: '', cached: false,
@@ -2039,7 +2053,7 @@ export const api = {
             let msg = `visual authoring request failed (${response.status})`;
             try {
                 const j = await response.json();
-                if (j?.error) msg = j.error;
+                msg = serverText(j) ?? msg;
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
@@ -2077,7 +2091,7 @@ export const api = {
                         if (json.cancelled) {
                             throw Object.assign(new Error('the drawing was cancelled.'), { cancelled: true });
                         }
-                        if (json.error) throw new Error(json.error);
+                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
                         if (json.miss) {
                             return {
                                 spec: '', cached: false,
@@ -2180,7 +2194,7 @@ export const api = {
                             throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
                         }
                         if (json.error) {
-                            throw Object.assign(new Error(json.error), { rawResponse: json.rawResponse ?? null });
+                            throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
                         }
                         if (json.done) return { count: json.count, ids: json.ids };
                     } catch (e) {
@@ -2247,7 +2261,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/documents/upload`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Upload failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
         return res.json();
@@ -2261,7 +2275,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/documents/staged`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Upload failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
         return res.json();
@@ -2284,18 +2298,6 @@ export const api = {
      *  video can take a while, so the wait is longer than a plain call's. */
     readShortSource: (body: { url?: string; transcript?: string; title?: string }, signal?: AbortSignal) =>
         request<ShortRead>('/short-courses/read', { method: 'POST', body: JSON.stringify(body), signal, timeout: 120_000 }),
-
-    readShortFile: async (file: File, signal?: AbortSignal): Promise<ShortRead> => {
-        const form = new FormData();
-        form.append('file', file);
-        const res = await apiFetch(`${BASE}/short-courses/read-file`, { method: 'POST', body: form, signal });
-        if (!res.ok) {
-            let msg = `Upload failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
-            throw new Error(msg);
-        }
-        return res.json();
-    },
 
     discardShortSource: (stagedId: string) =>
         request<{ ok: boolean }>(`/short-courses/read/${encodeURIComponent(stagedId)}`, { method: 'DELETE' }),
@@ -2604,7 +2606,7 @@ export const api = {
         const res = await apiFetch(`${BASE}/paper/${feedItemId}/grade`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Grading failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
         const graded = await res.json();
@@ -2656,7 +2658,7 @@ export const api = {
                 let body: any = null;
                 try { body = JSON.parse(xhr.responseText); } catch { /* handled below */ }
                 if (xhr.status >= 200 && xhr.status < 300 && body) resolve(body as AnkiPreview);
-                else reject(new Error(body?.error || `Import failed (${xhr.status})`));
+                else reject(new Error(serverText(body) || `Import failed (${xhr.status})`));
             };
             xhr.onerror = () => reject(new Error('The upload failed before it reached the server.'));
             xhr.send(form);
@@ -2739,7 +2741,7 @@ export const api = {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('text/event-stream')) {
             const json = await response.json();
-            if (json.error) throw new Error(json.error);
+            if (json.error) throw new Error(serverText(json) ?? String(json.error));
             return json.probe as PlacementProbe;
         }
 
@@ -2761,7 +2763,7 @@ export const api = {
                     try { json = JSON.parse(line.slice(6)); } catch { continue; }
                     if (typeof json.written === 'number') onProgress?.(json.written, json.total ?? 0);
                     if (json.cancelled) throw Object.assign(new Error('Placement was cancelled.'), { cancelled: true });
-                    if (json.error) throw new Error(json.error);
+                    if (json.error) throw new Error(serverText(json) ?? String(json.error));
                     if (json.done) return json as PlacementProbe;
                 }
             }

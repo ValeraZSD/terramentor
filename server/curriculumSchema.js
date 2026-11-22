@@ -37,6 +37,7 @@
 import { sanitizeUrl } from './urlSafety.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { userSearchWords } from './projectFields.js';
+import { KeyedError } from './clientError.js';
 
 export const VALID_NODE_STATUSES = ['not_started', 'in_progress', 'completed', 'skipped'];
 
@@ -159,8 +160,8 @@ export function isValidUuid(value) {
 }
 
 /** Structural failure: nothing importable past this point. */
-export class ImportError extends Error {
-    constructor(message) { super(message); this.name = 'ImportError'; }
+export class ImportError extends KeyedError {
+    constructor(key, params) { super(key, params); this.name = 'ImportError'; }
 }
 
 /**

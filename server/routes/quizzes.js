@@ -24,7 +24,7 @@ import { readAttempt } from './request.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError, publicMessage } from '../clientError.js';
+import { KeyedError, apiError, errorBody, keyed, publicBody } from '../clientError.js';
 
 const app = routeTable('quizzes');
 
@@ -41,7 +41,7 @@ app.post('/api/ai/quiz', async (req, res) => {
     } catch (error) {
         console.error('Quiz generation error:', error);
         res.status(500).json({
-            error: publicMessage(error),
+            ...publicBody(error),
             rawResponse: aiResponse
         });
     }
@@ -68,7 +68,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
     };
     try {
         const reachable = await probeAiReachable({ job: 'questions' });
-        if (!reachable.ok) throw new Error(reachable.error);
+        if (!reachable.ok) throw new KeyedError(reachable.messageKey || reachable.error, reachable.params);
 
         loadingTimer = setInterval(() => {
             if (!firstTokenSeen && !signal.aborted) {
@@ -98,7 +98,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
         // give an actionable message and surface the reasoning as raw output.
         if (!aiResponse.trim()) {
             throw Object.assign(
-                new Error('The AI model returned no answer text — it may have spent its whole budget "thinking". Try again, lower the question count, or switch to a model that emits a final answer.'),
+                new KeyedError('The AI model returned no answer text — it may have spent its whole budget "thinking". Try again, lower the question count, or switch to a model that emits a final answer.'),
                 { rawResponse: thinkingText || null }
             );
         }
@@ -128,9 +128,9 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
 
 app.post('/api/ai/quiz/stream', (req, res) => {
     const { nodeId, questionCount = 5, questionType = 'both', includeGhosts = false, masteryCheck = false } = req.body;
-    if (!nodeId) return res.status(400).json({ error: 'Missing required field: nodeId' });
+    if (!nodeId) return res.status(400).json(apiError('Missing required field: nodeId'));
     const info = nodeTaskInfo(Number(nodeId));
-    if (!info) return res.status(404).json({ error: 'Node not found' });
+    if (!info) return res.status(404).json(keyed('Node not found'));
 
     // Deduped on the node: reopening the mastery check (or quiz panel) while a
     // generation is already running REATTACHES to it — replaying progress so
@@ -180,9 +180,9 @@ app.get('/api/ai/quizzes/:nodeId', (req, res) => {
  */
 app.get('/api/nodes/:nodeId/mastery-check/draw', (req, res) => {
     const nodeId = Number(req.params.nodeId);
-    if (!Number.isInteger(nodeId)) return res.status(400).json({ error: 'Invalid node id' });
+    if (!Number.isInteger(nodeId)) return res.status(400).json(keyed('Invalid node id'));
     const target = masteryCheckTarget(nodeId);
-    if (target.refused) return res.status(target.httpStatus).json({ error: target.refused, code: target.code });
+    if (target.refused) return res.status(target.httpStatus).json({ ...keyed(target.refused), code: target.code });
     const size = getGateConfig().checkSize;
     const { bankSize, unverified, questions } = drawFromNode(nodeId, size);
     // `status` tells the check whether this is a retake: a completed topic
@@ -202,7 +202,7 @@ app.get('/api/nodes/:nodeId/mastery-check/draw', (req, res) => {
  */
 app.get('/api/ai/quizzes/:quizId/draw', (req, res) => {
     const quizId = Number(req.params.quizId);
-    if (!Number.isInteger(quizId)) return res.status(400).json({ error: 'Invalid quiz id' });
+    if (!Number.isInteger(quizId)) return res.status(400).json(keyed('Invalid quiz id'));
     const asked = Number.parseInt(String(req.query.size ?? ''), 10);
     const size = Number.isFinite(asked) ? Math.max(1, Math.min(MAX_CHECK_SIZE, asked)) : PRACTICE_SESSION_SIZE;
     // A PRACTICE sitting: a question no verifier confirmed is asked like the
@@ -210,7 +210,7 @@ app.get('/api/ai/quizzes/:quizId/draw', (req, res) => {
     // (provenSitting) — never held back, or a row that is all stamped would
     // have an empty sitting.
     const { nodeId, bankSize, unverified, questions } = drawFromQuiz(quizId, size, { practice: true });
-    if (nodeId == null) return res.status(404).json({ error: 'Quiz not found' });
+    if (nodeId == null) return res.status(404).json(keyed('Quiz not found'));
     res.json({ size, bankSize, unverified, questions: questions.map(q => ({ ...q.question, index: q.index })) });
 });
 
@@ -300,17 +300,17 @@ function writeQuizAttempt(req, score, total) {
 app.post('/api/ai/quizzes/:quizId/attempt', (req, res) => {
     const attempt = readAttempt(req.body);
     if (!attempt) {
-        return res.status(400).json({ error: 'score and total must be integers with 0 <= score <= total' });
+        return res.status(400).json(apiError('score and total must be integers with 0 <= score <= total'));
     }
     const attemptId = readAttemptId(req.body.attemptId);
-    if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
+    if (attemptId === undefined) return res.status(400).json(apiError(ATTEMPT_ID_ERROR));
     try {
         const { duplicate, outcome } = recordOnce('quiz', attemptId, () => writeQuizAttempt(req, attempt.score, attempt.total),
             `quiz:${Number(req.params.quizId)}`);
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
-        res.status(500).json({ error: clientError(err) });
+        if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -327,7 +327,7 @@ app.delete('/api/ai/quizzes/:quizId', (req, res) => {
 // the node's tutor chat history, which streamChat would do.
 app.post('/api/ai/explain-question', async (req, res) => {
     const { nodeId, question, correctAnswer, userAnswer } = req.body;
-    if (!question) return res.status(400).json({ error: 'question is required' });
+    if (!question) return res.status(400).json(apiError('question is required'));
     try {
         const node = nodeId ? db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId) : null;
         const context = nodeId ? buildNodeContext(nodeId) : '';
@@ -340,19 +340,19 @@ app.post('/api/ai/explain-question', async (req, res) => {
         );
         const explanation = await generateResponse(user, system, [], { operation: 'explain' });
         if (!explanation || !explanation.trim()) {
-            return res.status(502).json({ error: 'The model returned an empty explanation. Try again.' });
+            return res.status(502).json(keyed('The model returned an empty explanation. Try again.'));
         }
         res.json({ explanation: explanation.trim() });
     } catch (error) {
         console.error('Explain question error:', error);
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 
 app.post('/api/ai/check-answer', async (req, res) => {
     const { question, correctAnswer, userAnswer, format, language } = req.body;
     if (!question || !correctAnswer || !userAnswer) {
-        return res.status(400).json({ error: 'Missing required fields' });
+        return res.status(400).json(apiError('Missing required fields'));
     }
     try {
         // `format` says what the checker is reading: code is judged on
@@ -364,7 +364,7 @@ app.post('/api/ai/check-answer', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Answer check error:', error);
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 
@@ -394,7 +394,7 @@ app.get('/api/projects/:projectId/quizzes', (req, res) => {
             catch { return { ...q, questions: [] }; }
         }));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

@@ -1,7 +1,7 @@
 // /api/search: the library search and its suggestions.
 import { quickSuggest, searchAll } from '../search.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, clientError, keyed } from '../clientError.js';
 
 const app = routeTable('search');
 
@@ -29,7 +29,7 @@ const scopeOf = (raw) => {
 app.get('/api/search', (req, res) => {
     const { q, projectId, limit } = req.query;
     const scope = scopeOf(projectId);
-    if (scope.bad) return res.status(400).json({ error: 'projectId must be a project id' });
+    if (scope.bad) return res.status(400).json(apiError('projectId must be a project id'));
     if (!q || typeof q !== 'string' || q.trim().length < 2) {
         return res.json({ projects: [], nodes: [], resources: [], documents: [] });
     }
@@ -41,14 +41,14 @@ app.get('/api/search', (req, res) => {
         res.json(results);
     } catch (err) {
         console.error('[Search] Error:', err.message);
-        res.status(500).json({ error: 'Search failed', detail: clientError(err) });
+        res.status(500).json({ ...keyed('Search failed'), detail: clientError(err) });
     }
 });
 
 app.get('/api/search/suggest', (req, res) => {
     const { q, projectId, limit } = req.query;
     const scope = scopeOf(projectId);
-    if (scope.bad) return res.status(400).json({ error: 'projectId must be a project id' });
+    if (scope.bad) return res.status(400).json(apiError('projectId must be a project id'));
     if (!q || typeof q !== 'string' || q.trim().length < 1) {
         return res.json([]);
     }
@@ -57,7 +57,7 @@ app.get('/api/search/suggest', (req, res) => {
         res.json(results);
     } catch (err) {
         console.error('[Search/Suggest] Error:', err.message);
-        res.status(500).json({ error: 'Suggest failed', detail: clientError(err) });
+        res.status(500).json({ ...keyed('Suggest failed'), detail: clientError(err) });
     }
 });
 

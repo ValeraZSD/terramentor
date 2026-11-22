@@ -37,6 +37,7 @@ import { mediaStorage } from './vaultStorage.js';
 import { transcribeImageToText, aiProvenance, withAnswerScope } from './ai.js';
 import { decidePaperVision } from './paper.js';
 import * as tasks from './tasks.js';
+import { k, publicMessage } from './clientError.js';
 
 /** Kept short on purpose: this is read aloud and pasted into prompts. */
 const DESCRIBE_PROMPT = `Describe this image in one or two plain sentences, for someone who cannot see it.
@@ -72,7 +73,7 @@ export function cleanDescription(value) {
  */
 export function setLearnerDescription(hash, value) {
     const exists = db.prepare(`SELECT 1 FROM media_files WHERE hash = ? AND kind = 'image' LIMIT 1`).get(hash);
-    if (!exists) return { ok: false, reason: 'no such picture' };
+    if (!exists) return { ok: false, reason: k('no such picture') };
     const clean = cleanDescription(value);
     if (!clean) {
         db.prepare('UPDATE media_files SET description = NULL, described_by = NULL, generated_by = NULL WHERE hash = ?').run(hash);
@@ -171,8 +172,8 @@ export function describeStats(projectId = null) {
  */
 export async function describeMedia(hash, { force = false, model, signal } = {}) {
     const row = db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash);
-    if (!row) return { ok: false, reason: 'no such media' };
-    if (row.kind !== 'image') return { ok: false, reason: 'only images can be described' };
+    if (!row) return { ok: false, reason: k('no such media') };
+    if (row.kind !== 'image') return { ok: false, reason: k('only images can be described') };
     // A person's words (the deck author's alt, or the learner's correction)
     // stay, even on a forced re-run: a model never overwrites them.
     if (row.description && (!force || HUMAN_SOURCES.has(row.described_by))) {
@@ -183,7 +184,7 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     try {
         bytes = mediaStorage.readBuffer(hash);
     } catch {
-        return { ok: false, reason: 'the file is missing from the media store' };
+        return { ok: false, reason: k('the file is missing from the media store') };
     }
 
     let text;
@@ -199,14 +200,15 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
         // Nothing is written. An unreachable model must leave this pending so
         // the next run picks it up — recording a failure as a description is
         // how a library ends up permanently "done" and permanently wrong.
-        return { ok: false, reason: err.message || 'the vision model did not answer' };
+        // The route sends this to the learner: no path, endpoint or provider body.
+        return { ok: false, reason: err?.message ? publicMessage(err) : k('the vision model did not answer') };
     }
 
     // The same cleaning a learner's edit gets: this is read aloud and pasted into
     // prompts, so control and direction marks go, and the cut is by characters.
     const clean = cleanDescription(text);
     if (!clean || /^unreadable$/i.test(clean)) {
-        return { ok: false, reason: 'the model could not make out this image' };
+        return { ok: false, reason: k('the model could not make out this image') };
     }
 
     // `described_by` stays the mechanism the stats query counts; `generated_by`

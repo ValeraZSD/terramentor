@@ -1,3 +1,4 @@
+import { apiError, keyed } from './clientError.js';
 /**
  * The aggregate cap on a multipart upload, checked before multer reads a byte.
  *
@@ -17,10 +18,10 @@ export function rejectOversizedBody(capBytes) {
         const raw = req.headers['content-length'];
         const len = raw === undefined ? NaN : Number(raw);
         if (!Number.isFinite(len) || len < 0) {
-            return res.status(411).json({ error: 'Upload needs a Content-Length header — a chunked body is not accepted' });
+            return res.status(411).json(apiError('Upload needs a Content-Length header — a chunked body is not accepted'));
         }
         if (len > capBytes) {
-            return res.status(413).json({ error: `Upload too large — the limit is ${capMb} MB` });
+            return res.status(413).json(keyed('Upload too large — the limit is {{mb}} MB', { mb: capMb }));
         }
         next();
     };

@@ -25,6 +25,7 @@ import { createLibraryPool } from './libraries.js';
 import { MIN_LENGTH } from './passwords.js';
 import { inviteSpentPage, invitePage, openingPage, problemPage, signInPage } from './pages.js';
 import { makeNote, NOTE_HEADER } from '../siteLibrary.js';
+import { apiError, keyed } from '../clientError.js';
 
 export const COOKIE = '__Host-tm_session';
 const SESSION_COOKIE_MAX_AGE_S = 90 * 24 * 3600;
@@ -163,7 +164,7 @@ export function createFrontDesk({
         const { pathname } = url;
         const method = req.method;
         if (pathname === '/site/health') return json(res, 200, { ok: true });
-        if (method === 'POST' && !sameOrigin(req)) return json(res, 403, { error: 'Cross-origin form refused.' });
+        if (method === 'POST' && !sameOrigin(req)) return json(res, 403, apiError('Cross-origin form refused.'));
 
         if (pathname === '/site/sign-in') {
             if (method === 'GET') {
@@ -201,14 +202,14 @@ export function createFrontDesk({
             if (method === 'POST') {
                 const form = await readForm(req);
                 if (String(form.password ?? '') !== String(form.again ?? '')) {
-                    return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, error: 'The two passwords are not the same.' }), headers);
+                    return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, ...keyed('The two passwords are not the same.') }), headers);
                 }
                 let result;
                 try {
                     result = await accounts.acceptInvite(token, form.password, req.headers['user-agent']);
                 } catch (e) {
                     if (e?.code !== 'AUTH_BUSY') throw e;
-                    result = { error: 'The site is busy. Try again in a moment.' };
+                    result = keyed('The site is busy. Try again in a moment.');
                 }
                 if (result.spent) return send(res, 410, inviteSpentPage({ nonce }), headers);
                 if (result.error) return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, error: result.error }), headers);
@@ -226,7 +227,7 @@ export function createFrontDesk({
         }
         // The app asks for JSON (the devices list in its Settings); a page asks for a page.
         const wantsJson = pathname.endsWith('.json') || /application\/json/.test(String(req.headers.accept || ''));
-        if (!session) return wantsJson ? json(res, 401, { error: 'Sign in again', authRequired: true, site: true }) : redirect(res, '/site/sign-in');
+        if (!session) return wantsJson ? json(res, 401, { ...keyed('Sign in again'), authRequired: true, site: true }) : redirect(res, '/site/sign-in');
         // The signed-in devices live in the app: Settings, Devices & security.
         const DEVICES = '/settings#devices';
         if (pathname === '/site/sign-out-others' && method === 'POST') {
@@ -272,12 +273,12 @@ export function createFrontDesk({
             entry = await pool.wake(session.libraryId);
         } catch (e) {
             if (e.code === 'FULL') {
-                if (req.url.startsWith('/api/')) return json(res, 503, { error: 'The site is busy. Try again in a moment.' }, { 'Retry-After': '5' });
+                if (req.url.startsWith('/api/')) return json(res, 503, keyed('The site is busy. Try again in a moment.'), { 'Retry-After': '5' });
                 const { nonce, headers } = nonceHeaders();
                 return send(res, 503, openingPage({ nonce }), { ...headers, 'Retry-After': '5' });
             }
             log.error(`[site] Could not open library ${session.libraryId.slice(0, 8)}: ${e.message}`);
-            if (req.url.startsWith('/api/')) return json(res, 502, { error: 'Your library could not be opened. Try again in a moment.' });
+            if (req.url.startsWith('/api/')) return json(res, 502, keyed('Your library could not be opened. Try again in a moment.'));
             const { nonce, headers } = nonceHeaders();
             return send(res, 502, problemPage({ nonce, title: 'Your library could not be opened', text: 'Try again in a moment.' }), headers);
         }
@@ -287,7 +288,7 @@ export function createFrontDesk({
         // Another device may have ended this session while the library woke, when
         // there was no stream yet for closeStreams to close: nothing is forwarded.
         if (!accounts.sessionAlive(session.sessionId)) {
-            if (req.url.startsWith('/api/') || (req.method !== 'GET' && req.method !== 'HEAD')) return json(res, 401, { error: 'Sign in again', authRequired: true, site: true });
+            if (req.url.startsWith('/api/') || (req.method !== 'GET' && req.method !== 'HEAD')) return json(res, 401, { ...keyed('Sign in again'), authRequired: true, site: true });
             return redirect(res, '/site/sign-in');
         }
         const headers = { ...req.headers };
@@ -336,7 +337,7 @@ export function createFrontDesk({
         });
         upstream.on('error', (e) => {
             done();
-            if (!res.headersSent) json(res, 502, { error: 'Your library did not answer. Try again in a moment.' });
+            if (!res.headersSent) json(res, 502, keyed('Your library did not answer. Try again in a moment.'));
             else res.destroy();
             log.error(`[site] Library ${session.libraryId.slice(0, 8)} did not answer: ${e.message}`);
         });
@@ -345,19 +346,19 @@ export function createFrontDesk({
 
     const server = http.createServer(async (req, res) => {
         try {
-            if (!hostAllowed(req)) return json(res, 421, { error: 'This site does not answer to that name.' });
+            if (!hostAllowed(req)) return json(res, 421, keyed('This site does not answer to that name.'));
             const url = new URL(req.url, 'http://site');
             if (url.pathname === '/site' || url.pathname.startsWith('/site/')) return await siteRoute(req, res, url);
             const session = currentSession(req);
             if (!session) {
-                if (url.pathname.startsWith('/api/')) return json(res, 401, { error: 'Sign in again', authRequired: true, site: true });
+                if (url.pathname.startsWith('/api/')) return json(res, 401, { ...keyed('Sign in again'), authRequired: true, site: true });
                 if (req.method === 'GET' || req.method === 'HEAD') return redirect(res, '/site/sign-in');
-                return json(res, 401, { error: 'Sign in again', authRequired: true, site: true });
+                return json(res, 401, { ...keyed('Sign in again'), authRequired: true, site: true });
             }
             return await forward(req, res, session);
         } catch (e) {
             log.error(`[site] ${req.method} ${String(req.url).split('?')[0]}: ${e.stack || e.message}`);
-            if (!res.headersSent) json(res, e.status || 500, { error: 'Something went wrong at the front desk.' });
+            if (!res.headersSent) json(res, e.status || 500, keyed('Something went wrong at the front desk.'));
             else res.destroy();
         }
     });

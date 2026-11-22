@@ -27,6 +27,7 @@ import { headStartFor } from './headStart.js';
 import { AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
 import { readReplyObject } from './jsonRepair.js';
 import { feedRowIsProof } from './questionTrust.js';
+import { apiError } from './clientError.js';
 
 export const PRE_QUESTIONS_MAX = 1;
 // A tap, never typing: choice and true/false only.
@@ -120,11 +121,11 @@ const storedRef = (ref) => (ref.toLowerCase().startsWith('fi:') ? 'feed' : ref);
  * nothing here writes evidence. A second record for the topic is a no-op.
  */
 export function recordPreQuestions(nodeId, { outcome, items }) {
-    if (!PRE_OUTCOMES.has(outcome)) return { error: 'outcome must be answered or skipped' };
+    if (!PRE_OUTCOMES.has(outcome)) return apiError('outcome must be answered or skipped');
     const list = Array.isArray(items) ? items.slice(0, PRE_QUESTIONS_MAX) : [];
     const clean = [];
     for (const it of list) {
-        if (!it || typeof it.ref !== 'string' || !REF.test(it.ref)) return { error: 'each item needs a ref' };
+        if (!it || typeof it.ref !== 'string' || !REF.test(it.ref)) return apiError('each item needs a ref');
         // A skipped round answered nothing, whatever the body says.
         const correct = outcome === 'answered' && typeof it.correct === 'boolean' ? it.correct : null;
         clean.push({ ref: it.ref, correct });
