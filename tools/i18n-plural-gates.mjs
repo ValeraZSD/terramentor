@@ -113,6 +113,11 @@ assert(
 // --- 3 & 4. every locale's plural shape -------------------------------------------------
 process.stdout.write('\n--- plural forms per locale ---\n');
 
+/** Languages whose noun stays singular after any number ("1 dosya", "3 dosya"), so
+ *  `_one` and `_other` match everywhere by grammar. Intl still reports two categories
+ *  for them, so every key carries both; only the flat check skips them. */
+const NOUN_STAYS_SINGULAR = new Set(['tr']);
+
 /** Bases whose singular and plural are genuinely the same words in that language.
  *  The list is per language, read against that language's own grammar, never global. */
 const SAME_BY_DESIGN = {
@@ -129,6 +134,13 @@ const SAME_BY_DESIGN = {
     pl: ['{{count}} of them.', '{{name}} —', '{{count}} quick questions', 'from {{count}} decks', 'Show them now anyway', 'and keep their'],
     pt: ['{{count}} of them.', '{{name}} —', '{{count}} quick questions', 'Show them now anyway'],
     ru: ['{{count}} of them.', '{{name}} —', 'Show them now anyway', 'and keep their'],
+    // Arabic avoids number agreement with a label ("العناصر المضافة: 3"), a "×" or a
+    // count that sits beside another number, so these read the same for every count.
+    ar: ['{{count}} items ', '{{count}} needs your choice', '{{date}}: {{done}} things done',
+        '{{days}} days in a row', '{{fmt}} more come back', '{{n}} of the topic', '{{name}} —',
+        '{{rows}} of {{max}} events', '{{times}} times', '{{value}} / {{value2}} cards met',
+        '{{width}} × {{height}} pixels', 'A sitting of {{n}}', 'Busiest day', 'have never been forgotten',
+        'Show them now anyway'],
     // Ukrainian neuters in -ання (завдання, читання, посилання, питання) are the same
     // word after 1 and after 3, so a flat pair there is the language, not a lapse.
     uk: ['{{count}} of them.', '{{name}} —', '{{count}} AI tasks', '{{count}} links resolved',
@@ -179,7 +191,7 @@ for (const loc of [...locales, 'en']) {
     for (const b of bases) for (const c of cats) if (d[`${b}_${c}`] === undefined) missing.push(`${b}_${c}`);
     assert(missing.length === 0, `${loc}: every plural key carries all of [${cats.join(', ')}]`, missing);
 
-    if (cats.length > 1) {
+    if (cats.length > 1 && !NOUN_STAYS_SINGULAR.has(loc)) {
         const exempt = SAME_BY_DESIGN[loc] || [];
         const flat = bases.filter((b) => {
             if (exempt.some((p) => b.startsWith(p))) return false;

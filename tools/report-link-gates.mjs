@@ -26,7 +26,7 @@
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -505,7 +505,8 @@ section('4e. the paper exercise: under a marked result with a point not met');
 
 section('5. the words are in every language');
 {
-    const locales = ['de', 'en', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh'];
+    // Every locale file there is, so a language added later is held to it too.
+    const locales = readdirSync(join(root, 'src/locales')).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
     const missing = [];
     for (const l of locales) {
         const j = JSON.parse(read(`src/locales/${l}.json`));
@@ -514,7 +515,7 @@ section('5. the words are in every language');
             if (typeof j[k] !== 'string' || !j[k].trim() || (l === 'en' ? j[k] !== k : j[k] === k)) missing.push(`${l}: ${k}`);
         }
     }
-    ok('both strings are translated in all 12 locales', missing.length === 0, missing.join('; '));
+    ok(`both strings are translated in all ${locales.length} locales`, locales.length >= 14 && missing.length === 0, missing.join('; '));
     const control = read('src/components/ui/ReportItem.tsx');
     ok('…and reach the screen through t()', control.includes(`t("${LINE}")`) && control.includes(`t("${LINK}")`));
 }

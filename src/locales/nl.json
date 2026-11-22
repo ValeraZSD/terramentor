@@ -2581,7 +2581,7 @@
   "Runs in the background and pauses while you use the assistant.": "Wordt op de achtergrond uitgevoerd en pauzeert terwijl je de assistent gebruikt.",
   "Sage": "Salie",
   "Same as chat": "Hetzelfde als chat",
-  "Same as the browser": "Hetzelfde als de browser",
+  "Same as the browser ({{language}})": "Hetzelfde als de browser ({{language}})",
   "Same as the chat model": "Zelfde als het chatmodel",
   "Same as the language": "Zelfde als de taal",
   "Sample exam 19": "Voorbeeldexamen 19",

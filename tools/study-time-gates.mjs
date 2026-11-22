@@ -278,7 +278,7 @@ section('1b. saying a duration');
         const { createCanvas } = require('@napi-rs/canvas');
         const cert = await import(pathToFileURL(await bundleClient('src/components/completion/certificate.ts')).href);
         const ctx = createCanvas(10, 10).getContext('2d');
-        const values = ['en', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']
+        const values = ['en', 'ar', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'tr', 'uk', 'zh']
             .flatMap(l => [152 * H + 25 * M, 9 * H + 45 * M].map(ms => formatStudyTime(ms, l, less, { compact: true })));
         const content = {
             title: 'A course', eyebrow: 'Finished', subtitle: '2026', icon: null, emoji: '', caption: '', story: '', chart: null,

@@ -2581,7 +2581,7 @@
   "Runs in the background and pauses while you use the assistant.": "Läuft im Hintergrund und pausiert, während du den Assistenten verwendest.",
   "Sage": "Salbei",
   "Same as chat": "Wie Chat",
-  "Same as the browser": "Wie der Browser",
+  "Same as the browser ({{language}})": "Wie der Browser ({{language}})",
   "Same as the chat model": "Wie das Chat-Modell",
   "Same as the language": "Wie die Sprache",
   "Sample exam 19": "Probeprüfung 19",

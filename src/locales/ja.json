@@ -2401,7 +2401,7 @@
   "Runs in the background and pauses while you use the assistant.": "バックグラウンドで実行され、アシスタント使用中は一時停止します。",
   "Sage": "セージ",
   "Same as chat": "チャットと同じ",
-  "Same as the browser": "ブラウザと同じ",
+  "Same as the browser ({{language}})": "ブラウザと同じ（{{language}}）",
   "Same as the chat model": "チャットモデルと同じ",
   "Same as the language": "言語と同じ",
   "Sample exam 19": "サンプル試験 19",

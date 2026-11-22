@@ -2941,7 +2941,7 @@
   "Runs in the background and pauses while you use the assistant.": "Работает в фоновом режиме и приостанавливается, пока вы используете помощника.",
   "Sage": "Шалфейный",
   "Same as chat": "Как в чате",
-  "Same as the browser": "Как в браузере",
+  "Same as the browser ({{language}})": "Как в браузере ({{language}})",
   "Same as the chat model": "Та же, что для чата",
   "Same as the language": "Как в языке",
   "Sample exam 19": "Пример экзамена 19",

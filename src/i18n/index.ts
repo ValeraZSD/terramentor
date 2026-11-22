@@ -36,6 +36,7 @@ import enPlurals from './enPlurals';
  *  code, not by popularity — a ranking would be an editorial claim. */
 export const LANGUAGES: { code: string; name: string }[] = [
     { code: 'en', name: 'English' },
+    { code: 'ar', name: 'العربية' },
     { code: 'de', name: 'Deutsch' },
     { code: 'es', name: 'Español' },
     { code: 'fr', name: 'Français' },
@@ -45,6 +46,7 @@ export const LANGUAGES: { code: string; name: string }[] = [
     { code: 'pl', name: 'Polski' },
     { code: 'pt', name: 'Português' },
     { code: 'ru', name: 'Русский' },
+    { code: 'tr', name: 'Türkçe' },
     { code: 'uk', name: 'Українська' },
     { code: 'zh', name: '中文' },
 ];
@@ -52,13 +54,57 @@ export const LANGUAGES: { code: string; name: string }[] = [
 export const DEFAULT_LANGUAGE = 'en';
 export const LANGUAGE_STORAGE_KEY = 'terramentor-lang';
 
-/** Right-to-left scripts. No RTL locale ships yet; the direction attribute is
- *  set from this so the day one does, the layout knows. */
+/** Right-to-left scripts: `<html dir="rtl">` for these, and the layout follows
+ *  (logical classes everywhere, `tools/rtl-gates.mjs`). Arabic ships. */
 const RTL = new Set(['ar', 'he', 'fa', 'ur']);
 
 const SUPPORTED = new Set(LANGUAGES.map((l) => l.code));
 export const isSupportedLanguage = (code: unknown): code is string =>
     typeof code === 'string' && SUPPORTED.has(code);
+
+/** A language's name in another language ("Arabisch" for `ar` in `nl`), or ''
+ *  where the browser has no name for it. */
+function nameIn(code: string, locale: string): string {
+    try {
+        const name = new Intl.DisplayNames([locale], { type: 'language' }).of(code) ?? '';
+        return name === code ? '' : name;
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * How the picker names a language: in its own name first, so a reader finds
+ * theirs whatever the screen is in, then in the interface's language, so a
+ * reader who does not know the script still knows what it is
+ * ("العربية — Arabisch" in a Dutch interface). The interface's own language,
+ * and a name the two would spell alike, is said once.
+ */
+export function languageLabel(code: string, interfaceLocale: string): string {
+    const own = LANGUAGES.find((l) => l.code === code)?.name ?? code;
+    if (code === interfaceLocale) return own;
+    const local = nameIn(code, interfaceLocale);
+    return !local || local.toLocaleLowerCase(interfaceLocale) === own.toLocaleLowerCase(code) ? own : `${own} — ${local}`;
+}
+
+/** The interface language a name means: its own name ("Nederlands"), its
+ *  English one ("Dutch") or its name in the language on screen ("niederländisch"
+ *  in German). The assistant passes on whichever the learner used. */
+export function languageByName(name: string, interfaceLocale: string): string | null {
+    const v = foldName(name);
+    for (const l of LANGUAGES) {
+        const names = [l.name, nameIn(l.code, 'en'), nameIn(l.code, interfaceLocale)];
+        if (names.some((n) => n && foldName(n) === v)) return l.code;
+    }
+    return null;
+}
+
+/** Case folded the same way whatever the device locale: Turkish "İngilizce"
+ *  lowercases to an i with a dot above, typed "ingilizce" has none. */
+const DOT_ABOVE = String.fromCharCode(0x307);
+function foldName(s: string): string {
+    return s.trim().normalize('NFD').toLowerCase().split(DOT_ABOVE).join('').replace(/ı/g, 'i');
+}
 
 /**
  * Which language to show. `auto` (the stored default) follows the browser's

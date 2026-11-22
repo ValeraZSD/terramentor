@@ -136,7 +136,7 @@ ok('the html lang attribute follows the language', /documentElement\.lang = /.te
     check('a Russian browser with nothing cached states ru', run({ languages: ['ru-RU', 'en-US'] }), 'ru');
     check('a language the app lacks is skipped for the next one', run({ languages: ['ko', 'pt_BR'] }), 'pt');
     check('tags are read case-blind', run({ languages: ['DE-AT'] }), 'de');
-    check('none it has is English', run({ languages: ['ko', 'ar'] }), 'en');
+    check('none it has is English', run({ languages: ['ko', 'he'] }), 'en');
     check('the language this device showed last wins over the browser', run({ languages: ['ru'] }, 'nl'), 'nl');
     check('a cached auto follows the browser', run({ languages: ['fr'] }, 'auto'), 'fr');
     check('a cached code the app does not have is ignored', run({ languages: ['de'] }, 'xx'), 'de');
