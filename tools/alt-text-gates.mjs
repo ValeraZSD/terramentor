@@ -267,7 +267,7 @@ for (const [language, text] of [['en', 'Flashcard with the handwritten phrase �
     ['en', 'There is no photo on the wall, only an empty frame'], ['zh', 'Photoshop界面'], ['zh', 'Wikipedia 页面']]) {
     check(`a caption that only contains such words: kept (${language}: ${text})`, verdict(text, language).ok === true, JSON.stringify(verdict(text, language)));
 }
-for (const [language, text] of [['nl', 'A man walking his dog in the park'], ['nl', 'A woman holding a cup of coffee in a kitchen'],
+for (const [language, text] of [['nl', 'A man walking a dog in the park'], ['nl', 'A woman holding a cup of coffee in a kitchen'],
     ['de', 'A cat sitting on a sofa and looking at the camera']]) {
     check(`an everyday English description in a ${language} course: refused (${text})`, refusedAs('language', text, language), JSON.stringify(verdict(text, language)));
 }

@@ -84,7 +84,7 @@ const REFUSAL = [
     /^there(?:'s|’s| is) no (?:image|picture|photo)(?: (?:attached|provided|included|shared|here|to describe))?\s*[.!]?$/i,
     // An apology only where a reply starts: inside a caption the same words are
     // content, and in a language course they are vocabulary ("对不起" on a card).
-    // and the apology is a clause of its own ("Lo siento, ..."), not a caption's first word.
+    // The apology must also be a clause of its own ("Lo siento, ..."), not a caption's first word.
     /^(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|przepraszam|извините|к сожалению|вибачте|на жаль|抱歉|对不起)\s*[,.!，。！]|^申し訳(?:ありません|ございません)/iu,
     /(?<!\p{L})(?:ik kan (?:de |deze )?(?:afbeelding|foto) niet|ik zie geen (?:afbeelding|foto|plaatje)|ich kann (?:das |dieses )?bild nicht|ich kann keine bilder|ich sehe kein(?:e|en)? bild|no puedo ver|je ne peux pas (?:voir|décrire)|non posso vedere|nie mogę zobaczyć|не могу (?:увидеть|просмотреть|открыть)|не можу (?:побачити|переглянути))(?!\p{L})/iu,
     /(?:画像|图片|圖片)(?:を)?(?:見る|表示する|確認する)?(?:ことができません|を?見られません)|无法(?:查看|看到)|無法(?:查看|看到)/u,
