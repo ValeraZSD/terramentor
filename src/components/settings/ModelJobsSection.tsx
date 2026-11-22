@@ -21,11 +21,18 @@ import type { SettingsSnapshot } from './settingsSnapshot';
 import type { AtlasNamingStats } from '../../types';
 import type { EmbeddingStatusHandle } from './useEmbeddingStatus';
 import { settingTargetId } from '../../utils/settingTarget';
-import { switchSaver } from '../../utils/switchSaver';
+import { switchSaver, valueSaver } from '../../utils/switchSaver';
 
 // How to recover math from PDFs whose text layer drops formulas. One UI control
 // over two backend settings (pdf_math_recovery + pdf_recovery_vision).
 type RecoveryMode = 'off' | 'ocr' | 'auto' | 'vision';
+
+/** The single recovery control, read from the two backend settings. */
+function recoveryModeOf(recovery: string | undefined, vision: string | undefined): RecoveryMode {
+    if ((recovery ?? 'auto') === 'off') return 'off';
+    const vis = vision ?? 'auto';
+    return vis === 'never' ? 'ocr' : vis === 'always' ? 'vision' : 'auto';
+}
 
 /**
  * One row of the Model-jobs panel: a background job that uses a model. It is
@@ -92,6 +99,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         return () => { live = false; };
     }, [active, namingSaved]);
     const { embStatus, embModelInput, setEmbModelInput, loadEmbStatus } = emb;
+    // A refused embedding setting is said. The switch and the provider are
+    // drawn from the status, so they never moved; the model field is put back.
+    const embSaveFailed = (e: any) => { addToast('error', tr("Failed to save"), e?.message); };
     const [embReindexing, setEmbReindexing] = useState(false);
     // What the endpoint serving embeddings lists as embedding models — asked
     // again whenever which endpoint that is could have changed.
@@ -127,17 +137,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             setFindResources(settings.creation_find_resources !== 'false');
         }
         if (settings.lesson_reads_links !== undefined) setReadLinks(settings.lesson_reads_links !== 'false');
-        // Derive the single recovery control from the two backend settings.
-        {
-            const rec = settings.pdf_math_recovery ?? 'auto';
-            const vis = settings.pdf_recovery_vision ?? 'auto';
-            setRecoveryMode(
-                rec === 'off' ? 'off'
-                    : vis === 'never' ? 'ocr'
-                        : vis === 'always' ? 'vision'
-                            : 'auto'
-            );
-        }
+        setRecoveryMode(recoveryModeOf(settings.pdf_math_recovery, settings.pdf_recovery_vision));
         if (settings.pdf_recovery_vision_model !== undefined) setRecoveryVisionModel(settings.pdf_recovery_vision_model);
         if (settings.atlas_naming_model !== undefined) setAtlasNamingModel(settings.atlas_naming_model);
     }, [snapshot]);
@@ -165,41 +165,63 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     };
 
     // One UI control → two backend settings (feature on/off, and how vision is used).
+    // A refused save puts the control back on what is stored. When only one of
+    // the pair was written, that is neither the old mode nor the new one, so the
+    // pair is read back.
+    const recoverySaver = useRef(valueSaver<RecoveryMode>()).current;
+    // The newest press; a read-back answering after a later press is dropped.
+    const recoveryPress = useRef(0);
     const saveRecoveryMode = async (mode: RecoveryMode) => {
-        setRecoveryMode(mode);
+        const press = ++recoveryPress.current;
         const recovery = mode === 'off' ? 'off' : 'auto';
         const vision = mode === 'ocr' ? 'never' : mode === 'vision' ? 'always' : 'auto';
+        let partly = false;
         try {
-            await Promise.all([
-                api.setSetting('pdf_math_recovery', recovery),
-                api.setSetting('pdf_recovery_vision', vision),
-            ]);
+            await recoverySaver(mode, recoveryMode, setRecoveryMode, async () => {
+                const results = await Promise.allSettled([
+                    api.setSetting('pdf_math_recovery', recovery),
+                    api.setSetting('pdf_recovery_vision', vision),
+                ]);
+                const refused = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+                if (!refused) return;
+                partly = results.some(r => r.status === 'fulfilled');
+                throw refused.reason;
+            });
             addToast('success', tr("Saved"), tr("PDF math recovery updated."));
         } catch (e: any) {
-            addToast('error', tr("Failed to save"), e.message);
+            addToast('error', tr("Failed to save"), e?.message);
+            if (partly) {
+                api.getSettings()
+                    .then(s => {
+                        if (press === recoveryPress.current) setRecoveryMode(recoveryModeOf(s.pdf_math_recovery, s.pdf_recovery_vision));
+                    })
+                    .catch(() => { /* the control already shows the last mode that was written whole */ });
+            }
         }
     };
 
+    const recoveryModelSaver = useRef(valueSaver<string>()).current;
     const saveRecoveryVisionModel = async (model: string) => {
-        setRecoveryVisionModel(model);
         try {
-            await api.setSetting('pdf_recovery_vision_model', model);
+            await recoveryModelSaver(model, recoveryVisionModel, setRecoveryVisionModel,
+                () => api.setSetting('pdf_recovery_vision_model', model));
             addToast('success', tr("Saved"), model ? tr("Recovery will use {{model}} for vision.", { model }) : tr("Recovery vision uses the chat model."));
         } catch (e: any) {
-            addToast('error', tr("Failed to save"), e.message);
+            addToast('error', tr("Failed to save"), e?.message);
         }
     };
 
+    const namingModelSaver = useRef(valueSaver<string>()).current;
     const saveAtlasNamingModel = async (model: string) => {
-        setAtlasNamingModel(model);
         try {
-            await api.setSetting('atlas_naming_model', model);
+            await namingModelSaver(model, atlasNamingModel, setAtlasNamingModel,
+                () => api.setSetting('atlas_naming_model', model));
             setNamingSaved(n => n + 1);
             addToast('success', tr("Saved"), model
                 ? tr("Regions will be named by {{model}}.", { model })
                 : tr("Regions will be named by the chat model."));
         } catch (e: any) {
-            addToast('error', tr("Failed to save"), e.message);
+            addToast('error', tr("Failed to save"), e?.message);
         }
     };
 
@@ -461,7 +483,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         checked={!!embStatus?.config.enabled}
                                         label={tr("Enable semantic search")}
                                         onChange={async next => {
-                                            await api.setEmbeddingSettings({ enabled: next }).catch(() => { });
+                                            await api.setEmbeddingSettings({ enabled: next }).catch(embSaveFailed);
                                             loadEmbStatus({ force: true });
                                         }}
                                     />
@@ -481,7 +503,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         label={tr("Embedding provider")}
                                         value={embStatus?.config.provider ?? 'auto'}
                                         onChange={async next => {
-                                            await api.setEmbeddingSettings({ provider: next as 'auto' | 'ollama' | 'openai' }).catch(() => { });
+                                            await api.setEmbeddingSettings({ provider: next as 'auto' | 'ollama' | 'openai' }).catch(embSaveFailed);
                                             loadEmbStatus({ force: true });
                                         }}
                                         options={[
@@ -531,7 +553,11 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         onChange={async next => {
                                             setEmbModelInput(next);
                                             if (next.trim() && next.trim() !== embStatus?.config.model) {
-                                                await api.setEmbeddingSettings({ model: next.trim() }).catch(() => { });
+                                                await api.setEmbeddingSettings({ model: next.trim() }).catch((e) => {
+                                                    embSaveFailed(e);
+                                                    // The status read below may fail too; the field is put back now.
+                                                    setEmbModelInput(embStatus?.config.model ?? '');
+                                                });
                                                 loadEmbStatus({ force: true });
                                             }
                                         }}

@@ -397,6 +397,9 @@ export default function ColorField({
     // confirms the value anyway.
     useEffect(() => {
         if (value === emittedRef.current) return;
+        // The value moved on from what this field sent, so the next time it
+        // reads that colour the change came from elsewhere and is shown.
+        emittedRef.current = null;
         setTyped(value);
     }, [value]);
 

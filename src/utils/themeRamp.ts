@@ -3,7 +3,7 @@
  *
  * A theme is a MODE and a COLOUR — the two questions a person choosing one
  * actually has — and this module is the arithmetic between that pair and the
- * twelve CSS variables every surface in the app is painted from (`--c-white`,
+ * eleven CSS variables every surface in the app is painted from (`--c-white`,
  * `--c-slate-50` … `--c-slate-900`; see the surface-ladder note in
  * `index.css`).
  *
@@ -51,7 +51,7 @@ import { hslToRgb, rgbToHsl, hexToRgb } from './color.ts';
 
 export type ThemeMode = 'light' | 'dark';
 
-/** The twelve variables, in ramp order. `white` is a rung like any other here —
+/** The eleven variables, in ramp order. `white` is a rung like any other here —
  *  in dark mode it is the brightest ink, in light mode it is the card. */
 export const RUNGS = ['white', '50', '100', '200', '300', '400', '500', '600', '700', '800', '900'] as const;
 export type Rung = typeof RUNGS[number];
@@ -182,7 +182,7 @@ export function readTint(tint: string | null | undefined, mode: ThemeMode) {
 }
 
 /**
- * The twelve surface colours for one (mode, tint), as `#rrggbb`.
+ * The eleven surface colours for one (mode, tint), as `#rrggbb`.
  *
  * Returns BASE untouched when the tint asks for neither hue nor depth, rather
  * than returning a value that merely rounds to it.

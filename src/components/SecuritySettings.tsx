@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Shield, ShieldCheck, KeyRound, Copy, Check, RefreshCw, Trash2, Monitor, Smartphone } from 'lucide-react';
 import { useStore } from '../store';
 import { api, siteApi, type SiteSession } from '../api';
@@ -149,7 +149,9 @@ function PasswordSecurity() {
     const loadAuth = useStore(s => s.loadAuth);
 
     const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-    const [busy, setBusy] = useState(false);
+    // Which request is out, so only its own button spins; every button waits
+    // while any of them runs.
+    const [busy, setBusy] = useState<'setup' | 'change' | 'signout' | 'disable' | 'key' | null>(null);
 
     // Set-password (first run) fields
     const [newPass, setNewPass] = useState('');
@@ -176,33 +178,39 @@ function PasswordSecurity() {
         }
     }, [authEnabled]);
 
+    // A success line clears itself; the timer is dropped when a newer line
+    // replaces it, or an error that arrived within 4 s would vanish with it.
+    const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
     const flash = (kind: 'ok' | 'err', text: string) => {
+        if (flashTimer.current) clearTimeout(flashTimer.current);
+        flashTimer.current = null;
         setMsg({ kind, text });
-        if (kind === 'ok') setTimeout(() => setMsg(null), 4000);
+        if (kind === 'ok') flashTimer.current = setTimeout(() => setMsg(null), 4000);
     };
 
     const doSetup = async () => {
         if (newPass.length < 10) return flash('err', t("Password must be at least 10 characters."));
         if (newPass !== confirmPass) return flash('err', t("Passwords do not match."));
-        setBusy(true);
+        setBusy('setup');
         try {
             await api.setupPassword(newPass);
             await loadAuth();
             setNewPass(''); setConfirmPass('');
             flash('ok', t("Password set. Other devices will need it to sign in."));
         } catch (e: any) { flash('err', e?.message || t("Failed to set password.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     const doChange = async () => {
         if (changePass.length < 10) return flash('err', t("New password must be at least 10 characters."));
-        setBusy(true);
+        setBusy('change');
         try {
             await api.changePassword(curPass, changePass);
             setCurPass(''); setChangePass('');
             flash('ok', t("Password changed. Other devices have been signed out."));
         } catch (e: any) { flash('err', e?.message || t("Failed to change password.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     // Ends every other sign-in and removes every connected device, without
@@ -211,45 +219,45 @@ function PasswordSecurity() {
     // sends it a fresh cookie), and the device list beside this panel is
     // told to reload, since every row in it is gone.
     const doSignOutEverywhere = async () => {
-        setBusy(true);
+        setBusy('signout');
         try {
             await api.signOutEverywhere(signOutPass);
             setSignOutPass('');
             window.dispatchEvent(new Event(DEVICES_CHANGED));
             flash('ok', t("Every other device has been signed out, connected ones included."));
         } catch (e: any) { flash('err', e?.message || t("Could not sign out the other devices.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     const doDisable = async () => {
-        setBusy(true);
+        setBusy('disable');
         try {
             await api.disableAuth(disablePass);
             await loadAuth();
             setDisablePass('');
             flash('ok', t("Password removed. The app is now open on this machine."));
         } catch (e: any) { flash('err', e?.message || t("Failed to remove password.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     const regenKey = async () => {
-        setBusy(true);
+        setBusy('key');
         try {
             const r = await api.regenerateApiKey();
             setApiKey(r.apiKey); setShowKey(true);
             flash('ok', t("New API key generated. Update any scripts/bots that used the old one."));
         } catch (e: any) { flash('err', e?.message || t("Failed to regenerate key.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     const removeKey = async () => {
-        setBusy(true);
+        setBusy('key');
         try {
             await api.deleteApiKey();
             setApiKey(null); setShowKey(false);
             flash('ok', t("API key deleted. Anything still sending it will be refused."));
         } catch (e: any) { flash('err', e?.message || t("Failed to delete key.")); }
-        finally { setBusy(false); }
+        finally { setBusy(null); }
     };
 
     const copyKey = async () => {
@@ -298,7 +306,7 @@ function PasswordSecurity() {
                         <FieldRow>
                             <SecretField autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
                             <SecretField autoComplete="new-password" label={t("Confirm password")} value={confirmPass} onChange={setConfirmPass} />
-                            <Button variant="primary" busy={busy} onClick={doSetup} icon={<Shield className="w-4 h-4" aria-hidden="true" />}>
+                            <Button variant="primary" busy={busy === 'setup'} disabled={busy !== null} onClick={doSetup} icon={<Shield className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Enable password")}
                             </Button>
                         </FieldRow>
@@ -309,7 +317,7 @@ function PasswordSecurity() {
                             <FieldRow>
                                 <SecretField autoComplete="current-password" label={t("Current password")} value={curPass} onChange={setCurPass} />
                                 <SecretField autoComplete="new-password" label={t("New password")} value={changePass} onChange={setChangePass} />
-                                <Button variant="primary" busy={busy} onClick={doChange} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
+                                <Button variant="primary" busy={busy === 'change'} disabled={busy !== null} onClick={doChange} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
                                     {t("Update password")}
                                 </Button>
                             </FieldRow>
@@ -318,7 +326,7 @@ function PasswordSecurity() {
                         <Block title={t("Sign out everywhere")} hint={t("Signs out every other device and removes the connected ones, without changing the password.")}>
                             <FieldRow>
                                 <SecretField autoComplete="current-password" label={t("Current password")} value={signOutPass} onChange={setSignOutPass} />
-                                <Button variant="danger" busy={busy} disabled={!signOutPass} onClick={doSignOutEverywhere}>
+                                <Button variant="danger" busy={busy === 'signout'} disabled={busy !== null || !signOutPass} onClick={doSignOutEverywhere}>
                                     {t("Sign out everywhere")}
                                 </Button>
                             </FieldRow>
@@ -360,11 +368,11 @@ function PasswordSecurity() {
                                 app, i.e. removing more security to remove a
                                 credential. */}
                             <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <Button disabled={busy} onClick={regenKey} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
+                                <Button disabled={busy !== null} onClick={regenKey} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                                     {apiKey ? t("Regenerate key") : t("Generate key")}
                                 </Button>
                                 {apiKey && (
-                                    <Button variant="danger" disabled={busy} onClick={removeKey} icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}>
+                                    <Button variant="danger" disabled={busy !== null} onClick={removeKey} icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}>
                                         {t("Delete key")}
                                     </Button>
                                 )}
@@ -374,7 +382,7 @@ function PasswordSecurity() {
                         <Block title={t("Remove password")} hint={t("Other devices then open the app only if they are connected above.")}>
                             <FieldRow>
                                 <SecretField autoComplete="current-password" label={t("Current password")} value={disablePass} onChange={setDisablePass} />
-                                <Button variant="danger" busy={busy} disabled={!disablePass} onClick={doDisable}>
+                                <Button variant="danger" busy={busy === 'disable'} disabled={busy !== null || !disablePass} onClick={doDisable}>
                                     {t("Remove password")}
                                 </Button>
                             </FieldRow>

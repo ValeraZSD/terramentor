@@ -5,6 +5,7 @@ import { Check, Copy, Power } from 'lucide-react';
 import { useDesktop } from '../../hooks/useDesktop';
 import { useStartAtLogin } from '../../hooks/useStartAtLogin';
 import { desktopApi, type DesktopWindowMode, type DesktopAutostartWindow } from '../../desktopApi';
+import { copyText } from '../../utils/clipboard';
 import { Button } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import Switch from '../ui/Switch';
@@ -59,11 +60,10 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                             onClick={async () => {
                                                 const dir = desktop.dataDir;
                                                 if (!dir) return;
-                                                try {
-                                                    await navigator.clipboard?.writeText(dir);
-                                                    setCopiedPath(true);
-                                                    setTimeout(() => setCopiedPath(false), 1500);
-                                                } catch { /* http origin: no clipboard, the path is on screen */ }
+                                                // The tick only when the path reached the clipboard.
+                                                if (!await copyText(dir)) return;
+                                                setCopiedPath(true);
+                                                setTimeout(() => setCopiedPath(false), 1500);
                                             }}
                                             icon={copiedPath
                                                 ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />

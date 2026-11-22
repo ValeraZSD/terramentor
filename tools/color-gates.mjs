@@ -435,6 +435,32 @@ ok('the project picker marks no swatch as taken',
     // The call site that hands the shared names to the icon's row.
     ok('the app icon\'s colour row is given the shared names',
         /names=\{PALETTE_NAMES\}/.test(ICON_SRC), 'its list lives in AppIconPanel.tsx, so the names travel by prop');
+
+    // The typed value follows a change made elsewhere, even back to a colour this
+    // field once sent itself: type #ff0000, pick a chip, then the stored value
+    // returns to #ff0000 (the assistant, another tab). The field remembered
+    // #ff0000 as "its own" forever and kept showing the chip's hex.
+    {
+        const host = w.document.getElementById('root');
+        const root = g.createRoot(host);
+        const draw = (value) => g.act(() => root.render(g.createElement(g.ColorField, {
+            value, onChange(next) { sent.push(next); }, colors: g.ACCENT_COLORS,
+        })));
+        const sent = [];
+        const chip = g.ACCENT_COLORS[3].toLowerCase();
+        draw(chip);
+        const input = host.querySelector('input[type="text"]');
+        const setValue = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set;
+        g.act(() => { setValue.call(input, '#ff0000'); input.dispatchEvent(new w.Event('input', { bubbles: true })); });
+        ok('typing a colour sends it', sent.at(-1) === '#ff0000', JSON.stringify(sent));
+        draw('#ff0000');
+        draw(chip);
+        ok('a chip picked after typing shows its hex', input.value === chip, input.value);
+        draw('#ff0000');
+        ok('a later change back to the typed colour is shown, not the chip\'s hex',
+            input.value === '#ff0000', `field reads ${input.value}`);
+        g.act(() => root.unmount());
+    }
 }
 
 // ---------------------------------------------------------------------------

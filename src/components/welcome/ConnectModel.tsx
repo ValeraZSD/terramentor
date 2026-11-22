@@ -11,6 +11,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import ModelPicker from '../ModelPicker';
 import { DEFAULT_OLLAMA_URL } from '../settings/aiDefaults';
 import PrivacyNote from './PrivacyNote';
+import { isOpenRouter, isReady, keySavedFor, wayOf, type Way } from './modelWay';
 
 /**
  * The welcome screen's model step: which model teaches, and how it is reached.
@@ -28,8 +29,6 @@ import PrivacyNote from './PrivacyNote';
  * The full set of controls (thinking budget, which machine serves the model,
  * installing an Ollama model) stays in Settings → AI & Models.
  */
-type Way = 'openrouter' | 'key' | 'local';
-
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1';
 // Each speaks its own protocol behind the same address field (server/aiWire.js
 // decides by host), so a key for any of them works from here; more ways in —
@@ -43,29 +42,6 @@ const HOSTED_PRESETS = [
 // Ollama's address is the one the server falls back to (aiDefaults.ts mirrors
 // server/ai.js); tools/settings-defaults-gates.mjs fails on a second copy.
 const LOCAL_DEFAULTS = { ollama: DEFAULT_OLLAMA_URL, server: 'http://127.0.0.1:1234/v1' } as const;
-
-const isOpenRouter = (url: string | undefined) => /(^|\/\/|\.)openrouter\.ai(?=[:/]|$)/i.test(String(url || ''));
-const isLoopback = (url: string | undefined) => {
-    try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(String(url)).hostname); } catch { return false; }
-};
-
-/** Which card a library already configured belongs under. A fresh library is
- *  Ollama with no model, which is not a choice anyone made — so it is offered
- *  the recommended card rather than the one its defaults happen to name. */
-function wayOf(s: AIStatus | null): Way {
-    if (!s) return 'openrouter';
-    if (s.provider === 'ollama') return s.model ? 'local' : 'openrouter';
-    if (isOpenRouter(s.baseUrl)) return 'openrouter';
-    return isLoopback(s.baseUrl) ? 'local' : 'key';
-}
-
-/** A model the app can use right now, through the way that is on screen. */
-function isReady(s: AIStatus | null, way: Way): boolean {
-    if (!s || !s.enabled || !s.available) return false;
-    if (way === 'local') return s.provider === 'ollama' || isLoopback(s.baseUrl);
-    if (s.provider !== 'openai' || !s.hasApiKey) return false;
-    return way === 'openrouter' ? isOpenRouter(s.baseUrl) : !isLoopback(s.baseUrl);
-}
 
 export default function ConnectModel({ onStatus }: {
     /** Tells the step whether a model is chosen and reachable, and its name. */
@@ -156,8 +132,13 @@ export default function ConnectModel({ onStatus }: {
         await api.setSetting('ai_enabled', 'true');
         if (apiKey.trim()) await api.setAIKey(apiKey.trim(), url);
         setApiKey('');
-        const s = await refresh('key');
+        // An OpenRouter address typed here belongs to the OpenRouter card,
+        // which is where it is then shown as connected; one that did not
+        // answer keeps the learner beside the fields they typed.
+        const toOpenRouter = isOpenRouter(url);
+        const s = await refresh(toOpenRouter ? 'openrouter' : 'key');
         if (s && !s.available) throw new Error(s.error || t("The provider did not answer at that address."));
+        if (toOpenRouter && s) setWay('openrouter');
     });
 
     const checkLocal = () => run(async () => {
@@ -278,7 +259,7 @@ export default function ConnectModel({ onStatus }: {
                                 </>
                             )}
                         </Field>
-                        <Field label={t("API key")} hint={status?.hasApiKey ? t("A key is already saved for this address. Type a new one to replace it.") : undefined}>
+                        <Field label={t("API key")} hint={keySavedFor(status, baseUrl) ? t("A key is already saved for this address. Type a new one to replace it.") : undefined}>
                             {id => (
                                 <PasswordInput
                                     id={id}

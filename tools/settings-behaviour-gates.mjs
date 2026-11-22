@@ -16,8 +16,12 @@
 //     under its name instead of 12;
 //   - "Offer simulations and widgets to any model" lost the line that explains
 //     it to a screen reader when its tick became a switch.
-// The cases MOUNT the real SettingRow, Switch and OtherDevices in jsdom (store,
-// api and translations are stubs; no server, no Tailscale CLI).
+// Later cases, same shape: a refused save that left the new value on screen
+// (Model jobs), one busy flag that spun four buttons and a success timer that
+// cleared a newer error (Security), a URL "saved" on a plain focus and blur
+// (SearXNG), and the welcome key card calling an OpenRouter library its own.
+// The cases MOUNT the real components in jsdom (store, api and translations
+// are stubs; no server, no Tailscale CLI).
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -67,7 +71,8 @@ mkdirSync(join(root, 'node_modules', '.cache'), { recursive: true });
 const scratch = mkdtempSync(join(root, 'node_modules', '.cache', 'settings-behaviour-'));
 const out = join(scratch, 'bundle.cjs');
 const baseDir = join(scratch, 'base');
-const FILES = ['ui/SettingRow', 'ui/Switch', 'OtherDevices', 'settings/FeedSettingsPanel', 'settings/LearningSettings'];
+const FILES = ['ui/SettingRow', 'ui/Switch', 'OtherDevices', 'settings/FeedSettingsPanel', 'settings/LearningSettings',
+    'settings/ModelJobsSection', 'SecuritySettings', 'settings/WebAnswersSection', 'welcome/ConnectModel'];
 if (BASE) {
     for (const f of FILES) {
         mkdirSync(dirname(join(baseDir, `${f}.tsx`)), { recursive: true });
@@ -87,7 +92,9 @@ const stubs = {
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
             () => sel(g.__st.state));
         useStore.getState = () => g.__st.state;`,
-    'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });`,
+    'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });
+        export const siteApi = api;
+        export const newAttemptId = () => 'attempt';`,
     'QrCode': `import { createElement } from 'react'; export default function QrCode({ label }) { return createElement('div', { 'data-qr': '1', 'aria-label': label }); }`,
 };
 const stubPlugin = {
@@ -117,7 +124,11 @@ await esbuild.build({
             export { default as Switch } from '${from('ui/Switch')}';
             export { default as OtherDevices } from '${from('OtherDevices')}';
             export { default as FeedSettingsPanel } from '${from('settings/FeedSettingsPanel')}';
-            export { default as LearningSettings } from '${from('settings/LearningSettings')}';`,
+            export { default as LearningSettings } from '${from('settings/LearningSettings')}';
+            export { default as ModelJobsSection } from '${from('settings/ModelJobsSection')}';
+            export { default as SecuritySettings } from '${from('SecuritySettings')}';
+            export { default as WebAnswersSection } from '${from('settings/WebAnswersSection')}';
+            export { default as ConnectModel } from '${from('welcome/ConnectModel')}';`,
         resolveDir: root,
         loader: 'tsx',
     },
@@ -130,7 +141,8 @@ await esbuild.build({
 });
 const React = require('react');
 const { createRoot } = require('react-dom/client');
-const { SettingRow, Switch, OtherDevices, FeedSettingsPanel, LearningSettings } = require(out);
+const { SettingRow, Switch, OtherDevices, FeedSettingsPanel, LearningSettings,
+    ModelJobsSection, SecuritySettings, WebAnswersSection, ConnectModel } = require(out);
 rmSync(scratch, { recursive: true, force: true });
 const h = React.createElement;
 const act = (fn) => React.act(fn);
@@ -547,6 +559,213 @@ section('a mastery number that was clamped or left empty goes back into its fiel
         check('a failed save does not put a clamped number in the field', threshold.value === '150', threshold.value);
         offline = false;
     });
+}
+
+// --- helpers for the cases below -------------------------------------------
+const setInput = async (input, value) => {
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+};
+const buttonNamed = (el, re) => [...el.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()));
+const press = async (node) => { await act(async () => { node.click(); }); await flush(); };
+const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+
+// ---------------------------------------------------------------------------
+section('Model jobs: a refused save puts the control back and says so');
+{
+    const toasts = [];
+    const stored = { pdf_math_recovery: 'auto', pdf_recovery_vision: 'auto' };
+    let refuse = () => true;
+    globalThis.__api = {
+        setSetting: async (k, v) => { if (refuse(k)) throw new Error('server down'); stored[k] = v; },
+        getSettings: async () => ({ ...stored }),
+        setEmbeddingSettings: async () => { throw new Error('server down'); },
+        getAtlasNaming: async () => null,
+        getMediaDescriptionStatus: async () => null,
+        getEmbeddingModels: async () => ({ provider: 'ollama', available: false, models: [] }),
+    };
+    globalThis.__setState({ addToast: (kind, title) => toasts.push(`${kind}:${title}`) });
+    const emb = {
+        embStatus: { config: { enabled: true, vecAvailable: true, provider: 'auto', model: 'nomic-embed-text', modelIsDefault: false } },
+        embModelInput: 'nomic-embed-text', setEmbModelInput() { }, loadEmbStatus: async () => { },
+    };
+    const props = {
+        active: true, snapshot: { ok: true, values: { ...stored } }, models: [], modelsLoading: false,
+        loadModels() { }, currentModel: '', emb,
+    };
+    await mounted('ModelJobsSection', () => h(ModelJobsSection, props), async (el) => {
+        await flush();
+        const radio = (v) => el.querySelector(`input[name="recovery-mode"][value="${v}"]`);
+        if (!radio('ocr')) {
+            // The row may start closed: open it by its own button.
+            const row = buttonNamed(el, /PDF math recovery|math recovery/i);
+            if (row) await press(row);
+        }
+        if (!radio('ocr')) { check('the PDF recovery choices are found', false); return; }
+        check('control: the stored mode is chosen', radio('auto').checked);
+
+        await press(radio('ocr'));
+        check('a refused mode change goes back to the stored mode', radio('auto').checked && !radio('ocr').checked,
+            ['auto', 'ocr', 'vision', 'off'].filter((v) => radio(v).checked).join(','));
+        check('…and a "Failed to save" toast is shown', toasts.includes('error:Failed to save'), toasts.join(' | '));
+
+        // Half written: the on/off half is stored, the vision half refused.
+        // What is stored is "off", which is neither the old mode nor a guess.
+        refuse = (k) => k === 'pdf_recovery_vision';
+        await press(radio('off'));
+        await flush();
+        check('when one of the pair was written, the control shows what is stored', radio('off').checked && stored.pdf_math_recovery === 'off',
+            ['auto', 'ocr', 'vision', 'off'].filter((v) => radio(v).checked).join(','));
+
+        toasts.length = 0;
+        const sw0 = () => el.querySelector('[role="switch"][aria-label="Enable semantic search"]');
+        if (!sw0()) {
+            const row = buttonNamed(el, /Vault semantic search/);
+            if (row) await press(row);
+        }
+        const sw = sw0();
+        if (!sw) { check('the semantic search switch is found', false); return; }
+        await press(sw);
+        check('a refused semantic-search switch says "Failed to save"', toasts.includes('error:Failed to save'), toasts.join(' | ') || 'no toast');
+    });
+    globalThis.__api = undefined;
+}
+
+// ---------------------------------------------------------------------------
+section('Security: only the pressed button spins, and an error is not cleared by an older success');
+{
+    const signOut = deferred();
+    globalThis.__api = {
+        getApiKey: async () => ({ apiKey: null }),
+        signOutEverywhere: () => signOut.promise,
+    };
+    globalThis.__setState({ authSite: false, authEnabled: true, loadAuth: async () => { }, addToast() { } });
+    // The success line clears itself after 4 s. Those timers are held here and
+    // run by hand; every other timer runs as usual.
+    const realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+    const held = new Map();
+    let nextId = 1e9;
+    globalThis.setTimeout = (fn, ms, ...a) => {
+        if (ms !== 4000) return realSet(fn, ms, ...a);
+        const id = nextId++;
+        held.set(id, fn);
+        return id;
+    };
+    globalThis.clearTimeout = (id) => { if (held.has(id)) held.delete(id); else realClear(id); };
+    // The panel tells the device list to reload with a DOM event.
+    const realEvent = globalThis.Event;
+    globalThis.Event = window.Event;
+    try {
+        await mounted('SecuritySettings', () => h(SecuritySettings), async (el) => {
+            await flush();
+            const signOutBtn = buttonNamed(el, /^Sign out everywhere$/);
+            const updateBtn = buttonNamed(el, /^Update password$/);
+            const removeBtn = buttonNamed(el, /^Remove password$/);
+            if (!signOutBtn || !updateBtn || !removeBtn) { check('the three password buttons are found', false); return; }
+            await setInput(signOutBtn.parentElement.querySelector('input'), 'a-long-password');
+            await setInput(removeBtn.parentElement.querySelector('input'), 'a-long-password');
+            await press(signOutBtn);
+            check('control: the pressed button reports busy', signOutBtn.getAttribute('aria-busy') === 'true');
+            check('"Update password" does not spin while signing out', updateBtn.getAttribute('aria-busy') !== 'true');
+            check('"Remove password" does not spin while signing out', removeBtn.getAttribute('aria-busy') !== 'true');
+            check('…but both wait until it answers', updateBtn.disabled && removeBtn.disabled);
+
+            await act(async () => { signOut.resolve({}); });
+            await flush();
+            const status = () => el.querySelector('[role="status"]')?.textContent ?? '';
+            check('control: the success line is shown', /signed out/i.test(status()), status());
+            // An error within the 4 s: "Update password" with a too-short password.
+            await press(updateBtn);
+            check('control: the error is shown', /at least 10 characters/.test(status()), status());
+            await act(async () => { for (const fn of [...held.values()]) fn(); held.clear(); });
+            check('the earlier success\'s timer does not clear the newer error', /at least 10 characters/.test(status()), status() || 'nothing shown');
+        });
+    } finally {
+        globalThis.setTimeout = realSet;
+        globalThis.clearTimeout = realClear;
+        globalThis.Event = realEvent;
+        globalThis.__api = undefined;
+    }
+}
+
+// ---------------------------------------------------------------------------
+section('SearXNG: leaving the address unchanged saves nothing and says nothing');
+{
+    const sets = [], toasts = [];
+    globalThis.__api = { setSetting: async (k, v) => { sets.push([k, v]); } };
+    globalThis.__setState({ addToast: (kind, title) => toasts.push(`${kind}:${title}`) });
+    await mounted('WebAnswersSection', () => h(WebAnswersSection, {
+        active: true, snapshot: { ok: true, values: { searxng_url: 'http://localhost:8080' } },
+    }), async (el) => {
+        await flush();
+        let input = el.querySelector('input[placeholder="http://localhost:8080"]');
+        if (!input) {
+            const row = buttonNamed(el, /Advanced search/i);
+            if (row) await press(row);
+            input = el.querySelector('input[placeholder="http://localhost:8080"]');
+        }
+        if (!input) { check('the SearXNG field is found', false); return; }
+        check('control: the stored address is shown', input.value === 'http://localhost:8080', input.value);
+        await act(async () => { input.focus(); });
+        await act(async () => { input.blur(); });
+        await flush();
+        check('a focus and blur with no change writes nothing', sets.length === 0, JSON.stringify(sets));
+        check('…and shows no "saved" toast', toasts.length === 0, toasts.join(' | '));
+        await act(async () => { input.focus(); });
+        await setInput(input, 'http://search.lan:8080');
+        await act(async () => { input.blur(); });
+        await flush();
+        check('control: a changed address is saved on blur', sets.some(([k, v]) => k === 'searxng_url' && v === 'http://search.lan:8080'), JSON.stringify(sets));
+    });
+    globalThis.__api = undefined;
+}
+
+// ---------------------------------------------------------------------------
+section('welcome: the "another hosted provider" card does not claim an OpenRouter library');
+{
+    globalThis.__api = {
+        getAIStatus: async () => ({
+            enabled: true, available: true, provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1',
+            hasApiKey: true, model: 'some/model',
+        }),
+        getModels: async () => ({ success: true, models: [] }),
+        setSetting: async () => { },
+        setAIKey: async () => { },
+    };
+    await mounted('ConnectModel', () => h(ConnectModel, { onStatus() { } }), async (el) => {
+        await flush();
+        await flush();
+        const way = (v) => el.querySelector(`input[name="welcome_model_way"][value="${v}"]`);
+        if (!way('key')) { check('the three ways are found', false); return; }
+        check('control: an OpenRouter library opens on the OpenRouter card', way('openrouter').checked);
+        check('control: …which says it is connected', /Connected to OpenRouter/.test(el.textContent));
+        await press(way('key'));
+        check('the key card does not say "Connected to openrouter.ai"', !/Connected to openrouter\.ai/.test(el.textContent),
+            el.textContent.match(/Connected to [^.]*/)?.[0] ?? '');
+        const address = [...el.querySelectorAll('label')].find((l) => /API address/.test(l.textContent));
+        check('…it shows the address and key fields', !!address);
+        const hint = () => /A key is already saved for this address/.test(el.textContent);
+        check('control: the saved-key hint shows for the saved address', hint());
+        const anthropic = buttonNamed(el, /^Anthropic$/);
+        if (!anthropic) { check('the Anthropic preset is found', false); return; }
+        await press(anthropic);
+        check('the saved-key hint is gone once another address is typed', !hint());
+
+        // An OpenRouter address saved from this card lands on the OpenRouter card.
+        const openrouter = buttonNamed(el, /^OpenRouter$/);
+        const key = el.querySelector('input[type="password"]');
+        const save = buttonNamed(el, /^Save and connect$/);
+        if (!openrouter || !key || !save) { check('the preset, key field and save button are found', false); return; }
+        await press(openrouter);
+        await setInput(key, 'sk-or-test');
+        await press(save);
+        await flush();
+        check('saving an OpenRouter address moves to the OpenRouter card', way('openrouter').checked && /Connected to OpenRouter/.test(el.textContent),
+            ['openrouter', 'key', 'local'].filter((v) => way(v).checked).join(','));
+    });
+    globalThis.__api = undefined;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
