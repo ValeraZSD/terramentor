@@ -257,7 +257,20 @@ for (const text of [`"I'm sorry, I can't see images".`, `Description: "I'm sorry
     '申し訳ありませんが、画像を見ることができません。', '抱歉，我无法查看图片。']) {
     check(`...wrapped, labelled or in another language too (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
 }
-check('a label before the answer is dropped, the answer kept', verdict('Description: A cat on a mat.').text === 'A cat on a mat.');
+check('a label before the answer is dropped, the answer kept', verdict('Description: A cat on a mat.').text === 'A cat on a mat.'
+    && verdict('Opis: Pies śpi na kanapie', 'pl').text === 'Pies śpi na kanapie' && verdict('Beskrivelse: En hund i haven', 'da').text === 'En hund i haven');
+// Apology words inside a caption are content, and vocabulary in a language
+// course: only a reply that STARTS with one is the model declining.
+for (const [language, text] of [['en', 'Flashcard with the handwritten phrase 对不起 and its pinyin'], ['zh', '手写的卡片：对不起'],
+    ['es', 'Tarjeta con la frase lo siento escrita a mano'], ['uk', 'Картка зі словами на жаль'], ['ru', 'Карточка с надписью извините'],
+    ['en', 'Przepraszam written on a postcard'], ['en', 'Sorry is a board game with four coloured pawns'],
+    ['en', 'There is no photo on the wall, only an empty frame'], ['zh', 'Photoshop界面'], ['zh', 'Wikipedia 页面']]) {
+    check(`a caption that only contains such words: kept (${language}: ${text})`, verdict(text, language).ok === true, JSON.stringify(verdict(text, language)));
+}
+for (const [language, text] of [['nl', 'A man walking his dog in the park'], ['nl', 'A woman holding a cup of coffee in a kitchen'],
+    ['de', 'A cat sitting on a sofa and looking at the camera']]) {
+    check(`an everyday English description in a ${language} course: refused (${text})`, refusedAs('language', text, language), JSON.stringify(verdict(text, language)));
+}
 check('a reply wrapped in quotes is checked as its words, and stored without the quotes',
     refusedAs('language', '"A dog sleeping on the sofa with the cat"', 'nl') && verdict('"A brown dog asleep"').text === 'A brown dog asleep');
 check('a curly apostrophe is not a quote: "’t Hoekje" leaves the rest of the sentence checked',
