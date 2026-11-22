@@ -139,6 +139,25 @@ export function importedQuestion(question, { now = Date.now() } = {}) {
     return unchecked === true ? markPending(content, { now, reason: 'imported as not checked yet' }) : content;
 }
 
+/**
+ * The question as a verifier's verdict leaves its form flag (`tests_form`,
+ * answerFormats.js `formTested`): kept only when the verifier, asked blind (it
+ * never sees the writer's claim), also said the task tests form; dropped when
+ * it said no or did not say. With no verdict the flag stays, and `formTested`
+ * ignores it while the question is stamped. The question itself is never
+ * dropped for this: the flag is a grading rule, not a defect. Every caller
+ * that stores a model-written question it verified runs it
+ * (tools/form-grading-gates.mjs); an imported course's flag is its author's,
+ * trusted like its key (`importedQuestion`).
+ */
+export function settleFormFlag(question, verdict) {
+    if (!question || typeof question !== 'object' || !('tests_form' in question)) return question;
+    if (!verdict?.available) return question;
+    if (verdict.form === true && question.tests_form === true) return question;
+    const { tests_form: _dropped, ...rest } = question;
+    return rest;
+}
+
 /** The question with the stamp off, and when the confirmation came. */
 export function markConfirmed(question, { now = Date.now() } = {}) {
     const { unverified: _gone, ...rest } = question || {};
@@ -414,7 +433,7 @@ export function applyVerdict(entry, verdict, { now = Date.now() } = {}) {
             if (!Array.isArray(qs)) return 'gone';
             const at = locate(qs, entry);
             if (at < 0 || !isUnverified(qs[at])) return 'gone';
-            if (outcome === 'confirmed') qs[at] = markConfirmed(qs[at], { now });
+            if (outcome === 'confirmed') qs[at] = markConfirmed(settleFormFlag(qs[at], verdict), { now });
             else if (outcome === 'vetoed') qs.splice(at, 1);
             else qs[at] = markUnverified(qs[at], verdict?.reason || qs[at].unverified.reason, { tries: (qs[at].unverified.tries ?? 1) + 1, now });
             const emptied = outcome === 'vetoed' && !qs.some(q => q && !q.isGhost);
@@ -447,7 +466,7 @@ export function applyVerdict(entry, verdict, { now = Date.now() } = {}) {
             if (outcome === 'confirmed') {
                 const { unverified: _gone, ...restMeta } = meta;
                 db.prepare('UPDATE feed_items SET content = ?, meta = ? WHERE id = ?').run(
-                    JSON.stringify(markConfirmed(q, { now })),
+                    JSON.stringify(markConfirmed(settleFormFlag(q, verdict), { now })),
                     JSON.stringify({ ...restMeta, verified: true, verifiedLater: iso(now) }),
                     entry.feedItemId,
                 );

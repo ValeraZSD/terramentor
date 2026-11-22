@@ -18,7 +18,7 @@ import { recordBuildFailure } from './visualBuilds.js';
 import { courseContextForNode, courseLeaves } from './courseContext.js';
 import { headStartFor, reviewParts, teachingStarted } from './headStart.js';
 import { lessonSourcesFor, resolveLessonCitations, teachingText } from './lessonSources.js';
-import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait } from './questionTrust.js';
+import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait, settleFormFlag } from './questionTrust.js';
 import { findDrills } from './drillCheck.js';
 import { learnerFaultForSlot } from './itemReports.js';
 import { onUnverifiedHeldBack, bankOf, bankPartLookup } from './questionLog.js';
@@ -1525,7 +1525,10 @@ async function generateOne(f, missing, signal) {
     // evidence check and the re-verification tier all read; the meta keeps the
     // record tools/feed-audit.mjs counts.
     const unchecked = questionCheck?.available === false;
-    const storedQuestion = unchecked ? markUnverified(question, questionCheck.reason) : question;
+    // The writer's "this task tests form" stands only where the verifier
+    // said so too; unchecked, it waits for the re-check with the rest.
+    const settled = settleFormFlag(question, questionCheck);
+    const storedQuestion = unchecked ? markUnverified(settled, questionCheck.reason) : settled;
     db.prepare(`
         INSERT INTO feed_items (node_id, kind, seq, content, meta, status)
         VALUES (?, 'question', ?, ?, ?, 'ready')

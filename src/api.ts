@@ -368,6 +368,10 @@ export interface AnswerCheckResult {
     unsure?: boolean;
     correct: boolean;
     explanation: string;
+    /** Wrong on form alone, on a task sent with `testsForm`; never on a content task. */
+    formMiss?: boolean;
+    /** With `formMiss`: where to look, without the answer ('' when the model's hint gave it away). */
+    hint?: string;
 }
 
 export type AIPlanNodeStatus = 'pending' | 'creating' | 'created' | 'cancelled' | 'error';
@@ -1685,10 +1689,17 @@ export const api = {
      * code is judged on behaviour, prose on meaning — and `language` names the
      * code's language for the grader.
      */
-    checkAnswer: (question: string, correctAnswer: string, userAnswer: string, opts: { format?: string; language?: string } = {}) =>
+    checkAnswer: (
+        question: string, correctAnswer: string, userAnswer: string,
+        opts: { format?: string; language?: string; testsForm?: boolean; nodeId?: number } = {},
+    ) =>
         request<AnswerCheckResult>('/ai/check-answer', {
             method: 'POST',
-            body: JSON.stringify({ question, correctAnswer, userAnswer, format: opts.format, language: opts.language })
+            body: JSON.stringify({
+                question, correctAnswer, userAnswer, format: opts.format, language: opts.language,
+                // A task that tests form, and the topic whose course language it is judged in.
+                ...(opts.testsForm ? { testsForm: true, nodeId: opts.nodeId } : {}),
+            }),
         }),
 
     /**

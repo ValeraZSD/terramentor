@@ -831,6 +831,13 @@ export interface QuizQuestion {
     /** `assemble`: one piece may fill several gaps (coefficients), so placing it does not take it out of the bank. */
     reuse?: boolean;
     /**
+     * `short_answer`, `fill_in`: the task tests FORM (a verb form, an ending,
+     * an article, agreement, word order, spelling), so a right meaning in the
+     * wrong form is wrong. Its writer sets it and the verifier must agree;
+     * read through `formTested`, which ignores it on an unchecked question.
+     */
+    tests_form?: boolean;
+    /**
      * Pictures (or clips) the question is ASKED ABOUT — a road situation, a
      * radiograph, a specimen. Structured for the same three reasons card media
      * is (see CardMedia.tsx): there is no markdown for a sound, question text

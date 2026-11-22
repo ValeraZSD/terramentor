@@ -64,8 +64,9 @@ import { layTopicDates } from './scheduling.js';
 import { AI_PROMPTS, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
 import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
-import { getProjectLanguage } from './language.js';
-import { isUnverified } from './questionTrust.js';
+import { getProjectLanguage, getNodeLanguage } from './language.js';
+import { isUnverified, settleFormFlag } from './questionTrust.js';
+import { formTested, readFormFlag } from './answerFormats.js';
 
 // Long enough to say something, short enough to still read as a warm-up. An
 // unfinished probe seeds only what it measured.
@@ -652,8 +653,11 @@ function questionTypeFor(index) {
 
 function normalizeProbeQuestion(raw, type, nodeId = null) {
     if (!raw || typeof raw !== 'object') return null;
-    const q = { ...raw, type };
+    const { tests_form: _claim, ...rest } = raw;
+    const q = { ...rest, type };
     if (typeof q.question !== 'string' || !q.question.trim()) return null;
+    // An open probe about a form may say so; the verifier settles it after.
+    if (type !== 'multiple_choice' && readFormFlag(raw)) q.tests_form = true;
 
     if (type === 'multiple_choice') {
         const opts = Array.isArray(q.options)
@@ -744,7 +748,8 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
         }
 
         return {
-            ...q,
+            // A form flag the model added stands only if the verifier agreed.
+            ...settleFormFlag(q, verdict),
             node_id: target.node_id,
             seq: target.seq,
             node_title: target.title,
@@ -814,7 +819,10 @@ export async function answerProbeQuestion(probeId, questionIndex, userAnswer) {
     if (q.type === 'multiple_choice') {
         correct = normalizeChoice(userAnswer) === normalizeChoice(q.correct_answer);
     } else {
-        const graded = await checkAnswerWithAI(q.question, q.correct_answer, String(userAnswer ?? ''));
+        const testsForm = formTested(q);
+        const graded = await checkAnswerWithAI(q.question, q.correct_answer, String(userAnswer ?? ''), {
+            testsForm, lang: testsForm ? getNodeLanguage(q.node_id) : null,
+        });
         correct = !!graded.correct;
         if (graded.explanation) explanation = graded.explanation;
     }

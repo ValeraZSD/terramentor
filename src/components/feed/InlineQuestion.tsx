@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useArrivalFocus } from '../../hooks/useArrivalFocus';
 import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
@@ -17,6 +17,9 @@ import UncheckedKeyNote, { isUnchecked } from '../UncheckedKeyNote';
 import { ReportLink, ReportScope } from '../ui/ReportItem';
 
 export type { GradedAnswer };
+
+/** Two answers are the same try when only their spacing differs. */
+const squash = (s: string) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 interface Props {
     question: QuizQuestion;
@@ -51,19 +54,59 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     const { t } = useTranslation();
     const [draft, setDraft] = useState('');
     const [checking, setChecking] = useState(false);
+    // One more try after an answer wrong on its FORM alone (`formMiss`: a task
+    // about a verb form, an ending, spelling), given while the card is on
+    // screen. Finding the slip yourself, prompted, teaches more than reading
+    // the corrected form. 'open': the answer is open again; 'shown': the
+    // learner asked for the answer instead; 'tried': the second answer was
+    // checked (`second`). The first answer is the one handed up and recorded.
+    const [retry, setRetry] = useState<null | 'open' | 'shown' | 'tried'>(null);
+    const [second, setSecond] = useState<GradedAnswer | null>(null);
     const result = graded;
     const format = formatOf(question);
     const hint = answerHint(question, useStore(s => s.forgiveSpelling));
+
+    useEffect(() => {
+        if (!result) { setRetry(null); setSecond(null); }
+    }, [result]);
 
     const grade = async (answer: string) => {
         if (!answer.trim() || result || checking) return;
         setChecking(true);
         try {
-            onGraded(await gradeAnswer(question, answer));
+            const res = await gradeAnswer(question, answer, { nodeId });
+            // Batched with the parent's write of `res`: the key never shows
+            // before the second try is offered.
+            if (res.formMiss && !res.correct) {
+                setDraft(res.answer);
+                setRetry('open');
+            }
+            onGraded(res);
         } finally {
             setChecking(false);
         }
     };
+
+    const checkAgain = async () => {
+        if (retry !== 'open' || !result || checking || !draft.trim()) return;
+        // The same answer again earns the same verdict, without a second call.
+        if (squash(draft) === squash(result.answer)) {
+            setSecond({ ...result, formMiss: false });
+            setRetry('tried');
+            return;
+        }
+        setChecking(true);
+        try {
+            setSecond(await gradeAnswer(question, draft, { nodeId }));
+            setRetry('tried');
+        } finally {
+            setChecking(false);
+        }
+    };
+    const open = retry === 'open' && !!result && !reportedNote;
+    // The verdict on display: the second try's once it was checked.
+    const final = retry === 'tried' && second ? second : result;
+    const tryHint = result?.hint || t("Look again at the form and spelling of each word.");
 
     // An untouched ordering is already an answer (the served order counts);
     // prose and code are answers once something is typed.
@@ -75,10 +118,17 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     // with the verdict) lands on the verdict instead of the top of the page.
     // Only a verdict given while the card is on screen: one it mounts with
     // (a reload, a card scrolled back) neither speaks nor takes focus.
-    const shown = result && !reportedNote ? (result.correct ? 'correct' : result.unsure ? 'unsure' : 'wrong') : '';
+    // A second try is an arrival of its own: the open answer keeps the focus
+    // it takes on mount, and the verdict on the try takes it from the gone
+    // Check again button.
+    const kind = (v: GradedAnswer) => (v.correct ? 'correct' : v.unsure ? 'unsure' : 'wrong');
+    const shown = result && final && !reportedNote ? (open ? 'again' : `${kind(final)}${retry ? `-${retry}` : ''}`) : '';
     const { ref: verdictRef, arrived } = useArrivalFocus<HTMLDivElement>(shown);
-    const verdict = !arrived ? ''
-        : shown === 'correct' ? t("Correct") : shown === 'unsure' ? t("Not marked") : shown === 'wrong' ? t("Not quite") : '';
+    const said = final ? kind(final) : '';
+    const verdict = !arrived || !shown ? ''
+        : open ? `${t("Not quite")}. ${tryHint}`
+            : said === 'correct' ? (retry === 'tried' ? t("Right this time") : t("Correct"))
+                : said === 'unsure' ? t("Not marked") : t("Not quite");
 
     return (
         // One item: the flag at the stem and the line under a wrong verdict
@@ -101,13 +151,18 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                     sitting. Undo brings both back. */}
                 {!reportedNote && (
                     <AnswerInput
+                        // Remounted when it opens again, so it takes the caret.
+                        key={open ? 'again' : 'first'}
                         question={question}
                         value={draft}
                         onChange={setDraft}
                         onCommit={format.commitsOnSelect ? grade : undefined}
-                        onSubmit={() => { if (submittable) void submit(); }}
+                        onSubmit={() => { if (open) void checkAgain(); else if (submittable) void submit(); }}
                         disabled={checking}
-                        result={result}
+                        result={open ? null : final}
+                        // Only after the learner's own Check opened the second try.
+                        // eslint-disable-next-line jsx-a11y/no-autofocus -- see above
+                        autoFocus={open}
                     />
                 )}
 
@@ -131,41 +186,63 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                     rule down the left carries the verdict just as loudly and leaves
                     the content room to have structure of its own. */}
                 <p className="sr-only" role="status">{verdict}</p>
-                {result && !reportedNote && (
-                    <div ref={verdictRef} tabIndex={-1} className={`mt-4 pl-3 sm:pl-4 border-l-2 outline-none ${result.correct
+                {/* Wrong on form alone: where to look, never the answer. The
+                    key and the explanation wait for the second try or for
+                    "Show the answer". */}
+                {open && (
+                    <div ref={verdictRef} tabIndex={-1} className="mt-4 pl-3 sm:pl-4 border-l-2 outline-none border-red-400 dark:border-red-500">
+                        <p className="flex items-center gap-1.5 text-sm font-semibold text-red-700 dark:text-red-300">
+                            <X className="w-4 h-4 shrink-0" />
+                            {t("Not quite")}
+                        </p>
+                        <p className="text-sm leading-6 text-slate-600 dark:text-slate-400 mt-1.5">
+                            <MathText content={tryHint} />
+                        </p>
+                        <div className="flex flex-wrap items-center justify-end gap-2 mt-3">
+                            <Button size="md" disabled={checking} onClick={() => setRetry('shown')}>
+                                {t("Show the answer")}
+                            </Button>
+                            <Button variant="primary" size="md" busy={checking} disabled={!draft.trim()} onClick={() => void checkAgain()}>
+                                {t("Check again")}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+                {final && !open && !reportedNote && (
+                    <div ref={verdictRef} tabIndex={-1} className={`mt-4 pl-3 sm:pl-4 border-l-2 outline-none ${final.correct
                         ? 'border-emerald-500 dark:border-emerald-500'
                         : 'border-red-400 dark:border-red-500'}`}
                     >
-                        <p className={`flex items-center gap-1.5 text-sm font-semibold ${result.correct
+                        <p className={`flex items-center gap-1.5 text-sm font-semibold ${final.correct
                             ? 'text-emerald-700 dark:text-emerald-300'
                             : 'text-red-700 dark:text-red-300'}`}
                         >
-                            {result.correct ? <Check className="w-4 h-4 shrink-0" /> : <X className="w-4 h-4 shrink-0" />}
-                            {result.correct ? t("Correct") : result.unsure ? t("Not marked") : t("Not quite")}
+                            {final.correct ? <Check className="w-4 h-4 shrink-0" /> : <X className="w-4 h-4 shrink-0" />}
+                            {final.correct ? (retry === 'tried' ? t("Right this time") : t("Correct")) : final.unsure ? t("Not marked") : t("Not quite")}
                         </p>
-                        {!result.correct && (
+                        {!final.correct && (
                             <div className="mt-1.5">
                                 <AnswerKey question={question} />
                             </div>
                         )}
-                        {result.correct && <SpellingNote question={question} answer={result.answer} className="mt-1.5" />}
-                        {result.explanation && (
+                        {final.correct && <SpellingNote question={question} answer={final.answer} className="mt-1.5" />}
+                        {(final.explanation || result?.explanation) && (
                             <p className="text-sm leading-6 text-slate-600 dark:text-slate-400 mt-1.5">
-                                <MathText content={result.explanation} />
+                                <MathText content={final.explanation || result?.explanation || ''} />
                             </p>
                         )}
                         {/* Marked wrong, the learner may know better than the key.
                             "Not marked" is no verdict, so it asks nothing. */}
-                        {!result.correct && !result.unsure && <ReportLink className="mt-1.5" />}
+                        {!final.correct && !final.unsure && <ReportLink className="mt-1.5" />}
                         {/* Same escape hatch as the mastery check review: learn the thing
                             you just missed without leaving to go and search for it. */}
-                        {!result.correct && nodeId != null && nodeTitle && (
+                        {!final.correct && nodeId != null && nodeTitle && (
                             <AnswerHelp
                                 nodeId={nodeId}
                                 nodeTitle={nodeTitle}
                                 question={question.question}
                                 correctAnswer={answerAsText(question, question.correct_answer)}
-                                userAnswer={answerAsText(question, result.answer)}
+                                userAnswer={answerAsText(question, final.answer)}
                                 context={projectName}
                                 projectId={projectId}
                             />

@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutoGrow } from '../../hooks/useAutoGrow';
+import { formTested } from './formats';
 import { FOCUS_RING, cx } from '../ui/vocabulary';
 import type { AnswerInputProps } from './AnswerInput';
 
@@ -9,15 +11,28 @@ import type { AnswerInputProps } from './AnswerInput';
  * the learner's own work), up to a ceiling past which it scrolls so it can
  * never push the Check button off the screen.
  */
-export default function TextAnswerInput({ value, onChange, disabled, result }: AnswerInputProps) {
+export default function TextAnswerInput({ question, value, onChange, disabled, result, autoFocus }: AnswerInputProps) {
     const { t } = useTranslation();
     const shown = result ? result.answer : value;
     const ref = useAutoGrow(shown, { rem: 25 });
+    // Opened again for a second try: the caret goes after what they wrote.
+    useEffect(() => {
+        const el = ref.current;
+        if (!autoFocus || !el) return;
+        el.focus({ preventScroll: true });
+        el.setSelectionRange(el.value.length, el.value.length);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
+    }, []);
+    // A task about grammar and spelling: the browser's own checker would
+    // underline the very slip being marked.
+    const marksForm = formTested(question);
     return (
         <textarea
             ref={ref}
             value={shown}
             onChange={e => onChange(e.target.value)}
+            spellCheck={marksForm ? false : undefined}
+            autoCorrect={marksForm ? 'off' : undefined}
             disabled={disabled || !!result}
             placeholder={t("Type your answer…")}
             rows={1}

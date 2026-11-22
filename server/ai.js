@@ -15,7 +15,7 @@ import { getProjectLanguage, languageDirective, languageDirectiveForResponse, le
 // call — provider, model id, operation, duration, how much came back — never
 // the prompt or the answer.
 import { logActivity, failureFacts } from './activityLog.js';
-import { formatAuthoring } from './answerFormats.js';
+import { formatAuthoring, normalizeTyped, FORM_FLAG_RULE } from './answerFormats.js';
 import { parseJsonWithRepair, readReplyObject } from './jsonRepair.js';
 import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
@@ -3958,7 +3958,15 @@ ${fault}`,
     // so the one moment the learner is guaranteed to be paying attention teaches
     // them nothing. The prompt spends its sentences on what their answer left
     // out (or got wrong), which is the only part they cannot supply.
-    answer_checker: (question, correctAnswer, userAnswer) => ({
+    // An open answer is marked on its meaning, unless the task tests FORM
+    // (`tests_form`, confirmed by the verifier: answerFormats.js
+    // `formTested`): then a wrong verb form, ending, article, agreement, word
+    // order or spelling is a wrong answer, judged in the language the course
+    // teaches. A content task gets exactly the prompt it always had, course
+    // language or not, so one typo never fails an answer about the subject.
+    answer_checker: (question, correctAnswer, userAnswer, { testsForm = false, lang = null } = {}) => (testsForm === true
+        ? formAnswerChecker(question, correctAnswer, userAnswer, lang)
+        : {
         system: `You mark a learner's answer and reply TO THEM.
 CRITICAL: Output ONLY a JSON object: {"correct": true/false/"unsure", "explanation": "..."}
 
@@ -4390,7 +4398,7 @@ Rules:
 1. type must be exactly "${questionType}". Never write a true/false question — a format the learner can guess half the time measures nothing, and this answer decides how much they get taught.
 ${questionType === 'multiple_choice'
             ? '2. Exactly 4 options; correct_answer must EXACTLY equal one option string. Distractors must be the mistakes someone with PARTIAL knowledge actually makes, so that getting it right means knowing the topic rather than spotting the odd one out.'
-            : '2. An open question answerable in 1-3 sentences; correct_answer is the model answer it will be graded against. State what a correct answer has to contain.'}
+            : `2. An open question answerable in 1-3 sentences; correct_answer is the model answer it will be graded against. State what a correct answer has to contain. ${FORM_FLAG_RULE}`}
 3. PITCH IT AT THE TOPIC'S OWN LEVEL. The learner is about to be taught this; the question decides whether they need to be. So ask what someone who has genuinely met this material can do and someone who has not cannot — apply it, distinguish it, compute with it, predict from it. A question answerable from general knowledge, from the topic's title, or by recognising a familiar word is worse than no question at all: it hands a head start to a learner who does not have one, and the topic then gets taught less.
 4. The learner has NOT read anything from this course. Never reference "the material", "this course", "the lesson", "as covered", a chapter, a section or a numbering. Never rely on a symbol, an abbreviation or a convention that this particular curriculum introduces — use the notation the SUBJECT uses, which someone who studied it elsewhere would recognise.
 5. Ask about the topic itself, not its prerequisites and not what follows it. A question that is really about an earlier topic measures the earlier topic.
@@ -4457,6 +4465,12 @@ ${priorFault}` : ''}`
         const opts = Array.isArray(question.options) && question.options.length
             ? `\nOPTIONS:\n${question.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
             : question.type === 'true_false' ? '\nOPTIONS:\n1. True\n2. False' : '';
+        // Does a typed task test FORM (answerFormats.js `settleFormFlag`)?
+        // Asked the same whether or not its writer set `tests_form`: the
+        // verifier reaches the answer on its own, never agrees with a claim
+        // it was shown. Only the typed formats carry the flag.
+        const asksForm = question.type === 'short_answer' || question.type === 'fill_in';
+        const formRule = (n) => `\n${n}. LAST: "form" is true when the task asks the learner for a grammatical form or the spelling (a verb form, an ending, an article, agreement, word order, how a word is written), so that an answer with the right meaning in the wrong form is a wrong answer; false when it asks what something means, is or does, or why. This does not change your verdict.`;
 
         // Open questions get AUDITED rather than solved cold. There is no single
         // right phrasing to agree with, so a cold solve proves nothing — but the
@@ -4534,27 +4548,27 @@ Rules:
             return {
                 system: `You audit the MODEL ANSWER to an open question before it is used to grade a learner. You are checking the answer, not writing one.
 CRITICAL: Output ONLY a JSON object:
-{"verdict": "ok" | "broken", "answer": "", "reason": "..."}
+{"verdict": "ok" | "broken", "answer": "", "reason": "...", "form": true | false}
 Rules:
 1. verdict "broken" if ANY of these hold: the answer contradicts itself; a stated arithmetic step is wrong (check every calculation shown, digit by digit); the answer contradicts the explanation given with it; it does not actually answer the question asked; or the question's premise is impossible so no answer can be right.
 2. Recompute every number that appears. A result that does not follow from the operands stated is "broken" even when the surrounding sentence is correct — that is the most common defect and the hardest to see.
 3. verdict "ok" if the answer is correct and self-consistent. Wording, length and style are NOT your business.
 4. Judge by the subject itself, not by what a lesson might have claimed.
-5. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.${sourceRule(6)}`,
+5. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.${sourceRule(6)}${formRule(text ? 7 : 6)}`,
                 user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nPROPOSED MODEL ANSWER:\n${question.correct_answer}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}${material}`
             };
         }
         return {
             system: `You are a subject expert checking a question before it is shown to a learner. You are NOT given the intended answer — work it out yourself, from the subject, as an expert would.
 CRITICAL: Output ONLY a JSON object:
-{"verdict": "ok" | "broken", "answer": "...", "eliminable": 0, "reason": "..."}
+{"verdict": "ok" | "broken", "answer": "...", "eliminable": 0, "reason": "..."${asksForm ? ', "form": true | false' : ''}}
 Rules:
 1. First decide whether the question is SOUND: is its premise actually possible in this subject, is exactly one answer defensible, and is it answerable at all from subject knowledge${text ? ', or from the SOURCE TEXT when the question is about that text' : ''}? If not, verdict "broken" and say in one clause what is wrong. A question with two defensible answers, or with a premise that cannot hold, is "broken".
 2. If it is sound, verdict "ok" and put YOUR answer in "answer" — for multiple choice copy the winning option's text EXACTLY as written; for true/false exactly "True" or "False"; for an open question one or two sentences.
 3. Judge by the subject itself, not by what a lesson might have claimed. If a widely taught simplification conflicts with what is actually correct, follow what is correct.
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
 5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.${sourceRule(6)}
-${text ? 7 : 6}. LAST, after you have settled your answer: "eliminable" is how many options a learner who knows NOTHING about this subject could still throw away — because the question stem itself states a rule that option breaks, because it is the odd one out in form or units, because it is absurd, or because it is "all/none of the above". Count only options a total novice discards with no subject knowledge whatsoever; an option that merely looks less likely to someone who has studied the topic does NOT count. This does not change your verdict — report the number and nothing else.${text ? ' For "eliminable", the text counts as knowledge the novice does NOT have: count only options thrown away without reading the text.' : ''}`,
+${text ? 7 : 6}. LAST, after you have settled your answer: "eliminable" is how many options a learner who knows NOTHING about this subject could still throw away — because the question stem itself states a rule that option breaks, because it is the odd one out in form or units, because it is absurd, or because it is "all/none of the above". Count only options a total novice discards with no subject knowledge whatsoever; an option that merely looks less likely to someone who has studied the topic does NOT count. This does not change your verdict — report the number and nothing else.${text ? ' For "eliminable", the text counts as knowledge the novice does NOT have: count only options thrown away without reading the text.' : ''}${asksForm ? formRule(text ? 8 : 7) : ''}`,
             user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}${opts}${material}`
         };
     },
@@ -4931,6 +4945,79 @@ const QUICK_ACCEPT_STOPWORDS = new Set([
 ]);
 
 /**
+ * `answer_checker` for a task that tests FORM. `lang` is the course's content
+ * language (language.js): the form is judged in the language it teaches
+ * (`lang.learning`); a course that teaches no other language is named as the
+ * language it is written in, and the task's own language decides (a Latin
+ * name asked in a Spanish course is Latin). The reply is in the language the
+ * learner reads. With no language known the form is still marked and no
+ * language is named. A miss on form alone is flagged (`form_error`) with a
+ * hint that points without telling, so the learner can find the slip
+ * themselves on a second try.
+ */
+function formAnswerChecker(question, correctAnswer, userAnswer, lang) {
+    const taught = lang?.learning || null;
+    const inLanguage = taught
+        ? ` in ${taught.name} (${taught.endonym})`
+        : lang ? ` (the course is written in ${lang.name} (${lang.endonym}); judge the form in the language the task asks for)` : '';
+    const json = '{"correct": true/false/"unsure", "form_error": true/false, "hint": "...", "explanation": "..."}';
+    return {
+        system: `You mark a learner's answer and reply TO THEM.
+CRITICAL: Output ONLY a JSON object: ${json}
+
+This task tests FORM${inLanguage}: the verb form, ending, article, agreement, word order or spelling it asks for.
+
+Marking:
+- The answer must have the right meaning AND the right form. A wrong verb form, ending, article, agreement, word order or spelling makes it INCORRECT, even when its meaning is right.
+- Accept every form a native speaker accepts as correct: another correct word order, a spelling the language allows, a different word that keeps the form the task asks for. The expected answer is one right answer, not the only one.
+- Capitals and punctuation count only when the task is about them.
+- "unsure" ONLY when their answer is too ambiguous or incomplete to judge either way. A clearly wrong answer is false, never "unsure"; a clearly right one is true.
+- "form_error": true when the answer is incorrect ONLY in its form (the meaning is right); false otherwise, and always false when the answer is correct.
+- "hint": when "form_error" is true, one sentence that names the word to look at again and the rule involved, without writing the corrected word or form; otherwise "".
+
+Writing the explanation (2-4 sentences, plain prose, no bullet points, no heading):
+1. Address the learner as "you". NEVER write "the student", "the user", "the learner", "they" or "their answer" — you are talking to the person who wrote it.
+2. Open with what YOUR READER actually did, tied to their own words: what they got right, or exactly which word is in the wrong form.
+3. Then teach the rest: the right form and the rule that gives it, or, when they were right, the rule their answer follows.
+4. Do not praise ("great job", "well done"), do not hedge, and do not narrate your marking ("the answer demonstrates...").
+${NOTATION_RULE}
+${GLOSS_RULE}${lang ? `\n${languageDirectiveForResponse(lang)}` : ''}
+Write every sentence as if speaking to them directly.`,
+        user: `Mark this answer and write the explanation to the person who wrote it.\n\nQuestion: ${question}\nExpected answer: ${correctAnswer}\nTheir answer: ${userAnswer}\n\nOutput ONLY JSON: ${json}\nIn the explanation, address them as "you" — never "the student".`,
+    };
+}
+
+/** Scripts written without spaces between words. */
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * Does a hint give the answer away? It does when it writes the key out, or any
+ * word of the key the learner's answer is missing (in its normalised
+ * spelling): with key "Ik ben naar huis gelopen." and answer "Ik heb ...",
+ * "use ben" is the whole correction. A hint that hands over the answer turns
+ * the second try into copying.
+ */
+function hintWritesKey(hint, key, answer = '') {
+    const h = normalizeTyped(hint);
+    const k = normalizeTyped(key);
+    if (!h || !k) return false;
+    // Chinese, Japanese, Thai and their neighbours put no space between words,
+    // so there a word is no unit: the key is looked for anywhere, and each of
+    // its characters counts as a word of its own.
+    if (UNSPACED_SCRIPT.test(k)) {
+        const flat = (s) => s.replace(/\s+/g, '');
+        if (flat(h).includes(flat(k))) return true;
+    } else {
+        const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(h)) return true;
+    }
+    const words = (s) => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean).flatMap(w => UNSPACED_SCRIPT.test(w) ? [...w] : [w]);
+    const inHint = new Set(words(h));
+    const given = new Set(words(normalizeTyped(answer)));
+    return words(k).some(w => !given.has(w) && inHint.has(w));
+}
+
+/**
  * The grader's JSON, read strictly. `verdict` is 'correct' | 'incorrect' |
  * 'unsure'; null when the reply holds no usable verdict. Exported so the gate
  * suite can drive it without a model.
@@ -4950,17 +5037,36 @@ export function parseAnswerVerdict(text) {
             : (typeof c === 'string' && /^unsure$/i.test(c.trim())) ? 'unsure'
                 : null;
     if (!verdict) return null;
-    return { verdict, explanation: typeof r.explanation === 'string' ? r.explanation : '' };
+    return {
+        verdict,
+        explanation: typeof r.explanation === 'string' ? r.explanation : '',
+        // Read only for a task that tests form (formAnswerChecker); a content
+        // verdict never asks for them.
+        formError: r.form_error === true || (typeof r.form_error === 'string' && /^true$/i.test(r.form_error.trim())),
+        hint: typeof r.hint === 'string' ? r.hint.trim() : '',
+    };
 }
 
-export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { format = 'short_answer', language = '' } = {}) {
+/**
+ * `testsForm` is answerFormats.js `formTested(question)`: the task tests a
+ * form, so the form counts; `lang` is the course's content language
+ * (language.js `getNodeLanguage`), read only then. A miss on form alone comes
+ * back as `formMiss` with a `hint` ('' when the model's hint gave the answer
+ * away) for one more try; a content task never has one.
+ */
+export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { format = 'short_answer', language = '', testsForm = false, lang = null } = {}) {
     // Code is compared blind to whitespace and never by phrase containment: a
     // solution that contains the reference as a substring is not thereby right,
     // and one that differs by a variable name is not thereby wrong. Everything
     // below the quick paths goes to the code checker instead of the prose one.
     const code = format === 'code';
-    const normalizedUser = code ? userAnswer.replace(/\s+/g, ' ').trim() : userAnswer.toLowerCase().trim();
-    const normalizedCorrect = code ? correctAnswer.replace(/\s+/g, ' ').trim() : correctAnswer.toLowerCase().trim();
+    // A task that tests form is compared the same way, case included: the
+    // case and the words around a phrase are what it marks, so only the key
+    // typed exactly is right without the model.
+    const form = !code && testsForm === true;
+    const exact = code || form;
+    const normalizedUser = exact ? userAnswer.replace(/\s+/g, ' ').trim() : userAnswer.toLowerCase().trim();
+    const normalizedCorrect = exact ? correctAnswer.replace(/\s+/g, ' ').trim() : correctAnswer.toLowerCase().trim();
     // Every explanation below is rendered to the learner on their own answer, so
     // they are written in the second person like the model's are — a verdict
     // that reads "Basic comparison used" is the app talking to its developer.
@@ -4975,7 +5081,7 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
     // four characters and not a function word — before it counts.
     const trivial = normalizedUser.length < 4 || QUICK_ACCEPT_STOPWORDS.has(normalizedUser);
     if (
-        !code &&
+        !exact &&
         normalizedCorrect.length < 10 &&
         normalizedUser.length < 15 &&
         (wholePhrasePresent(normalizedUser, normalizedCorrect) ||
@@ -4998,8 +5104,11 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
     // grader never actually judged is NOT written as BKT evidence, because the
     // sentence below tells the learner to trust themselves and the estimate
     // must not quietly do the opposite.
+    // On a form task every letter counts here, but capitals and punctuation
+    // only when the task is about them, which this comparison cannot tell:
+    // it leaves both out rather than fail a right answer for a full stop.
     const ungraded = () => ({
-        correct: normalizedUser === normalizedCorrect,
+        correct: form ? normalizeTyped(userAnswer) === normalizeTyped(correctAnswer) : normalizedUser === normalizedCorrect,
         graded: false,
         explanation: code
             ? 'The AI grader could not be reached, so your code was only compared with the reference solution character by character — a different but working solution reads as wrong here. Compare the two yourself and trust what you can trace.'
@@ -5008,7 +5117,7 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
     try {
         const { system, user } = code
             ? AI_PROMPTS.answer_checker_code(question, correctAnswer, userAnswer, language)
-            : AI_PROMPTS.answer_checker(question, correctAnswer, userAnswer);
+            : AI_PROMPTS.answer_checker(question, correctAnswer, userAnswer, { testsForm: form, lang });
         const response = await generateResponse(user, system, [], { job: 'checks' });
 
         const parsed = parseAnswerVerdict(response);
@@ -5027,7 +5136,16 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
                 explanation: parsed.explanation || 'Your answer could be read more than one way, so it was not marked either way — try stating it more precisely.',
             };
         }
-        if (parsed) return { correct: parsed.verdict === 'correct', explanation: parsed.explanation };
+        if (parsed) {
+            const correct = parsed.verdict === 'correct';
+            if (!form || correct || !parsed.formError) return { correct, explanation: parsed.explanation };
+            return {
+                correct,
+                explanation: parsed.explanation,
+                formMiss: true,
+                hint: hintWritesKey(parsed.hint, correctAnswer, userAnswer) ? '' : parsed.hint.slice(0, 300),
+            };
+        }
         return ungraded();
     } catch (error) {
         console.error('Answer check error:', error);

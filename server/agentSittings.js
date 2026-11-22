@@ -34,7 +34,8 @@ import db from './database.js';
 import { masteryCheckTarget } from './today.js';
 import { drawFromNode } from './questionLog.js';
 import { getGateConfig, getSetting } from './settingsStore.js';
-import { gradeLocally, hasUsableKey } from './answerFormats.js';
+import { formTested, gradeLocally, hasUsableKey, normalizeTyped } from './answerFormats.js';
+import { getNodeLanguage } from './language.js';
 import { missedOf, missedText, shownAnswer, shownKey } from './checkFeedback.js';
 import { checkAnswerWithAI } from './ai.js';
 import { MIN_GATE_QUESTIONS, recordOnce } from './mastery.js';
@@ -178,19 +179,25 @@ const defaultAnswer = (q) => (q.type === 'sequence' ? JSON.stringify(Array.isArr
  * order it shows; a form has no such order, so an ordering left blank there
  * is blank, and the agent is told so rather than shown an order nobody gave.
  */
-async function gradeOne(q, raw, { form = false, forgiveSpelling = false } = {}) {
+async function gradeOne(q, raw, { form = false, forgiveSpelling = false, nodeId = null } = {}) {
     const answer = typeof raw === 'string' && raw.trim() ? raw.slice(0, ANSWER_CHARS) : (form ? '' : defaultAnswer(q));
     if (!answer.trim()) return { correct: false, answer, explanation: text(q.explanation) };
     const local = gradeLocally(q, answer, { forgiveSpelling });
     if (local !== null) return { correct: local, answer, explanation: text(q.explanation) };
+    // A task that tests form is marked on it, in the course's language.
+    const testsForm = formTested(q);
     try {
         const res = await checkAnswerWithAI(q.question, String(q.correct_answer ?? ''), answer, {
             format: q.type === 'code' ? 'code' : 'short_answer',
             language: text(q.language, 24),
+            testsForm,
+            lang: testsForm ? getNodeLanguage(nodeId) : null,
         });
         return { correct: !!res?.correct, answer, explanation: text(res?.explanation) || text(q.explanation) };
     } catch {
-        const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+        // A form task: every letter counts, capitals and punctuation do not,
+        // as in checkAnswerWithAI's own fallback.
+        const norm = (s) => testsForm ? normalizeTyped(s) : String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
         return { correct: norm(answer) === norm(q.correct_answer), answer, explanation: text(q.explanation) };
     }
 }
@@ -309,7 +316,7 @@ export async function submitCheck(token, answers) {
             const graded = [];
             // Read once: one sitting is graded under one setting.
             const forgiveSpelling = getSetting('forgive_spelling', 'off') === 'on';
-            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form, forgiveSpelling }));
+            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form, forgiveSpelling, nodeId: s.nodeId }));
             const score = graded.filter(g => g.correct).length;
             const total = s.questions.length;
             const asked = s.questions.map((d, i) => ({

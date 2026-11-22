@@ -945,10 +945,15 @@ export async function verifyQuestion(nodeTitle, question, { signal, source = '' 
         // than another call — and asking AFTER the cold solve keeps the primary
         // job (what is the answer) uncontaminated by a critique framing.
         const eliminable = Number.isFinite(parsed.eliminable) ? Math.max(0, Math.trunc(parsed.eliminable)) : null;
+        // Whether a typed task tests FORM, as the verifier reads it without
+        // seeing the writer's `tests_form` (answerFormats.js `settleFormFlag`
+        // keeps the flag only on a true here). null: not asked, or not said.
+        const form = parsed.form === true || parsed.form === 'true' ? true
+            : parsed.form === false || parsed.form === 'false' ? false : null;
 
         // An open answer and a reference solution are AUDITED, never solved
         // cold: many right phrasings, many right programs.
-        if (question.type === 'short_answer') return { ok: true, available: true, reason: 'open question, key not vetoed', eliminable };
+        if (question.type === 'short_answer') return { ok: true, available: true, reason: 'open question, key not vetoed', eliminable, form };
         if (question.type === 'code') return { ok: true, available: true, reason: 'reference solution audited, not vetoed', eliminable };
         // An ordering IS solvable cold, and it is exactly the closed format
         // where a disputed key must veto: the verifier orders the same items
@@ -985,7 +990,7 @@ export async function verifyQuestion(nodeTitle, question, { signal, source = '' 
         if (!agrees) {
             return { ok: false, available: true, reason: `answer key disputed (verifier chose "${String(parsed.answer).slice(0, 80)}")`, eliminable };
         }
-        return { ok: true, available: true, reason: 'verified', eliminable };
+        return { ok: true, available: true, reason: 'verified', eliminable, ...(question.type === 'fill_in' ? { form } : {}) };
     } catch (err) {
         if (err?.name === 'AbortError') throw err;
         return { ok: true, available: false, reason: `verifier unavailable (${err.message})`, eliminable: null };

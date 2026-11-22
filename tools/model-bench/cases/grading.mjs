@@ -20,6 +20,8 @@
  * `language` in checkAnswerWithAI is the PROGRAMMING language of a code task
  * (routes/quizzes.js passes `q.language`); a prose answer is graded from its own
  * words, so the Dutch, Russian and Ukrainian cases carry no `language`.
+ * `lang` is the COURSE language, read only by a task that tests form
+ * (`testsForm`), where a wrong form is wrong and a content typo is not.
  */
 const j = (correct, explanation) => JSON.stringify({ correct, explanation });
 
@@ -34,6 +36,19 @@ const isWrong = (r) => {
     if (r.unsure) return { pass: false, why: 'unsure' };
     return r.correct === false ? { pass: true, why: 'marked wrong' } : { pass: false, why: 'a wrong answer marked correct' };
 };
+
+/**
+ * A task that tests form (answerFormats.js `formTested`): the right meaning in
+ * the wrong form is wrong, and comes back as a form miss so the learner gets
+ * one more try. Pass rule: `correct === false` with `formMiss === true`.
+ */
+const isFormMiss = (r) => {
+    const w = isWrong(r);
+    if (!w.pass) return w;
+    return r.formMiss === true ? { pass: true, why: 'marked wrong on its form' } : { pass: false, why: 'wrong, but not read as a form miss' };
+};
+const jf = (correct, formError, hint, explanation) => JSON.stringify({ correct, form_error: formError, hint, explanation });
+const dutch = async (app) => (await app.server('language.js')).getLanguage('nl');
 
 /** Mutants shared by every case: a grader that gives no verdict at all. */
 const silent = (topic) => [
@@ -140,6 +155,50 @@ export default {
             answer: 'Ze bestrijden infecties en ziektekiemen.',
             topic: 'bloedcellen',
             golden: 'Je beschrijft het werk van de witte bloedcellen, niet van de rode. Rode bloedcellen vervoeren zuurstof, dankzij het hemoglobine in de cel, van de longen naar de rest van het lichaam.',
+        }),
+        {
+            id: 'grading-nl-form-perfect-auxiliary-wrong',
+            run: async (fx, app) => app.ai.checkAnswerWithAI(
+                'Zet de zin in de voltooide tijd: Ik loop naar huis.',
+                'Ik ben naar huis gelopen.',
+                'Ik heb naar huis gelopen.',
+                { testsForm: true, lang: await dutch(app) },
+            ),
+            score: isFormMiss,
+            golden: jf(false, true,
+                'Kijk nog eens naar het hulpwerkwoord: bij een beweging naar een plaats hoort een ander hulpwerkwoord.',
+                'Je hebt de zin goed in de voltooide tijd gezet, maar met "heb" als hulpwerkwoord. Bij lopen met een richting of doel, zoals naar huis, gebruik je "zijn": ik ben naar huis gelopen. "Hebben" past alleen als het lopen zelf de handeling is, zoals in "ik heb vandaag veel gelopen".'),
+            mutants: [
+                { name: 'rubber-stamps the wrong auxiliary', reply: jf(true, false, '', 'Je hebt de zin goed in de voltooide tijd gezet.') },
+                { name: 'wrong, but not as a form miss', reply: jf(false, false, '', 'Het hulpwerkwoord is fout: het moet "ben" zijn.') },
+                { name: 'string verdict "true"', reply: '{"correct": "true", "form_error": false, "hint": "", "explanation": "Goed."}' },
+                ...silent('de voltooide tijd'),
+            ],
+        },
+        {
+            id: 'grading-nl-form-word-order-right',
+            run: async (fx, app) => app.ai.checkAnswerWithAI(
+                'Zet de zin in de voltooide tijd: Ik loop naar huis.',
+                'Ik ben naar huis gelopen.',
+                'Naar huis ben ik gelopen.',
+                { testsForm: true, lang: await dutch(app) },
+            ),
+            score: isCorrect,
+            golden: jf(true, false, '',
+                'Je gebruikt het goede hulpwerkwoord "ben" en het voltooid deelwoord "gelopen". Je zet "naar huis" vooraan, en dan komt het werkwoord direct op de tweede plaats, voor het onderwerp: dat is ook correct Nederlands.'),
+            mutants: [
+                { name: 'marks another correct word order wrong', reply: jf(false, true, 'Kijk nog eens naar de woordvolgorde.', 'De zin moet beginnen met "Ik".') },
+                { name: 'string verdict "false"', reply: '{"correct": "false", "form_error": true, "hint": "", "explanation": "Niet de verwachte zin."}' },
+                ...silent('de voltooide tijd'),
+            ],
+        },
+        right({
+            id: 'grading-nl-content-typo-right',
+            q: 'Welk gas nemen planten uit de lucht op voor de fotosynthese?',
+            key: 'Koolstofdioxide (CO2).',
+            answer: 'koolstofdixide',
+            topic: 'fotosynthese',
+            golden: 'Je noemt het goede gas: koolstofdioxide, ook wel CO2. Er ontbreekt een letter in je spelling, maar het gaat hier om welk gas het is. Planten nemen het op via de huidmondjes in hun bladeren.',
         }),
         right({
             id: 'grading-ru-ice-density-right',
