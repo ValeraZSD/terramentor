@@ -248,6 +248,16 @@ for (const text of ["I'm sorry, but I can't see images.", 'As an AI, I cannot vi
     'Lo siento, no puedo ver imágenes.', 'Het spijt me, ik kan de afbeelding niet zien.', 'Извините, я не могу увидеть изображение.']) {
     check(`a model declining is refused (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
 }
+// Wrapped with a full stop after the quote, behind a label, or in another
+// language: still the model declining, never text from the picture.
+for (const text of [`"I'm sorry, I can't see images".`, `Description: "I'm sorry, but I cannot see any image."`,
+    '“I’m sorry, I can’t describe this image”.', "Sorry, I can't help with that.", 'There is no image attached.',
+    'Ik zie geen afbeelding.', 'Ich kann keine Bilder sehen.', 'Je suis désolé, je ne peux pas décrire cette image.',
+    'Przepraszam, nie mogę zobaczyć obrazu.', 'Вибачте, я не можу побачити зображення.',
+    '申し訳ありませんが、画像を見ることができません。', '抱歉，我无法查看图片。']) {
+    check(`...wrapped, labelled or in another language too (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
+}
+check('a label before the answer is dropped, the answer kept', verdict('Description: A cat on a mat.').text === 'A cat on a mat.');
 check('a reply wrapped in quotes is checked as its words, and stored without the quotes',
     refusedAs('language', '"A dog sleeping on the sofa with the cat"', 'nl') && verdict('"A brown dog asleep"').text === 'A brown dog asleep');
 check('a curly apostrophe is not a quote: "’t Hoekje" leaves the rest of the sentence checked',
@@ -295,8 +305,21 @@ const CORPUS = {
     es: ['La mujer de la calle', 'El gato duerme en el sofá', 'Dos niños juegan en el jardín', 'Mapa de España con las provincias'],
     it: ['Il gatto dorme sul divano', 'Due bambini giocano in giardino', 'Una bicicletta rossa contro un muro'],
     ru: ['Собака спит на диване', 'Двое детей играют в саду', 'Карта Европы с границами стран'],
-    ja: ['ソファで寝ている猫', '庭で遊んでいる二人の子ども', '月ごとの降水量を示す棒グラフ。十月が最も多い'],
+    ja: ['ソファで寝ている猫', '庭で遊んでいる二人の子ども', '月ごとの降水量を示す棒グラフ。十月が最も多い', 'コード: for i in range(10): print(i)'],
+    // "over", "under", "and", "from" are their own words here, not English.
+    da: ['Fuglen flyver over og under broen.', 'Hunden er over eller under bordet.', 'Katten sidder under stolen over gulvet.'],
+    sv: ['Fågeln flyger över och under bron, med en and.', 'Från vänster: en röd stuga från sidan.'],
+    nb: ['Fuglen flyr over og under broen.'],
+    zh: ['代码截图: for i in range(10): print(i)', '化学式 NaCl + AgNO3 -> AgCl + NaNO3', '沙发上睡觉的猫'],
 };
+// A title or a name in English inside another language is not the description's language.
+const TITLES = [['nl', 'Albumhoes: The Dark Side of the Moon.'], ['nl', 'Hoes van The White Album.'], ['nl', 'Een poster van The Lord of the Rings.'],
+    ['nl', 'Het varken en de big over het hek.'], ['de', "Cover: Harry Potter and the Sorcerer's Stone."], ['fr', 'La Tour Eiffel and the Seine']];
+for (const [language, text] of TITLES) {
+    check(`an English title or a shared word in a ${language} description: kept (${text})`, verdict(text, language).ok === true, JSON.stringify(verdict(text, language)));
+}
+check('...while an English sentence in a Dutch course is still refused',
+    refusedAs('language', 'A red car parked on the street next to a white house.', 'nl'));
 for (const [language, texts] of Object.entries(CORPUS)) {
     const refused = texts.filter(t => !verdict(t, language).ok);
     check(`ordinary ${language} descriptions in a ${language} course are all kept (${texts.length})`, refused.length === 0,
