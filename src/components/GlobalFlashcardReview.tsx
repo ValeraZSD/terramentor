@@ -800,7 +800,10 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 pl-3 pt-2.5 sm:pl-5 sm:pt-4 ${readAloud ? 'pr-24 sm:pr-28' : 'pr-12 sm:pr-14'}`}>
+                            {/* Both chips sit on the left: the corner group over the
+                                right end grows by the "Written by AI" mark, which
+                                would cover a chip there. */}
+                            <div data-read-skip className={`flex shrink-0 items-center gap-2 pl-3 pt-2.5 sm:pl-5 sm:pt-4 ${readAloud ? 'pr-24 sm:pr-28' : 'pr-12 sm:pr-14'}`}>
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>

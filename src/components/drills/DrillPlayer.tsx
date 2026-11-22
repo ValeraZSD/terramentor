@@ -505,10 +505,11 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 </div>
                 <ProgressBar value={barPct} size="sm" motion={seconds ? 'linear' : 'smooth'} decorative className="mt-1" />
 
-                {/* The item: its label and prompt, with the flag at its top-right.
-                    Both sides are padded alike so a centred prompt stays centred. */}
-                <div className="relative px-9">
-                    <div className="absolute right-0 top-3">
+                {/* The item: its label and prompt, with the flag at its top-right
+                    on a row of its own. Laid over the prompt, a "Written by AI"
+                    beside the flag ran into a large prompt's first line. */}
+                <div>
+                    <div className="mt-2 flex justify-end">
                         <ReportItem
                             key={currentRef ?? pos}
                             itemRef={currentRef}
@@ -521,7 +522,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     {/* A card's own task line ("de или het?") is its question;
                         the drill's generic label only stands in when it has none. */}
                     {(currentItem.context || spec.promptLabel) && (
-                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
+                        <p className={`mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
                     )}
                     <div className={`mt-2 ${promptMedia.length ? 'mb-3' : 'mb-5'} font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
                         <MathText content={currentItem.prompt} />
