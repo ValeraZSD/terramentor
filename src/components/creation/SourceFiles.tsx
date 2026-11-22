@@ -153,13 +153,16 @@ export interface LinkFixes {
     onUseTitle: (key: string) => void;
 }
 
-export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: {
+export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes, onDraft }: {
     files: SourceFile[];
     onAdd: (files: File[]) => void;
     onRemove: (key: string) => void;
     /** Links pasted, typed or dropped: each is read and listed. */
     onLinks: (urls: string[]) => void;
     fixes: LinkFixes;
+    /** The link box's text not yet added, as it changes: the window counts it
+     *  as typed work before it closes. */
+    onDraft?: (text: string) => void;
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
@@ -169,6 +172,11 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     const [menuOpen, setMenuOpen] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [text, setText] = useState('');
+    const onDraftRef = useRef(onDraft);
+    onDraftRef.current = onDraft;
+    useEffect(() => { onDraftRef.current?.(text); }, [text]);
+    // The box goes with its step: what it held is no longer there to lose.
+    useEffect(() => () => onDraftRef.current?.(''), []);
     // A failed link whose "Choose a file" opened the picker: the files picked
     // take its place in the list.
     const replacing = useRef<string | null>(null);

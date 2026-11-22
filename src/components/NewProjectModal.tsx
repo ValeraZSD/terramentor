@@ -159,6 +159,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     // The chatbot path's own fields and the reply pasted back, kept here so a
     // step back (its ←, the system's Back) does not drop them.
     const [brief, setBrief] = useState<BriefKept>({ level: '', goal: '', reply: '' });
+    // A link typed into the source box but not yet added.
+    const [linkDraft, setLinkDraft] = useState('');
     // Before paint, so a reopened dialog never shows the old height first.
     useLayoutEffect(() => { onChoosing(createMode === 'choose'); }, [createMode, onChoosing]);
     const [newName, setNewName] = useState(draft?.name ?? '');
@@ -181,7 +183,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     filesRef.current = files;
     // A row the learner added counts even when its read failed: it was theirs.
     holdsWork.current = !!newName.trim() || !!newDescription.trim() || files.length > 0
-        || !!brief.level.trim() || !!brief.goal.trim() || !!brief.reply.trim();
+        || !!brief.level.trim() || !!brief.goal.trim() || !!brief.reply.trim() || !!linkDraft.trim();
     // The links being read, by row: removing a row, or closing the window,
     // stops its read, and a read that ends after that lets its source go.
     const readers = useRef(new Map<string, AbortController>());
@@ -525,7 +527,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                 )}
             </Field>
             <StudyLanguageField language={newLanguage} setLanguage={setNewLanguage} isNew automaticAs={automaticAs} />
-            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} />
+            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} onDraft={setLinkDraft} />
         </>
     );
 

@@ -415,6 +415,15 @@ await block(async () => {
 });
 await block(async () => {
     await set({ nc: true, draft: null }); await settle();
+    await create();
+    const link = body().querySelector('#course-material-link');
+    check('the form has its link box', !!link);
+    await fill(link, 'https://example.org/knots');
+    await press('Close dialog', titled('New course'));
+    check('with a link typed but not yet added, ✕ asks', !!asking() && !!titled('New course'));
+});
+await block(async () => {
+    await set({ nc: true, draft: null }); await settle();
     await click(buttons().find(b => b.textContent.includes('Import a course')));
     await click(buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')));
     await fill(body().querySelector('textarea[aria-label="The model\'s reply"]'), '{ "nodes": [] }');
