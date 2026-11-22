@@ -216,12 +216,17 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
         });
     }, [t]);
 
-    const addFiles = useCallback((picked: File[]) => {
+    const addFiles = useCallback((all: File[]) => {
+        // SourceFiles has already cut a pick to the room it saw and said so;
+        // this is the count that moves at once, so two picks that land in the
+        // same tick still share the hundred.
+        const picked = all.slice(0, Math.max(0, MAX_SOURCE_FILES - filesRef.current.length));
         const entries: SourceFile[] = picked.map((f) => ({
             key: `src-${++rowCount.current}`, name: f.name, size: f.size,
             status: f.size > MAX_FILE_BYTES ? 'done' : 'reading',
             error: f.size > MAX_FILE_BYTES ? t("Over the 25 MB limit for one file.") : undefined,
         }));
+        filesRef.current = [...filesRef.current, ...entries];
         setFiles(prev => [...prev, ...entries]);
         const sendable = entries.flatMap((e, i) => (e.status === 'reading' ? [{ file: picked[i], key: e.key }] : []));
         // In batches: a folder can be a hundred files, and one request is
@@ -333,6 +338,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
         readers.current.get(key)?.abort();
         readers.current.delete(key);
         if (f?.doc?.ok) void api.discardStagedDocument(f.doc.id).catch(() => { });
+        // Now, like an add: files that replace this row count its place free.
+        filesRef.current = filesRef.current.filter(x => x.key !== key);
         setFiles(prev => prev.filter(x => x.key !== key));
     };
 
