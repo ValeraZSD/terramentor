@@ -185,7 +185,7 @@ npm run standalone
 ```
 
 Updates, the Docker password and phone access are in [docs/INSTALL.md](docs/INSTALL.md). The
-interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
+interface comes in fourteen languages, Arabic right to left ([docs/I18N.md](docs/I18N.md)).
 
 ## Documentation
 
