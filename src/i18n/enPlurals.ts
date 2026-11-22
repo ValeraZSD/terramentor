@@ -316,6 +316,8 @@ const enPlurals: Record<string, string> = {
     "cards reviewed_other": "cards reviewed",
     "Connected to {{name}}: {{count}} models available._one": "Connected to {{name}}: {{count}} model available.",
     "Connected to {{name}}: {{count}} models available._other": "Connected to {{name}}: {{count}} models available.",
+    "Delete the {{count}} questions made {{when}}?_one": "Delete the {{count}} question made {{when}}?",
+    "Delete the {{count}} questions made {{when}}?_other": "Delete the {{count}} questions made {{when}}?",
     "Delete these {{count}} questions?_one": "Delete {{count}} question?",
     "Delete these {{count}} questions?_other": "Delete these {{count}} questions?",
     "Describe {{pending}} pictures_one": "Describe {{pending}} picture",

@@ -143,10 +143,12 @@ globalThis.__store = new Proxy({
 // One instant for the fixtures and for the mounted scheduler: a card's "not due
 // yet", its relearning step and the date on its tile all read this clock.
 const NOW = Date.UTC(2026, 10, 10, 12, 0, 0); // Tue 10 Nov 2026, 12:00 UTC
+// `clock` moves only where a check says so (a card falling due mid-run).
+let clock = NOW;
 const RealDate = Date;
 globalThis.Date = class extends RealDate {
-    constructor(...a) { super(...(a.length ? a : [NOW])); }
-    static now() { return NOW; }
+    constructor(...a) { super(...(a.length ? a : [clock])); }
+    static now() { return clock; }
 };
 const later = new Date(NOW + 20 * 864e5).toISOString(); // 30 Nov 2026
 const card = (id, due) => ({
@@ -160,16 +162,25 @@ let quizzes = [], cards = [];
 const generated = [];
 const deleted = [];
 const written = [];
+const sent = []; // [id, update] for every rating written
 const reads = { questions: 0, cards: 0 };
 let finishCards = null;
+// A failing list, and card reads held open to land later and in any order.
+let questionsFail = false;
+let holdCards = false;
+const heldCards = [];
 globalThis.__api = {
-    getQuizzes: async () => { reads.questions++; return quizzes; },
-    getFlashcards: async () => { reads.cards++; return cards; },
+    getQuizzes: async () => { reads.questions++; if (questionsFail) throw new Error('offline'); return quizzes; },
+    getFlashcards: async () => {
+        reads.cards++;
+        const answer = cards.slice();
+        return holdCards ? new Promise(r => heldCards.push(() => r(answer))) : answer;
+    },
     streamGenerateQuiz: async (...args) => { generated.push(args); return { id: 99 }; },
     streamGenerateFlashcards: () => new Promise(r => { finishCards = r; }),
     deleteQuiz: async (id) => { deleted.push(['quiz', id]); },
-    deleteFlashcard: async (id) => { deleted.push(['card', id]); },
-    updateFlashcard: async (id, update) => { written.push(id); return { id, ...update }; },
+    deleteFlashcard: async (id) => { deleted.push(['card', id]); cards = cards.filter(c => c.id !== id); },
+    updateFlashcard: async (id, update) => { written.push(id); sent.push([id, update]); return { id, ...update }; },
 };
 require(outfile);
 const act = globalThis.__act;
@@ -239,6 +250,11 @@ console.log('--- the tab: sets by their size, no sitting ---');
     };
     const s1 = await rate('Good');
     check('a due card is reviewed as Study reviews it: Good writes its new schedule', JSON.stringify(written) === '[1]', JSON.stringify(written));
+    // What is written, not only which card: the rating Good (3) and a date
+    // moved past now (it was due 1 Nov).
+    const [, good] = sent[0] ?? [];
+    check('...the write carries the rating Good and a next review after now',
+        good?.rating === 3 && Date.parse(good?.next_review ?? '') > NOW, JSON.stringify(good ?? null));
     check('...under the usual question', /How well did you know this\?/.test(s1), s1.slice(0, 160));
     const s2 = await rate('Knew it');
     check('a card not due yet that you knew keeps its date: Knew it writes nothing', JSON.stringify(written) === '[1]' && /Front 3/.test(m.el.textContent), JSON.stringify(written));
@@ -279,6 +295,104 @@ console.log('--- the tab: sets by their size, no sitting ---');
     await click(m.el.querySelector('[role="button"][aria-pressed]'));
     await click(buttons(m.el).find(b => (b.textContent || '').includes('Good')));
     check('a relearning card due in minutes is rated as a step: Good writes', JSON.stringify(written) === '[4]', JSON.stringify(written));
+    m.unmount();
+}
+{
+    // A card due in a minute is "not due yet" when it is flipped; by the press
+    // it is due, and a due card's Knew it is a Good like any other.
+    written.length = 0; sent.length = 0;
+    cards = [card(7, new Date(NOW + 60_000).toISOString())];
+    const m = globalThis.__mount({ nodeId: 10, topicTitle: 'Falls due' });
+    await flush(); await flush();
+    await click(button(m.el, 'Practise all'));
+    await click(m.el.querySelector('[role="button"][aria-pressed]'));
+    const knew = buttons(m.el).find(b => (b.textContent || '').includes('Knew it'));
+    clock = NOW + 2 * 60_000;
+    await click(knew);
+    clock = NOW;
+    const [, update] = sent[0] ?? [];
+    check('a card that falls due between the flip and the press is written by Knew it (a Good)',
+        !!knew && JSON.stringify(written) === '[7]' && update?.rating === 3, JSON.stringify({ knew: !!knew, written, rating: update?.rating }));
+    m.unmount();
+}
+
+console.log('--- the two lists are read on their own ---');
+{
+    quizzes = [set(1, 'Lists', 4)];
+    cards = [card(2, later)];
+    questionsFail = true;
+    const logError = console.error;
+    console.error = () => {}; // the failed read is logged; expected here
+    const m = globalThis.__mount({ nodeId: 11, topicTitle: 'Lists' });
+    await flush(); await flush();
+    console.error = logError;
+    const failed = m.el.querySelector('[data-section="questions"] [role="alert"]');
+    check('questions that cannot be read say so with Try again, and the cards still show',
+        /Could not load these questions/.test(failed?.textContent ?? '') && !!button(failed, 'Try again')
+        && /Front 2/.test(m.el.querySelector('[data-section="cards"]')?.textContent ?? '')
+        && !/No questions yet/.test(m.el.textContent), m.el.textContent.slice(0, 240));
+    questionsFail = false;
+    if (failed) await click(button(failed, 'Try again'));
+    const rows = [...m.el.querySelectorAll('[data-section="questions"] li')].map(li => li.textContent);
+    check('...Try again reads them', rows.length === 1 && /4 questions/.test(rows[0]) && !m.el.querySelector('[role="alert"]'), JSON.stringify(rows));
+    m.unmount();
+}
+{
+    const shown = (m) => [...m.el.querySelectorAll('[data-section="cards"] li')].map(li => (li.textContent.match(/Front \d+/) || [''])[0]).join(',');
+    const closeRun = async (m) => { await click(button(m.el, 'Practise all')); await click(button(m.el, 'Exit') ?? button(m.el, 'Back')); };
+    quizzes = []; deleted.length = 0;
+    cards = [card(2, later), card(5, later)];
+    const m = globalThis.__mount({ nodeId: 12, topicTitle: 'Stale reads' });
+    await flush(); await flush();
+    // Leaving a run re-reads the cards; card 5 is deleted while that read is out.
+    holdCards = true;
+    await closeRun(m);
+    globalThis.__confirm = true;
+    const li5 = [...m.el.querySelectorAll('[data-section="cards"] li')].find(li => /Front 5/.test(li.textContent));
+    await click([...(li5?.querySelectorAll('button') ?? [])].find(b => b.getAttribute('aria-label') === 'Delete'));
+    globalThis.__confirm = false;
+    holdCards = false;
+    await act(async () => { heldCards.shift()?.(); });
+    await flush(); await flush();
+    check('a read that was out while a card was deleted does not bring the card back',
+        JSON.stringify(deleted) === '[["card",5]]' && shown(m) === 'Front 2', JSON.stringify({ deleted, shown: shown(m) }));
+    // Two reads out at once: the newer one (card 8 added between them) lands
+    // first, the older one after it, and the older one must not win.
+    holdCards = true;
+    await closeRun(m);
+    cards = [...cards, card(8, later)];
+    await closeRun(m);
+    holdCards = false;
+    await act(async () => { heldCards.pop()?.(); });
+    await flush();
+    await act(async () => { heldCards.pop()?.(); });
+    await flush(); await flush();
+    check('an older read landing after a newer one does not replace the newer list',
+        heldCards.length === 0 && shown(m) === 'Front 2,Front 8', shown(m));
+    m.unmount();
+}
+
+console.log('--- two sets that read the same ---');
+{
+    // Two sets of 5 titled after the topic read the same; a set of 3 does not.
+    quizzes = [
+        { ...set(1, 'Twins', 5), created_at: '2026-11-01 09:30:00' },
+        { ...set(2, 'Twins', 5), created_at: '2026-11-02 14:05:00' },
+        { ...set(3, 'Twins', 3), created_at: '2026-11-03 10:00:00' },
+    ];
+    cards = []; confirms.length = 0;
+    const m = globalThis.__mount({ nodeId: 13, topicTitle: 'Twins' });
+    await flush(); await flush();
+    const rows = [...m.el.querySelectorAll('[data-section="questions"] li')];
+    const made = rows.map(li => (li.textContent.match(/Made (.+?)(View|$)/) || [, ''])[1].trim());
+    check('two sets that read the same each say when they were made; a set unlike the others does not',
+        !!made[0] && !!made[1] && made[0] !== made[1] && !made[2], JSON.stringify(made));
+    const view = rows[1]?.querySelector('button[aria-label="View questions"]');
+    const described = (view?.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ');
+    check('...their View buttons are described by the row, the date included', /5 questions/.test(described) && described.includes(made[1]), described);
+    globalThis.__confirm = false;
+    await click(rows[1]?.querySelector('button[aria-label="Delete these questions"]'));
+    check('...and deleting one names its date', confirms.at(-1) === `Delete the 5 questions made ${made[1]}?`, String(confirms.at(-1)));
     m.unmount();
 }
 {

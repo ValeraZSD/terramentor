@@ -14,6 +14,7 @@ import { Plus, Loader2, Trash2, RotateCcw, Pencil, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { isReportedCard } from '../utils/srs';
+import { uiLocale } from '../utils/locale';
 
 interface Props {
     nodeId: number;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 type QuestionType = 'multiple_choice' | 'true_false' | 'both' | 'code' | 'sequence' | 'assemble';
+type ListKind = 'questions' | 'cards';
 
 /**
  * A set's own questions. Sets written before this tab could carry copies of
@@ -29,6 +31,16 @@ type QuestionType = 'multiple_choice' | 'true_false' | 'both' | 'code' | 'sequen
  * would read as this topic's own.
  */
 const ownQuestions = (quiz: Quiz) => quiz.questions.filter(q => !q.isGhost);
+
+/** A list that could not be read says so, with a retry, instead of looking empty. */
+function ListFailed({ text, retry, onRetry }: { text: string; retry: string; onRetry: () => void }) {
+    return (
+        <div role="alert" className="flex items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <span>{text}</span>
+            <Button size="sm" variant="neutral" onClick={onRetry}>{retry}</Button>
+        </div>
+    );
+}
 
 /**
  * A topic's questions and cards, in one tab: see them, edit them, make more.
@@ -80,7 +92,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     const genAbortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
-        loadData();
+        loadFirst();
     }, [nodeId]);
 
     // Detach the generation stream when the node changes or the panel unmounts.
@@ -93,23 +105,46 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         };
     }, [nodeId]);
 
-    // A refresh after writing one kind reads only that kind: the two lists sit
-    // in one tab, and a card list read during question writing could land after
-    // a card was deleted and bring it back.
-    const loadData = async (only?: 'questions' | 'cards') => {
-        setLoading(true);
-        try {
-            const [quizData, flashcardData] = await Promise.all([
-                only === 'cards' ? null : api.getQuizzes(nodeId),
-                only === 'questions' ? null : api.getFlashcards(nodeId),
-            ]);
-            if (quizData) setQuizzes(quizData);
-            if (flashcardData) setFlashcards(flashcardData);
-        } catch (error) {
-            console.error('Failed to load study tools:', error);
-        } finally {
-            setLoading(false);
+    // Each list is read on its own, so one that fails leaves the other usable,
+    // and a failed one says so with a retry instead of claiming to be empty.
+    // Only the newest read of a list may set it: reads land in any order (a
+    // run's close and a generation's refresh can cross). A delete or edit made
+    // while a read was out also voids that read, which is repeated: its answer
+    // predates the change and would bring a deleted card or set back.
+    const latestRead = useRef<Record<ListKind, number>>({ questions: 0, cards: 0 });
+    const writes = useRef<Record<ListKind, number>>({ questions: 0, cards: 0 });
+    const [failed, setFailed] = useState<Record<ListKind, boolean>>({ questions: false, cards: false });
+    const readList = async (kind: ListKind) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const read = ++latestRead.current[kind];
+            const revision = writes.current[kind];
+            try {
+                const data = kind === 'questions' ? await api.getQuizzes(nodeId) : await api.getFlashcards(nodeId);
+                if (latestRead.current[kind] !== read) return;
+                if (writes.current[kind] !== revision) continue;
+                if (kind === 'questions') setQuizzes(data as Quiz[]);
+                else setFlashcards(data as Flashcard[]);
+                setFailed(prev => ({ ...prev, [kind]: false }));
+                return;
+            } catch (error) {
+                if (latestRead.current[kind] !== read) return;
+                console.error(`Failed to load the topic's ${kind}:`, error);
+                setFailed(prev => ({ ...prev, [kind]: true }));
+                return;
+            }
         }
+    };
+    const noteWrite = (kind: ListKind) => { writes.current[kind]++; };
+
+    // The first read shows a spinner; a refresh keeps the lists on screen.
+    const loadData = async (only?: ListKind) => {
+        const kinds: ListKind[] = only ? [only] : ['questions', 'cards'];
+        await Promise.all(kinds.map(readList));
+    };
+    const loadFirst = async () => {
+        setLoading(true);
+        await loadData();
+        setLoading(false);
     };
 
     const handleGenerateQuiz = async () => {
@@ -181,11 +216,41 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         );
     };
 
+    // Two sets can read the same: "5 questions", both titled after the topic.
+    // Then each says when it was made, on its row, in its buttons' description
+    // and in the delete question, so each names one set. A second set made in
+    // the same minute is told apart by its place.
+    const madeAt = useMemo(() => {
+        const sameRow = new Map<string, Quiz[]>();
+        for (const quiz of quizzes) {
+            const named = quiz.title.trim().toLowerCase() !== topicTitle.trim().toLowerCase();
+            const key = `${ownQuestions(quiz).length}|${named ? quiz.title.trim().toLowerCase() : ''}`;
+            sameRow.set(key, [...(sameRow.get(key) ?? []), quiz]);
+        }
+        const out = new Map<number, string>();
+        const format = new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        for (const group of sameRow.values()) {
+            if (group.length < 2) continue;
+            const taken = new Map<string, number>();
+            for (const quiz of group) {
+                const at = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(quiz.created_at) ? quiz.created_at : `${quiz.created_at.replace(' ', 'T')}Z`);
+                const when = Number.isFinite(at) ? format.format(at) : '';
+                const n = (taken.get(when) ?? 0) + 1;
+                taken.set(when, n);
+                out.set(quiz.id, n > 1 || !when ? `${when} (${num(n)})`.trim() : when);
+            }
+        }
+        return out;
+    }, [quizzes, topicTitle, num]);
+
     // A bin beside an eye is one slip away: both deletes ask first, as the
     // card editor's does.
     const handleDeleteQuiz = async (quiz: Quiz) => {
+        const when = madeAt.get(quiz.id);
         const ok = await showConfirm({
-            title: t("Delete these {{count}} questions?", { count: ownQuestions(quiz).length }),
+            title: when
+                ? t("Delete the {{count}} questions made {{when}}?", { count: ownQuestions(quiz).length, when })
+                : t("Delete these {{count}} questions?", { count: ownQuestions(quiz).length }),
             message: t("They are removed from this topic for good."),
             confirmLabel: t("Delete"),
             variant: 'danger',
@@ -194,6 +259,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         const quizId = quiz.id;
         try {
             await api.deleteQuiz(quizId);
+            noteWrite('questions');
             setQuizzes(prev => prev.filter(q => q.id !== quizId));
             addToast('success', t("Questions deleted"));
         } catch (error: any) {
@@ -211,6 +277,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
         if (!ok) return;
         try {
             await api.deleteFlashcard(id);
+            noteWrite('cards');
             setFlashcards(prev => prev.filter(f => f.id !== id));
             addToast('success', t("Flashcard deleted"));
         } catch (error: any) {
@@ -219,7 +286,10 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     };
 
     /** The row is already gone from the server — stop counting it here. */
-    const forgetFlashcard = (id: number) => setFlashcards(prev => prev.filter(f => f.id !== id));
+    const forgetFlashcard = (id: number) => {
+        noteWrite('cards');
+        setFlashcards(prev => prev.filter(f => f.id !== id));
+    };
     // The run ends with its last card: left on, it would reopen by itself the
     // moment "More cards" wrote new ones.
     // A reported card is parked until it is fixed: Study does not show it and
@@ -332,35 +402,47 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                     </div>
                 )}
 
+                {failed.questions && (
+                    <ListFailed text={t("Could not load these questions")} retry={t("Try again")} onRetry={() => loadData('questions')} />
+                )}
                 {quizzes.length === 0 ? (
-                    !showQuizOptions && <p className="text-sm text-slate-500 dark:text-slate-400">{t("No questions yet")}</p>
+                    !showQuizOptions && !failed.questions && <p className="text-sm text-slate-500 dark:text-slate-400">{t("No questions yet")}</p>
                 ) : (
                     <ul className="space-y-2">
                         {quizzes.map(quiz => {
                             // A set is usually titled after its topic, which the
                             // panel's header already names: then the row is its size.
                             const named = quiz.title.trim().toLowerCase() !== topicTitle.trim().toLowerCase();
+                            const when = madeAt.get(quiz.id);
+                            // Both buttons are described by the row's own lines, so
+                            // a screen reader hears which set they act on.
+                            const rowText = [`set-${quiz.id}-size`, named && `set-${quiz.id}-title`, when && `set-${quiz.id}-made`].filter(Boolean).join(' ');
                             return (
                             <li
                                 key={quiz.id}
                                 className="flex items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl"
                             >
                                 <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-slate-700 dark:text-slate-200">
+                                    <p id={`set-${quiz.id}-size`} className="font-medium text-slate-700 dark:text-slate-200">
                                         {t("{{length}} questions", { count: ownQuestions(quiz).length, length: ownQuestions(quiz).length })}
                                     </p>
                                     {named && (
-                                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">
+                                        <p id={`set-${quiz.id}-title`} className="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">
                                             {quiz.title}
+                                        </p>
+                                    )}
+                                    {when && (
+                                        <p id={`set-${quiz.id}-made`} className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                            {t("Made {{when}}", { when })}
                                         </p>
                                     )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
                                     {/* A word, not a bare eye beside the bin: learners did not know what the eye did. */}
-                                    <Button size="sm" variant="quiet" onClick={() => setViewingQuiz(quiz)} aria-label={t("View questions")} icon={<Eye className="w-4 h-4" />}>
+                                    <Button size="sm" variant="quiet" onClick={() => setViewingQuiz(quiz)} aria-label={t("View questions")} aria-describedby={rowText} icon={<Eye className="w-4 h-4" />}>
                                         {t("View")}
                                     </Button>
-                                    <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz)} label={t("Delete these questions")} icon={<Trash2 className="w-4 h-4" />} />
+                                    <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz)} label={t("Delete these questions")} aria-describedby={rowText} icon={<Trash2 className="w-4 h-4" />} />
                                 </div>
                             </li>
                             );
@@ -403,8 +485,11 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                     : t("Study shows each card on the day it is due."))}
                 {generationCounter('cards')}
 
+                {failed.cards && (
+                    <ListFailed text={t("Could not load these cards")} retry={t("Try again")} onRetry={() => loadData('cards')} />
+                )}
                 {flashcards.length === 0 ? (
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{t("No flashcards yet")}</p>
+                    !failed.cards && <p className="text-sm text-slate-500 dark:text-slate-400">{t("No flashcards yet")}</p>
                 ) : (
                     // No inner scroll box and no height cap: the tab that
                     // hosts this is already `flex-1 overflow-auto`, so a
@@ -500,7 +585,10 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                 <FlashcardEditor
                     card={editingFlashcard}
                     onClose={() => setEditingFlashcard(null)}
-                    onSaved={updated => setFlashcards(prev => prev.map(f => (f.id === updated.id ? updated : f)))}
+                    onSaved={updated => {
+                        noteWrite('cards');
+                        setFlashcards(prev => prev.map(f => (f.id === updated.id ? updated : f)));
+                    }}
                     onDeleted={forgetFlashcard}
                 />
             )}
