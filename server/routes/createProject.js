@@ -16,6 +16,8 @@ import {
     rememberWritten, sendBatchDone, writePhases, writeSections, writeTopics,
 } from '../creationStages.js';
 import { sizeForPhaseCount } from '../courseSize.js';
+import { decideCourseShape } from '../courseShape.js';
+import { asSourceRows, sourceWords, writeShortCourseNow } from '../shortCourses.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
 import { getLanguage, getProjectLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
@@ -27,7 +29,7 @@ import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
 import { activeGenerations } from '../creationRuns.js';
-import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
+import { claimStaged, filesLanguage as filesLanguageOf, loadStaged, StagedClaimedError } from '../stagedDocuments.js';
 import {
     briefBlock, creationSources, hasSources, languageCheckBlock, sourceRanges, sourcesSummary, thinkBlock,
 } from '../sourceMaterial.js';
@@ -253,6 +255,14 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             failure: null,
             queuePosition: null,
             track: null,
+            // Short or in phases, once the run has judged it (courseShape.js),
+            // and what judged it: 'bounds' (the material's length), 'model'
+            // or 'fallback'.
+            shape: null,
+            shapeBy: null,
+            // How many topics a short course's write made: the tree a
+            // reattached page rebuilds from the database may hold more since.
+            topicsWritten: null,
         },
     };
     activeGenerations.set(pendingGenKey, cancelHandle);
@@ -284,6 +294,9 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         if (typeof data.model === 'string') s.model = data.model;
         if (typeof data.error === 'string') s.error = data.error;
         if (data.failure) s.failure = data.failure;
+        if (data.shape === 'short' || data.shape === 'phased') s.shape = data.shape;
+        if (data.by === 'bounds' || data.by === 'model' || data.by === 'fallback') s.shapeBy = data.by;
+        if (data.phase === 'topics_written' && Array.isArray(data.topics)) s.topicsWritten = data.topics.length;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
         if (typeof data.currentSubElement === 'string') s.currentSubElement = data.currentSubElement;
@@ -573,7 +586,9 @@ app.post('/api/ai/create-project', (req, res) => {
     // the course is built FROM the files (sourceMaterial.js), and a name is no
     // longer required — the files can name it.
     const stagedRows = loadStaged(Array.isArray(documentIds) ? documentIds.slice(0, 100) : []);
-    const src = creationSources(stagedRows);
+    // A link read in the dialog is a staged row too (a page or a video):
+    // its origin, not "text", names what kind of source it is.
+    const src = creationSources(asSourceRows(stagedRows));
     if (!name && !hasSources(src)) return res.status(400).json(keyed('Project name is required'));
     const learnerName = String(name || '');
     // What the run is called until the identity step has named it.
@@ -665,43 +680,104 @@ app.post('/api/ai/create-project', (req, res) => {
             });
         }
 
+        // Judge what the learner typed: a good name or description is kept
+        // verbatim and only what is not good is rewritten, and a language
+        // left open (one to confirm as learned, or several the course could
+        // be explained in) is settled. One short call that never fails or
+        // blocks creation (server/projectIdentity.js), made at most once: a
+        // short course asks it only with a language open, a course in phases
+        // always, before anything is written.
+        let identity = null;
+        const settleIdentity = async () => {
+            if (identity) return;
+            identity = await decideProjectIdentity({
+                name: learnerName,
+                description: learnerDescription,
+                lang: creationLang,
+                // With a language to confirm, the files' own words as well as
+                // their headings (sourceMaterial.js languageCheckBlock). Files
+                // that are not the learned language are always among those.
+                sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
+                learningCandidates,
+                explainCandidates,
+                signals: languageSignals,
+                signal,
+            });
+            // A course from files whose name the model could not write takes
+            // the first file's own title.
+            name = identity.name || learnerName.trim() || runName;
+            description = identity.description;
+            if (identity.explainIn || identity.teachesLanguage) {
+                if (identity.explainIn) {
+                    projectLanguage = identity.explainIn;
+                    explainedIn = getLanguage(projectLanguage);
+                }
+                // Never learned in the language it is explained in.
+                const learned = identity.teachesLanguage || typed.named || '';
+                learningLanguage = learned !== projectLanguage ? learned : '';
+                creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
+            }
+        };
+
+        // Short or in phases (server/courseShape.js): the learner never picks.
+        // One short call judges it from the name, the goal and a summary of
+        // the material; material longer than a short course holds is never
+        // asked about, and a failed call keeps the course in phases.
+        send({ phase: 'sizing', message: 'Choosing the course size', messageKey: 'Choosing the course size' });
+        const shape = await decideCourseShape({
+            name: learnerName, goal: learnerDescription, src, words: src.docs.map(d => sourceWords(d.text)), signal,
+        });
+        send({ phase: 'sized', shape: shape.shape, by: shape.by });
+        if (shape.shape === 'short') {
+            if (learningCandidates.length || explainCandidates.length) await settleIdentity();
+            send({ phase: 'writing_topics', message: 'Writing the topics', messageKey: 'Writing the topics' });
+            let made = null;
+            try {
+                made = await writeShortCourseNow({
+                    // A name the dialog filled in from a file is not the learner's:
+                    // the short course then names itself from its first source.
+                    name: ownName,
+                    goal: learnerDescription,
+                    color: projectColor,
+                    icon: projectIcon,
+                    // Resolved above; one left open was settled by the identity call.
+                    language: { code: projectLanguage, learning: learningLanguage, lang: creationLang },
+                    rows: stagedRows,
+                    signal,
+                });
+            } catch (err) {
+                // Its files gone to another course: in phases they are gone too.
+                if (signal?.aborted || err?.name === 'AbortError' || err instanceof StagedClaimedError) throw err;
+                // The short course is made only from a good answer (nothing is
+                // half-written), so a failed one builds the course in phases.
+                console.log(`[AI] Short course failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
+                send({ phase: 'topics_written', failed: true });
+                tracker.restartStages();
+                send({ phase: 'sized', shape: 'phased', by: 'fallback' });
+            }
+            if (made) {
+                run.adopt(made.projectId, made.name);
+                markCreationFinished.run(made.projectId);
+                send({ phase: 'topics_written', projectId: made.projectId, projectName: made.name, topics: made.topics });
+                return run.finish({
+                    phase: 'complete',
+                    projectId: made.projectId,
+                    shape: 'short',
+                    message: 'Short course created',
+                    stats: { categories: 0, elements: 0, subElements: made.topics.length, resources: 0 },
+                });
+            }
+        }
+
         send({
             phase: 'thinking',
             message: 'Analyzing project scope...',
             messageKey: 'Analyzing project scope',
         });
 
-        // Judge what the learner typed: a good name or description is kept
-        // verbatim and only what is not good is rewritten. One short call that
-        // never fails or blocks creation (server/projectIdentity.js); it runs
-        // first so the notes, summary and every phase read the final pair.
-        const identity = await decideProjectIdentity({
-            name: learnerName,
-            description: learnerDescription,
-            lang: creationLang,
-            // With a language to confirm, the files' own words as well as
-            // their headings (sourceMaterial.js languageCheckBlock). Files
-            // that are not the learned language are always among those.
-            sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
-            learningCandidates,
-            explainCandidates,
-            signals: languageSignals,
-            signal,
-        });
-        // A course from files whose name the model could not write takes
-        // the first file's own title.
-        name = identity.name || learnerName.trim() || runName;
-        description = identity.description;
-        if (identity.explainIn || identity.teachesLanguage) {
-            if (identity.explainIn) {
-                projectLanguage = identity.explainIn;
-                explainedIn = getLanguage(projectLanguage);
-            }
-            // Never learned in the language it is explained in.
-            const learned = identity.teachesLanguage || typed.named || '';
-            learningLanguage = learned !== projectLanguage ? learned : '';
-            creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
-        }
+        // Judge what the learner typed (settleIdentity, above): the notes,
+        // summary and every phase read the final pair.
+        await settleIdentity();
 
         try {
             startCall('thinking');
@@ -722,26 +798,32 @@ app.post('/api/ai/create-project', (req, res) => {
 
         await checkModel(send);
 
-        const projectResult = db.prepare(
-            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
-        ).run(
-            name.substring(0, 500),
-            (description || name).substring(0, 5000),
-            projectColor,
-            projectIcon,
-            nextProjectPosition(),
-            projectLanguage,
-            learningLanguage,
-            addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
-        );
-        const projectId = projectResult.lastInsertRowid;
-        run.adopt(projectId, name.substring(0, 500));
         // The files move into the new project's vault now, so a run that is
         // cancelled or fails from here on keeps them; their document ids are
         // what every topic's source rows point at.
         // Every staged file goes, a scan with no text layer included (PDF
         // recovery may read it later); only the ones with text shaped the run.
-        const claimedDocs = stagedRows.length ? claimStaged(stagedRows.map(row => row.id), projectId) : new Map();
+        // The project row and the claim are one write: files another creation
+        // claimed while this one waited on the model stop the run here, and
+        // leave no project behind.
+        const afterClaim = [];
+        const { projectId, claimedDocs } = db.transaction(() => {
+            const id = db.prepare(
+                'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
+            ).run(
+                name.substring(0, 500),
+                (description || name).substring(0, 5000),
+                projectColor,
+                projectIcon,
+                nextProjectPosition(),
+                projectLanguage,
+                learningLanguage,
+                addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
+            ).lastInsertRowid;
+            return { projectId: id, claimedDocs: stagedRows.length ? claimStaged(stagedRows.map(row => row.id), id, afterClaim, { all: true }) : new Map() };
+        })();
+        run.adopt(projectId, name.substring(0, 500));
+        for (const job of afterClaim) job();
         const documentIdOf = (n) => claimedDocs.get(src.docs[n - 1]?.stagedId) ?? null;
         // The description is the learner's (or the identity step's) and
         // stays unless there is none, in which case the summary below fills

@@ -4819,7 +4819,9 @@ Rules:
     // already shown (the assistant's ```short card) and are kept as titled.
     // `fromTopic`: there is no source, only what the course is about, and
     // nothing in the prompt says where that came from.
-    short_course: (title, { topics = 4, proposed = [], fromTopic = false, lang = null, sources = null } = {}) => ({
+    // `goal`: what the learner wrote they want from it (the New course
+    // window's Goal), when they wrote anything.
+    short_course: (title, { topics = 4, proposed = [], fromTopic = false, lang = null, sources = null, goal = '' } = {}) => ({
         system: `You plan a SHORT COURSE: one level of topics, no phases and no dates, learned in a few sittings.
 CRITICAL: Output ONLY a JSON object:
 { "name": "...", "description": "...", "topics": [ { "title": "...", "description": "..." } ] }
@@ -4829,8 +4831,8 @@ Rules:
 3. Titles are specific to this subject: never "Introduction", "Overview", "Conclusion", "Summary" or "Review".
 4. "name" names the course after what it teaches, in a few words. "description" is one or two sentences: what the learner can do after it.
 5. ${fromTopic ? 'There is no source material: write the topics from what the subject itself needs. Name no video, channel, website or author.' : 'Teach the subject of the source, not the source: never "In this video" or "the article says".'}
-${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
+${String(goal || '').trim() ? '6. Choose and order the topics for the learner\'s GOAL.\n' : ''}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
         system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,

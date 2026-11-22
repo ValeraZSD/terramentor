@@ -43,7 +43,8 @@
 //      Retry writes the same chapters and topics again;
 //  10. the assistant's ```short block is read by the client's parser, and its
 //      card shows the whole address it will open;
-//  11. the strip's words: a touch screen is not asked to drop a file.
+//  11. the New course window's material list: a touch screen is not asked to
+//      drop a file, and a read whose row went is let go.
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -274,7 +275,7 @@ const stub = createServer((req, res) => {
             const proposed = (user.match(/PROPOSED TOPICS:\n([\s\S]*?)\n\n/)?.[1] || '').split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
             const titles = proposed.length ? proposed
                 : shortAnswer === 'twelve' ? Array.from({ length: 12 }, (_, i) => `Topic ${i + 1}`)
-                    : ['Why fees matter §2', 'What an index holds', 'Rebalancing once a year (§4)', 'Choosing a fund'];
+                    : ['Why fees matter §2', 'What an index holds', 'Rebalancing once a year (§4)', 'Choosing a fund'].slice(0, shortAnswer === 'two' ? 2 : 4);
             content = JSON.stringify({
                 name: 'Index funds in a few days',
                 description: 'What an index fund is, why its low cost matters, and how to keep one balanced.',
@@ -952,6 +953,34 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
     ok('Retry with one of its chapters not found again refuses too', halfFrom.parts?.length === 2 && halfAgain.status === 409 && bodies.length === 0, [halfFrom.parts?.length, halfAgain.status, bodies.length]);
 }
 {
+    // A course whose first document is a scan with no text, the second a text
+    // file: Retry shows the model only the text file, as source 1, and its
+    // topics must point at the text file, not at the scan.
+    const pid = Number(db.prepare("INSERT INTO projects (name, made_from) VALUES ('A scan, then a text', ?)").run(JSON.stringify({ kind: 'file', file: 'scan.pdf' })).lastInsertRowid);
+    const addDoc = db.prepare("INSERT INTO documents (node_id, project_id, title, content, file_type, original_filename, status) VALUES (NULL, ?, ?, ?, ?, ?, 'ready')");
+    const scanId = Number(addDoc.run(pid, 'A scan', '', 'pdf', 'scan.pdf').lastInsertRowid);
+    const textId = Number(addDoc.run(pid, 'Index funds', `# Why fees matter\n\n${prose(40)}\n\n# Rebalancing\n\n${prose(40)}`, 'text', 'index-funds.md').lastInsertRowid);
+    shortAnswer = 'four';
+    const scanAgain = await api('POST', `/api/short-courses/${pid}/retry`);
+    const built = scanAgain.status === 200 && await waitBuilt(pid);
+    const cited = db.prepare('SELECT DISTINCT ns.document_id d FROM node_sources ns JOIN nodes n ON n.id = ns.node_id WHERE n.project_id = ?').all(pid).map(r => r.d);
+    ok('Retry past a scan with no text cites the text file, not the scan', built && cited.length === 1 && cited[0] === textId,
+        [scanAgain.status, built, { scanId, textId, cited }]);
+    ok('…and its prompt is titled by the text file, not the scan', /Index funds/.test(bodies.at(-1)?.user || '') && !/A scan/.test(bodies.at(-1)?.user || ''));
+}
+{
+    // An answer of two topics is not a short course: it is left failed, with
+    // Retry, rather than written as a course of two.
+    const pid = Number(db.prepare("INSERT INTO projects (name, made_from) VALUES ('Tying knots', ?)").run(JSON.stringify({ kind: 'topic', title: 'Tying knots' })).lastInsertRowid);
+    shortAnswer = 'two';
+    const twoAgain = await api('POST', `/api/short-courses/${pid}/retry`);
+    const built = twoAgain.status === 200 && await waitBuilt(pid);
+    shortAnswer = 'four';
+    const written = db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ? AND is_note = 0').get(pid).c;
+    const listedAs = (await api('GET', '/api/short-courses')).json?.courses?.find(x => x.id === pid)?.state;
+    ok('an answer of two topics writes no course and leaves it failed, with Retry', built && written === 0 && listedAs === 'failed', [twoAgain.status, built, written, listedAs]);
+}
+{
     // A book's preface is a chapter like any other, but alone it is a note.
     const withPreface = `# Preface\n\n${prose(2)}\n\n${book}`;
     const pForm = new FormData();
@@ -996,10 +1025,6 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
         && allPicked.status === 413 && allPicked.json?.reason === 'too_big' && /fewer chapters/.test(allPicked.json?.error || '')
         && counts()[0] === bigProjects && bodies.length === 0,
     [bigRead.size, bigRead.maxWords, bigParts.length, bigSum, allPicked.status, allPicked.json, bodies.length]);
-    const stripSource = readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8');
-    ok('…and the picker says so and holds Create back before the server has to',
-        /const tooMany = words > \(read\.maxWords \?\? Infinity\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew \|\| tooMany\}/.test(stripSource)
-        && /tooMany && ` · \$\{t\("Too much for one short course\."\)\}`/.test(stripSource));
 }
 {
     // So many parts that the later ones are left out of the model's call: a
@@ -1131,66 +1156,40 @@ const shownBlock = shown ? splitWriteBlocks(shown) : null;
 ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 3 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
 
 // ---- 11. the strip's words ----------------------------------------------------------------
-section('11. the strip says what the learner can do, in one word for a topic');
+// Links are added in the New course window's material list now
+// (creation/SourceFiles.tsx); Projects only lists the short courses made.
+// What the strip's box once asserted, the list keeps; its chapter picker and
+// its "too little for a course" stop are gone (the run sizes the course).
+// The list and the window are driven for real in tools/new-course-gates.mjs.
+section('11. the material list says what the learner can do, in one word for a topic');
 const stripSource = readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8').replace(/\r\n/g, '\n');
-// A finger cannot drag a file, so a touch screen is asked only for a link
+const listSource = readFileSync(join(ROOT, 'src/components/creation/SourceFiles.tsx'), 'utf8').replace(/\r\n/g, '\n');
+const windowSource = readFileSync(join(ROOT, 'src/components/NewProjectModal.tsx'), 'utf8').replace(/\r\n/g, '\n');
+// A finger cannot drag a file, so a touch screen is not asked to drop one
 // (two strangers on a phone read "drop a file" as something they could not do).
-ok('the box asks a touch screen for a link only, a mouse for a link or a file',
-    /useCanHover\(\)\s*\?\s*t\("Paste a link or drop a file"\)\s*:\s*t\("Paste a link"\)/.test(stripSource)
-    && /placeholder=\{prompt\}/.test(stripSource) && /aria-label=\{prompt\}/.test(stripSource));
-// The read says "3 topics"; the row under it counted the same topics as "items".
+ok('the hint asks a touch screen for no drop, a mouse for one',
+    /\{touch \? t\("([^"]+)"\)\s*:\s*t\("\1 · or drop them here"\)\}/.test(listSource));
+// The empty box was once a bare input drawn as a heading inside a card:
+// strangers read it as a title, and a caret was all that showed focus.
+ok('the link field is the app\'s TextInput, its hint tied to it',
+    /<TextInput\b[\s\S]*?id="course-material-link"[\s\S]*?aria-describedby="course-material-hint"/.test(listSource)
+    && /<p id="course-material-hint"/.test(listSource) && !/<input\b[^>]*type="text"/.test(listSource));
 // Two strangers read "Write it from the topic" as "from my video"; it is
 // written from the video's title alone, and the screen says so.
-// The empty box was a bare input drawn as a heading inside a card: strangers
-// read it as a title, a press on the card beside the words did nothing, and a
-// caret was all that showed focus. It is the app's own field now.
-{
-    const emptyBox = (stripSource.match(/if \(box\.state === 'empty'\) \{([\s\S]*?)\n {4}\}\n/) || [])[1] ?? '';
-    ok('the empty box is the app\'s TextInput (an edge, the focus ring, the whole field takes a press), its hint tied to it',
-        /<TextInput\b[\s\S]*?placeholder=\{prompt\}/.test(emptyBox) && !/<input\b[^>]*type="text"/.test(emptyBox)
-        && /aria-describedby=\{hintId\}/.test(emptyBox) && /<p id=\{hintId\}/.test(emptyBox));
-    // Read and Choose a file share one grid cell, one shown at a time: Read
-    // once something is typed, Choose a file until then. The cell is the grid
-    // wrapper's: in a flex row the two would stand side by side.
-    ok('…Read and Choose a file share one cell, one hidden while the other shows',
-        /<div className="grid grow">\s*<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?<\/Button>\s*<Button variant="neutral"/.test(emptyBox)
-        && /<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?\{t\("Read"\)\}/.test(emptyBox)
-        && /<Button variant="neutral" className=\{cx\('\[grid-area:1\/1\]', typed && 'invisible'\)\}[\s\S]*?\{t\("Choose a file"\)\}/.test(emptyBox));
-}
-ok('a video with no captions offers a course from its title, said to be without the video',
-    stripSource.includes('{t("Write it from the title")}') && !stripSource.includes('"Write it from the topic"')
+ok('a video with no captions offers its title as the course\'s name, said to be without the video',
+    listSource.includes('{t("Use its title as the name")}') && !listSource.includes('"Write it from the topic"')
     && /no_captions: k\("[^"]*from its title alone, without the video\."\)/.test(readFileSync(join(ROOT, 'src/components/shortCourses/readReasons.ts'), 'utf8')));
-ok('a row counts its topics as topics, the word the read used', stripSource.includes('t("{{done}} / {{total}} topics"') && !stripSource.includes('/ {{total}} items"'));
-ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(stripSource));
-ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(stripSource) && !/<textarea\b/.test(stripSource));
-ok('chapters picked that come to too few words say so, and Create waits for more',
-    /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
-    && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
-// A pasted transcript that came to too little left its box for a line with
-// Clear, which threw the text away; then for Clear and Back, two grey words
-// strangers could not choose between. It now stays in its box, text and all.
-const fromTranscriptBody = (stripSource.match(/const fromTranscript = async[\s\S]*?\n {4}\};\n/) || [''])[0];
-const tooSmallBranch = (fromTranscriptBody.match(/if \(r\.ok && r\.size === 'too-small'\) \{([\s\S]*?)\n {12}\}/) || [])[1] ?? null;
-ok('a pasted transcript too small for a course stays in its box with the text and its word count, and the read is let go',
-    tooSmallBranch !== null
-    && /discardShortSource\(r\.stagedId\)/.test(tooSmallBranch)
-    && /setBox\(\{ state: 'transcript', title, url, short: r\.words, min: r\.minWords \?\? null \}\)/.test(tooSmallBranch)
-    && /transcriptRef\.current\?\.focus\(\)/.test(tooSmallBranch)
-    && /return;/.test(tooSmallBranch)
-    && !/setTranscript\(|clear\(|show\(/.test(tooSmallBranch)
-    // The line says how much there was against how much a course needs, and
-    // once the text is edited it keeps only the need.
-    && /t\("\{\{words\}\} of \{\{min\}\} words", \{ count: box\.min, words: num\(box\.short \?\? 0\), min: num\(box\.min\) \}\)[\s\S]{0,200}· \{t\("Too little for a course\."\)\}/.test(stripSource)
-    && /box\.short == null && box\.min != null\s*\? t\("A course needs \{\{min\}\} words or more\.", \{ count: box\.min, min: num\(box\.min\) \}\)/.test(stripSource)
-    && /if \(box\.short != null\) setBox\(\{ \.\.\.box, short: undefined \}\)/.test(stripSource)
-    && !/\{t\("Back"\)\}<\/Button><\/>/.test(stripSource));
-// A transcript read had no controller: Cancel emptied the box (and the text),
-// then the late result appeared anyway over the empty box.
-ok('a transcript read is dropped once Cancel or a newer read takes the box',
-    /abortRef\.current = ac;/.test(fromTranscriptBody)
-    && /readShortSource\(\{ transcript: pasted,[^)]*\}, ac\.signal\)/.test(fromTranscriptBody)
-    && /if \(ac\.signal\.aborted\) return;[\s\S]*show\(r,/.test(fromTranscriptBody)
-    && /if \(!ac\.signal\.aborted\) addToast/.test(fromTranscriptBody));
+// The read says "3 topics"; the row under it counted the same topics as "items".
+ok('a short course\'s card counts its topics as topics', stripSource.includes('t("{{done}} / {{total}} topics"') && !stripSource.includes('/ {{total}} items"'));
+ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(listSource));
+ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(listSource) && !/<textarea\b/.test(listSource));
+// A transcript read once had no controller: Cancel emptied the box, then the
+// late result appeared anyway. Every read in the window owns one per row.
+const readIntoBody = (windowSource.match(/const readInto = useCallback\([\s\S]*?\n {4}\}, \[t\]\);/) || [''])[0];
+ok('a read, a link\'s or a transcript\'s, is dropped once its row is removed or read again, and its source let go',
+    /readers\.current\.get\(key\)\?\.abort\(\)/.test(readIntoBody)
+    && /api\.readShortSource\(body, ac\.signal\)/.test(readIntoBody)
+    && /if \(ac\.signal\.aborted \|\| !mounted\.current\) \{\s*if \(r\.ok\) void api\.discardShortSource\(r\.stagedId\)/.test(readIntoBody));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
 // A page is fetched with no redirect allowlist, so a link that redirects
@@ -1199,7 +1198,7 @@ ok('the assistant is told a short course is being written, not where from (a tit
 {
     const readerSource = readFileSync(join(ROOT, 'server/linkReader.js'), 'utf8').replace(/\r\n/g, '\n');
     const pageFetch = readerSource.match(/async function readPage[\s\S]*?fetchImpl\(link\.url, \{([\s\S]*?)\n {8}\}\);/)?.[1] ?? '';
-    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a short course's link[\s\S]*?\n\n/)?.[0] ?? '';
+    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a link added as course material[\s\S]*?\n\n/)?.[0] ?? '';
     ok('the traffic check names where a short course\'s redirects go and that each hop is a request',
         pageFetch !== '' && (/allowRedirect/.test(pageFetch) || (/redirect/i.test(capture) && /hop/i.test(capture))), capture);
 }

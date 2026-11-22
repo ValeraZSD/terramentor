@@ -1271,8 +1271,10 @@ export interface FeedDeadline {
     color: string;
     deadline: string;
     daysLeft: number;
-    paceStatus: string;
-    daysBehind: number;
+    /** The date's verdict against the learner's pace (server/paceModel.js). */
+    band: VerdictBand;
+    /** The band as three steps: what the chip's colour reads. */
+    paceStatus: 'critical' | 'falling_behind' | 'on_track';
 }
 
 /** One thing the learner actually did today (GET /api/today/activity). */
@@ -2045,6 +2047,9 @@ export type StagedDocument =
         };
         /** The language the file is written in (catalog code), or null when unsure. */
         language: string | null;
+        /** Read from a link in the New course window (a page, a video, a PDF
+         *  behind a link), or a transcript pasted for a video. Null for a file. */
+        source?: { kind: 'page' | 'video' | 'pdf' | 'file'; url: string | null; host: string | null; minutes: number | null; pasted: boolean } | null;
     }
     | { ok: false; title: string; error: string; reason: 'no_text' | 'unreadable' };
 

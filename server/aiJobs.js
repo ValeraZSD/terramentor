@@ -45,6 +45,7 @@ const JOB_OF_OPERATION = {
     explain: 'conversation',
     structure: 'courses',
     project_identity: 'courses',
+    course_shape: 'courses',
     search_words: 'courses',
     authoring: 'courses',
     insights: 'courses',

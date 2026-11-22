@@ -48,12 +48,12 @@ app.get('/api/feed', (req, res) => {
         // next opens, so a list past the cap keeps its end.
         const courses = String(req.query.courses || '').split(',').filter(s => /^\d{1,9}$/.test(s))
             .map(Number).filter(n => n > 0).slice(-200);
-        const { items, exhausted, transfers, placements, lessonWrite } = composeFeed({
+        const { items, exhausted, transfers, placements, lessonWrite, capacity } = composeFeed({
             limit, excludeKeys, gate, nodeId: scopedNode, projectId: scopedProject,
             lessonWrite: scopedNode ? feedGen.lessonWriteState(scopedNode) : null,
             courses,
         });
-        const header = buildFeedHeader();
+        const header = buildFeedHeader({ capacity });
         res.json({
             date: header.date, header, items, exhausted, transfers, placements, lessonWrite,
             nodeId: scopedNode, projectId: scopedProject,
@@ -115,7 +115,7 @@ app.post('/api/feed/consume', (req, res) => {
             uuid: typeof uuid === 'string' && uuid.length <= 100 ? uuid : null,
         });
         // Fresh counters so the client header ticks without a full refetch.
-        res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });
+        res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader({ plan: false }).stats });
         feedGen.ensureBuffer();
     } catch (err) {
         if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));

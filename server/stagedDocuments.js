@@ -53,10 +53,18 @@ export function persistDocument({ nodeId = null, projectId = null, title, text, 
     return out;
 }
 
+// Runs after the document is written, so it never throws: a failed queue
+// (the recovery check reads the database) would otherwise turn a saved
+// upload or a written course into a failed one, and a course creation would
+// fall back to phases for files this course already holds.
 function afterPersist(docId, kind) {
-    indexDocument(docId); // background semantic indexing (serialized; no-op if embeddings off)
-    // PDFs may have dropped their math at the text layer — see pdfRecovery.js.
-    if (kind === 'pdf') queueRecovery(docId);
+    try {
+        indexDocument(docId); // background semantic indexing (serialized; no-op if embeddings off)
+        // PDFs may have dropped their math at the text layer — see pdfRecovery.js.
+        if (kind === 'pdf') queueRecovery(docId);
+    } catch (err) {
+        console.log(`[documents] Could not queue indexing for document ${docId}: ${String(err?.message || err).slice(0, 120)}`);
+    }
 }
 
 /** Forget staged files older than a day, and any original nothing else holds. */
@@ -127,6 +135,25 @@ export function stagedSummary(row, { hint = null } = {}) {
         // leaves the learner unsure which language the lessons will be in. Null
         // when it cannot be said with confidence.
         language: chars ? stagedLanguage(row.content, hint) : null,
+        // A link read in the New course window (shortCourses.js): what it is
+        // and where it lives, so the window lists it as a link, not a file,
+        // and still does after "Back" from a run. Null for a file.
+        source: linkSource(row.origin),
+    };
+}
+
+function linkSource(json) {
+    let o = null;
+    try { o = JSON.parse(json || 'null'); } catch { return null; }
+    // Read from a link (a page, a video, a PDF behind a link), or a transcript
+    // pasted for a video; a file picked from the disk has neither.
+    if (!o || (typeof o.url !== 'string' && !o.pasted)) return null;
+    return {
+        kind: ['page', 'video', 'pdf'].includes(o.kind) ? o.kind : 'file',
+        url: typeof o.url === 'string' ? o.url : null,
+        host: typeof o.host === 'string' ? o.host : null,
+        minutes: Number.isFinite(o.minutes) ? o.minutes : null,
+        pasted: !!o.pasted,
     };
 }
 
@@ -196,12 +223,22 @@ export function loadStaged(ids = []) {
 /**
  * Move staged files into a project's vault. Returns `Map<stagedId, documentId>`
  * for the ones that were still staged (a second claim of the same id finds
- * nothing and claims nothing).
+ * nothing and claims nothing). Called inside an outer transaction, pass
+ * `jobs` (an array): the indexing and PDF recovery calls go into it, to be run
+ * once that transaction commits, so a rollback leaves no job queued for a
+ * document that no longer exists.
+ *
+ * `all`: every id must still be staged, else it throws `StagedClaimedError`
+ * and claims none. A course creation loads its staged rows before its model
+ * calls and claims them after; another creation holding the same ids may have
+ * claimed them meanwhile, and a course written without them would have topics
+ * that point at no source.
  */
-export function claimStaged(ids, projectId) {
+export function claimStaged(ids, projectId, jobs = null, { all = false } = {}) {
     const claimed = new Map();
     const take = db.transaction(() => {
         const rows = loadStaged(ids);
+        if (all && rows.length !== new Set(ids.map(String)).size) throw new StagedClaimedError();
         for (const row of rows) {
             const gone = db.prepare('DELETE FROM staged_documents WHERE id = ?').run(row.id);
             if (!gone.changes) continue;
@@ -216,8 +253,20 @@ export function claimStaged(ids, projectId) {
         }
     });
     take();
-    for (const { docId, kind } of claimed.values()) afterPersist(docId, kind);
+    for (const { docId, kind } of claimed.values()) {
+        if (jobs) jobs.push(() => afterPersist(docId, kind));
+        else afterPersist(docId, kind);
+    }
     return new Map([...claimed].map(([k, v]) => [k, v.docId]));
+}
+
+/** A creation's staged files were claimed by another creation while it ran. */
+export class StagedClaimedError extends Error {
+    constructor() {
+        super('Some of this course\'s files are no longer available: another course took them while it was being made.');
+        this.name = 'StagedClaimedError';
+        this.expose = true;
+    }
 }
 
 /** Drop one staged file (the dialog's ✕, or the dialog closed). */
