@@ -1026,13 +1026,16 @@ console.log('\n--- the log file and the shortcut ---');
     // Real shortcuts, written by Windows into a scratch Startup folder (never a
     // checked-in .lnk: a real one carries the machine's name and the user's id).
     if (process.platform === 'win32') {
-        const scratchLnk = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'lnk-'));
+        const scratchLnk = mkdtempSync(join(tmpdir(), 'terramentor-lnk-'));
+        // Every per-user folder points into the scratch one, so nothing this
+        // PowerShell does can reach the person's real Startup folder.
+        const scratchEnv = { ...process.env, APPDATA: scratchLnk, LOCALAPPDATA: scratchLnk, HOME: scratchLnk, USERPROFILE: scratchLnk };
         const write = (target, dir) => {
             const plan = L.autostartPlan({ platform: 'win32', target, args: lib(dir), env: { APPDATA: scratchLnk } });
             const ps = join(scratchLnk, 'make.ps1');
             writeFileSync(ps, plan.script, 'utf8');
             const made = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps],
-                { env: { ...process.env, APPDATA: scratchLnk }, windowsHide: true, encoding: 'utf8' });
+                { env: scratchEnv, windowsHide: true, encoding: 'utf8' });
             const fields = made.status === 0 && existsSync(plan.path) ? L.readShortcut?.(readFileSync(plan.path)) : null;
             return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
         };
@@ -1051,6 +1054,17 @@ console.log('\n--- the log file and the shortcut ---');
                 wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.printed),
             }), 'none');
             check('…its report matching the file, changed characters and all', wide.printed, wide.holds);
+            // Characters no single ANSI code page holds: Greek and Chinese
+            // beside Cyrillic and a Latin accent. Written through the ANSI
+            // page, the library came back as `?????` (a login item opening a
+            // folder that does not exist) and an app folder named this way got
+            // no shortcut at all. Every character must arrive as given.
+            const anyPage = write('C:\\Apps\\Τέρρα 中文 é\\Terramentor.exe', 'C:\\Users\\u\\Βιβλιοθήκη 学习 Мой café');
+            check('a path outside every code page: Windows wrote the shortcut', anyPage.status, 0);
+            check('…holding the app folder and the library exactly', anyPage.holds, anyPage.plan.record);
+            check('…and the script reports exactly that', anyPage.printed, anyPage.plan.record);
+            const libOnly = write('C:\\Apps\\Terramentor\\Terramentor.exe', 'C:\\Users\\u\\Βιβλιοθήκη 学习');
+            check('a plain app folder with such a library: the library arrives exactly', libOnly.holds, libOnly.plan.record);
         } finally {
             rmSync(scratchLnk, { recursive: true, force: true });
         }
