@@ -1,7 +1,8 @@
-// server/linkReader.js — what a link holds, read for a short course.
+// server/linkReader.js — what a link holds, read as course material.
 //
-// The learner pastes a link on Projects (or the assistant prepares one) and a
-// short course is built from what is behind it. This module reads it and does
+// The learner adds a link to a new course's material in the New course
+// window (or the assistant prepares one for a short course), and the course
+// is built from what is behind it. This module reads it and does
 // nothing else: it writes nothing and asks no model. (It does import the
 // entity decoder from lessonSources.js, and loading that file loads the
 // database module and the model layer too; the reader itself never uses them.)
