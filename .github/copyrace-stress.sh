@@ -10,6 +10,23 @@ export AI_PROVIDER=openai AI_BASE_URL=http://127.0.0.1:9/v1 AI_MODEL=none
 TM_BACKUP_DIR="$(mktemp -d)/b"; export TM_BACKUP_DIR
 OUT="$PWD/stress-out"; mkdir -p "$OUT"
 docker compose version
+echo "mkdir: $(mkdir --version | head -1) ($(readlink -f "$(command -v mkdir)"))"
+# 300 trials of 8 processes taking one name at once; a trial with more than
+# one winner means that way of taking a lock is not exclusive.
+race() {
+    local multi=0 t d w
+    for t in $(seq 1 300); do
+        d="$(mktemp -d)"
+        w="$(for k in 1 2 3 4 5 6 7 8; do
+            { if [ "$1" = mkdir ]; then mkdir "$d/l" 2>/dev/null; else ( set -C; : > "$d/l" ) 2>/dev/null; fi && echo won; } &
+        done; wait)"
+        [ "$(grep -c won <<< "$w")" -gt 1 ] && multi=$((multi + 1))
+        rm -rf "$d"
+    done
+    echo "$1: trials with more than one winner: $multi of 300"
+}
+race mkdir
+race noclobber
 docker events --format '{{.TimeNano}} {{.Type}} {{.Action}} {{.Actor.Attributes.name}} {{slice .Actor.ID 0 12}}' > "$OUT/events.txt" & EV=$!
 
 t() {
