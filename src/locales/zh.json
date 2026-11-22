@@ -3,7 +3,7 @@
   "It is spelled:": "正确拼写：",
   "Only a letter or two off.": "只差一两个字母。",
   "Forgive small spelling slips from now on": "今后容许小拼写错误",
-  "Small spelling slips now count as right. You can turn this off in Settings, under Learning.": "小拼写错误现在算作正确。可在设置的“学习”中关闭。",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "从你的下一个回答起，小拼写错误算作正确。可在设置的“学习”中关闭。",
   " — stopped early, some pages were not re-read": "— 提前停止，部分页面未重读",
   " ({{answers}} answers)_other": "（{{answers}} 次作答）",
   "— they'll appear here as they're ready.": "— 它们将在就绪后显示在此处。",

@@ -47,7 +47,7 @@ export default function SpellingOffer({ question, answer, projectId, className =
             <p aria-live="polite" className={cx(line, 'outline-none')} data-spelling-offer="on" tabIndex={-1}
                 ref={el => { if (el && focusLine.current) { focusLine.current = false; el.focus(); } }}
             >
-                {t("Small spelling slips now count as right. You can turn this off in Settings, under Learning.")}
+                {t("From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.")}
             </p>
         );
     }

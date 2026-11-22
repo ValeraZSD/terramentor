@@ -3,7 +3,7 @@
   "It is spelled:": "Orthographe correcte :",
   "Only a letter or two off.": "À une ou deux lettres près.",
   "Forgive small spelling slips from now on": "Tolérer désormais les petites fautes d'orthographe",
-  "Small spelling slips now count as right. You can turn this off in Settings, under Learning.": "Les petites fautes d'orthographe comptent désormais comme justes. Vous pouvez désactiver cette option dans Paramètres, sous Apprentissage.",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "À partir de votre prochaine réponse, les petites fautes d'orthographe comptent comme justes. Vous pouvez désactiver cette option dans Paramètres, sous Apprentissage.",
   " — stopped early, some pages were not re-read": "— arrêté prématurément, certaines pages n'ont pas été relues",
   " ({{answers}} answers)_many": " ({{answers}} réponses)",
   " ({{answers}} answers)_one": " ({{answers}} réponse)",

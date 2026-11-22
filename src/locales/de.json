@@ -3,7 +3,7 @@
   "It is spelled:": "Richtig geschrieben:",
   "Only a letter or two off.": "Nur ein, zwei Buchstaben daneben.",
   "Forgive small spelling slips from now on": "Kleine Schreibfehler ab jetzt verzeihen",
-  "Small spelling slips now count as right. You can turn this off in Settings, under Learning.": "Kleine Schreibfehler zählen jetzt als richtig. Du kannst das in den Einstellungen unter Lernen ausschalten.",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "Ab deiner nächsten Antwort zählen kleine Schreibfehler als richtig. Du kannst das in den Einstellungen unter Lernen ausschalten.",
   " — stopped early, some pages were not re-read": "— vorzeitig gestoppt, einige Seiten wurden nicht erneut gelesen",
   " ({{answers}} answers)_one": " ({{answers}} Antwort)",
   " ({{answers}} answers)_other": " ({{answers}} Antworten)",

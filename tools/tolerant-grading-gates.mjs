@@ -267,8 +267,10 @@ section('the switch offered after a near miss');
         check('...in a live region, as the report line beside it', el.querySelector('[data-spelling-offer]')?.getAttribute('aria-live') === 'polite');
         act(() => button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
         check('pressing it turns the setting on', turnedOn.length === 1 && turnedOn[0] === true, JSON.stringify(turnedOn));
-        check('...and the line then says what changed and where to undo it',
-            el.querySelector('[data-spelling-offer="on"]') && /now count as right/.test(el.textContent) && /Settings, under Learning/.test(el.textContent) && !el.querySelector('button'), el.innerHTML);
+        // The verdict above still says "Not quite": the line must say the change
+        // starts with the NEXT answer, or it reads as contradicting the verdict.
+        check('...and the line then says what changed, from when, and where to undo it',
+            el.querySelector('[data-spelling-offer="on"]') && /next answer on, small spelling slips count as right/.test(el.textContent) && /Settings, under Learning/.test(el.textContent) && !el.querySelector('button'), el.innerHTML);
         check('...and focus moves to that line, not to the page (the button left)',
             doc.activeElement === el.querySelector('[data-spelling-offer="on"]'), String(doc.activeElement?.outerHTML).slice(0, 120));
         done();
@@ -290,7 +292,7 @@ section('the switch offered after a near miss');
         const shownWhileSaving = !!el.querySelector('[data-spelling-offer="on"]');
         act(() => putBack());
         check('while the save runs the line says it is on', shownWhileSaving, el.innerHTML);
-        check('a save that failed: no "now count as right", the offer is back',
+        check('a save that failed: no "count as right" line, the offer is back',
             !el.querySelector('[data-spelling-offer="on"]') && !!el.querySelector('[data-spelling-offer] button'), el.innerHTML);
         done();
     }
