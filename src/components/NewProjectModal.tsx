@@ -216,11 +216,13 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
         });
     }, [t]);
 
+    const addToast = useStore(s => s.addToast);
     const addFiles = useCallback((all: File[]) => {
         // SourceFiles has already cut a pick to the room it saw and said so;
         // this is the count that moves at once, so two picks that land in the
-        // same tick still share the hundred.
+        // same tick still share the hundred, and a cut here is said too.
         const picked = all.slice(0, Math.max(0, MAX_SOURCE_FILES - filesRef.current.length));
+        if (picked.length < all.length) addToast('info', t("A course is made from at most 100 links and files."));
         const entries: SourceFile[] = picked.map((f) => ({
             key: `src-${++rowCount.current}`, name: f.name, size: f.size,
             status: f.size > MAX_FILE_BYTES ? 'done' : 'reading',
@@ -245,7 +247,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
             }
         }
         for (const batch of batches) stageBatch(batch.map(b => b.file), batch.map(b => b.key));
-    }, [stageBatch, t]);
+    }, [stageBatch, addToast, t]);
 
     // Read one link (or a transcript pasted for it) into its row, by its own
     // request. A window closed or a row removed while it read is cleared up by
@@ -296,8 +298,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
         pumpReads();
     }, [pumpReads]);
 
-    const addToast = useStore(s => s.addToast);
-    const addLinks = useCallback((urls: string[]) => {
+    // The links the cap refused, so a caller can keep them where they were typed.
+    const addLinks = useCallback((urls: string[]): string[] => {
         // A link already in the list is not read twice.
         const have = new Set(filesRef.current.map(f => f.url).filter(Boolean));
         const wanted = urls.filter(u => !have.has(u));
@@ -311,6 +313,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
         setFiles(prev => [...prev, ...entries]);
         readQueue.current = [...readQueue.current, ...entries.map(e => ({ key: e.key, body: { url: e.url } }))];
         pumpReads();
+        return wanted.slice(fresh.length);
     }, [pumpReads, addToast, t]);
 
     const linkFixes = {
@@ -470,7 +473,11 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
                             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
                                 <p className="text-sm text-slate-700 dark:text-slate-200">{t("That is a link.")}</p>
                                 <Button variant="neutral" size="sm" icon={<Link2 className="h-4 w-4" />}
-                                    onClick={() => { addLinks(nameLinks); nameTyped.current = false; setNewName(''); }}>
+                                    onClick={() => {
+                                        const refused = addLinks(nameLinks);
+                                        if (refused.length) { setNewName(refused.join(' ')); return; }
+                                        nameTyped.current = false; setNewName('');
+                                    }}>
                                     {t("Add it to the course material")}
                                 </Button>
                             </div>

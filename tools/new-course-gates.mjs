@@ -635,6 +635,8 @@ try {
     await settle();
     const fresh = buttons().find(b => b.textContent.includes('Create a course'));
     if (fresh) await click(fresh);
+    // Held now: once files are listed the box's placeholder is the first title.
+    const nameBox = nameField();
     reads.length = 0;
     const many = Array.from({ length: 6 }, (_, i) => `https://example.org/part-${i + 1}`);
     await paste(linkField(), many.join('\n'));
@@ -671,6 +673,32 @@ try {
     await settle();
     const capToast = useStore.getState().toasts.slice(toastsAtCap).find(x => /at most 100 links and files/.test(x.message));
     ok('a file picked with the list full is left out too, and it says so', rows() === 100 && !/One too many/.test(all().textContent) && !!capToast, [rows(), capToast?.message]);
+    // Two picks that land before one render share the last place: the second
+    // is cut by the live count, not by what its own pick saw, and that cut is
+    // said too, never silent.
+    const freeOne = buttons().find(b => /^Remove .*example\.org/.test(b.getAttribute('aria-label') || ''));
+    if (freeOne) await click(freeOne);
+    // The row above left the same message up, and an identical toast folds into it.
+    act(() => useStore.setState({ toasts: [] }));
+    const toastsSameTick = 0;
+    // Two drops: each is read after an await, so both reads finish before
+    // either adds a row, and both see one place left.
+    await act(async () => {
+        for (const name of ['Same tick first.txt', 'Same tick second.txt']) {
+            const ev = new w.Event('drop', { bubbles: true, cancelable: true });
+            ev.dataTransfer = { files: [new w.File(['notes'], name, { type: 'text/plain' })], items: [], getData: () => '' };
+            linkField().dispatchEvent(ev);
+        }
+    });
+    await settle();
+    const tickToast = useStore.getState().toasts.slice(toastsSameTick).find(x => /at most 100 links and files/.test(x.message));
+    ok('two drops read in one tick with one place left: one is taken, the other is left out and it says so', rows() === 100 && /Same tick first/.test(all().textContent) && !/Same tick second/.test(all().textContent) && !!tickToast, [rows(), tickToast?.message]);
+    // A link typed in Name with the list full is refused, and stays where it
+    // was typed rather than vanishing from the form.
+    const REFUSED = 'https://example.org/one-past-the-cap';
+    await fill(nameBox, REFUSED);
+    await press('Add it to the course material');
+    ok('a Name link the full list refuses stays in Name', nameBox.value === REFUSED && rows() === 100, [nameBox.value, rows()]);
 } catch (e) {
     ok('the window\'s cases ran to their end', false, e.stack || e.message);
 }
