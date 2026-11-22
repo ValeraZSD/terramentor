@@ -731,80 +731,46 @@ const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
 const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(String(s), 'utf8').toString('base64')}')))`;
 
 /**
- * The C# that saves a shortcut through the shell's own IShellLinkW, the
- * UTF-16 interface. WScript.Shell's shortcut object is the obvious tool and
- * the wrong one: it passes its fields through the ANSI code page, so on a
+ * An empty shortcut (MS-SHLLINK: the header with ShellLink's class id and no
+ * fields), base64, for the shell to open and fill in.
+ *
+ * The fields are filled through Shell.Application's ShellLinkObject, which
+ * takes them as UTF-16. WScript.Shell's shortcut object is the obvious tool
+ * and the wrong one: it passes its fields through the ANSI code page, so on a
  * Cyrillic system a library called `Βιβλιοθήκη` was stored as `??????????`
  * (the login item opened a folder that does not exist), and a target with
- * such characters was refused outright, leaving no shortcut at all.
- * `Save` takes the fields as the script's `$s` table and returns what the
- * saved link holds, read from the same object.
+ * such characters was refused outright, leaving no shortcut at all. Compiling
+ * IShellLinkW with Add-Type was tried and dropped: csc writes its output under
+ * %TEMP% through the same code page, so it fails for a user whose profile
+ * folder has such a name.
  */
-const SHELL_LINK_CS = `using System;
-using System.Collections;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
-using System.Text;
-namespace TerramentorLnk {
-    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IShellLinkW {
-        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int cch, IntPtr findData, uint flags);
-        void GetIDList(out IntPtr pidl);
-        void SetIDList(IntPtr pidl);
-        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int cch);
-        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
-        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder dir, int cch);
-        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string dir);
-        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder args, int cch);
-        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string args);
-        void GetHotkey(out short key);
-        void SetHotkey(short key);
-        void GetShowCmd(out int show);
-        void SetShowCmd(int show);
-        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int cch, out int index);
-        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
-        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
-        void Resolve(IntPtr hwnd, uint flags);
-        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
-    }
-    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
-    public class ShellLink { }
-    public static class Shortcut {
-        static string Field(IDictionary s, string key) { object v = s[key]; return v == null ? null : v.ToString(); }
-        public static string[] Save(string lnk, IDictionary s) {
-            IShellLinkW link = (IShellLinkW)new ShellLink();
-            link.SetPath(Field(s, "TargetPath"));
-            if (Field(s, "Arguments") != null) link.SetArguments(Field(s, "Arguments"));
-            link.SetWorkingDirectory(Field(s, "WorkingDirectory"));
-            if (Field(s, "IconLocation") != null) link.SetIconLocation(Field(s, "IconLocation"), 0);
-            link.SetShowCmd(Convert.ToInt32(s["WindowStyle"]));
-            link.SetDescription(Field(s, "Description"));
-            ((IPersistFile)link).Save(lnk, true);
-            StringBuilder args = new StringBuilder(32768), dir = new StringBuilder(32768);
-            link.GetArguments(args, args.Capacity);
-            link.GetWorkingDirectory(dir, dir.Capacity);
-            return new string[] { args.ToString(), dir.ToString() };
-        }
-    }
-}`;
+const EMPTY_LNK = (() => {
+    const b = Buffer.alloc(0x50); // the 76-byte header, then the 4-byte terminal block
+    b.writeUInt32LE(0x4C, 0);
+    Buffer.from('0114020000000000c000000000000046', 'hex').copy(b, 4); // CLSID_ShellLink
+    b.writeUInt32LE(1, 0x3C); // SW_SHOWNORMAL until the shell sets it
+    return b.toString('base64');
+})();
 
 /** The PowerShell that writes one Windows shortcut. `shellFolder` is the
- *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
- *  a .lnk is written through a COM interface and only PowerShell can reach one
- *  here. The fields go in `$s`, then SHELL_LINK_CS saves them. Deleting one
- *  needs no script, so there is no counterpart. */
+ *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup. The app
+ *  reaches the shell's COM objects only through PowerShell. An existing
+ *  shortcut is opened and its fields set, so a person's own changes to it (a
+ *  hotkey) stay; a missing one starts as EMPTY_LNK. Deleting one needs no
+ *  script, so there is no counterpart. */
 export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME, report = false }) {
     return [
         '$ErrorActionPreference = "Stop"',
         `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
         'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-        `$lnk = Join-Path $dir ${psValue(name + '.lnk')}`,
-        `Add-Type -TypeDefinition @'\n${SHELL_LINK_CS}\n'@`,
-        '$s = @{}',
-        `$s.TargetPath = ${psValue(target)}`,
+        `$name = ${psValue(name + '.lnk')}`,
+        '$lnk = Join-Path $dir $name',
+        `if (-not (Test-Path -LiteralPath $lnk)) { [IO.File]::WriteAllBytes($lnk, [Convert]::FromBase64String('${EMPTY_LNK}')) }`,
+        '$s = (New-Object -ComObject Shell.Application).NameSpace($dir).ParseName($name).GetLink',
+        `$s.Path = ${psValue(target)}`,
         args ? `$s.Arguments = ${psValue(args)}` : null,
         `$s.WorkingDirectory = ${psValue(workingDir)}`,
-        icon ? `$s.IconLocation = ${psValue(icon)}` : null,
+        icon ? `$s.SetIconLocation(${psValue(icon)}, 0)` : null,
         // Minimized. Every target `launchCommand` prefers is windowless already
         // — the compiled launcher, or wscript.exe running the shim — so this
         // changes nothing for them. It is for the two fallbacks that DO open a
@@ -813,14 +779,14 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         // is not a log viewer; it IS the server, so closing it to tidy the
         // desktop stops the app. Minimised is as close as a .lnk gets to keeping
         // it out of the way.
-        '$s.WindowStyle = 7',
+        '$s.ShowCommand = 7',
         `$s.Description = ${psValue(DESCRIPTION)}`,
-        '$held = [TerramentorLnk.Shortcut]::Save($lnk, $s)',
-        // `report`: print what the saved shortcut object holds, base64 so no
+        '$s.Save()',
+        // `report`: print what this shortcut object now holds, base64 so no
         // console code page can touch it. From this object, never by reading
         // the file back: another library may write the same file in between
         // (savedShortcutRecord).
-        report ? '$saved = [ordered]@{ arguments = [string]$held[0]; workingDir = [string]$held[1] } | ConvertTo-Json -Compress' : null,
+        report ? '$saved = [ordered]@{ arguments = [string]$s.Arguments; workingDir = [string]$s.WorkingDirectory } | ConvertTo-Json -Compress' : null,
         report ? '[Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($saved)))' : null,
     ].filter(Boolean).join('\n');
 }
@@ -1303,7 +1269,8 @@ export function unpinnedLibraryOf(root, { platform = process.platform, env = pro
  *   which sends fields through the ANSI code page, so `é` on a Cyrillic
  *   system came back as `e`): `holds`, read back from the file, says whose it
  *   is; `wrote`, what this copy asked for, says whether this copy would write
- *   anything different.
+ *   anything different. A marker whose two records differ is such a lossy
+ *   write, and is repaired by the next start that owns it.
  * - With no marker (an item from before markers, or a marker from before
  *   shortcut records, which held the script), the item is this library's when
  *   its own `--data-dir` is this library — the whole path, not a prefix — or
@@ -1322,7 +1289,9 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
         let m = null;
         try { m = JSON.parse(marker); } catch { /* the script */ }
         if (typeof m?.wrote === 'string' && typeof m?.holds === 'string') {
-            return current === m.holds && m.wrote !== wanted ? 'rewrite' : 'none';
+            // `holds` unlike `wrote`: an older copy's lossy write, so even the
+            // same copy rewrites it once. The rewrite holds what it wrote.
+            return current === m.holds && (m.wrote !== wanted || m.holds !== m.wrote) ? 'rewrite' : 'none';
         }
         marker = null;
     }
