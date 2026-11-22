@@ -253,6 +253,22 @@ await back();
 check('closed by the app, one Back leaves the page', path() === '/', path());
 await goTo('/projects');
 
+section('5b. a Back that jumps two entries stops at a dialog that refuses');
+// New course opens first, then a dialog that cannot be closed on top of it.
+// A long-press on Back (or history.go(-2)) pops both marks at once.
+await set({ nc: true }); await settle();
+await set({ a: true, closable: false }); await settle();
+check('both are open', !!titled('New course') && !!titled('Dialog A'));
+await act(async () => { w.history.go(-2); }); await settle();
+check('the dialog on top refuses, and the one under it is not closed past it',
+    !!titled('Dialog A') && !!titled('New course') && logged() === '', { a: !!titled('Dialog A'), nc: !!titled('New course'), log: log.slice() });
+check('the page did not move', path() === '/projects', path());
+await set({ a: false, closable: true, nc: false }); await settle();
+logged();
+await back();
+check('closed by the app, one Back leaves the page', path() === '/', path());
+await goTo('/projects');
+
 section('6. a dialog that goes to another page');
 await set({ a: true }); await settle();
 await click(body().querySelector('#go'));

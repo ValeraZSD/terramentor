@@ -30,7 +30,10 @@
 
 import { useEffect, useRef } from 'react';
 
-type Open = { back: () => void };
+/** `back` returns true only when it is sure the overlay closed; anything else
+ *  (a refusal, an ask, a step back, or not known) stops a Back that jumped
+ *  over several entries at that overlay. */
+type Open = { back: () => boolean | void };
 
 const KEY = 'tmDialog';
 const open: Open[] = [];
@@ -107,12 +110,16 @@ function onPop(e: PopStateEvent) {
     }
     const dropped = known - now;
     known = now;
-    // Back over N marks closes the top N dialogs, top first. Landing on a mark
-    // from below (Back from a page a dialog navigated to, or Forward) closes
-    // nothing: the rule then steps over the stale entry.
+    // Back over N marks asks the top N overlays to close, top first, and stops
+    // at the first one that is not sure it closed: a dialog that refuses or
+    // asks keeps the ones under it open, and the rule gives their entries back.
+    // Landing on a mark from below (Back from a page a dialog navigated to, or
+    // Forward) closes nothing: the rule then steps over the stale entry.
     // A close that throws must not leave the rest of the rule undone.
     try {
-        if (dropped > 0) for (const d of open.slice(-dropped).reverse()) d.back();
+        if (dropped > 0) {
+            for (const d of open.slice(-dropped).reverse()) if (d.back() !== true) break;
+        }
     } finally {
         schedule();
     }
@@ -134,7 +141,7 @@ listen();
  * A dialog is open: Back calls `back` while it is the topmost. Returns the
  * close: call it when the dialog goes away by any route.
  */
-export function holdBackEntry(back: () => void): () => void {
+export function holdBackEntry(back: () => boolean | void): () => void {
     listen();
     const entry: Open = { back };
     open.push(entry);
@@ -156,7 +163,8 @@ export function useBackClose(isOpen: boolean, close: () => void) {
     closeRef.current = close;
     useEffect(() => {
         if (!isOpen) return;
-        return holdBackEntry(() => closeRef.current());
+        // A list or menu always closes on Back, so a jump may go on past it.
+        return holdBackEntry(() => { closeRef.current(); return true; });
     }, [isOpen]);
 }
 
