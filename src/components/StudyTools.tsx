@@ -133,6 +133,9 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                 return;
             }
         }
+        // Every attempt was voided by a write made while it was out: the list
+        // on screen may be stale, so offer the retry rather than leave it.
+        setFailed(prev => ({ ...prev, [kind]: true }));
     };
     const noteWrite = (kind: ListKind) => { writes.current[kind]++; };
 

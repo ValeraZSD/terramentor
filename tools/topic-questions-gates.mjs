@@ -371,6 +371,34 @@ console.log('--- the two lists are read on their own ---');
         heldCards.length === 0 && shown(m) === 'Front 2,Front 8', shown(m));
     m.unmount();
 }
+{
+    // A card is deleted while each of the three read attempts is out: every
+    // answer is void, and the list must offer Try again, not sit stale.
+    quizzes = []; deleted.length = 0;
+    cards = [card(2, later), card(3, later), card(4, later), card(5, later)];
+    const m = globalThis.__mount({ nodeId: 14, topicTitle: 'Voided reads' });
+    await flush(); await flush();
+    holdCards = true;
+    await click(button(m.el, 'Practise all'));
+    await click(button(m.el, 'Exit') ?? button(m.el, 'Back'));
+    for (const id of [2, 3, 4]) {
+        globalThis.__confirm = true;
+        const li = [...m.el.querySelectorAll('[data-section="cards"] li')].find(el => (el.textContent.match(/Front \d+/) || [''])[0] === `Front ${id}`);
+        await click([...(li?.querySelectorAll('button') ?? [])].find(b => b.getAttribute('aria-label') === 'Delete'));
+        globalThis.__confirm = false;
+        await act(async () => { heldCards.shift()?.(); });
+        await flush(); await flush();
+    }
+    holdCards = false;
+    const failed = m.el.querySelector('[data-section="cards"] [role="alert"]');
+    check('a list whose every read was voided by a delete offers Try again',
+        JSON.stringify(deleted) === '[["card",2],["card",3],["card",4]]' && /Could not load these cards/.test(failed?.textContent ?? '') && !!button(failed, 'Try again'),
+        JSON.stringify({ deleted, alert: failed?.textContent ?? null }));
+    if (failed) await click(button(failed, 'Try again'));
+    check('...and Try again reads it', !m.el.querySelector('[data-section="cards"] [role="alert"]')
+        && /Front 5/.test(m.el.querySelector('[data-section="cards"]')?.textContent ?? ''), m.el.querySelector('[data-section="cards"]')?.textContent?.slice(0, 200));
+    m.unmount();
+}
 
 console.log('--- two sets that read the same ---');
 {
