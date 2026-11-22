@@ -51,21 +51,27 @@ chmod 700 "$KEYS"
 die() { echo "copy.sh: $*" >&2; exit 1; }
 
 # One command at a time per copy: `new`, `restore`, `remove`, `update` and
-# `backup` (which waits for it) take the copy's lock (a directory: mkdir either makes it or fails, atomically),
-# and the exit handler gives it back and undoes a half-made `new`.
+# `backup` (which waits for it) take the copy's lock, and the exit handler
+# gives it back and undoes a half-made `new`.
+#
+# A lock is a file bash itself creates with noclobber (an O_EXCL open: it
+# either makes the file or fails), never a directory made by `mkdir`: the
+# `mkdir` of a CI runner has let two runs both "make" the same directory in the
+# same microsecond, and both then recreated the proxy at once.
 LOCKS="$HERE/.locks"
 HELD=()
 UNDO_NEW=""
 on_exit() {
     local rc=$?
     [ -n "$UNDO_NEW" ] && undo_new "$UNDO_NEW"
-    for l in ${HELD[@]+"${HELD[@]}"}; do rmdir "$LOCKS/$l" 2>/dev/null || true; done
+    for l in ${HELD[@]+"${HELD[@]}"}; do rm -f "$LOCKS/$l"; done
     exit "$rc"
 }
 trap on_exit EXIT
+take() { ( set -C; : > "$LOCKS/$1" ) 2>/dev/null; }
 lock() {
     mkdir -p "$LOCKS"
-    mkdir "$LOCKS/$1" 2>/dev/null || die "another copy.sh is working on $1 (if none is, a killed run left $LOCKS/$1: remove it)"
+    take "$1" || die "another copy.sh is working on $1 (if none is, a killed run left $LOCKS/$1: remove it)"
     HELD+=("$1")
 }
 # Waited for, not refused: the shared proxy's lock, "_proxy" (a copy's name
@@ -74,7 +80,7 @@ lock() {
 wait_lock() {
     mkdir -p "$LOCKS"
     for _ in $(seq 1 300); do
-        if mkdir "$LOCKS/$1" 2>/dev/null; then HELD+=("$1"); return 0; fi
+        if take "$1"; then HELD+=("$1"); return 0; fi
         sleep 1
     done
     local why="waited 5 minutes for $LOCKS/$1 (if no copy.sh runs, a killed run left it: remove it)"
@@ -82,7 +88,7 @@ wait_lock() {
     die "$why"
 }
 unlock() {
-    rmdir "$LOCKS/$1" 2>/dev/null || true
+    rm -f "$LOCKS/$1"
     local kept=() l
     for l in ${HELD[@]+"${HELD[@]}"}; do [ "$l" = "$1" ] || kept+=("$l"); done
     HELD=(${kept[@]+"${kept[@]}"})

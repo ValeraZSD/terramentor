@@ -159,11 +159,11 @@ r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
 [ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = $((before + 2)) ] && ok "two backups at once keep two archives" || no "two backups at once kept $(ls "$TM_BACKUP_DIR/$A")"
 # Another run holding the copy (a restore, as it would): a backup waits for it
 # rather than reading a library that may change halfway.
-mkdir -p "$HERE/.locks" && mkdir "$HERE/.locks/$A"
+mkdir -p "$HERE/.locks" && : > "$HERE/.locks/$A"
 bash "$COPY" backup "$A" >/dev/null & p1=$!
 sleep 3
 kill -0 "$p1" 2>/dev/null && waited=1 || waited=0
-rmdir "$HERE/.locks/$A"
+rm -f "$HERE/.locks/$A"
 r1=0; wait "$p1" || r1=$?
 [ "$waited" = 1 ] && [ "$r1" = 0 ] && ok "a backup waits while another run holds $A, then completes" || no "backup with $A held: waited=$waited exit=$r1"
 newest="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | sort | tail -1)"
