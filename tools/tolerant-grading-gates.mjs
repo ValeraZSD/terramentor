@@ -226,7 +226,15 @@ section('the switch offered after a near miss');
             name: 'offer-under-test',
             setup(b) {
                 b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub-store' }));
-                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({ contents: 'export const useStore = (sel) => sel(globalThis.__offerState);', loader: 'js' }));
+                // A store that re-renders on change, as zustand does: a save that fails
+                // puts the setting back after the press, and the offer must follow it.
+                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({
+                    contents: `import { useSyncExternalStore } from 'react';
+                        const heard = new Set();
+                        globalThis.__offerSet = (patch) => { globalThis.__offerState = { ...globalThis.__offerState, ...patch }; heard.forEach(l => l()); };
+                        export const useStore = (sel) => useSyncExternalStore(l => { heard.add(l); return () => heard.delete(l); }, () => sel(globalThis.__offerState));`,
+                    loader: 'js', resolveDir: repoRoot,
+                }));
                 b.onResolve({ filter: /(^|\/)i18n$/ }, (a) => (a.importer.includes('src') ? { path: stub } : undefined));
             },
         }],
@@ -239,7 +247,7 @@ section('the switch offered after a near miss');
         globalThis.__offerState = {
             forgiveSpelling: false,
             projects: [{ id: 1, learning_language: '' }, { id: 2, learning_language: 'nl' }],
-            setForgiveSpelling: async (on) => { turnedOn.push(on); },
+            setForgiveSpelling: async (on) => { turnedOn.push(on); globalThis.__offerSet({ forgiveSpelling: on }); },
             ...over,
         };
     };
@@ -261,6 +269,29 @@ section('the switch offered after a near miss');
         check('pressing it turns the setting on', turnedOn.length === 1 && turnedOn[0] === true, JSON.stringify(turnedOn));
         check('...and the line then says what changed and where to undo it',
             el.querySelector('[data-spelling-offer="on"]') && /now count as right/.test(el.textContent) && /Settings, under Learning/.test(el.textContent) && !el.querySelector('button'), el.innerHTML);
+        check('...and focus moves to that line, not to the page (the button left)',
+            doc.activeElement === el.querySelector('[data-spelling-offer="on"]'), String(doc.activeElement?.outerHTML).slice(0, 120));
+        done();
+    }
+    {
+        // The write failed: the store puts the setting back and says so in a toast.
+        // The put-back is run by hand inside a sync act: React's async act opens
+        // a MessageChannel under esbuild that keeps this process alive.
+        let putBack = null;
+        state({
+            setForgiveSpelling: async (on) => {
+                globalThis.__offerSet({ forgiveSpelling: on });
+                putBack = () => globalThis.__offerSet({ forgiveSpelling: false });
+            },
+        });
+        const { el, done } = render('offer', near);
+        const button = el.querySelector('[data-spelling-offer] button');
+        act(() => button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+        const shownWhileSaving = !!el.querySelector('[data-spelling-offer="on"]');
+        act(() => putBack());
+        check('while the save runs the line says it is on', shownWhileSaving, el.innerHTML);
+        check('a save that failed: no "now count as right", the offer is back',
+            !el.querySelector('[data-spelling-offer="on"]') && !!el.querySelector('[data-spelling-offer] button'), el.innerHTML);
         done();
     }
     state({ forgiveSpelling: true });
@@ -269,7 +300,10 @@ section('the switch offered after a near miss');
     { const { el, done } = render('offer', { ...near, answer: 'photosynthesys is a process' }); check('not a near miss: nothing offered', el.innerHTML === '', el.innerHTML); done(); }
     { const { el, done } = render('offer', { question: fill('chlorine'), answer: 'chloride', projectId: 1 }); check('...nor for a changed letter (chlorine typed as chloride)', el.innerHTML === ''); done(); }
     { const { el, done } = render('offer', { ...near, projectId: 2 }); check('a course that teaches a language: never offered, the spelling is the lesson', el.innerHTML === '', el.innerHTML); done(); }
-    { const { el, done } = render('offer', { ...near, projectId: null }); check('no course known: offered', !!el.querySelector('[data-spelling-offer] button')); done(); }
+    { const { el, done } = render('offer', { ...near, projectId: null }); check('no course known: nothing (it may be a language course)', el.innerHTML === '', el.innerHTML); done(); }
+    state({ projects: [] });
+    { const { el, done } = render('offer', near); check('...nor before the courses have loaded', el.innerHTML === '', el.innerHTML); done(); }
+    state();
     { const { el, done } = render('offer', { question: { type: 'short_answer', correct_answer: 'photosynthesis' }, answer: 'photosynthsis', projectId: 1 }); check('a short answer (the checker ignores spelling already): nothing', el.innerHTML === ''); done(); }
     {
         const { el, done } = render('note', { question: fill('photosynthesis'), answer: 'photosynthsis', headed: true });
@@ -283,8 +317,17 @@ section('the switch offered after a near miss');
     }
     check('the feed offers it under a wrong verdict, not under "Not marked"',
         /!result\.correct && !result\.unsure && <SpellingOffer question=\{question\} answer=\{result\.answer\} projectId=\{projectId\}/.test(feedQuestion));
-    check('the quiz and check review offer it under a wrong answer',
-        /!correct && answer && <SpellingOffer question=\{question\} answer=\{answer\} projectId=\{projectId\}/.test(read('src/components/answer/AnswerReviewItem.tsx')));
+    check('the quiz and check review offer it under a wrong answer, never on a mock exam (graded strictly)',
+        /!correct && answer && surface !== 'mock' && <SpellingOffer question=\{question\} answer=\{answer\} projectId=\{projectId\}/.test(read('src/components/answer/AnswerReviewItem.tsx')));
+    check('...and the mock exam grades without the setting, so the line above stays needed',
+        /gradeLocally\(safeParse\(part\.item\) \|\| \{\}, text\)/.test(read('server/mockExams.js')));
+    // Every review mount names its course: the offer stays silent without one.
+    for (const file of ['src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx', 'src/components/feed/SittingReviewView.tsx']) {
+        const src = read(file);
+        const at = src.indexOf('<AnswerReviewItem');
+        const mount = src.slice(at, src.indexOf('/>', at));
+        check(`${file.split('/').pop()} hands its review rows the course id`, /projectId=\{/.test(mount), mount.slice(0, 200));
+    }
 }
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }

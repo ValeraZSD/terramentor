@@ -77,6 +77,7 @@ export default function QuizView({ quiz, onClose }: Props) {
     // Topic + project names for the review screen's "teach me this" / video
     // search. A ghost question is about ANOTHER topic, so it carries its own.
     const nodeTitle = useStore(s => s.nodes.find(n => n.id === quiz.node_id)?.title ?? '');
+    const projectId = useStore(s => s.currentProjectId);
     const projectName = useStore(s => s.projects.find(p => p.id === s.currentProjectId)?.name ?? null);
 
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -328,6 +329,7 @@ export default function QuizView({ quiz, onClose }: Props) {
                             nodeId={q.ghostNodeId ?? quiz.node_id}
                             nodeTitle={q.ghostNodeTitle || nodeTitle || undefined}
                             projectName={projectName}
+                            projectId={projectId}
                             surface="quiz-review"
                             badge={q.isGhost ? (
                                 <span className="inline-flex items-center gap-1 mb-1 px-1.5 py-0.5 rounded text-3xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">

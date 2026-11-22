@@ -90,7 +90,9 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                             </div>
                         )}
                         {correct && answer && <SpellingNote question={question} answer={answer} className="mt-1.5" />}
-                        {!correct && answer && <SpellingOffer question={question} answer={answer} projectId={projectId} className="mt-1.5" />}
+                        {/* A mock exam is graded strictly whatever the setting
+                            (server/mockExams.js), so the switch is not offered there. */}
+                        {!correct && answer && surface !== 'mock' && <SpellingOffer question={question} answer={answer} projectId={projectId} className="mt-1.5" />}
                         {said && (
                             <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 italic"><MathText content={said} /></p>
                         )}
