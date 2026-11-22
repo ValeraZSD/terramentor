@@ -4,7 +4,7 @@ import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { usePortalAccent } from '../hooks/usePortalAccent';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
 import { CONTROL_SIZE_ICON } from './ui/vocabulary';
@@ -44,9 +44,13 @@ interface Props {
      *  mastery check (`z-[55]`); a dialog opened from inside one of those
      *  passes a layer above it. */
     layer?: string;
+    /** A dialog of steps, past its first: a ← before the title goes back one
+     *  step. In the head, not a row of its own in the body: one small button
+     *  took a whole line there. */
+    onBack?: () => void;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, footer, closable = true, closeButton = true, layer = 'z-50' }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, footer, closable = true, closeButton = true, layer = 'z-50', onBack }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -94,7 +98,21 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                         role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined}
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
-                            <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
+                            <div className="flex min-w-0 items-center gap-2">
+                                {/* The ✕'s twin at the other end: the same size,
+                                    pulled out by the same margin. */}
+                                {onBack && (
+                                    <IconButton
+                                        size="sm"
+                                        onClick={onBack}
+                                        label={t("Back")}
+                                        tooltip={false}
+                                        icon={<ArrowLeft className="w-5 h-5" />}
+                                        className="-ms-1.5"
+                                    />
+                                )}
+                                <h2 id={titleId} className="min-w-0 break-words text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
+                            </div>
                             {closable && closeButton && (
                                 <IconButton
                                     size="sm"

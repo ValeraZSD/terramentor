@@ -9,7 +9,7 @@ import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
-import { publicMessage } from '../clientError.js';
+import { apiError, keyed, publicBody } from '../clientError.js';
 import { dayBounds, studyToday } from '../studyDay.js';
 import { refreshTopicDates } from '../topicDates.js';
 
@@ -196,7 +196,7 @@ app.post('/api/ai/insights', async (req, res) => {
     } catch (error) {
         console.error('Insights error:', error);
         res.status(500).json({
-            error: publicMessage(error),
+            ...publicBody(error),
             rawResponse: aiResponse
         });
     }
@@ -232,9 +232,9 @@ async function runInsightsGeneration({ projectId, emit, signal }) {
 
 app.post('/api/ai/insights/stream', (req, res) => {
     const { projectId } = req.body;
-    if (!projectId) return res.status(400).json({ error: 'Missing required field: projectId' });
+    if (!projectId) return res.status(400).json(apiError('Missing required field: projectId'));
     const project = db.prepare('SELECT id, name, color FROM projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     const insightsOrigin = { surface: 'project', detail: 'insights', projectId: Number(projectId) };
     const { task } = tasks.createTask({
@@ -254,7 +254,7 @@ app.get('/api/projects/:id/insights', (req, res) => {
     const project = db.prepare(
         'SELECT insights, insights_generated_at FROM projects WHERE id = ?'
     ).get(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     let parsedInsights = null;
     if (project.insights) {

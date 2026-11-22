@@ -1,5 +1,6 @@
 // Project row helpers shared by the route files.
 import db from '../database.js';
+import { k, keyed } from '../clientError.js';
 
 // DB helpers
 
@@ -16,7 +17,7 @@ function requireProject(req, res) {
     const id = req.params.projectId ?? req.params.id;
     const project = projectByIdStmt.get(id);
     if (!project) {
-        res.status(404).json({ error: 'Project not found' });
+        res.status(404).json(keyed('Project not found'));
         return null;
     }
     return project;
@@ -34,7 +35,7 @@ function requireProject(req, res) {
 // Returns the refusal, or null.
 const PROJECT_TOKEN_MAX = 64;
 function projectFieldError({ name, description, color, icon, position }) {
-    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return k('A project needs a name');
     if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
     // Not null or blank either: every reader of a project expects a colour and
     // an icon, and a PUT stored `null` as sent.

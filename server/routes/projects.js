@@ -3,7 +3,7 @@
 // Mounted in 3 blocks (see createApp in server/app.js), because the server
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
-import db from '../database.js';
+import db, { NOW_ISO } from '../database.js';
 import { clearProjectSetting } from '../projectSettings.js';
 import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
 import { clearStoredOpenDates, daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
@@ -15,7 +15,7 @@ import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, clientError, keyed } from '../clientError.js';
 import { markLearnerEdit } from '../courseUpdate.js';
 
 const app = routeTable('projects');
@@ -27,7 +27,7 @@ app.get('/api/projects', (req, res) => {
         res.json(loadProjectSummaries());
     } catch (err) {
         console.error('[Projects] DB error:', err.message);
-        res.status(500).json({ error: 'Failed to load projects', detail: clientError(err) });
+        res.status(500).json({ ...keyed('Failed to load projects'), detail: clientError(err) });
     }
 });
 
@@ -40,9 +40,9 @@ export const listRoutes = app.takeRoutes();
 
 app.put('/api/projects/reorder', (req, res) => {
     const { projectIds } = req.body;
-    if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds must be an array' });
+    if (!Array.isArray(projectIds)) return res.status(400).json(apiError('projectIds must be an array'));
     if (projectIds.length > 10000 || !projectIds.every(id => Number.isInteger(id) && id > 0)) {
-        return res.status(400).json({ error: 'projectIds must be project ids' });
+        return res.status(400).json(apiError('projectIds must be project ids'));
     }
     const place = db.prepare('UPDATE projects SET position = ? WHERE id = ?');
     const transaction = db.transaction(() => {
@@ -61,18 +61,18 @@ app.get('/api/projects/:id', (req, res) => {
     // here made one archived project's detail 133 kB of a 134 kB reply.
     const project = db.prepare(`
         SELECT id, name, description, summary, color, icon, position, ai_generating,
-               start_date, deadline, deadline_fixed, study_days, status,
+               start_date, deadline, deadline_fixed, paused, study_days, status,
                created_at, updated_at
         FROM projects WHERE id = ?
     `).get(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
     res.json(project);
 });
 
 app.post('/api/projects', (req, res) => {
     const { name, description, color, icon, content_language } = req.body;
     const fieldError = projectFieldError({ name: name ?? null, description, color, icon });
-    if (fieldError) return res.status(400).json({ error: fieldError });
+    if (fieldError) return res.status(400).json(keyed(fieldError));
     const lang = isSupportedLanguage(content_language) ? (content_language || '') : '';
     const result = db.prepare('INSERT INTO projects (name, description, color, icon, position, content_language) VALUES (?, ?, ?, ?, ?, ?)')
         .run(name, description || '', color || '#3B82F6', icon || 'folder', nextProjectPosition(), lang);
@@ -84,14 +84,14 @@ app.post('/api/projects', (req, res) => {
 });
 
 app.put('/api/projects/:id', (req, res) => {
-    const { name, description, color, icon, position, start_date, deadline, deadline_fixed, study_days, status, content_language, search_words } = req.body;
+    const { name, description, color, icon, position, start_date, deadline, deadline_fixed, paused, study_days, status, content_language, search_words } = req.body;
     const updates = [];
     const values = [];
 
     const before = db.prepare('SELECT name, description, content_language, start_date, deadline FROM projects WHERE id = ?').get(req.params.id);
-    if (!before) return res.status(404).json({ error: 'Project not found' });
+    if (!before) return res.status(404).json(keyed('Project not found'));
     const fieldError = projectFieldError({ name, description, color, icon, position });
-    if (fieldError) return res.status(400).json({ error: fieldError });
+    if (fieldError) return res.status(400).json(keyed(fieldError));
 
     // The learner's own search words (server/searchWords.js): '' is "none",
     // null hands the course back to the model. Checked before anything is
@@ -99,7 +99,7 @@ app.put('/api/projects/:id', (req, res) => {
     let searchWords;
     if (search_words !== undefined && search_words !== null) {
         const verdict = validateUserSearchWords(search_words);
-        if (!verdict.ok) return res.status(400).json({ error: `search_words: ${verdict.reason}` });
+        if (!verdict.ok) return res.status(400).json(apiError(`search_words: ${verdict.reason}`));
         searchWords = verdict.words;
     }
 
@@ -120,7 +120,7 @@ app.put('/api/projects/:id', (req, res) => {
         const isSet = v => v !== undefined && v !== null && v !== '';
         for (const [label, v] of [['start_date', start_date], ['deadline', deadline]]) {
             if (isSet(v) && !isScheduleDate(v)) {
-                return res.status(400).json({ error: `${label} must be a date written YYYY-MM-DD` });
+                return res.status(400).json(apiError(`${label} must be a date written YYYY-MM-DD`));
             }
         }
         const current = db.prepare('SELECT start_date, deadline FROM projects WHERE id = ?').get(req.params.id) || {};
@@ -128,22 +128,28 @@ app.put('/api/projects/:id', (req, res) => {
         const nextDeadline = deadline !== undefined ? deadline : current.deadline;
         if (isScheduleDate(nextStart) && isScheduleDate(nextDeadline)
             && Math.abs(daysBetween(nextStart, nextDeadline)) > MAX_SCHEDULE_DAYS) {
-            return res.status(400).json({ error: 'A schedule can span at most 20 years.' });
+            return res.status(400).json(keyed('A schedule can span at most 20 years.'));
         }
     }
     // An exam date marked "cannot move" (`deadline_fixed`) stays where it is:
     // moving it takes the mark off first, in this request or an earlier one.
     if (deadline_fixed !== undefined && typeof deadline_fixed !== 'boolean') {
-        return res.status(400).json({ error: 'deadline_fixed must be true or false' });
+        return res.status(400).json(apiError('deadline_fixed must be true or false'));
     }
     const lockError = lockedDeadlineError(req.params.id, deadline, deadline_fixed);
-    if (lockError) return res.status(400).json({ error: lockError });
+    if (lockError) return res.status(400).json(keyed(lockError));
     // A lock is on a date: none without one, and clearing the date clears it
     // (a lock left on an empty date refused every later date).
     const nextDeadline = deadline !== undefined ? deadline : before.deadline;
     if (deadline_fixed === true && !isScheduleDate(nextDeadline)) {
-        return res.status(400).json({ error: 'Only a project with a deadline can mark it as fixed.' });
+        return res.status(400).json(keyed('Only a project with a deadline can mark it as fixed.'));
     }
+    // Paused: the library's capacity serves the course no new work
+    // (server/capacity.js); its reviews and its own Study stream stay.
+    if (paused !== undefined && typeof paused !== 'boolean') {
+        return res.status(400).json(apiError('paused must be true or false'));
+    }
+    if (paused !== undefined) { updates.push('paused = ?'); values.push(paused ? 1 : 0); }
     if (deadline_fixed !== undefined) { updates.push('deadline_fixed = ?'); values.push(deadline_fixed ? 1 : 0); }
     else if (deadline === null || deadline === '') updates.push('deadline_fixed = 0');
     if (start_date !== undefined) { updates.push('start_date = ?'); values.push(start_date); }
@@ -207,13 +213,33 @@ app.put('/api/projects/:id', (req, res) => {
     res.json(project);
 });
 
+// The verdict's "Pause the other courses" offer, as one press: every other
+// active course stops getting new work, so the library's week goes to this
+// one. Undone per course with PUT { paused: false }. The course it is pressed
+// on is resumed in the same write, or the week would go to nobody.
+app.post('/api/projects/:id/pause-others', (req, res) => {
+    const id = Number(req.params.id);
+    if (!db.prepare("SELECT 1 FROM projects WHERE id = ? AND COALESCE(status, 'active') = 'active'").get(id)) {
+        return res.status(404).json(keyed('Project not found'));
+    }
+    const paused = db.transaction(() => {
+        db.prepare(`UPDATE projects SET paused = 0, updated_at = ${NOW_ISO} WHERE id = ? AND paused != 0`).run(id);
+        return db.prepare(`
+            UPDATE projects SET paused = 1, updated_at = ${NOW_ISO}
+            WHERE id != ? AND COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
+            RETURNING id
+        `).all(id).map(r => r.id);
+    })();
+    res.json({ paused });
+});
+
 export const editRoutes = app.takeRoutes();
 
 app.delete('/api/projects/:id', (req, res) => {
     // A missing id is not a deletion: it was answered `success` and logged as
     // one, so a caller holding a wrong id was told the course was gone.
     if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(req.params.id)) {
-        return res.status(404).json({ error: 'Project not found' });
+        return res.status(404).json(keyed('Project not found'));
     }
     // documents/document_chunks cascade via FK on this delete, but vec_chunks
     // and vault blobs don't — capture what's about to be removed first.

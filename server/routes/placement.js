@@ -7,7 +7,7 @@ import {
 } from '../placement.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('placement');
 
@@ -58,7 +58,7 @@ function publicProbe(probe) {
 
 app.get('/api/placement/:projectId', (req, res) => {
     const projectId = Number(req.params.projectId);
-    if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid project id' });
+    if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
     try {
         const availability = probeAvailability(projectId);
         const probe = getProbe(projectId);
@@ -70,15 +70,15 @@ app.get('/api/placement/:projectId', (req, res) => {
         });
     } catch (error) {
         console.error('[Placement] status failed:', error);
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 
 // "Not now" on the dashboard's offer, and taking it back.
 app.put('/api/placement/:projectId/dismissed', (req, res) => {
     const projectId = Number(req.params.projectId);
-    if (!Number.isInteger(projectId)) return res.status(400).json({ error: 'Invalid project id' });
-    if (typeof req.body?.dismissed !== 'boolean') return res.status(400).json({ error: 'dismissed must be true or false' });
+    if (!Number.isInteger(projectId)) return res.status(400).json(keyed('Invalid project id'));
+    if (typeof req.body?.dismissed !== 'boolean') return res.status(400).json(apiError('dismissed must be true or false'));
     setPlacementDismissed(projectId, req.body.dismissed);
     res.json({ dismissed: req.body.dismissed });
 });
@@ -90,9 +90,9 @@ app.put('/api/placement/:projectId/dismissed', (req, res) => {
 // second one.
 app.post('/api/placement/:projectId/start', (req, res) => {
     const projectId = Number(req.params.projectId);
-    if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid project id' });
+    if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
     const project = db.prepare('SELECT id, name, color FROM projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     let probe;
     try {
@@ -103,7 +103,7 @@ app.post('/api/placement/:projectId/start', (req, res) => {
             ? existing
             : createProbe(projectId, { limit: Number(req.body?.limit) || undefined });
     } catch (error) {
-        return res.status(400).json({ error: clientError(error, 400) });
+        return res.status(400).json(errorBody(error, 400));
     }
 
     if (probe.state === 'ready') {
@@ -133,7 +133,7 @@ app.post('/api/placement/probe/:probeId/answer', async (req, res) => {
     const probeId = Number(req.params.probeId);
     const { questionIndex, answer } = req.body || {};
     if (!Number.isFinite(probeId) || !Number.isFinite(Number(questionIndex))) {
-        return res.status(400).json({ error: 'Missing required fields: probeId, questionIndex' });
+        return res.status(400).json(apiError('Missing required fields: probeId, questionIndex'));
     }
     try {
         const result = await answerProbeQuestion(probeId, Number(questionIndex), answer);
@@ -141,19 +141,19 @@ app.post('/api/placement/probe/:probeId/answer', async (req, res) => {
         res.json({ ...result, probe: publicProbe(probe) });
     } catch (error) {
         console.error('[Placement] answer failed:', error);
-        res.status(400).json({ error: clientError(error, 400) });
+        res.status(400).json(errorBody(error, 400));
     }
 });
 
 app.post('/api/placement/probe/:probeId/finish', (req, res) => {
     const probeId = Number(req.params.probeId);
-    if (!Number.isFinite(probeId)) return res.status(400).json({ error: 'Invalid probe id' });
+    if (!Number.isFinite(probeId)) return res.status(400).json(keyed('Invalid probe id'));
     try {
         const { probe, summary } = finishProbe(probeId);
         res.json({ probe: publicProbe(probe), summary });
     } catch (error) {
         console.error('[Placement] finish failed:', error);
-        res.status(400).json({ error: clientError(error, 400) });
+        res.status(400).json(errorBody(error, 400));
     }
 });
 
@@ -162,12 +162,12 @@ app.post('/api/placement/probe/:probeId/finish', (req, res) => {
 // skipping it does not, and the honest move becomes the costly one.
 app.delete('/api/placement/:projectId', (req, res) => {
     const projectId = Number(req.params.projectId);
-    if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid project id' });
+    if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
     try {
         res.json(discardProbe(projectId));
     } catch (error) {
         console.error('[Placement] discard failed:', error);
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 

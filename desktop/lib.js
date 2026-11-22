@@ -730,22 +730,53 @@ const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
  */
 const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(String(s), 'utf8').toString('base64')}')))`;
 
+/**
+ * An empty shortcut (MS-SHLLINK: the header with ShellLink's class id and no
+ * fields), base64, for the shell to open and fill in.
+ *
+ * The fields are filled through Shell.Application's ShellLinkObject, which
+ * takes them as UTF-16. WScript.Shell's shortcut object is the obvious tool
+ * and the wrong one: it passes its fields through the ANSI code page, so on a
+ * Cyrillic system a library called `Βιβλιοθήκη` was stored as `??????????`
+ * (the login item opened a folder that does not exist), and a target with
+ * such characters was refused outright, leaving no shortcut at all. Compiling
+ * IShellLinkW with Add-Type was tried and dropped: csc writes its output under
+ * %TEMP% through the same code page, so it fails for a user whose profile
+ * folder has such a name.
+ */
+const EMPTY_LNK = (() => {
+    const b = Buffer.alloc(0x50); // the 76-byte header, then the 4-byte terminal block
+    b.writeUInt32LE(0x4C, 0);
+    Buffer.from('0114020000000000c000000000000046', 'hex').copy(b, 4); // CLSID_ShellLink
+    b.writeUInt32LE(1, 0x3C); // SW_SHOWNORMAL until the shell sets it
+    return b.toString('base64');
+})();
+
 /** The PowerShell that writes one Windows shortcut. `shellFolder` is the
- *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
- *  a .lnk is a COM object and only PowerShell can make one here. Deleting one
- *  needs no script, so there is no counterpart. */
+ *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup. The app
+ *  reaches the shell's COM objects only through PowerShell. An existing
+ *  shortcut is opened and its fields set, so a person's own changes to it (a
+ *  hotkey) stay; a missing one starts as EMPTY_LNK. Deleting one needs no
+ *  script, so there is no counterpart. */
 export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME, report = false }) {
     return [
         '$ErrorActionPreference = "Stop"',
         `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
         'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-        `$lnk = Join-Path $dir ${psValue(name + '.lnk')}`,
-        '$shell = New-Object -ComObject WScript.Shell',
-        '$s = $shell.CreateShortcut($lnk)',
-        `$s.TargetPath = ${psValue(target)}`,
+        `$name = ${psValue(name + '.lnk')}`,
+        '$lnk = Join-Path $dir $name',
+        // A file that is not a shortcut (empty, cut short) is replaced too; one
+        // this script started is removed again if filling it fails, so a
+        // failure never leaves an empty shortcut in the Startup folder.
+        '$old = if (Test-Path -LiteralPath $lnk) { [IO.File]::ReadAllBytes($lnk) } else { $null }',
+        '$made = $null -eq $old -or $old.Length -lt 76 -or $old[0] -ne 0x4C',
+        `if ($made) { [IO.File]::WriteAllBytes($lnk, [Convert]::FromBase64String('${EMPTY_LNK}')) }`,
+        'try {',
+        '$s = (New-Object -ComObject Shell.Application).NameSpace($dir).ParseName($name).GetLink',
+        `$s.Path = ${psValue(target)}`,
         args ? `$s.Arguments = ${psValue(args)}` : null,
         `$s.WorkingDirectory = ${psValue(workingDir)}`,
-        icon ? `$s.IconLocation = ${psValue(icon)}` : null,
+        icon ? `$s.SetIconLocation(${psValue(icon)}, 0)` : null,
         // Minimized. Every target `launchCommand` prefers is windowless already
         // — the compiled launcher, or wscript.exe running the shim — so this
         // changes nothing for them. It is for the two fallbacks that DO open a
@@ -754,13 +785,14 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         // is not a log viewer; it IS the server, so closing it to tidy the
         // desktop stops the app. Minimised is as close as a .lnk gets to keeping
         // it out of the way.
-        '$s.WindowStyle = 7',
+        '$s.ShowCommand = 7',
         `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
-        // `report`: print what this shortcut object now holds (Windows may have
-        // changed characters on the way in), base64 so no console code page can
-        // touch it. From this object, never by reading the file back: another
-        // library may write the same file in between (savedShortcutRecord).
+        '} catch { if ($made) { Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue }; throw }',
+        // `report`: print what this shortcut object now holds, base64 so no
+        // console code page can touch it. From this object, never by reading
+        // the file back: another library may write the same file in between
+        // (savedShortcutRecord).
         report ? '$saved = [ordered]@{ arguments = [string]$s.Arguments; workingDir = [string]$s.WorkingDirectory } | ConvertTo-Json -Compress' : null,
         report ? '[Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($saved)))' : null,
     ].filter(Boolean).join('\n');
@@ -1239,11 +1271,14 @@ export function unpinnedLibraryOf(root, { platform = process.platform, env = pro
  * - With a marker, the item is this library's only while it is still exactly
  *   what the library wrote. Another library writing the item since, or a
  *   person editing it, makes it someone else's, and it is left alone.
- *   A shortcut's marker keeps two records, because Windows does not always
- *   store what it is given (WScript.Shell sends some fields through the ANSI
- *   code page, so `é` on a Cyrillic system comes back as `e`): `holds`, read
- *   back from the file, says whose it is; `wrote`, what this copy asked for,
- *   says whether this copy would write anything different.
+ *   A shortcut's marker keeps two records, because a shortcut has not always
+ *   stored what it was given (older copies wrote it through WScript.Shell,
+ *   which sends fields through the ANSI code page, so `é` on a Cyrillic
+ *   system came back as `e`): `holds`, read back from the file, says whose it
+ *   is; `wrote`, what this copy asked for, says whether this copy would write
+ *   anything different. An older marker whose two records differ is such a
+ *   lossy write, and is repaired by the next start that owns it; a marker
+ *   this writer left (`utf16`) is never repaired for that alone.
  * - With no marker (an item from before markers, or a marker from before
  *   shortcut records, which held the script), the item is this library's when
  *   its own `--data-dir` is this library — the whole path, not a prefix — or
@@ -1262,7 +1297,11 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
         let m = null;
         try { m = JSON.parse(marker); } catch { /* the script */ }
         if (typeof m?.wrote === 'string' && typeof m?.holds === 'string') {
-            return current === m.holds && m.wrote !== wanted ? 'rewrite' : 'none';
+            // `holds` unlike `wrote` in a marker the ANSI writer left: a lossy
+            // write, so even the same copy rewrites it once. The rewrite's
+            // marker says `utf16`, so whatever it holds, it is not redone.
+            const lossy = m.utf16 !== true && m.holds !== m.wrote;
+            return current === m.holds && (m.wrote !== wanted || lossy) ? 'rewrite' : 'none';
         }
         marker = null;
     }
@@ -1276,8 +1315,8 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
     return opens != null && sameLibrary(opens, dataDir, platform) ? 'rewrite' : 'none';
 }
 
-/** The marker a shortcut write leaves: what was asked for, and what the file
- *  Windows wrote turned out to hold. */
-export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds });
+/** The marker a shortcut write leaves: what was asked for, what the file
+ *  Windows wrote turned out to hold, and that the UTF-16 writer wrote it. */
+export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds, utf16: true });
 
 export { userDataDir, dirname };

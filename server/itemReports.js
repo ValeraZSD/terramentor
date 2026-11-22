@@ -25,6 +25,7 @@ import { findDrills, parseDrillBody } from './drillCheck.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
 import { cardAnswerIsCorrect } from './cardEvidence.js';
 import { askedAs } from './sittingReview.js';
+import { KeyedError } from './clientError.js';
 
 export const REPORT_REASONS = ['wrong', 'unclear', 'off_topic', 'other'];
 export const REPORT_NOTE_MAX = 1000;
@@ -568,8 +569,8 @@ const activeFor = (ref) => stmt(`SELECT * FROM item_reports WHERE item_key = ? A
 
 export function getReport(id) { return publicReport(reportById(id)); }
 
-export class ReportError extends Error {
-    constructor(status, message) { super(message); this.status = status; }
+export class ReportError extends KeyedError {
+    constructor(status, key, params) { super(key, params); this.status = status; }
 }
 
 /** Validate what a client sent; returns the clean fields or throws a ReportError (400). */

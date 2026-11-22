@@ -23,6 +23,7 @@ import { switchSaver } from '../../utils/switchSaver';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
 import type { ClientSettingKey } from '../../settingKeys';
+import { serverText } from '../../utils/serverText';
 
 const hostOfUrl = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 
@@ -394,7 +395,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
             } else {
                 setModels([]);
                 setConnectionStatus('disconnected');
-                setConnectionError(result.error || 'Failed to load models');
+                setConnectionError(serverText(result) || tr("Failed to load models"));
             }
         } catch (e: any) {
             setModels([]);
@@ -420,7 +421,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 await loadModels();
             } else {
                 setConnectionStatus('disconnected');
-                setConnectionError(status.error || 'Cannot connect to the AI provider');
+                setConnectionError(serverText(status) || tr("Cannot connect to the AI provider"));
                 setModels([]);
             }
         } catch (e: any) {
@@ -468,7 +469,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
             for await (const progress of api.pullModel(modelToInstall)) {
                 setInstallProgress(progress);
                 if (progress.error) {
-                    setInstallError(progress.error);
+                    setInstallError(serverText(progress) ?? progress.error);
                     break;
                 }
                 if (progress.done) {

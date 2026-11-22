@@ -24,6 +24,7 @@
 // Reading is never refused: the settings screens still show what is in use.
 // docs/HOSTING.md is the operator's side of the same list.
 import { siteAuthRefusal } from './siteLibrary.js';
+import { k, keyed } from './clientError.js';
 
 /** Is this process a hosted copy? Read on every call: the gates change it. */
 export function isHosted(env = process.env) {
@@ -106,15 +107,15 @@ export function trustProxySetting(env = process.env) {
  * they are written lower-case with no trailing slash.
  */
 const WRITE = (m) => m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS';
-const OPERATOR_AI = 'On this hosted copy the model and its key are set by whoever runs it.';
+const OPERATOR_AI = k('On this hosted copy the model and its key are set by whoever runs it.');
 const REFUSED = [
-    [WRITE, /^\/api\/updates(?:\/|$)/, 'This hosted copy is updated by whoever runs it.'],
-    [WRITE, /^\/api\/desktop(?:\/|$)/, 'This hosted copy has no desktop controls.'],
-    [WRITE, /^\/api\/devices\/tailscale(?:\/|$)/, 'Tailscale is not available on a hosted copy.'],
+    [WRITE, /^\/api\/updates(?:\/|$)/, k('This hosted copy is updated by whoever runs it.')],
+    [WRITE, /^\/api\/desktop(?:\/|$)/, k('This hosted copy has no desktop controls.')],
+    [WRITE, /^\/api\/devices\/tailscale(?:\/|$)/, k('Tailscale is not available on a hosted copy.')],
     [WRITE, /^\/api\/ai\/(?:connections|jobs|key|openrouter|chatgpt|models)(?:\/|$)/, OPERATOR_AI],
     [WRITE, /^\/api\/embeddings\/settings$/, OPERATOR_AI],
-    [WRITE, /^\/api\/searxng\/test$/, 'A hosted copy does not test addresses on its server\'s network.'],
-    [WRITE, /^\/api\/auth\/disable$/, 'A hosted copy always has a password. Change it instead.'],
+    [WRITE, /^\/api\/searxng\/test$/, k('A hosted copy does not test addresses on its server\'s network.')],
+    [WRITE, /^\/api\/auth\/disable$/, k('A hosted copy always has a password. Change it instead.')],
 ];
 
 /**
@@ -158,5 +159,5 @@ export function hostedGuard(req, res, next) {
     if (!isHosted()) return next();
     const why = hostedRefusalOf(req.method, req.originalUrl) || siteAuthRefusal(req.method, requestPath(req.originalUrl));
     if (!why) return next();
-    res.status(403).json({ error: why, hosted: true });
+    res.status(403).json({ ...keyed(why), hosted: true });
 }

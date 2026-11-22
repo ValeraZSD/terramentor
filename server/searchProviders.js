@@ -1,4 +1,5 @@
 import db from './database.js';
+import { apiError, keyed } from './clientError.js';
 
 /**
  * Search providers — "look this topic up somewhere else".
@@ -366,8 +367,8 @@ export function saveProvider(raw) {
 
 export function deleteProvider(id) {
     const row = db.prepare('SELECT builtin FROM search_providers WHERE id = ?').get(String(id));
-    if (!row) return { ok: false, error: 'not found' };
-    if (row.builtin) return { ok: false, error: 'built-in providers can be disabled but not removed' };
+    if (!row) return { ok: false, ...apiError('not found') };
+    if (row.builtin) return { ok: false, ...keyed('built-in providers can be disabled but not removed') };
     db.prepare('DELETE FROM search_providers WHERE id = ?').run(String(id));
     return { ok: true };
 }
