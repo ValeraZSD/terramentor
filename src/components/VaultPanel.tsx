@@ -353,7 +353,9 @@ export default function VaultPanel({
                                         : <FileKindIcon type={displayKind(doc.file_type, doc.original_filename)} />}
                                     <div className="min-w-0 flex-1">
                                         <div className="truncate text-sm text-slate-700 dark:text-slate-200">{doc.title}</div>
-                                        <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                        {/* A failed file's reason wraps: it is the one line the reader
+                                            must read whole, and a translated one runs longer. */}
+                                        <div className={`text-xs text-slate-500 dark:text-slate-400 ${doc.status === 'failed' ? 'break-words' : 'truncate'}`}>
                                             {doc.status === 'failed'
                                                 ? <span className="text-red-500">{tr("Failed: {{error}}", { error: serverText(doc) })}</span>
                                                 : <>
