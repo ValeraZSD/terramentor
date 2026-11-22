@@ -11,7 +11,7 @@ import {
 } from '../chatAttachments.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('attachments');
 
@@ -29,17 +29,17 @@ const handleUpload = (req, res, next) =>
         upload.array('files')(req, res, (err) => {
             if (!err) return next();
             if (err.code === 'LIMIT_FILE_SIZE') {
-                return res.status(413).json({ error: `A file is larger than ${Math.round(ATTACH_MAX_BYTES / 1024 / 1024)} MB.`, reason: 'too_large' });
+                return res.status(413).json({ ...keyed('A file is larger than {{mb}} MB.', { mb: Math.round(ATTACH_MAX_BYTES / 1024 / 1024) }), reason: 'too_large' });
             }
             if (err.code === 'LIMIT_FILE_COUNT') {
-                return res.status(400).json({ error: `Attach at most ${ATTACH_MAX_FILES} files at a time.`, reason: 'too_many' });
+                return res.status(400).json({ ...keyed('Attach at most {{count}} files at a time.', { count: ATTACH_MAX_FILES }), reason: 'too_many' });
             }
-            return res.status(400).json({ error: clientError(err, 400) });
+            return res.status(400).json(errorBody(err, 400));
         }));
 
 app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {
     const files = req.files || [];
-    if (!files.length) return res.status(400).json({ error: 'No files uploaded' });
+    if (!files.length) return res.status(400).json(keyed('No files uploaded'));
     const attachments = [];
     for (const f of files) {
         // One file that breaks (a full disk, a failed write) is that file's
@@ -49,7 +49,7 @@ app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {
             attachments.push(await stageAttachment(f.buffer, f.originalname));
         } catch (e) {
             console.error('[attachments] could not store a file:', e.message);
-            attachments.push({ ok: false, name: String(f.originalname || 'file').slice(0, 200), reason: 'unreadable', error: 'The app could not store this file.' });
+            attachments.push({ ok: false, name: String(f.originalname || 'file').slice(0, 200), reason: 'unreadable', ...keyed('The app could not store this file.') });
         }
     }
     // Said at once, beside a picture: a model known not to see would get its
@@ -60,14 +60,14 @@ app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {
 
 app.get('/api/ai/attachments/:id', (req, res) => {
     const row = getAttachment(req.params.id);
-    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    if (!row) return res.status(404).json(keyed('Attachment not found'));
     res.json(attachmentSummary(row));
 });
 
 app.delete('/api/ai/attachments/:id', (req, res) => {
     const removed = discardAttachment(req.params.id);
-    if (removed === null) return res.status(404).json({ error: 'Attachment not found' });
-    if (removed === false) return res.status(409).json({ error: 'This file was sent with a message; it goes when its conversation is deleted.' });
+    if (removed === null) return res.status(404).json(keyed('Attachment not found'));
+    if (removed === false) return res.status(409).json(keyed('This file was sent with a message; it goes when its conversation is deleted.'));
     res.json({ removed: true });
 });
 
@@ -76,12 +76,12 @@ app.delete('/api/ai/attachments/:id', (req, res) => {
 // what it is, under a sandbox, so nothing from a chat can run on this origin.
 app.get('/api/ai/attachments/:id/file', (req, res) => {
     const row = getAttachment(req.params.id);
-    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    if (!row) return res.status(404).json(keyed('Attachment not found'));
     let filePath;
     try {
         filePath = vaultStorage.pathFor(row.file_hash);
     } catch {
-        return res.status(404).json({ error: 'The file is missing from storage' });
+        return res.status(404).json(keyed('The file is missing from storage'));
     }
     const picture = row.kind === 'image' && row.mime;
     const DOC_TYPES = {

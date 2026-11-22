@@ -9,7 +9,7 @@ import {
 import { getLookBack, startLookBack, skipLookBack } from '../lookBack.js';
 import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody } from '../clientError.js';
 
 const app = routeTable('mockExams');
 
@@ -25,7 +25,7 @@ const handle = (fn) => (req, res) => {
         res.json(fn(req));
     } catch (err) {
         const status = err instanceof MockExamError || err instanceof AttemptReusedError ? err.status : 500;
-        res.status(status).json({ error: clientError(err, status) });
+        res.status(status).json(errorBody(err, status));
     }
 };
 

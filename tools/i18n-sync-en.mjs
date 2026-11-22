@@ -21,7 +21,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectKeys, englishEntries } from './lib/i18nKeys.mjs';
+import { collectAppKeys, englishEntries } from './lib/i18nKeys.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -31,7 +31,7 @@ const file = join(srcDir, 'locales', 'en.json');
 const write = process.argv.includes('--write');
 const prune = process.argv.includes('--prune');
 
-const keys = collectKeys(srcDir);
+const keys = collectAppKeys(root);
 const wanted = new Map();
 for (const [key, { plural }] of keys) {
     for (const [k, v] of Object.entries(englishEntries(key, plural))) wanted.set(k, v);

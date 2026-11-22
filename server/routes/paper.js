@@ -6,7 +6,7 @@ import multer from 'multer';
 import vaultStorage from '../vaultStorage.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, k, keyed } from '../clientError.js';
 
 const app = routeTable('paper');
 
@@ -31,9 +31,9 @@ const handlePaperImage = (req, res, next) =>
     paperUpload.single('image')(req, res, (err) => {
         if (!err) return next();
         if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(413).json({ error: `That photo is larger than ${PAPER_IMAGE_MAX_BYTES / 1024 / 1024} MB. Take it again, a little further back.` });
+            return res.status(413).json(keyed('That photo is larger than {{mb}} MB. Take it again, a little further back.', { mb: PAPER_IMAGE_MAX_BYTES / 1024 / 1024 }));
         }
-        return res.status(400).json({ error: clientError(err, 400) });
+        return res.status(400).json(errorBody(err, 400));
     });
 
 /** Load a practice feed_item and its authored exercise, or null. */
@@ -71,7 +71,7 @@ function storedPaperResult(feedItemId) {
         const exists = db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
         return {
             status: 'error',
-            error: exists ? 'This exercise was already marked.' : 'This exercise is no longer available, so nothing was recorded.',
+            ...keyed(exists ? k('This exercise was already marked.') : k('This exercise is no longer available, so nothing was recorded.')),
         };
     }
     let grade = null;
@@ -98,7 +98,7 @@ app.get('/api/paper/capability', async (_req, res) => {
         const { use, model } = await decidePaperVision();
         res.json({ vision: use === 'yes', model: use === 'yes' ? model : null });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -108,13 +108,13 @@ app.get('/api/paper/capability', async (_req, res) => {
 app.get('/api/paper/:feedItemId/solution', (req, res) => {
     try {
         const item = loadPracticeItem(parseInt(req.params.feedItemId, 10));
-        if (!item) return res.status(404).json({ error: 'Practice item not found' });
+        if (!item) return res.status(404).json(keyed('Practice item not found'));
         res.json({
             referenceSolution: item.exercise.reference_solution || '',
             rubric: item.exercise.rubric,
         });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -123,10 +123,10 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
     try {
         const feedItemId = parseInt(req.params.feedItemId, 10);
         const item = loadPracticeItem(feedItemId);
-        if (!item) return res.status(404).json({ error: 'Practice item not found' });
+        if (!item) return res.status(404).json(keyed('Practice item not found'));
         // Already marked: no second model call and no second piece of evidence.
         if (item.row.status !== 'ready') return res.json(storedPaperResult(feedItemId));
-        if (!req.file?.buffer?.length) return res.status(400).json({ error: 'No image uploaded' });
+        if (!req.file?.buffer?.length) return res.status(400).json(keyed('No image uploaded'));
 
         // Only a real grade consumes the card. An unreadable photo or a model
         // failure must leave the exercise standing so the learner can retake it —
@@ -151,7 +151,7 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
         const gone = retake && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
         res.json(result.status === 'duplicate' || gone ? storedPaperResult(feedItemId) : result);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -160,11 +160,11 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
     try {
         const feedItemId = parseInt(req.params.feedItemId, 10);
         const item = loadPracticeItem(feedItemId);
-        if (!item) return res.status(404).json({ error: 'Practice item not found' });
+        if (!item) return res.status(404).json(keyed('Practice item not found'));
 
         const { metCount } = req.body || {};
         if (!Number.isInteger(metCount) || metCount < 0 || metCount > item.exercise.rubric.length) {
-            return res.status(400).json({ error: `metCount must be an integer between 0 and ${item.exercise.rubric.length}` });
+            return res.status(400).json(apiError(`metCount must be an integer between 0 and ${item.exercise.rubric.length}`));
         }
 
         // One mark per exercise, written as one unit: the card's status is read
@@ -188,7 +188,7 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
         })();
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -197,11 +197,11 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
 app.get('/api/paper/attempts/:id/image', (req, res) => {
     try {
         const row = db.prepare('SELECT image_hash FROM paper_attempts WHERE id = ?').get(parseInt(req.params.id, 10));
-        if (!row?.image_hash) return res.status(404).json({ error: 'No image stored for this attempt' });
+        if (!row?.image_hash) return res.status(404).json(keyed('No image stored for this attempt'));
         // A vault under a dot folder is still ours to serve (Express 5 checks every segment).
         res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash), { dotfiles: 'allow' });
     } catch (err) {
-        res.status(404).json({ error: clientError(err, 404) });
+        res.status(404).json(errorBody(err, 404));
     }
 });
 

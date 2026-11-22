@@ -1,5 +1,6 @@
 import type { AIStatus } from '../types';
 import i18n from '../i18n';
+import { serverText } from './serverText';
 
 // Copy in a utility module cannot use the hook, so it reads `i18n.t` at call
 // time — every caller is inside a render or an effect, which runs again on a
@@ -85,7 +86,7 @@ export function aiHealth(status: AIStatus | null): AIHealthInfo {
         return {
             level: 'error',
             label: t('Unreachable'),
-            detail: status.error || t('Can’t reach {{provider}} — the model server may not be running.', { provider: providerLabel(status) }),
+            detail: serverText(status) || t('Can’t reach {{provider}} — the model server may not be running.', { provider: providerLabel(status) }),
         };
     }
     return { level: 'online', label: t('Online'), detail: t('{{provider}} · {{model}} is responding.', { provider: providerLabel(status), model: status.model }) };
@@ -141,7 +142,7 @@ export function describeAIUnavailable(status: AIStatus | null): AIUnavailableInf
     if (status.provider === 'ollama') {
         return {
             headline: t('Can’t reach Ollama'),
-            detail: status.error || t('Make sure Ollama is running on your system.'),
+            detail: serverText(status) || t('Make sure Ollama is running on your system.'),
             steps: [
                 t('Install Ollama from ollama.com'),
                 t('Run: ollama pull {{model}}', { model: status.model }),
@@ -155,7 +156,7 @@ export function describeAIUnavailable(status: AIStatus | null): AIUnavailableInf
     const label = providerLabel(status);
     return {
         headline: t('Can’t reach {{provider}}', { provider: label }),
-        detail: status.error || t('Make sure the model server at {{url}} is running.', { url: status.baseUrl }),
+        detail: serverText(status) || t('Make sure the model server at {{url}} is running.', { url: status.baseUrl }),
         steps: [],
     };
 }

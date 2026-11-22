@@ -224,6 +224,20 @@ export function briefBlock(src) {
 }
 
 /**
+ * For the shape call (courseShape.js): each source's title, kind and length,
+ * and its top level, so the model can tell one short video from a textbook.
+ * `words[i]` is the i-th source's word count.
+ */
+export function shapeBlock(src, words = []) {
+    if (!hasSources(src)) return '';
+    const groups = src.docs.map((d, i) => ({
+        head: `${docHeader(d)}; ${Number(words[i]) || 0} words`,
+        ids: d.sectionIds.filter(id => src.byId.get(id).depth === 0),
+    }));
+    return `\n\nThe learner gave these to build the course from:${wrap(fitOutline(src, groups, SOURCE_BUDGET.brief))}`;
+}
+
+/**
  * The name check's block when it must ALSO say whether the course teaches the
  * language its files are written in: the same top level, plus a short excerpt
  * of the first two files. Headings alone cannot tell a Dutch textbook from a

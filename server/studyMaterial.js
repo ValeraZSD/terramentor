@@ -21,6 +21,7 @@ import { getGhostQuestions } from './dailyPlan.js';
 import {
     isUnverified, isPending, markUnverified, markPending, markConfirmed, REVERIFY_BASE_WAIT_MS,
 } from './questionTrust.js';
+import { KeyedError } from './clientError.js';
 
 const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
@@ -122,7 +123,7 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     }, []);
 
     if (questions.length === 0) {
-        throw new Error('The model did not return any gradeable questions. Try again or lower the question count.');
+        throw new KeyedError('The model did not return any gradeable questions. Try again or lower the question count.');
     }
 
     // "Remember" loop: interleave a couple of ghost questions drawn from
@@ -250,7 +251,7 @@ export async function vetQuiz(nodeId, quiz, { signal, onProgress } = {}) {
         // Every question was unsound. Leaving the row behind would hand the mastery
         // check a saved quiz it can never use, so the row went and the caller
         // reports the failure.
-        throw new Error('Every question the model wrote failed the answer check — none could be graded honestly. Try again.');
+        throw new KeyedError('Every question the model wrote failed the answer check — none could be graded honestly. Try again.');
     }
     return { ...quiz, questions: outcome.questions, dropped: outcome.dropped, unverified: outcome.unverified };
 }

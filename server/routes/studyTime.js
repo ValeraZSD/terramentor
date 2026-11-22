@@ -5,7 +5,7 @@
 // The two GETs are the readings the topic panel and the project dashboard draw.
 import { routeTable } from './routeTable.js';
 import { recordStudyTime, nodeStudyTime, projectStudyTime, StudyTimeError } from '../studyTime.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('studyTime');
 
@@ -13,20 +13,20 @@ app.post('/api/study-time', (req, res) => {
     try {
         res.json(recordStudyTime(req.body));
     } catch (err) {
-        if (err instanceof StudyTimeError) return res.status(400).json({ error: clientError(err, 400) });
-        res.status(500).json({ error: clientError(err) });
+        if (err instanceof StudyTimeError) return res.status(400).json(errorBody(err, 400));
+        res.status(500).json(errorBody(err));
     }
 });
 
 app.get('/api/study-time/nodes/:id', (req, res) => {
     const data = nodeStudyTime(Number(req.params.id));
-    if (!data) return res.status(404).json({ error: 'Topic not found' });
+    if (!data) return res.status(404).json(keyed('Topic not found'));
     res.json(data);
 });
 
 app.get('/api/study-time/projects/:id', (req, res) => {
     const data = projectStudyTime(Number(req.params.id));
-    if (!data) return res.status(404).json({ error: 'Project not found' });
+    if (!data) return res.status(404).json(keyed('Project not found'));
     res.json(data);
 });
 
