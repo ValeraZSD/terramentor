@@ -249,6 +249,36 @@ console.log('\n--- the service worker is a build artefact ----------------------
         ok('...but the page still sees the answer the network gave', bad.got === bad.res);
         check('nor is a page reached by a redirect', (await navigate({ redirected: true })).puts, []);
     }
+
+    // Install precaches the shell, and the same holds there: '/' redirected to
+    // a maintenance page must not go in as the document. The stub cache's
+    // `add` behaves as the real one does (fetch, follow, store if ok), so code
+    // still calling it is caught.
+    {
+        const puts = [];
+        const listeners = {};
+        const answer = (url) => url === '/'
+            ? { ok: true, status: 200, redirected: true }
+            : url === '/theme-boot.js' ? { ok: false, status: 404, redirected: false }
+            : { ok: true, status: 200, redirected: false };
+        const cache = {
+            put: async (key) => { puts.push(key); },
+            add: async (url) => { if (!answer(url).ok) throw new TypeError('bad status'); puts.push(url); },
+            match: async () => undefined,
+        };
+        runInNewContext(first.source, {
+            self: { addEventListener: (type, fn) => { listeners[type] = fn; }, location: { origin: 'http://app.test' } },
+            caches: { open: async () => cache, keys: async () => [], delete: async () => true },
+            fetch: async (url) => answer(url),
+            AbortController, URL, setTimeout, clearTimeout,
+        });
+        let installing;
+        listeners.install({ waitUntil: (p) => { installing = p; } });
+        await installing;
+        ok('install keeps the entry script', puts.includes('/assets/index-1.js'));
+        ok('install does NOT keep a redirected \'/\' as the shell', !puts.includes('/'));
+        ok('...nor a precache url that failed', !puts.includes('/theme-boot.js'));
+    }
 }
 
 console.log('\n--- compression ----------------------------------------------------');

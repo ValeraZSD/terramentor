@@ -40,8 +40,15 @@ self.addEventListener('install', (event) => {
         (async () => {
             const cache = await caches.open(CACHE);
             // Individually, not `addAll`: one 404 must not fail the install and
-            // leave the app with no worker at all.
-            await Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => { })));
+            // leave the app with no worker at all. Fetched and put by hand, not
+            // `cache.add`, which follows a redirect and stores where it landed:
+            // a maintenance page answering for '/' would become the shell.
+            await Promise.all(PRECACHE.map(async (url) => {
+                try {
+                    const res = await fetch(url, { cache: 'no-cache' });
+                    if (res.ok && !res.redirected) await cache.put(url, res);
+                } catch { /* this one stays out; the rest still install */ }
+            }));
         })()
     );
 });
