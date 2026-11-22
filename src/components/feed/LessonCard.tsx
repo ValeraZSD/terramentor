@@ -229,7 +229,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 inStream
                 // Taken off the feed: the stream moves on past it.
                 onReported={() => { if (!done) setAside(); onDone(card.key); }}
-                className="-mt-1 -mr-1"
+                className="-mt-1 -me-1"
             />
         </span>
     );
@@ -288,7 +288,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
             {/* With no heading row the flag floats in the text's top-right
                 corner, so it does not take a line of its own. */}
             <div className="flow-root">
-            {!(label || heading) && flag && <div className="float-right ml-2">{flag}</div>}
+            {!(label || heading) && flag && <div className="float-end ms-2">{flag}</div>}
             {/* Said before the lesson, not after it: a learner who has already
                 copied a step down does not re-read it for a footnote. */}
             {card.checkFault && (

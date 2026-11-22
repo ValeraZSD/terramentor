@@ -92,7 +92,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
     return (
         <div className="space-y-1.5">
             {files.length > 0 && (
-                <ul ref={listRef} className="flex flex-wrap gap-2 max-h-[9.5rem] overflow-y-auto overscroll-contain pt-1.5 pr-1.5 [scrollbar-width:thin]" aria-label={t("Attached files")}>
+                <ul ref={listRef} className="flex flex-wrap gap-2 max-h-[9.5rem] overflow-y-auto overscroll-contain pt-1.5 pe-1.5 [scrollbar-width:thin]" aria-label={t("Attached files")}>
                     {files.map(f => {
                         const busy = f.state === 'preparing' || f.state === 'uploading';
                         const isFailed = f.state === 'failed';
@@ -115,7 +115,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                                         onClick={() => onRemove(f.key)}
                                         aria-label={t("Remove {{name}}", { name: f.name })}
                                         title={t("Remove {{name}}", { name: f.name })}
-                                        className="absolute -top-1.5 -right-1.5 flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-white ring-2 ring-white dark:bg-slate-100 dark:text-slate-900 dark:ring-slate-800 can-hover:hover:bg-slate-700 dark:can-hover:hover:bg-white before:absolute before:-inset-2.5 before:content-[''] outline-none focus-visible:ring-accent"
+                                        className="absolute -top-1.5 -end-1.5 flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-white ring-2 ring-white dark:bg-slate-100 dark:text-slate-900 dark:ring-slate-800 can-hover:hover:bg-slate-700 dark:can-hover:hover:bg-white before:absolute before:-inset-2.5 before:content-[''] outline-none focus-visible:ring-accent"
                                     >
                                         <X className="w-3.5 h-3.5" aria-hidden="true" />
                                     </button>
@@ -126,7 +126,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                             <li
                                 key={f.key}
                                 title={f.name}
-                                className={`flex items-center gap-2 max-w-xs h-16 pl-2 pr-1 rounded-xl border bg-white dark:bg-slate-800 ${isFailed
+                                className={`flex items-center gap-2 max-w-xs h-16 ps-2 pe-1 rounded-xl border bg-white dark:bg-slate-800 ${isFailed
                                     ? 'border-red-400 dark:border-red-500'
                                     : 'border-slate-200 dark:border-slate-600'}`}
                             >
@@ -165,7 +165,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                     <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
                     <div className="min-w-0">
                         <p>{t("The AI model set up here cannot see pictures, so it will get only the photo's name. A model that can see is chosen in Settings → AI & Models.")}</p>
-                        <Button size="sm" variant="quiet" className="-ml-3" onClick={onOpenSettings}>{t("Open AI settings")}</Button>
+                        <Button size="sm" variant="quiet" className="-ms-3" onClick={onOpenSettings}>{t("Open AI settings")}</Button>
                     </div>
                 </div>
             )}
@@ -191,7 +191,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                             {refusals.length > 5 && <li>{t("…and {{count}} more files not added.", { count: refusals.length - 5 })}</li>}
                         </ul>
                     </div>
-                    <IconButton size="sm" label={t("Dismiss")} icon={<X className="w-4 h-4" />} onClick={onDismissRefusals} className="-my-1 -mr-1" />
+                    <IconButton size="sm" label={t("Dismiss")} icon={<X className="w-4 h-4" />} onClick={onDismissRefusals} className="-my-1 -me-1" />
                 </div>
             )}
         </div>

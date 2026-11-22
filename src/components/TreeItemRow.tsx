@@ -179,7 +179,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, ...flash?.style, paddingLeft: `calc(min(${displayDepth} * var(--row-indent-outline), max(0px, 100% - var(--row-outline-reserve))) + var(--row-outline-start))` }}
+                style={{ ...style, ...flash?.style, paddingInlineStart: `calc(min(${displayDepth} * var(--row-indent-outline), max(0px, 100% - var(--row-outline-reserve))) + var(--row-outline-start))` }}
                 {...rowDrag}
                 data-depth={displayDepth}
                 data-tree-item-id={node.id}
@@ -224,9 +224,9 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-larger-wraps
                     aria-current={selectedNodeId === node.id ? 'true' : undefined}
-                    className={`flex-1 min-w-0 -mx-1 px-1 text-left text-sm truncate rounded ${FOCUS_RING} ${held || selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
+                    className={`flex-1 min-w-0 -mx-1 px-1 text-start text-sm truncate rounded ${FOCUS_RING} ${held || selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
                 >
-                    {node.title}
+                    <span dir="auto" className="inline-block max-w-full truncate align-bottom">{node.title}</span>
                 </button>
                 {isLeaf && <HeadStartMark node={node} />}
                 {held && projectedDepth !== null && (
@@ -246,7 +246,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                     only children are notes is still a topic: its status mark,
                     pressable, goes there too. */}
                 {hasChildren && (isLeaf ? statusButton : (
-                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">{getStatusIcon()}</span>
+                    <span data-row-progress className="shrink-0 ms-1" aria-hidden="true">{getStatusIcon()}</span>
                 ))}
                 {handle}
                 {/* Held, the ⋮ keeps only its height (the row's, on a phone too) and gives its width to the title. */}

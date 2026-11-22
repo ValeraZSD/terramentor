@@ -265,7 +265,7 @@ export default function CardsPanel({
                             </div>
                             <Button
                                 variant="neutral"
-                                className="ml-auto"
+                                className="ms-auto"
                                 onClick={() => setSession({ stage: null })}
                                 icon={<Play className="h-4 w-4" aria-hidden="true" />}
                             >
@@ -314,7 +314,7 @@ export default function CardsPanel({
                             </div>
                             <Button
                                 variant="primary"
-                                className="ml-auto"
+                                className="ms-auto"
                                 onClick={() => setSession({ stage: null })}
                                 icon={<Play className="h-4 w-4" aria-hidden="true" />}
                             >

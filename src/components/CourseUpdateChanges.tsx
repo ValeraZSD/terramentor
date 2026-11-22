@@ -191,7 +191,7 @@ function Group({ kind, list }: { kind: ChangeKind; list: CourseUpdateItem[] }) {
                 <Sign kind={kind} />
                 {groupTitle(t, kind, list.length)}
             </h3>
-            <div className="space-y-3 pl-7">
+            <div className="space-y-3 ps-7">
                 {places.map(([place, inPlace]) => (
                     <div key={place ?? ' top'} className="space-y-2">
                         <p className={`text-xs font-medium ${MUTED}`}>{place ?? t("Top of the course")}</p>
@@ -227,7 +227,7 @@ function groupsOf(items: Items): [ChangeKind, CourseUpdateItem[]][] {
 function Tally({ items, choices }: { items: Items; choices: number }) {
     const { t } = useTranslation();
     const chip = (key: string, kind: ChangeKind | 'choice', text: string) => (
-        <li key={key} className={`inline-flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-sm font-medium ${TONE[kind].badge}`}>
+        <li key={key} className={`inline-flex items-center gap-1.5 rounded-full py-0.5 ps-1 pe-2.5 text-sm font-medium ${TONE[kind].badge}`}>
             <Sign kind={kind} size="xs" />
             {text}
         </li>
@@ -324,7 +324,7 @@ export default function CourseUpdateChanges({ items, summary, conflicts, choices
             {progress && (
                 <section className="space-y-1">
                     <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t("Your progress")}</h3>
-                    <ul className={`list-disc space-y-1 pl-5 text-sm ${MUTED}`}>
+                    <ul className={`list-disc space-y-1 ps-5 text-sm ${MUTED}`}>
                         {summary.reviewedCardsChanged > 0 && <li>{t("{{count}} cards you have reviewed get new text; their review history stays.", { count: summary.reviewedCardsChanged })}</li>}
                         {summary.questionsReset > 0 && <li>{t("{{count}} questions were reworded, so you will be asked them again as if for the first time.", { count: summary.questionsReset })}</li>}
                     </ul>

@@ -36,7 +36,7 @@ function PreQuestionItem({ item, nodeId, value, onChange, disabled }: {
                     <div className="min-w-0 flex-1 text-base font-medium text-slate-800 dark:text-slate-100">
                         <QuestionStem content={item.question.question} nodeId={nodeId} surface="feed-question" media={item.question.media} />
                     </div>
-                    {ref && <div className="-mt-1 -mr-1"><ReportItem itemRef={ref} surface="feed" inStream /></div>}
+                    {ref && <div className="-mt-1 -me-1"><ReportItem itemRef={ref} surface="feed" inStream /></div>}
                 </div>
                 {reported
                     ? <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, reported)}</p>
@@ -269,7 +269,7 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 // "Continue anyway", two equal buttons for opposite moves.
                 <div className={cx('flex flex-wrap items-center gap-2', weak && (!canCheck || !text.trim()) ? 'mt-3 justify-start' : 'mt-4 justify-end')}>
                     {failed && (
-                        <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
+                        <p role="alert" className="me-auto text-sm text-red-700 dark:text-red-300">
                             {failed === 'model'
                                 ? t("No model is set up to mark this. Your text is kept.")
                                 : t("It could not be marked just now. Your text is kept; try again.")}

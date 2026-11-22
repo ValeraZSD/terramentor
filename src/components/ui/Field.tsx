@@ -73,11 +73,11 @@ interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'si
 export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function TextInput(
     { size = 'md', icon, className, ...rest }, ref,
 ) {
-    const field = <input ref={ref} className={cx('w-full', FIELD_BASE, FIELD_SIZE[size], icon ? 'pl-9' : '', className)} {...rest} />;
+    const field = <input ref={ref} className={cx('w-full', FIELD_BASE, FIELD_SIZE[size], icon ? 'ps-9' : '', className)} {...rest} />;
     if (!icon) return field;
     return (
         <div className="relative min-w-0">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none" aria-hidden="true">
+            <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none" aria-hidden="true">
                 {icon}
             </span>
             {field}
@@ -124,10 +124,10 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
             className={cx('relative min-w-0', className)}
             onBlur={onBlur && (e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onBlur(e); })}
         >
-            <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pr-10 touch:pr-12" data-reveal-field="" {...rest} />
+            <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pe-10 touch:pe-12" data-reveal-field="" {...rest} />
             <IconButton
                 size="sm"
-                className="absolute right-1 top-1/2 -translate-y-1/2"
+                className="absolute end-1 top-1/2 -translate-y-1/2"
                 // Pressing the eye must not take the caret out of the field.
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => setShown(!shown)}

@@ -96,7 +96,7 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                     data-disclosure="heading"
                     onClick={() => setExpanded(v => !v)}
                     aria-expanded={expanded}
-                    className="flex-1 min-w-0 text-left"
+                    className="flex-1 min-w-0 text-start"
                 >
                     <span className="block text-sm font-semibold text-slate-900 dark:text-white">
                         {t("Getting started")}

@@ -160,7 +160,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
                 and reads only the answer (as Anki and Quizlet do): the learner
                 heard the question a moment ago. `contents` keeps the gap. */}
             <div data-read-skip={flipped || undefined} className="contents">
-            <p className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
+            <p dir="auto" className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
                 <span>
                     {rubyWord
                         // The deck's per-kanji form of the word, rendered through the
@@ -178,7 +178,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
 
             {flipped && (
                 <>
-                    <p className={`${big} max-w-lg text-accent-fg font-medium ${backClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
+                    <p dir="auto" className={`${big} max-w-lg text-accent-fg font-medium ${backClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
                         <span><CardText content={back} /></span>
                         {backClips}
                     </p>

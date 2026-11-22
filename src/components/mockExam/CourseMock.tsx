@@ -577,7 +577,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                             <p className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300 tabular-nums">
                                 {t("Question {{n}} of {{total}}", { n: index + 1, total: questions.length })}
                             </p>
-                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ml-2.5 whitespace-nowrap"
+                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ms-2.5 whitespace-nowrap"
                                 icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
                                 {later[q.partId] ? t("Marked to come back to") : t("Come back to this")}
                             </Button>
@@ -705,7 +705,7 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             <li key={tp.id} className="py-3">
                                 <div className="flex items-baseline gap-x-4">
                                     <span className="flex-1 min-w-0 text-sm text-slate-900 dark:text-white">{tp.title}</span>
-                                    <span className="shrink-0 text-right text-sm tabular-nums text-slate-700 dark:text-slate-200">
+                                    <span className="shrink-0 text-end text-sm tabular-nums text-slate-700 dark:text-slate-200">
                                         {t("{{right}} of {{total}}", { right: fmt(tp.right), total: fmt(tp.total) })}
                                     </span>
                                 </div>

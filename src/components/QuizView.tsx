@@ -18,7 +18,7 @@ import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
 
 /** Out of the quiz, back to the panel it opened from: the panel's own back link. */
-const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ml-2.5' } as const;
+const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ms-2.5' } as const;
 
 /** What an unanswered question is graded as: what the learner gave, else what an untouched input already answers. */
 const effectiveAnswer = (question: QuizQuestion, given: string | undefined): string =>
@@ -400,7 +400,7 @@ export default function QuizView({ quiz, onClose }: Props) {
                         itemRef={currentRef}
                         surface="quiz"
                         shown={answers[currentIndex] ? { answer: answers[currentIndex] } : undefined}
-                        className="-mt-0.5 -mr-1"
+                        className="-mt-0.5 -me-1"
                     />
                 </div>
                 {/* A practice sitting — the whole row, or a draw from a bigger

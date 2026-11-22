@@ -1,5 +1,6 @@
 import type { QuizQuestion } from '../../types';
 import { k } from '../../i18n';
+import { isRtl } from '../../utils/direction';
 
 /**
  * The answer formats, as the CLIENT knows them — the mirror of
@@ -162,7 +163,8 @@ export function answerAsText(question: Pick<QuizQuestion, 'type' | 'template'>, 
     }
     if (question.type === 'sequence') {
         const steps = parseSequence(stored);
-        return steps ? steps.join(' → ') : stored;
+        // The arrow points the way the line is read.
+        return steps ? steps.join(isRtl() ? ' ← ' : ' → ') : stored;
     }
     return stored;
 }

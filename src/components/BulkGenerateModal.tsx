@@ -325,13 +325,13 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
 
                         <div className="flex flex-wrap items-center gap-2">
                             <label className="relative flex-1 min-w-[10rem]">
-                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                                <Search className="w-3.5 h-3.5 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                                 <input
                                     value={query}
                                     onChange={e => setQuery(e.target.value)}
                                     placeholder={t("Search topics")}
                                     aria-label={t("Search topics")}
-                                    className="w-full pl-8 pr-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-600 bg-transparent text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                                    className="w-full ps-8 pe-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-600 bg-transparent text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/50"
                                 />
                             </label>
                             <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 px-1 min-h-[44px]">
@@ -347,7 +347,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                         {label}
                                     </Button>
                                 ))}
-                            <span className="ml-auto shrink-0 text-slate-500 dark:text-slate-400 tabular-nums">
+                            <span className="ms-auto shrink-0 text-slate-500 dark:text-slate-400 tabular-nums">
                                 {selected.size}/{candidates?.length ?? 0}
                             </span>
                         </div>
@@ -398,9 +398,9 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                                 return next;
                                             })}
                                             aria-expanded={!shut}
-                                            className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-accent-fg transition py-2.5"
+                                            className="flex-1 min-w-0 flex items-center gap-1.5 text-start text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-accent-fg transition py-2.5"
                                         >
-                                            <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${shut ? '-rotate-90' : ''}`} />
+                                            <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${shut ? '-rotate-90 rtl:rotate-90' : ''}`} />
                                             <span className="truncate">{section}</span>
                                             <span className="shrink-0 font-normal normal-case tabular-nums text-slate-500 dark:text-slate-400">
                                                 {on}/{rows.length}
@@ -474,12 +474,12 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                                 : t("finished")}
                 </span>
                 {running && eta && (
-                    <span className="ml-auto shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                    <span className="ms-auto shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                         {t("~{{duration}} left", { duration: t(eta.key, eta.params) })}
                     </span>
                 )}
                 {running && (
-                    <Button size="sm" variant="danger" onClick={onCancel} className={`shrink-0 ${job.etaMs != null ? '' : 'ml-auto'}`}>
+                    <Button size="sm" variant="danger" onClick={onCancel} className={`shrink-0 ${job.etaMs != null ? '' : 'ms-auto'}`}>
                         {t("Stop")}
                     </Button>
                 )}
@@ -528,7 +528,7 @@ function KindCard({ active, onClick, icon, label, blurb, countLabel, choices, va
                 type="button"
                 aria-pressed={active}
                 onClick={onClick}
-                className="w-full text-left p-3 flex items-start gap-3"
+                className="w-full text-start p-3 flex items-start gap-3"
             >
                 <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${active
                     ? 'bg-accent text-white'

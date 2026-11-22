@@ -91,7 +91,7 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
                 aria-expanded={open}
                 className={cx(
                     // A finger's 44px on a touch screen, as `Explain` has.
-                    'flex w-full items-start touch:items-center touch:min-h-11 gap-1.5 rounded -mx-2 px-2 py-1.5 text-left text-xs',
+                    'flex w-full items-start touch:items-center touch:min-h-11 gap-1.5 rounded -mx-2 px-2 py-1.5 text-start text-xs',
                     'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors',
                     FOCUS_RING,
                 )}
@@ -110,7 +110,7 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
                 </span>
             </button>
             {open && (
-                <div ref={bodyRef} className="list-scroll mt-0.5 ml-1.5 border-l-2 border-slate-300 dark:border-slate-600 pl-3 pr-1 py-1 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain">
+                <div ref={bodyRef} className="list-scroll mt-0.5 ms-1.5 border-s-2 border-slate-300 dark:border-slate-600 ps-3 pe-1 py-1 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain">
                     {/* Trimmed for display: a trace usually ends in blank
                         lines, which pre-wrap draws, and the hairline then
                         runs on past the words. */}

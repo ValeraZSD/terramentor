@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import Markdown from './Markdown';
 import { splitOpenTargets, splitDestinations, splitTutorActions, type Destination } from '../utils/tutorActions';
 import { splitSettingChanges } from '../utils/assistantSettings';
+import { inlineArrow, isRtl } from '../utils/direction';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
     CardProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
@@ -187,7 +188,7 @@ function TargetButtons({ targets, onOpen }: { targets: ResolvedTarget[]; onOpen:
                     type="button"
                     data-row="open-target"
                     onClick={() => onOpen(t)}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-11 rounded-xl border border-accent/40 bg-accent/5 hover:bg-accent/10 text-left transition"
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-11 rounded-xl border border-accent/40 bg-accent/5 hover:bg-accent/10 text-start transition"
                 >
                     <span className="min-w-0">
                         <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.title}</span>
@@ -227,7 +228,7 @@ function ConversationList({ conversations, currentId, disabled, onOpen, onDelete
                         onClick={() => onOpen(c)}
                         disabled={disabled}
                         aria-current={c.id === currentId ? 'true' : undefined}
-                        className={`flex-1 min-w-0 text-left px-3 py-2 min-h-11 rounded-xl transition disabled:opacity-50 ${c.id === currentId
+                        className={`flex-1 min-w-0 text-start px-3 py-2 min-h-11 rounded-xl transition disabled:opacity-50 ${c.id === currentId
                             ? 'bg-accent/10 text-slate-900 dark:text-slate-100'
                             : 'hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200'}`}
                     >
@@ -1319,9 +1320,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         e.preventDefault();
         const startX = e.clientX;
         const startWidth = width;
+        // The panel docks at the line's end: the right, or the left in right to left.
+        const sign = isRtl() ? -1 : 1;
         const onMove = (ev: PointerEvent) => {
-            // Dragging LEFT widens the panel, so the delta is inverted.
-            const next = startWidth + (startX - ev.clientX);
+            // Dragging towards the page widens the panel, so the delta is inverted.
+            const next = startWidth + sign * (startX - ev.clientX);
             onResize(Math.max(MIN_WIDTH, Math.min(next, Math.round(window.innerWidth * 0.6))));
         };
         const onUp = () => {
@@ -1426,7 +1429,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const panel = (
         <aside
             // Docked or not it runs the screen's full height at its right edge.
-            className={`relative h-full min-h-0 safe-pt-0 safe-pb-0 safe-pr-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col ${
+            className={`relative h-full min-h-0 safe-pt-0 safe-pb-0 safe-pe-0 bg-white dark:bg-slate-800 border-s border-slate-200 dark:border-slate-700 flex flex-col ${
                 docked ? 'shrink-0' : 'w-full sm:w-[28rem] max-w-full shadow-2xl'
             }`}
             style={docked ? { width } : undefined}
@@ -1456,8 +1459,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     onDoubleClick={() => onResize(DEFAULT_WIDTH)}
                     onKeyDown={e => {
                         const step = e.shiftKey ? 64 : 16;
-                        if (e.key === 'ArrowLeft') { e.preventDefault(); resizeBy(step); }
-                        else if (e.key === 'ArrowRight') { e.preventDefault(); resizeBy(-step); }
+                        const key = inlineArrow(e.key);
+                        if (key === 'ArrowLeft') { e.preventDefault(); resizeBy(step); }
+                        else if (key === 'ArrowRight') { e.preventDefault(); resizeBy(-step); }
                         else if (e.key === 'Home') { e.preventDefault(); onResize(DEFAULT_WIDTH); }
                     }}
                     tabIndex={0}
@@ -1466,7 +1470,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     aria-label={tr("Resize the assistant")}
                     aria-valuenow={width}
                     title={tr("Drag to resize · double-click to reset")}
-                    className="absolute left-0 top-0 bottom-0 -ml-1 w-2 cursor-col-resize z-10 hover:bg-accent/30 active:bg-accent/50 focus-visible:bg-accent/50 focus:outline-none transition-colors"
+                    className="absolute start-0 top-0 bottom-0 -ms-1 w-2 cursor-col-resize z-10 hover:bg-accent/30 active:bg-accent/50 focus-visible:bg-accent/50 focus:outline-none transition-colors"
                 />
             )}
 
@@ -1588,7 +1592,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                 <div className="flex flex-col items-end gap-1.5 w-full">
                                     {m.attachments?.length ? <MessageAttachments attachments={m.attachments} /> : null}
                                     {m.content ? (
-                                        <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
+                                        <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-ee-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
                                             {/* Who is speaking, for a screen reader reading the log. */}
                                             <span className="sr-only">{tr("You said:")} </span>
                                             {m.content}
@@ -1750,14 +1754,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                             for (const p of parts) box.appendChild(p.cloneNode(true));
                                                             return box;
                                                         }}
-                                                        className="-ml-2"
+                                                        className="-ms-2"
                                                     />
                                                     <CopyButton
                                                         text={readableAnswer(m.content, false, m.actions)}
                                                         label={tr("Copy answer")}
                                                         // The icon's own edge on the answer's: the
                                                         // button's padding indented it off the text.
-                                                        className={readAloudOn ? '' : '-ml-2'}
+                                                        className={readAloudOn ? '' : '-ms-2'}
                                                         onFailed={() => addToast('error', tr("Could not copy"), tr("Your browser blocked clipboard access."))}
                                                     />
                                                 </div>
@@ -1929,7 +1933,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     if (docked) return panel;
 
     return (
-        <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-50 flex justify-end safe-pl-0 outline-none" role="dialog" aria-modal="true" aria-label={tr("Assistant")}>
+        <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-50 flex justify-end safe-ps-0 outline-none" role="dialog" aria-modal="true" aria-label={tr("Assistant")}>
             <div className="absolute inset-0 bg-black/50" {...backdrop} aria-hidden="true" />
             {panel}
         </div>

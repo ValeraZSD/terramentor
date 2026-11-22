@@ -361,7 +361,7 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
                             a px indent drifted off the title under `ui_scale`.
                             Progress only: the verdict sits in the project's
                             header, on every tab. */}
-                        <p className="text-slate-500 dark:text-slate-400 mt-1 ml-[3.25rem]">
+                        <p className="text-slate-500 dark:text-slate-400 mt-1 ms-[3.25rem]">
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>
                     </div>

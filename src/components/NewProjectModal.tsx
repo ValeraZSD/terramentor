@@ -270,7 +270,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     // and colour (creation/AppearancePicker): it sits where the
                     // card will show them, beside the name.
                     <div className="relative min-w-0">
-                        <div className="absolute left-1 top-1/2 z-10 -translate-y-1/2 touch:left-0">
+                        <div className="absolute start-1 top-1/2 z-10 -translate-y-1/2 touch:start-0">
                             <AppearancePicker icon={newIcon} color={newColor} onIcon={setNewIcon} onColor={setNewColor} />
                         </div>
                         <TextInput
@@ -278,7 +278,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                             value={newName}
                             onChange={e => { nameTyped.current = true; setNewName(e.target.value); }}
                             placeholder={firstTitle || t("e.g., Machine Learning, Japanese N3…")}
-                            className="pl-11 touch:pl-12"
+                            className="ps-11 touch:ps-12"
                         />
                     </div>
                 )}
@@ -319,7 +319,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     <div className="mb-4">
                         {/* The chatbot view is reached FROM the import view, so
                             its Back goes there. */}
-                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setCreateMode(createMode === 'external' ? 'import' : 'ai')} className="-ml-2">
+                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setCreateMode(createMode === 'external' ? 'import' : 'ai')} className="-ms-2">
                             {createMode === 'external' ? t("Back") : t("Back to creating with AI")}
                         </Button>
                         {/* The chatbot view names itself; the import view's own

@@ -177,7 +177,7 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
                     onKeyDown={canFolder ? menuTriggerKeys(() => setMenuOpen(true)) : undefined}
                     aria-haspopup={canFolder ? 'menu' : undefined}
                     aria-expanded={canFolder ? menuOpen : undefined}
-                    className="-mr-2"
+                    className="-me-2"
                 >
                     {t("Add")}
                 </Button>
@@ -198,7 +198,7 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
                     type="button"
                     onClick={chooseFiles}
                     className={cx(
-                        'flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 text-left transition-colors',
+                        'flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 text-start transition-colors',
                         FOCUS_RING,
                         // slate-400: slate-300 on white was barely drawn.
                         dragOver ? 'border-accent bg-accent/10' : 'border-slate-400 dark:border-slate-500 can-hover:hover:border-accent',

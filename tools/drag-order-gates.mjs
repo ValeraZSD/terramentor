@@ -415,8 +415,8 @@ console.log('\na drag steps one drawn indent per level at any text size');
     check('both lists scale the step by the current root size and pass it on',
         /const indentPx = TREE_INDENT_REM \* useRootFontSize\(\);/.test(nav) && /getProjection\([^)]*, indentPx\)/.test(nav)
         && /const indentPx = OUTLINE_INDENT_REM \* useRootFontSize\(\);/.test(board)
-        && /Math\.round\(event\.delta\.x \/ indentPx\) \* indentPx/.test(board)
-        && /boardProjection\([^)]*, indentPx\)/.test(board) && /event\.delta\.x, indentPx\);/.test(board)
+        && /Math\.round\(inlineDelta\(event\.delta\.x\) \/ indentPx\) \* indentPx/.test(board)
+        && /boardProjection\([^)]*, indentPx\)/.test(board) && /inlineDelta\(event\.delta\.x\), indentPx\);/.test(board)
         && !/INDENTATION_WIDTH/.test(board));
 }
 

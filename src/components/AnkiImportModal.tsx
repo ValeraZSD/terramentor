@@ -463,7 +463,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                             <><ImageIcon size={12} aria-hidden="true" />{num((stats.mediaImages ?? 0))}</>
                                         )}
                                         {(stats.mediaSounds ?? 0) > 0 && (
-                                            <><Volume2 size={12} aria-hidden="true" className="ml-1.5" />{num((stats.mediaSounds ?? 0))}</>
+                                            <><Volume2 size={12} aria-hidden="true" className="ms-1.5" />{num((stats.mediaSounds ?? 0))}</>
                                         )}
                                     </span>
                                     {' '}

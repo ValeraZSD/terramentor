@@ -223,7 +223,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
 
                 <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-3 dark:border-slate-700">
                     {back && onOpenOrigin && (
-                        <Button variant="neutral" className="mr-auto" onClick={onOpenOrigin}>
+                        <Button variant="neutral" className="me-auto" onClick={onOpenOrigin}>
                             {t(back.openKey)}
                         </Button>
                     )}

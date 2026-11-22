@@ -32,7 +32,7 @@ const WRAP_SIZE: Record<ControlSize, string> = { sm: 'min-h-8 py-1', md: 'min-h-
 
 const shape = ({ variant = 'neutral', size = 'md', block, wrap, icon, trailing }: Common) => wrap
     ? cx(
-        icon || trailing ? CONTROL_BASE.replace('justify-center', 'justify-start text-left') : `${CONTROL_BASE} text-center`,
+        icon || trailing ? CONTROL_BASE.replace('justify-center', 'justify-start text-start') : `${CONTROL_BASE} text-center`,
         CONTROL_SIZE[size].replace(/(^|\s)h-\S+/, ''), WRAP_SIZE[size],
         CONTROL_VARIANT[variant], block && 'w-full',
     )

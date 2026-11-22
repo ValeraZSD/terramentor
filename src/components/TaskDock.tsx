@@ -196,10 +196,10 @@ function ChipExit({ leaving, children }: { leaving: boolean; children: React.Rea
             className="grid shrink-0 min-w-0"
             style={{
                 gridTemplateColumns: leaving ? '0fr' : '1fr',
-                marginRight: leaving ? '-0.25rem' : 0,
+                marginInlineEnd: leaving ? '-0.25rem' : 0,
                 transition: still ? 'none'
                     : `grid-template-columns ${EXIT_COLLAPSE_MS}ms ease ${EXIT_FADE_MS}ms,`
-                        + ` margin-right ${EXIT_COLLAPSE_MS}ms ease ${EXIT_FADE_MS}ms`,
+                        + ` margin-inline-end ${EXIT_COLLAPSE_MS}ms ease ${EXIT_FADE_MS}ms`,
             }}
             aria-hidden={leaving || undefined}
         >
@@ -325,7 +325,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
             // The dock is still the container; the tint only draws the seam.
             // min-h, not h: with the larger setting its buttons are 44px tall,
             // and a fixed 36px chip let the dock's rail cut them to 36.
-            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 min-h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
+            className={`flex items-center gap-1.5 ps-2.5 pe-0.5 min-h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
                 ${task.status === 'queued' ? 'opacity-70' : ''}`}
             // Scoped here, on the chip's own root, so everything accented
             // inside it — the progress token, the focus rings — says which
@@ -466,7 +466,9 @@ export default function TaskDock() {
     // Centred on the *app column*, not the viewport: `--assistant-w` is the width
     // of the docked assistant panel (0 when closed), and a fixed element has no
     // other way to learn that the page it belongs to no longer fills the screen.
-    const DOCK_CENTRE = { transform: 'translateX(calc(-50% - var(--assistant-w, 0px) / 2))' } as const;
+    // The panel docks at the line's end, the left in right to left, so the
+    // column's centre moves the other way there (`--inline-sign`, index.css).
+    const DOCK_CENTRE = { transform: 'translateX(calc(-50% - var(--assistant-w, 0px) / 2 * var(--inline-sign, 1)))' } as const;
     // When there are more than MAX_VISIBLE tasks, the overflow hides behind a
     // "+N" pill; clicking it reveals the full list (and clicking again re-hides).
     const [showAll, setShowAll] = useState(false);

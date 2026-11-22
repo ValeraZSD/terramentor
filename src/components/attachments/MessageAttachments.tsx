@@ -19,7 +19,7 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
     const [viewing, setViewing] = useState<ChatAttachment | null>(null);
     if (!attachments?.length) return null;
     return (<>
-        <ul className="flex flex-wrap justify-end gap-1.5 max-w-[85%] ml-auto" aria-label={t("Attached files")}>
+        <ul className="flex flex-wrap justify-end gap-1.5 max-w-[85%] ms-auto" aria-label={t("Attached files")}>
             {attachments.map(a => (
                 <li key={a.id}>
                     {a.kind === 'image' ? (
@@ -46,7 +46,7 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
                             href={api.attachmentFileUrl(a.id)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 w-64 h-14 pl-2 pr-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            className="flex items-center gap-2 w-64 h-14 ps-2 pe-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             <span className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
                                 <FileGlyph fileType={a.fileType} name={a.name} />

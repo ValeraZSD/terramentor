@@ -102,13 +102,13 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                     label={t("Close dialog")}
                                     tooltip={false}
                                     icon={<X className="w-5 h-5" />}
-                                    className="-mr-1.5"
+                                    className="-me-1.5"
                                 />
                             )}
                             {/* The ✕'s box without it (the same size class and
                                 margin), so neither the head's height nor the
                                 title's width changes when the ✕ comes and goes. */}
-                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -mr-1.5 shrink-0`} />}
+                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -me-1.5 shrink-0`} />}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : `${DIALOG_BODY} px-6 py-4`}>
                             {children}

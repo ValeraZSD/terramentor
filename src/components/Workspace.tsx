@@ -16,6 +16,7 @@ import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { countsInCards } from '../utils/projectShape';
+import { fromInlineStart, scrolledFromStart } from '../utils/direction';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
 
@@ -98,7 +99,8 @@ export default function Workspace() {
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!resizing.current) return;
-            const newWidth = window.innerWidth - e.clientX;
+            // The panel is docked at the inline end.
+            const newWidth = window.innerWidth - fromInlineStart(e.clientX);
             setDetailPanelWidth(newWidth);
         };
 
@@ -181,7 +183,9 @@ export default function Workspace() {
             // box reports left = 0, which measured the rail from the screen edge.
             const items = Array.from(rail.children).filter(el => el.getBoundingClientRect().width > 0);
             if (items.length === 0) return;
-            const tabs = items[items.length - 1].getBoundingClientRect().right - items[0].getBoundingClientRect().left;
+            // The span the tabs cover, either way the row runs.
+            const boxes = items.map(el => el.getBoundingClientRect());
+            const tabs = Math.max(...boxes.map(b => b.right)) - Math.min(...boxes.map(b => b.left));
             const cs = getComputedStyle(bar);
             const room = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - (parseFloat(cs.columnGap) || 0);
             const pill = ghost.getBoundingClientRect().width;
@@ -208,8 +212,8 @@ export default function Workspace() {
         const el = tabRailRef.current;
         if (!el) return;
         const measure = () => {
-            const start = el.scrollLeft > 4;
-            const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+            const start = scrolledFromStart(el) > 4;
+            const end = scrolledFromStart(el) + el.clientWidth < el.scrollWidth - 4;
             setRailFade(start && end ? 'both' : start ? 'start' : end ? 'end' : 'none');
         };
         measure();
@@ -241,7 +245,7 @@ export default function Workspace() {
             <div ref={barRef} className={`relative ${examFocus ? 'hidden' : 'flex'} flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800`}>
                 {/* The full pace pill's measure (see `fit` above): laid out
                     at its own width, never seen, and nothing in it focuses. */}
-                <div ref={paceGhostRef} aria-hidden="true" className="invisible absolute left-0 top-0 w-max pointer-events-none">
+                <div ref={paceGhostRef} aria-hidden="true" className="invisible absolute start-0 top-0 w-max pointer-events-none">
                     <PaceIndicator full />
                 </div>
                 {/* The views are routes, so this is a `nav` and the tab you are on
@@ -252,7 +256,7 @@ export default function Workspace() {
                         <IconButton
                             size="sm"
                             onClick={() => setNavDrawerOpen(true)}
-                            className="md:hidden mr-1"
+                            className="md:hidden me-1"
                             label={tr("Open navigation")}
                             icon={<Menu className="w-5 h-5" />}
                         />
@@ -293,7 +297,7 @@ export default function Workspace() {
                                     (server/decks.js `reviewDue`), so every
                                     project may show it. */}
                                 {isDashboardTab && dueFlashcardCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${tabView === 'dashboard'
+                                    <span className={`ms-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${tabView === 'dashboard'
                                         ? 'bg-accent text-white'
                                         : 'bg-amber-600 text-white'
                                         }`}>
@@ -353,7 +357,7 @@ export default function Workspace() {
                             // The sidebar's own surface behind the strips it is
                             // padded clear of (status bar, home indicator, the
                             // left corners held sideways).
-                            className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs safe-pt-0 safe-pb-0 safe-pl-0 bg-white dark:bg-slate-800 outline-none transition-[transform,box-shadow] duration-300 ${navDrawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
+                            className={`fixed inset-y-0 start-0 z-40 w-[85vw] max-w-xs safe-pt-0 safe-pb-0 safe-ps-0 bg-white dark:bg-slate-800 outline-none transition-[transform,box-shadow] duration-300 ${navDrawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full rtl:translate-x-full'}`}
                         >
                             <Sidebar isDrawer />
                         </div>
@@ -387,11 +391,11 @@ export default function Workspace() {
                         </div>
                     ) : (
                         <aside
-                            className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col shrink-0 overflow-hidden relative"
+                            className="bg-white dark:bg-slate-800 border-s border-slate-200 dark:border-slate-700 flex flex-col shrink-0 overflow-hidden relative"
                             style={{ width: detailPanelWidth }}
                         >
                             <div
-                                className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors z-10"
+                                className="absolute top-0 start-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors z-10"
                                 onMouseDown={handleMouseDown}
                             />
                             <DetailPanel />

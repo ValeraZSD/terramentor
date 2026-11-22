@@ -65,7 +65,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     type="button"
                     data-row
                     onClick={() => openProjectNode(b.a.projectId, b.a.id)}
-                    className={`flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
+                    className={`flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
                         <span className="truncate">{b.a.title}</span>
@@ -101,7 +101,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     type="button"
                     data-row
                     onClick={() => openProjectNode(b.b.projectId, b.b.id)}
-                    className={`flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
+                    className={`flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">{b.b.title}</span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{b.b.projectName}</span>

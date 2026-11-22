@@ -169,7 +169,7 @@ function Row({ item, index, count, locked, verdict, onUp, onDown }: {
             ref={setNodeRef}
             style={style}
             className={cx(
-                'flex items-center gap-2 pl-2 pr-1 py-1 rounded-xl border-2 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200',
+                'flex items-center gap-2 ps-2 pe-1 py-1 rounded-xl border-2 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200',
                 // Held: lifted, solid and above the rows it passes (later in the DOM);
                 // at half opacity the row underneath showed through its text.
                 isDragging && 'relative z-10 shadow-lg',
@@ -211,7 +211,7 @@ function Row({ item, index, count, locked, verdict, onUp, onDown }: {
  * word, never wider than the row: in a narrow panel at a large text size the
  * word wraps inside its tile rather than running out of the card.
  */
-const TILE = 'inline-flex items-center gap-1 min-h-11 max-w-full pl-1 pr-3 py-1.5 rounded-xl border-2 text-sm text-slate-700 dark:text-slate-200';
+const TILE = 'inline-flex items-center gap-1 min-h-11 max-w-full ps-1 pe-3 py-1.5 rounded-xl border-2 text-sm text-slate-700 dark:text-slate-200';
 
 function TileFace({ item, index }: { item: string; index?: number }) {
     return (
@@ -219,7 +219,7 @@ function TileFace({ item, index }: { item: string; index?: number }) {
             {index === undefined
                 ? <GripVertical className="w-6 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
                 : <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-hidden="true">{index + 1}</span>}
-            <span className="min-w-0 break-words text-left"><MathText content={item} /></span>
+            <span className="min-w-0 break-words text-start"><MathText content={item} /></span>
         </>
     );
 }

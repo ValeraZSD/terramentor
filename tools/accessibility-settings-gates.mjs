@@ -406,8 +406,8 @@ section('8. larger text and buttons: one switch, two floors');
     // The show button is the floor wide and sits 0.25rem in: 3.25rem left
     // typed text 5.6px under it at an 80% interface size.
     check('a password field keeps room for its show button at every interface size',
-        /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute right-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
-        && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-right: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
+        /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute end-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
+        && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-inline-end: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
     check('the course tree is wide enough for a 44px column, a title and a grip, never past 30% of its row',
         /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css)
         && /html\[data-larger-ui\] \{\s*--row-tree-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);\s*--row-outline-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);/.test(css));

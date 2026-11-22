@@ -276,7 +276,7 @@ export default function DetailPanel() {
                            that is what keeps the row one line. 8rem
                            is a width the larger-UI floor keeps (index.css).
                            With the setting off the row stays one line. */
-                        className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                        className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-start px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
                     >
                         <span className="min-w-0 truncate">{node.title}</span>
                         {/* Renaming was discoverable only by clicking text that

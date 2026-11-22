@@ -331,7 +331,7 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
                 clear of the word, so grading does not widen the gap and reflow
                 the line. */}
             {verdict === 'wrong' && (
-                <span aria-hidden className="absolute -top-2 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white ring-2 ring-white dark:ring-slate-800">
+                <span aria-hidden className="absolute -top-2 -end-1 flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white ring-2 ring-white dark:ring-slate-800">
                     <X className="w-2.5 h-2.5" strokeWidth={3.5} />
                 </span>
             )}

@@ -116,7 +116,7 @@ export default function DeckDashboard() {
                         {/* Indented by the badge (h-10) plus the gap (gap-3), in
                             rem like them: `52px` drifted off the title as soon as
                             `ui_scale` moved (30px short at 160%). */}
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 sm:ml-[3.25rem]">
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 sm:ms-[3.25rem]">
                             {t("{{fmt}} cards", { count: deck.totals.cards, fmt: fmt(deck.totals.cards) })}
                             {/* JSX drops the newline between these, so the space before each
                                 separator has to be written: "1 828 cards· 27 sections". */}

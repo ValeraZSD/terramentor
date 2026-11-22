@@ -303,7 +303,7 @@ function ActivityRow({ event, onOpen }: { event: TodayActivityEvent; onOpen: () 
                 title={event.evidenceId != null
                     ? t("{{label}} · {{nodeTitle}} — see each answer", { label, nodeTitle: event.nodeTitle })
                     : t("{{label}} · {{nodeTitle}} — open the topic", { label, nodeTitle: event.nodeTitle })}
-                className="w-full flex items-start gap-3 px-2 py-2 text-left rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/40 transition"
+                className="w-full flex items-start gap-3 px-2 py-2 text-start rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/40 transition"
             >
                 <span className="mt-0.5 text-2xs tabular-nums text-slate-500 dark:text-slate-400 w-10 shrink-0">
                     {clockTime(event.at)}
@@ -313,7 +313,7 @@ function ActivityRow({ event, onOpen }: { event: TodayActivityEvent; onOpen: () 
                     <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{event.title}</span>
                     <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
                         <span
-                            className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
+                            className="inline-block w-1.5 h-1.5 rounded-full me-1.5 align-middle"
                             style={{ backgroundColor: event.projectColor || '#94a3b8' }}
                             aria-hidden="true"
                         />

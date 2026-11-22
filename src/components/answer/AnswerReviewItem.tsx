@@ -66,7 +66,7 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                                     <QuestionStem content={question.question} nodeId={nodeId} surface={surface} media={question.media} />
                                 </div>
                             </div>
-                            {report && <div className="-mt-1.5 -mr-1.5 shrink-0">{report}</div>}
+                            {report && <div className="-mt-1.5 -me-1.5 shrink-0">{report}</div>}
                         </div>
                         {formatOf(question).blockAnswer && answer ? (
                             // Code and an ordering read as blocks: the input, locked

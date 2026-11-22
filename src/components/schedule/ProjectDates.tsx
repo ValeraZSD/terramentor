@@ -146,7 +146,7 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     data-link="drift"
                     onClick={() => setEditing(true)}
                     title={t("Its topics are planned from {{from}} to {{to}}.", { from: pretty(drift.from), to: pretty(drift.to) })}
-                    className="flex items-start gap-1.5 text-left text-sm text-amber-700 dark:text-amber-400 can-hover:hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                    className="flex items-start gap-1.5 text-start text-sm text-amber-700 dark:text-amber-400 can-hover:hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
                 >
                     <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
                     <span>
@@ -196,7 +196,7 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                         ? <Edit2 size={15} className="shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
                         : <CalendarPlus size={15} className="shrink-0 text-accent-fg" aria-hidden="true" />}
                     {hasWindow && <span className="sr-only">{t("Change the dates for {{name}}", { name: project.name })}: </span>}
-                    <span className="min-w-0 flex-1 text-left tabular-nums">
+                    <span className="min-w-0 flex-1 text-start tabular-nums">
                         {hasWindow ? range(start!, end!) : t("Set dates")}
                     </span>
                     {verdict && <VerdictPill verdict={verdict} t={t} />}
@@ -276,7 +276,7 @@ function DateEditor({
     // every stranger guessing which was the deadline, and a caption row above
     // them would make the editor taller than the strip it replaces.
     const box = 'relative min-w-0';
-    const name = 'pointer-events-none absolute -top-1.5 left-2 z-10 px-1 text-xs leading-none '
+    const name = 'pointer-events-none absolute -top-1.5 start-2 z-10 px-1 text-xs leading-none '
         + 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400';
     const ok = 'border-slate-300 dark:border-slate-600';
     const bad = 'border-red-400 dark:border-red-500';

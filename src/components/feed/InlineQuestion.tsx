@@ -89,7 +89,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                     <div className="min-w-0 flex-1 text-base font-medium text-slate-800 dark:text-slate-100">
                         <QuestionStem content={question.question} nodeId={nodeId} surface={surface} onRepaired={onRepaired} media={question.media} />
                     </div>
-                    {report && <div className="-mt-1 -mr-1">{report}</div>}
+                    {report && <div className="-mt-1 -me-1">{report}</div>}
                 </div>
 
                 {reportedNote && <div className="-mt-1 mb-3">{reportedNote}</div>}
@@ -132,7 +132,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                     the content room to have structure of its own. */}
                 <p className="sr-only" role="status">{verdict}</p>
                 {result && !reportedNote && (
-                    <div ref={verdictRef} tabIndex={-1} className={`mt-4 pl-3 sm:pl-4 border-l-2 outline-none ${result.correct
+                    <div ref={verdictRef} tabIndex={-1} className={`mt-4 ps-3 sm:ps-4 border-s-2 outline-none ${result.correct
                         ? 'border-emerald-500 dark:border-emerald-500'
                         : 'border-red-400 dark:border-red-500'}`}
                     >

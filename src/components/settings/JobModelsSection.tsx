@@ -381,7 +381,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                                     {stopped
                                         ? <span className="text-red-700 dark:text-red-300">{tr("Stopped: its connection was removed. Choose another.")}</span>
                                         : was.length ? chainText(was) : mainText}
-                                    {unsaved && <span className="ml-1.5 text-amber-700 dark:text-amber-300">{tr("Changes not saved yet")}</span>}
+                                    {unsaved && <span className="ms-1.5 text-amber-700 dark:text-amber-300">{tr("Changes not saved yet")}</span>}
                                 </span>
                                 {fallbacks[id] && <FallbackNoteText note={fallbacks[id]} />}
                             </>}

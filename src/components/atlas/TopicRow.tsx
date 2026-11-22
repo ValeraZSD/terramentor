@@ -54,7 +54,7 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
             // under the title from the name (label in name). The status, the
             // head-start note and that line are read as its description.
             aria-describedby={studies ? [statusId, headStartId, detailId].filter(Boolean).join(' ') : undefined}
-            className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-left can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-start can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
             <span
                 aria-hidden="true"
@@ -67,7 +67,7 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
                     {topic.title}
                     {topic.transferred && (
                         <>
-                            <History className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
+                            <History className="inline w-3 h-3 ms-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
                             <span id={headStartId} className="sr-only">{tr("started with a head start from another project")}</span>
                         </>
                     )}

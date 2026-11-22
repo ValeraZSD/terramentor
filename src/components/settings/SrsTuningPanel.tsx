@@ -198,7 +198,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                                 off — and the longer the track, the further apart the
                                 fill and the tick can be drawn, which is the point. */}
                             <div className="contents">
-                                <span className="text-right">{tr("predicted")}</span>
+                                <span className="text-end">{tr("predicted")}</span>
                                 <span />
                                 <span>{tr("recalled · reviews")}</span>
                             </div>
@@ -211,7 +211,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                                             threshold the schedule had picked, when it is the
                                             average of the 60–70% group. The notch still sits
                                             at the mean — that is what it predicted. */}
-                                        <span className="tabular-nums text-right whitespace-nowrap">
+                                        <span className="tabular-nums text-end whitespace-nowrap">
                                             {Math.round(b.lo * 100)}–{Math.round(b.hi * 100)}%
                                         </span>
                                         {/* The bar is what the learner actually recalled; the tick is
@@ -224,10 +224,10 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                                             role="img"
                                             aria-label={tr("Predicted {{p}}%, recalled {{o}}% over {{n}} reviews", { count: b.n, p: predicted, o: observed, n: b.n })}
                                         >
-                                            <span className="absolute inset-y-0 left-0 bg-accent/60" style={{ width: `${observed}%` }} />
+                                            <span className="absolute inset-y-0 start-0 bg-accent/60" style={{ width: `${observed}%` }} />
                                             <span
-                                                className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-white ring-1 ring-slate-400/60 dark:bg-slate-300 dark:ring-0"
-                                                style={{ left: `${Math.min(99, Math.max(1, predicted))}%` }}
+                                                className="absolute inset-y-0 w-0.5 -translate-x-1/2 rtl:translate-x-1/2 rounded-full bg-white ring-1 ring-slate-400/60 dark:bg-slate-300 dark:ring-0"
+                                                style={{ insetInlineStart: `${Math.min(99, Math.max(1, predicted))}%` }}
                                             />
                                         </span>
                                         <span className="tabular-nums">{observed}% · {num(b.n)}</span>

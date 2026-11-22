@@ -223,7 +223,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                <Loader2 className="w-5 h-5 animate-spin me-2" />
                 {t("Loading...")}
             </div>
         );
@@ -326,7 +326,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                    <div className="flex items-center gap-2 flex-shrink-0 ms-2">
                                         <IconButton size="sm" onClick={() => setViewingQuiz(quiz)} label={t("View questions")} icon={<Eye className="w-4 h-4" />} />
                                         <Button size="sm" variant="primary" onClick={() => setSelectedQuiz(quiz)}>
                                             {t("Take Quiz")}

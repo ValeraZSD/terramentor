@@ -49,8 +49,8 @@ export default function Switch({ checked, onChange, label, disabled, id, describ
             <span
                 aria-hidden="true"
                 className={cx(
-                    'absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out',
-                    checked && 'translate-x-5',
+                    'absolute top-1 start-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out',
+                    checked && 'translate-x-5 rtl:-translate-x-5',
                 )}
             />
         </button>

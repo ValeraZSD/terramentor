@@ -7,6 +7,7 @@ import { FOCUS_RING } from '../ui/vocabulary';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { motionReduced } from '../../utils/accessibility';
+import { inlineArrow, isRtl, scrolledFromStart } from '../../utils/direction';
 
 /**
  * The screen a mock exam is answered on. While it is mounted the app's own
@@ -116,7 +117,7 @@ export function cellName(t: (k: string, o?: Record<string, unknown>) => string, 
 
 /** The amber dot of "Come back to this", on the cell's corner so it reads on any fill. */
 function MarkDot() {
-    return <span aria-hidden="true" className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-800" />;
+    return <span aria-hidden="true" className="absolute -top-1 -end-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-800" />;
 }
 
 /**
@@ -142,8 +143,8 @@ export function QuestionStrip({ items, current, onGo }: {
         const el = scroller.current;
         if (!el) return;
         const measure = () => setEdges({
-            start: el.scrollLeft > 2,
-            end: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+            start: scrolledFromStart(el) > 2,
+            end: scrolledFromStart(el) + el.clientWidth < el.scrollWidth - 2,
         });
         measure();
         el.addEventListener('scroll', measure, { passive: true });
@@ -158,17 +159,20 @@ export function QuestionStrip({ items, current, onGo }: {
         const el = scroller.current;
         const cell = cells.current[current];
         if (!el || !cell) return;
-        const left = cell.offsetLeft - (el.clientWidth - cell.offsetWidth) / 2;
-        el.scrollTo({ left: Math.max(0, left) });
+        // From the two boxes, not offsetLeft: in right to left the row's
+        // scrollLeft runs from 0 into the negatives, and the browser clamps.
+        const box = el.getBoundingClientRect(), at = cell.getBoundingClientRect();
+        el.scrollBy({ left: (at.left + at.width / 2) - (box.left + box.width / 2) });
     }, [current, items.length]);
 
     const page = (dir: -1 | 1) => {
         const el = scroller.current;
-        if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: motionReduced() ? 'auto' : 'smooth' });
+        if (el) el.scrollBy({ left: dir * (isRtl(el) ? -1 : 1) * el.clientWidth * 0.8, behavior: motionReduced() ? 'auto' : 'smooth' });
     };
 
     const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
-        const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1
+        const key = inlineArrow(e.key, e.currentTarget);
+        const to = key === 'ArrowRight' ? i + 1 : key === 'ArrowLeft' ? i - 1
             : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : null;
         if (to == null || to < 0 || to >= items.length) return;
         e.preventDefault();

@@ -129,7 +129,7 @@ export default function TracePanel({
     const placeHead = (f: number) => {
         const at = `${Math.max(0, Math.min(1, f)) * 100}%`;
         if (fillRef.current) fillRef.current.style.width = at;
-        if (headRef.current) headRef.current.style.left = at;
+        if (headRef.current) headRef.current.style.insetInlineStart = at;
     };
     // Where the step the page is on puts them — the whole answer while nothing
     // is playing. NOT while it is: a replay re-renders this panel on every
@@ -219,7 +219,7 @@ export default function TracePanel({
                     nothing that comes and goes sits before it. Spacing inside
                     the Reveals, so a closed one takes no gap with it. */}
                 <Reveal axis="x" open={!!trace && steps > 1}>
-                    <div className="pr-1"><IconButton
+                    <div className="pe-1"><IconButton
                         size="sm" variant="subtle"
                         icon={playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                         // Three different things this button can do, and it
@@ -233,7 +233,7 @@ export default function TracePanel({
                     /></div>
                 </Reveal>
                 <Reveal axis="x" open={!!trace && steps > 1 && step != null}>
-                    <div className="pr-1"><IconButton
+                    <div className="pe-1"><IconButton
                         size="sm" variant="quiet" icon={<RotateCcw className="w-4 h-4" />}
                         label={tr("Start again from the beginning")} onClick={onRestart}
                     /></div>
@@ -263,7 +263,7 @@ export default function TracePanel({
                 />
                 <IconButton
                     ref={closeRef}
-                    className="ml-1"
+                    className="ms-1"
                     size="sm" variant="quiet" icon={<X className="w-4 h-4" />}
                     label={tr("Stop tracing this course")} onClick={onClose}
                 />
@@ -278,7 +278,9 @@ export default function TracePanel({
                 counted in the axis, never drawn as a hole in the bar. */}
             <Reveal open={!!timeline}>
             {timeline && (
-                <div className="space-y-0.5 pt-1.5">
+                // A player's bar runs left to right in every language, as its
+                // Play button points: the replay is media, not a line of text.
+                <div dir="ltr" className="space-y-0.5 pt-1.5">
                     {/* The head overhangs the track, so the wrapper is not the
                         thing that clips the track's own corners. */}
                     <div className="relative">
@@ -295,7 +297,7 @@ export default function TracePanel({
                                 draw rather than as a course nobody had started
                                 proving yet. Under the marks, so a proven topic
                                 stays visible inside it. */}
-                            <div ref={fillRef} className="absolute inset-y-0 left-0 bg-accent/35" />
+                            <div ref={fillRef} className="absolute inset-y-0 start-0 bg-accent/35" />
                             {/* One mark per finish — deduped to a grid in
                                 `journeyTimeline`, because a four-thousand-card
                                 deck would otherwise ask for four thousand of
@@ -305,7 +307,7 @@ export default function TracePanel({
                                     key={f}
                                     aria-hidden="true"
                                     className="absolute inset-y-0 w-px bg-slate-500/60 dark:bg-slate-300/50"
-                                    style={{ left: `${f * 100}%` }}
+                                    style={{ insetInlineStart: `${f * 100}%` }}
                                 />
                             ))}
                         </div>
@@ -319,7 +321,7 @@ export default function TracePanel({
                         <span
                             ref={headRef}
                             aria-hidden="true"
-                            className="pointer-events-none absolute -top-1 -bottom-1 w-0.5 -ml-px rounded-full bg-accent"
+                            className="pointer-events-none absolute -top-1 -bottom-1 w-0.5 -ms-px rounded-full bg-accent"
                             style={{ boxShadow: '0 0 6px rgb(var(--accent-rgb) / 0.85)' }}
                         />
                     </div>
@@ -338,7 +340,7 @@ export default function TracePanel({
                             {timeline.hasRunUp
                                 && ` · ${tr("first {{when}}", { when: dateLabel(timeline.firstMs, crossesYear) })}`}
                         </span>
-                        <span className="whitespace-nowrap ml-auto">
+                        <span className="whitespace-nowrap ms-auto">
                             {tr("Last {{when}}", { when: dateLabel(timeline.lastMs, crossesYear) })}
                         </span>
                     </div>

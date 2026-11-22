@@ -198,7 +198,7 @@ export default function FeedHeader({ header, loading }: Props) {
                         size="sm"
                         onClick={() => loadFeed()}
                         label={t("Rebuild the feed")}
-                        className="ml-auto sm:ml-0 -mr-1"
+                        className="ms-auto sm:ms-0 -me-1"
                         icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
                     />
                 </div>

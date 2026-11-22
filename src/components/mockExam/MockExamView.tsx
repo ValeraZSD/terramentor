@@ -269,7 +269,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
                             type="button"
                             data-row
                             onClick={() => onOpen(s.id)}
-                            className="flex-1 min-w-0 flex items-center gap-3 py-3 text-left rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                            className="flex-1 min-w-0 flex items-center gap-3 py-3 text-start rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40"
                         >
                             <span className="flex-1 min-w-0 text-sm text-slate-900 dark:text-white">
                                 {dateFmt.format(new Date(s.startedAt))}

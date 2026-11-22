@@ -297,7 +297,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                             surface="paper"
                             inStream
                             onReported={() => onDone(card.key)}
-                            className="-my-1.5 -mr-1.5"
+                            className="-my-1.5 -me-1.5"
                         />
                     </div>
                 </div>
@@ -403,8 +403,11 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">
                             {t("Drag the four corners onto the corners of your page.")}
                         </p>
+                        {/* The photo is not mirrored in right to left: its corners are
+                            placed, and moved by arrow keys, in its own left-to-right space. */}
                         <div
                             ref={previewRef}
+                            dir="ltr"
                             className="relative touch-none select-none"
                             onPointerMove={onHandleMove}
                             onPointerUp={onHandleUp}
@@ -433,7 +436,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                                     // White in BOTH themes on purpose: this handle sits on top of
                                     // the learner's photo, not on an app surface, and a photo of a
                                     // page is bright regardless of what theme the app is in.
-                                    className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full bg-white dark:bg-white border-2 border-accent shadow-md touch-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
+                                    className="absolute w-8 h-8 -ms-4 -mt-4 rounded-full bg-white dark:bg-white border-2 border-accent shadow-md touch-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
                                     style={{
                                         left: `${(point.x / source.width) * 100}%`,
                                         top: `${(point.y / source.height) * 100}%`,
@@ -493,7 +496,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                                         <button data-row="rubric-point"
                                             onClick={() => toggleSelfPoint(point.id)}
                                             aria-pressed={ticked}
-                                            className="w-full flex items-start gap-2 text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/40"
+                                            className="w-full flex items-start gap-2 text-start p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/40"
                                         >
                                             <span className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center ${ticked
                                                 ? 'bg-accent border-accent'

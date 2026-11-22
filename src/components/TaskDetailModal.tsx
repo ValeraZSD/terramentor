@@ -219,7 +219,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                     {task.status === 'running' && percent != null && (
                         <div className="mb-4">
                             <ProgressBar value={percent} minVisible={2} decorative />
-                            <p className="mt-1 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">{percent}%</p>
+                            <p className="mt-1 text-end text-xs tabular-nums text-slate-500 dark:text-slate-400">{percent}%</p>
                         </div>
                     )}
 
@@ -295,7 +295,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                             {t("Dismiss")}
                         </Button>
                     )}
-                    <Button variant="quiet" className="ml-auto" onClick={onClose}>{t("Close")}</Button>
+                    <Button variant="quiet" className="ms-auto" onClick={onClose}>{t("Close")}</Button>
                 </div>
             </div>
         </div>,

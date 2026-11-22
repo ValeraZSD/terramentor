@@ -491,7 +491,7 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
                                 onClick={() => { setPhaseId(p.id); setResult(null); }}
                                 aria-pressed={selected}
                                 data-row="phase"
-                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-left flex items-center gap-3 border transition ${selected
+                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-start flex items-center gap-3 border transition ${selected
                                     ? 'border-accent bg-accent/10'
                                     : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}

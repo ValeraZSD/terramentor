@@ -274,7 +274,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 // name has two thirds of the card's width,
                                 // and two lines cut "… / CCVX Deficiency
                                 // Exam" off names that fitted below it.
-                                className={`-mx-1 px-1 line-clamp-3 text-left rounded ${FOCUS_RING}`}
+                                className={`-mx-1 px-1 line-clamp-3 text-start rounded ${FOCUS_RING}`}
                             >
                                 {project.name}
                             </button>

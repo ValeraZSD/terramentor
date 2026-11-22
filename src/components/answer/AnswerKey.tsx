@@ -50,7 +50,7 @@ export default function AnswerKey({ question }: { question: QuizQuestion }) {
         return (
             <div className="text-sm text-slate-700 dark:text-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">{label}</span>
-                <ol className="mt-1 list-decimal pl-6 space-y-0.5">
+                <ol className="mt-1 list-decimal ps-6 space-y-0.5">
                     {key.map((item, i) => <li key={i} className="font-medium"><MathText content={item} /></li>)}
                 </ol>
             </div>

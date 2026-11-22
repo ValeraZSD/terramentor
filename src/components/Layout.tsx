@@ -27,6 +27,7 @@ import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { appMayTakeShortcut, shortcutLetter } from '../utils/escapeKey';
 import { offerAppBack } from '../utils/appBack';
+import { scrolledFromStart } from '../utils/direction';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -200,8 +201,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         const el = tabRailRef.current;
         if (!el) { setRailFade('none'); return; }
         const measure = () => {
-            const start = el.scrollLeft > 4;
-            const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+            const start = scrolledFromStart(el) > 4;
+            const end = scrolledFromStart(el) + el.clientWidth < el.scrollWidth - 4;
             setRailFade(start && end ? 'both' : start ? 'start' : end ? 'end' : 'none');
         };
         measure();
@@ -427,7 +428,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 data-skip-link
                 href="#main-content"
                 onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}
-                className={`sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
+                className={`sr-only focus:not-sr-only focus:fixed focus:start-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
             >
                 {t("Skip to content")}
             </a>
@@ -576,7 +577,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     box that clips it to nothing). Horizontal classes only, the
                     same as the real ones above. */}
                 {isGlobalView && (
-                    <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true">
+                    <div className="absolute start-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true">
                         <div ref={measureRef} className="flex w-max gap-1">
                             {globalTabs.map(tab => (
                                 <span key={tab.key} className="px-2.5 text-sm font-medium whitespace-nowrap">{tab.label}</span>

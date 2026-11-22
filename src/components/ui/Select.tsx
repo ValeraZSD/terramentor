@@ -289,8 +289,8 @@ export function Select({
                     // Fit, the box is as wide as the list's widest row (its
                     // label plus the tick's gutter), so the open list's edges
                     // line up with the box's instead of overhanging a few px.
-                    'relative inline-flex items-center text-left cursor-pointer',
-                    fit ? 'w-auto max-w-full pr-12' : 'w-full pr-9',
+                    'relative inline-flex items-center text-start cursor-pointer',
+                    fit ? 'w-auto max-w-full pe-12' : 'w-full pe-9',
                     FIELD_BASE, FIELD_SIZE[size],
                     open && 'border-accent',
                     className,
@@ -313,7 +313,7 @@ export function Select({
                 )}
                 <ChevronDown
                     className={cx(
-                        'absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none transition-transform',
+                        'absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none transition-transform',
                         open && 'rotate-180',
                     )}
                     aria-hidden="true"

@@ -34,6 +34,67 @@ html.dark {
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+/* The same strips named by the side of the TEXT, and the words a gradient or
+   a sign needs to point along a line: an Arabic interface (`dir="rtl"` on
+   <html>, i18n/index.ts) starts its lines at the right. A chart or a code
+   block inside it can be a left-to-right island, so both directions are set
+   on whichever element carries `dir`, and the nearest one wins. */
+:root,
+[dir='ltr'] {
+  --safe-start: var(--safe-left);
+  --safe-end: var(--safe-right);
+  --inline-sign: 1;
+  --to-inline-end: to right;
+}
+[dir='rtl'] {
+  --safe-start: var(--safe-right);
+  --safe-end: var(--safe-left);
+  --inline-sign: -1;
+  --to-inline-end: to left;
+}
+
+/* An icon that points along the line (back, next, open, send, undo, a nested
+   row) points the other way in right to left. `scale` is its own property,
+   so it composes with a utility's `transform` (a chevron turned 90deg by an
+   open row still points down). Icons that do not point along the line (a
+   clock, a refresh circle, a check) stay as drawn. */
+.lucide-chevron-left:dir(rtl),
+.lucide-chevron-right:dir(rtl),
+.lucide-chevrons-left:dir(rtl),
+.lucide-chevrons-right:dir(rtl),
+.lucide-arrow-left:dir(rtl),
+.lucide-arrow-right:dir(rtl),
+.lucide-arrow-up-right:dir(rtl),
+.lucide-corner-down-right:dir(rtl),
+.lucide-log-in:dir(rtl),
+.lucide-send:dir(rtl),
+.lucide-undo-2:dir(rtl),
+.lucide-list-tree:dir(rtl) {
+  scale: -1 1;
+}
+
+/* Code and formulas read left to right inside an Arabic sentence: a formula
+   laid out right to left puts its terms in the wrong order. */
+.katex,
+.cm-editor,
+pre,
+code,
+kbd {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+pre {
+  text-align: left;
+}
+
+/* Course text reads in its own direction, not the interface's: an English
+   lesson inside an Arabic interface keeps its full stop at the end of the
+   line. Each paragraph takes the direction of its first letter, so a course
+   that mixes languages lines up paragraph by paragraph. */
+[data-own-direction] :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd, summary) {
+  unicode-bidi: plaintext;
+}
+
 /* The status bar's clock and icons over a LIGHT theme. iOS draws them white
    in a `black-translucent` app whatever is under them, and fixes the style at
    launch, so it cannot follow a theme change. Over the dark theme each surface
@@ -156,7 +217,7 @@ html:not(.dark) body::after {
   height: 0.375rem;
   border-radius: 9999px;
   background: linear-gradient(
-    to right,
+    var(--to-inline-end),
     rgb(var(--accent-rgb)) var(--fill, 0%),
     rgb(var(--c-slate-200)) var(--fill, 0%)
   );
@@ -164,7 +225,7 @@ html:not(.dark) body::after {
 
 .dark .app-slider::-webkit-slider-runnable-track {
   background: linear-gradient(
-    to right,
+    var(--to-inline-end),
     rgb(var(--accent-rgb)) var(--fill, 0%),
     rgb(var(--c-slate-600)) var(--fill, 0%)
   );
@@ -228,7 +289,7 @@ input[type="password"]::-ms-clear {
 
 @keyframes slide-in {
   from {
-    transform: translateX(100%);
+    transform: translateX(calc(100% * var(--inline-sign)));
     opacity: 0;
   }
   to {
@@ -259,15 +320,15 @@ input[type="password"]::-ms-clear {
 @keyframes progress {
   0% {
     width: 0%;
-    margin-left: 0%;
+    margin-inline-start: 0%;
   }
   50% {
     width: 30%;
-    margin-left: 35%;
+    margin-inline-start: 35%;
   }
   100% {
     width: 0%;
-    margin-left: 100%;
+    margin-inline-start: 100%;
   }
 }
 
@@ -503,7 +564,7 @@ html[data-larger-ui] [data-sidebar-row] {
   flex-wrap: wrap;
 }
 html[data-larger-ui] [data-sidebar-row] > [data-row-progress] {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 /* A phase's tick bar (dashboard/PhaseProgress.tsx) is one 12px row that hides
    its overflow, so a long phase cannot widen the page. With the floor every
@@ -570,25 +631,25 @@ html[data-larger-ui] [data-tick-bar] > [data-tick] {
 [data-disclosure-aside] {
   order: 9999;
   flex-basis: 100%;
-  padding-left: 2rem;
+  padding-inline-start: 2rem;
 }
 @container (min-width: 32rem) {
   [data-disclosure-aside] {
     order: 0;
     flex-basis: auto;
-    padding-left: 0;
+    padding-inline-start: 0;
   }
   [data-disclosure-aside][data-under-desc] {
     margin-top: 0.125rem;
   }
   [data-disclosure-indent] {
-    padding-left: 3rem;
+    padding-inline-start: 3rem;
   }
 }
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
-  padding-right: calc(var(--target-floor) + 0.5rem);
+  padding-inline-end: calc(var(--target-floor) + 0.5rem);
 }
 /* The tickbox (Checkbox.tsx) keeps its 18px box; its invisible input spills
    to the floor round it, as the switch's target does, so a row whose label is
@@ -873,18 +934,18 @@ body.assistant-overlay-open {
    from the rail's own scroll position, so at rest (everything fits) no edge is
    touched and the first tab keeps its full weight. */
 .rail-scroll[data-fade='end'] {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent 100%);
-  mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(var(--to-inline-end), #000 calc(100% - 1.75rem), transparent 100%);
+  mask-image: linear-gradient(var(--to-inline-end), #000 calc(100% - 1.75rem), transparent 100%);
 }
 
 .rail-scroll[data-fade='start'] {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.75rem);
-  mask-image: linear-gradient(to right, transparent 0, #000 1.75rem);
+  -webkit-mask-image: linear-gradient(var(--to-inline-end), transparent 0, #000 1.75rem);
+  mask-image: linear-gradient(var(--to-inline-end), transparent 0, #000 1.75rem);
 }
 
 .rail-scroll[data-fade='both'] {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(var(--to-inline-end), transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
+  mask-image: linear-gradient(var(--to-inline-end), transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
 }
 
 /* Custom scrollbar */
@@ -1040,7 +1101,7 @@ body.assistant-overlay-open {
 .prose .timeline li ul,
 .prose .timeline li ol {
   list-style-position: outside;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 /* Modal sizing */

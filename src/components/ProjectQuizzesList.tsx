@@ -97,16 +97,16 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
                     </p>
                   </div>
                   
-                  <div className="flex items-center gap-4 ml-4 shrink-0">
+                  <div className="flex items-center gap-4 ms-4 shrink-0">
                     {quiz.best_score !== null && quiz.best_score !== undefined ? (
-                      <div className="text-right">
+                      <div className="text-end">
                         <p className={`text-2xl font-bold ${scoreColor}`}>
                           {quiz.best_score}%
                         </p>
                         <p className="text-2xs text-slate-400 font-medium">{t("Best Score")}</p>
                       </div>
                     ) : (
-                      <div className="text-right">
+                      <div className="text-end">
                         <p className="text-sm text-slate-500 dark:text-slate-400">{t("Not taken")}</p>
                       </div>
                     )}

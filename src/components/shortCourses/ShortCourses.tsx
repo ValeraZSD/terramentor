@@ -262,7 +262,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     // box's own × beside the title instead of a button in that line.
     const clearButton = narrow ? null : <Button variant="quiet" onClick={() => clear()}>{t("Clear")}</Button>;
     const corner = narrow && box.state !== 'reading'
-        ? <IconButton label={t("Clear")} tooltip={false} icon={<X className="w-4 h-4" />} className="self-start -mr-1" onClick={() => clear()} />
+        ? <IconButton label={t("Clear")} tooltip={false} icon={<X className="w-4 h-4" />} className="self-start -me-1" onClick={() => clear()} />
         : null;
 
     const filePicker = (
@@ -361,7 +361,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {(box.short != null || box.min != null) && (
-                        <span role="status" className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                        <span role="status" className="me-auto text-sm text-slate-500 dark:text-slate-400">
                             {box.short == null && box.min != null
                                 ? t("A course needs {{min}} words or more.", { count: box.min, min: num(box.min) })
                                 : <>{box.min != null
@@ -371,7 +371,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     )}
                     {/* The two buttons wrap as one pair: on a narrow box the line
                         takes its own row and Cancel stays beside Create. */}
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ms-auto flex items-center gap-2">
                         <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
                         <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
                             {t("Create short course")}
@@ -416,7 +416,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 </ul>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {picked.length > 0 && (
-                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                        <span className="me-auto text-sm text-slate-500 dark:text-slate-400">
                             {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}{tooMany && ` · ${t("Too much for one short course.")}`}
                         </span>
                     )}

@@ -556,7 +556,7 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     // height and the title's width stay put when the ✕ comes and goes.
     const xClasses = new Set(xButton ? xButton.className.split(/\s+/) : []);
     check('without the ✕ its place keeps the ✕\'s box (size classes and margin)',
-        ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
+        ['h-8', 'w-8', '-me-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
         `spacer "${spacerClasses.join(' ')}"`);
     renderModal(false);
     const run = read('src/components/creation/CreationRunView.tsx');

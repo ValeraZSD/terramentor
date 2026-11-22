@@ -197,7 +197,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                     data-row
                     onClick={() => onSelect(open ? null : region.id)}
                     aria-expanded={open}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
                         ? 'bg-accent/10'
                         : 'can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60'}`}
                 >
@@ -224,7 +224,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                 </button>
 
                 {open && (
-                    <div className="mx-1 mb-2 px-2 pb-1 rounded-b-lg border-l-2 border-accent/40">
+                    <div className="mx-1 mb-2 px-2 pb-1 rounded-b-lg border-s-2 border-accent/40">
                         <RegionName region={region} onRename={onRename} onResetName={onResetName}>
                             {region.projects.map(p => (
                                 <span

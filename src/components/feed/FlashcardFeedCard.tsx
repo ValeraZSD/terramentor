@@ -129,7 +129,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                     ) : null}
                     <ReadAloudButton key={String(flipped)} target={faceRef} className="-my-1.5" />
                     <ReportItem itemRef={ref} surface="review" onReported={() => { if (!done) setAside(); onDone(card.key); }}
-                        onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -mr-1.5" />
+                        onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -me-1.5" />
                 </>
             )}
             // The tick says "rated, done"; a card set aside by its report

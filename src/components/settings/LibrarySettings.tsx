@@ -111,7 +111,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                             <p className="text-sm text-slate-500 dark:text-slate-400">{tr(".studyvault or .json")}</p>
                         </div>
                     </div>
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <div className="ms-auto flex shrink-0 items-center gap-2">
                         <Button
                             busy={importing}
                             onClick={() => fileInputRef.current?.click()}
@@ -251,7 +251,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                                         </p>
                                     )}
                                 </div>
-                                <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                <div className="ms-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
                                     <ButtonLink
                                         href="/api/visual-feedback/export"
                                         download="visual-feedback.jsonl"
