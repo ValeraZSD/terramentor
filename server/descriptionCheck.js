@@ -60,8 +60,15 @@ const CHART_KIND = /\b(?:bar|line|pie|scatter|flow|area|column|staaf|lijn|cirkel
  */
 const QUOTED = /"[^"]*"|“[^”]*”|„[^“”]*[“”]|«[^»]*»|(?<![\p{L}\p{N}])‘[^’]*’(?![\p{L}\p{N}])|「[^」]*」/gu;
 
-/** A whole reply wrapped in one pair of quotes: the wrapping goes before any check. */
-const WRAPPED = /^(?:"([^"]*)"|“([^”]*)”|«([^»]*)»|'([^']*)')$/u;
+/**
+ * A whole reply wrapped in one pair of quotes, a full stop after it allowed:
+ * the wrapping goes before any check, or a quoted refusal passes as text
+ * from the picture.
+ */
+const WRAPPED = /^(?:"([^"]*)"|“([^”]*)”|«([^»]*)»|'([^']*)')[.!]?$/u;
+
+/** A label a model puts before its answer ("Description: ..."): never content. */
+const LABEL = /^(?:description|alt(?:[\s-]?text)?|caption|beschrijving|beschreibung|descripción|descrizione|descrição|описание|опис)\s*:\s*/iu;
 
 /** "This image shows ...": the prompt forbids it; when a model writes it anyway, it goes. */
 const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\s*:?\s*/i;
@@ -73,18 +80,22 @@ const REFUSAL = [
     /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e)\b/i,
     /\bas an (?:AI|language model)\b/i,
     /\bno (?:image|picture|photo) (?:was|is|has been) (?:provided|attached|included|shared)\b/i,
-    /(?<!\p{L})(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|извините|к сожалению|на жаль)(?!\p{L})/iu,
-    /(?<!\p{L})(?:ik kan (?:de |deze )?(?:afbeelding|foto) niet|ich kann (?:das |dieses )?bild nicht|no puedo ver|je ne peux pas voir|non posso vedere|не могу (?:увидеть|просмотреть|открыть)|не можу (?:побачити|переглянути))(?!\p{L})/iu,
+    /^sorry\b/i,
+    /\bthere(?:'s|’s| is) no (?:image|picture|photo)\b/i,
+    /(?<!\p{L})(?:het spijt me|es tut mir leid|lo siento|je suis désolée?|mi dispiace|desculpe|przepraszam|извините|к сожалению|вибачте|на жаль|申し訳|抱歉|对不起)(?!\p{L})/iu,
+    /(?<!\p{L})(?:ik kan (?:de |deze )?(?:afbeelding|foto) niet|ik zie geen (?:afbeelding|foto|plaatje)|ich kann (?:das |dieses )?bild nicht|ich kann keine bilder|ich sehe kein(?:e|en)? bild|no puedo ver|je ne peux pas (?:voir|décrire)|non posso vedere|nie mogę zobaczyć|не могу (?:увидеть|просмотреть|открыть)|не можу (?:побачити|переглянути))(?!\p{L})/iu,
+    /(?:画像|图片|圖片)(?:を)?(?:見る|表示する|確認する)?(?:ことができません|を?見られません)|无法(?:查看|看到)|無法(?:查看|看到)/u,
 ];
 
 /**
  * English words no other catalog language writes, so two of them say a text is
  * English. Not "is", "of", "in", "at", "for", "die": Dutch, Danish and German
- * write those too (a Dutch "De hond is groot of klein" holds two of them).
+ * write those too (a Dutch "De hond is groot of klein" holds two of them); nor
+ * "and", "over", "under" (Danish, Swedish, Norwegian), "from" (Swedish),
+ * "big" (Dutch), "large" (French), "has", "are" (Spanish, Romanian).
  */
-const ENGLISH_ONLY = new Set(('the and with this that from are there their which while behind between '
-    + 'showing shows has have its into onto over under beside next some white black green blue yellow brown '
-    + 'small large big').split(' '));
+const ENGLISH_ONLY = new Set(('the with this that there their which while behind between '
+    + 'showing shows into onto beside white black green yellow brown small').split(' '));
 
 /** The script a language is written in, for the languages that have their own. Serbian is left out: it is written in Latin letters too. */
 const SCRIPT_OF = {
@@ -106,27 +117,34 @@ export function descriptionLanguage(code) {
  * Why `text` is not in `wanted`, as a language name or a script, or null when
  * it is, or when that cannot be said with confidence.
  *
- *   * a language with its own script: refused when the text is written mostly
- *     in Latin letters (at least 8 of them, under a fifth in its own script);
- *   * any other language but English: refused when the text holds two or more
- *     words only English writes (`ENGLISH_ONLY`);
+ *   * a language with its own script: refused when the text holds at least 8
+ *     Latin letters and fewer than 3 of its own script;
+ *   * any other language but English: refused when two or more of its words,
+ *     and at least 15% of them, are words only English writes (`ENGLISH_ONLY`);
  *   * English: refused when the text is written mostly in another script.
  */
 export function wrongLanguage(text, wanted) {
     const code = descriptionLanguage(wanted);
     if (!code) return null;
-    const s = String(text).replace(QUOTED, ' ').toLowerCase();
+    const plain = String(text).replace(QUOTED, ' ');
+    const s = plain.toLowerCase();
     const letters = count(s, /\p{L}/gu);
     if (letters < 8) return null;
     const latin = count(s, LATIN);
     if (SCRIPT_OF[code]) {
+        // Code, a formula or a name in Latin letters may follow a short native
+        // description ("代码截图: for i in range(10)"): only a text with next
+        // to nothing in its own script is in the wrong one.
         const own = count(s, SCRIPT_OF[code]);
-        return own < letters * 0.2 && latin >= 8 ? 'Latin letters' : null;
+        return own < 3 && latin >= 8 ? 'Latin letters' : null;
     }
     if (code === 'en') return latin < letters * 0.5 ? 'another script' : null;
-    const words = s.match(/\p{L}+/gu) || [];
-    const english = words.filter(w => ENGLISH_ONLY.has(w)).length;
-    return english >= 2 ? 'English' : null;
+    // A capitalised word inside a sentence is a name or a title ("Hoes van The
+    // White Album"), not the description's own language: it is not counted.
+    const words = [...plain.matchAll(/\p{L}+/gu)];
+    const english = words.filter(m => ENGLISH_ONLY.has(m[0].toLowerCase())
+        && (!/^\p{Lu}/u.test(m[0]) || /(?:^|[.!?])$/u.test(plain.slice(0, m.index).trimEnd()))).length;
+    return english >= 2 && english >= words.length * 0.15 ? 'English' : null;
 }
 
 /** Does every word belong to one language's list of empty words? */
@@ -144,7 +162,7 @@ function onlyEmptyWords(words) {
  * sentence the sweep and the Describe route report.
  */
 export function checkDescription(raw, { language = '' } = {}) {
-    let text = String(raw ?? '').trim();
+    let text = String(raw ?? '').trim().replace(LABEL, '');
     const wrapped = WRAPPED.exec(text);
     if (wrapped) text = (wrapped.slice(1).find(g => g !== undefined) ?? '').trim();
     if (!text) return refuse('empty', 'the model wrote no description');
