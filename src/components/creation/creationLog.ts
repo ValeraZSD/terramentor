@@ -2,6 +2,16 @@
 // Pure, so the run store (creationRuns.ts) can fold frames into a run without
 // importing any component.
 import i18n, { k } from '../../i18n';
+import type { ShapeBy } from '../../api';
+
+/** What the run made of the input, said once it has judged it: the log's
+ *  line and the run screen's subtitle. A course in phases because the
+ *  material alone was too long says so; the model's call needs no reason. */
+export function shapeLine(shape: 'short' | 'phased' | null | undefined, by: ShapeBy | null | undefined): string | null {
+    if (shape === 'short') return i18n.t("A short course: a few topics on one level");
+    if (shape !== 'phased') return null;
+    return by === 'bounds' ? i18n.t("Your material is long: a full course, in phases") : i18n.t("A full course, in phases");
+}
 
 // The creation-status sentences the SERVER authors (the send() sites in
 // server/routes/createProject.js). The log and the progress panel now write their own lines
@@ -21,6 +31,8 @@ export const SERVER_CREATION_MESSAGE_KEYS = [
     k('Generating details for "{{title}}"…'),
     k('Finding links for "{{title}}"…'),
     k("Picking up where it stopped"),
+    k("Choosing the course size"),
+    k("Writing the topics"),
 ];
 
 // ACTIVITY LOG
@@ -201,6 +213,39 @@ export function eventToLogEntry(event: any): LogEntry | null {
             id = 'sources';
             break;
         }
+
+        // Short or in phases (server/courseShape.js): one line, a spinner
+        // until the run has judged it, then what it became.
+        case 'sizing':
+        case 'sized':
+            id = 'size';
+            if (phase === 'sized') {
+                message = shapeLine(event.shape === 'short' ? 'short' : 'phased', event.by) ?? '';
+                status = 'success';
+            } else {
+                message = i18n.t("Choosing the course size");
+                status = 'running';
+            }
+            break;
+
+        case 'writing_topics':
+        case 'topics_written':
+            id = 'short-topics';
+            if (phase === 'topics_written' && event.failed) {
+                // The short answer was unusable: the run goes on in phases.
+                // This warning row is the only one that says the short try
+                // failed: the size row then reads "A full course, in phases",
+                // the same as a run that was phased from the start.
+                message = i18n.t("Could not create the short course");
+                status = 'warning';
+            } else if (phase === 'topics_written') {
+                message = i18n.t("{{n}} topics written", { count: event.topics?.length || 0, n: event.topics?.length || 0 });
+                status = 'success';
+            } else {
+                message = i18n.t("Writing the topics");
+                status = 'running';
+            }
+            break;
 
         case 'queued':
         case 'thinking_done':

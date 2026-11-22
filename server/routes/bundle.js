@@ -23,7 +23,7 @@ import { BUNDLE_ZIP_LIMITS, BundleRefusal, readBundleCourse, restoreCardMedia, u
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError, publicMessage } from '../clientError.js';
+import { errorBody, keyed, publicBody, publicMessage } from '../clientError.js';
 import { recordInstalledBase } from '../courseUpdate.js';
 
 const app = routeTable('bundle');
@@ -232,8 +232,8 @@ function sendArchive(res, stream, { filename } = {}) {
 app.get('/api/export/:projectId/bundle', async (req, res) => {
     let built;
     try { built = buildBundleZip(req.params.projectId, bundleOptionsFrom(req.query)); }
-    catch (err) { return res.status(500).json({ error: clientError(err) }); }
-    if (!built) return res.status(404).json({ error: 'Project not found' });
+    catch (err) { return res.status(500).json(errorBody(err)); }
+    if (!built) return res.status(404).json(keyed('Project not found'));
     return sendArchive(res, built.zip.generateNodeStream({ type: 'nodebuffer', compression: 'DEFLATE' }),
         { filename: `${built.project.name || 'project'}.studyvault` });
 });
@@ -434,7 +434,7 @@ async function importLibraryZip(zip) {
             assertZipSafe(innerZip, BUNDLE_ZIP_LIMITS);
             imported.push(await importBundleZip(innerZip, { spent, limit: LIBRARY_INFLATE_LIMIT }));
         } catch (e) {
-            failed.push({ name: entry.name, error: publicMessage(e) });
+            failed.push({ name: entry.name, ...publicBody(e) });
         }
     }
     if (!imported.length) {
@@ -468,7 +468,7 @@ async function importLibraryZip(zip) {
 // apart by what the archive holds, never by its name, so every screen that
 // takes a `.studyvault` takes both without knowing the difference.
 app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 * 1024 * 1024), bundleUpload.single('bundle'), wrap(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No bundle uploaded' });
+    if (!req.file) return res.status(400).json(keyed('No bundle uploaded'));
     try {
         let zip;
         try {
@@ -483,7 +483,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
         }
         return res.json(await importBundleZip(zip));
     } catch (err) {
-        if (err instanceof BundleRefusal) return res.status(400).json({ error: clientError(err, 400) });
+        if (err instanceof BundleRefusal) return res.status(400).json(errorBody(err, 400));
         throw err;
     }
 }));

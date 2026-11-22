@@ -6,7 +6,7 @@ import { deckCounts, reviewDue } from '../decks.js';
 import { isPagination, TOPIC_NODE } from '../nodeRole.js';
 import { projectProgress, topicFraction, topicWeight, TAUGHT_SQL } from '../progress.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
 import { studyToday } from '../studyDay.js';
@@ -20,7 +20,7 @@ const app = routeTable('studyDashboard');
 app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
     const { projectId } = req.params;
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) return res.status(404).json(keyed('Project not found'));
 
     try {
         const todayDate = studyToday();
@@ -411,7 +411,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         });
     } catch (err) {
         console.error('[StudyDashboard] Error:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

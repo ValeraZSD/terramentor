@@ -8,6 +8,7 @@ import { hasPasswordCredential } from '../auth.js';
 import { isHosted } from '../hosted.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { apiError, errorFields, keyed } from '../clientError.js';
 
 const app = routeTable('system');
 
@@ -86,14 +87,14 @@ app.put('/api/updates/auto', wrap(async (req, res) => {
 app.put('/api/updates/channel', wrap(async (req, res) => {
     const channel = req.body?.channel;
     if (!UPDATE_CHANNELS.includes(channel)) {
-        return res.status(400).json({ error: `channel must be one of: ${UPDATE_CHANNELS.join(', ')}` });
+        return res.status(400).json(apiError(`channel must be one of: ${UPDATE_CHANNELS.join(', ')}`));
     }
     // Restart has been answered: the copy installs what was pressed, with the
     // channels its check was made with (requestInstall). A switch now would
     // name Stable while a nightly installs, so it waits until the copy has
     // opened again.
     if (installPending() && channel !== currentChannel()) {
-        return res.status(409).json({ error: 'Terramentor is restarting to install an update. Change the channel once it has opened again.' });
+        return res.status(409).json(keyed('Terramentor is restarting to install an update. Change the channel once it has opened again.'));
     }
     // Only a check that will really happen spends the minute; with the
     // automatic check off, "Check now" straight after the switch must still work.
@@ -117,7 +118,7 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
  * one to fetch. Progress is read from GET.
  */
 app.post('/api/updates/download', wrap(async (req, res) => {
-    if (!installState().supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
+    if (!installState().supported) return res.status(409).json(keyed('This copy of Terramentor cannot download updates itself.'));
     // A second press, another tab or a retry while one runs starts nothing,
     // and asks nothing.
     if (installState().phase === 'downloading') return res.json(withInstall(req, readUpdateState()));
@@ -125,7 +126,7 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     // What this server heard from GitHub, never the stored row by itself.
     const latest = heardLatest();
     const install = installState({ latest });
-    if (!state.available || !latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
+    if (!state.available || !latest) return res.status(409).json(keyed('No newer version has been found. Check for updates first.'));
     // Staged already, and still the newest: staging again would turn "Restart
     // to update" back into a download of what is already checked.
     if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(req, state));
@@ -145,8 +146,8 @@ app.post('/api/updates/restart', wrap(async (req, res) => {
     // Nothing to install (a Docker or git copy, nothing staged): say so
     // without asking GitHub anything.
     const before = installState();
-    if (!before.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot install updates itself.' });
-    if (before.phase !== 'ready') return res.status(409).json({ error: 'No downloaded update is ready to install.' });
+    if (!before.supported) return res.status(409).json(keyed('This copy of Terramentor cannot install updates itself.'));
+    if (before.phase !== 'ready') return res.status(409).json(keyed('No downloaded update is ready to install.'));
     // Asked again first, like Download: an update staged in the morning may
     // have been overtaken by the afternoon's. Then the newer one downloads
     // instead, and the page shows its progress; nothing restarts.
@@ -155,9 +156,9 @@ app.post('/api/updates/restart', wrap(async (req, res) => {
     const out = requestInstall({ latest });
     if (!out.ok && out.overtaken && latest) {
         startDownload({ latest });
-        return res.status(409).json({ error: `A newer version, ${latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true, version: latest.version });
+        return res.status(409).json({ ...keyed('A newer version, {{version}}, came out after this one was downloaded. It is downloading now.', { version: latest.version }), overtaken: true, version: latest.version });
     }
-    if (!out.ok) return res.status(out.status).json({ error: out.error });
+    if (!out.ok) return res.status(out.status).json(errorFields(out));
     res.status(202).json({ restarting: true, version: out.version });
 }));
 

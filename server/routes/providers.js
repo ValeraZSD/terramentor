@@ -17,7 +17,7 @@ import { holdOpen, releaseHold } from '../signInHold.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
-import { endpointError, publicMessage } from '../clientError.js';
+import { apiError, endpointBody, errorFields, keyed, publicBody, publicMessage } from '../clientError.js';
 
 const app = routeTable('providers');
 
@@ -31,16 +31,16 @@ const app = routeTable('providers');
 app.post('/api/searxng/test', async (req, res) => {
     const { url } = req.body;
     if (!url || typeof url !== 'string' || url.length > MAX_URL_LENGTH) {
-        return res.status(400).json({ ok: false, error: 'URL is required' });
+        return res.status(400).json({ ok: false, ...keyed('URL is required') });
     }
     let parsed;
     try {
         parsed = new URL(url);
     } catch {
-        return res.status(400).json({ ok: false, error: 'Not a valid URL' });
+        return res.status(400).json({ ok: false, ...keyed('Not a valid URL') });
     }
     if (!SAFE_URL_PROTOCOLS.includes(parsed.protocol)) {
-        return res.status(400).json({ ok: false, error: 'Only http:// and https:// are supported' });
+        return res.status(400).json({ ok: false, ...keyed('Only http:// and https:// are supported') });
     }
     try {
         const controller = new AbortController();
@@ -63,10 +63,10 @@ app.post('/api/searxng/test', async (req, res) => {
         if (response.ok) {
             res.json({ ok: true });
         } else {
-            res.json({ ok: false, error: `SearXNG responded with status ${response.status}` });
+            res.json({ ok: false, ...keyed('SearXNG responded with status {{status}}', { status: response.status }) });
         }
     } catch (e) {
-        res.json({ ok: false, error: endpointError('SearXNG', e) });
+        res.json({ ok: false, ...endpointBody('SearXNG', e) });
     }
 });
 
@@ -95,11 +95,11 @@ app.get('/api/ai/status', wrap(async (req, res) => {
 // blurs; an env AI_BASE_URL wins, since that is where calls will go.
 app.put('/api/ai/key', (req, res) => {
     const { apiKey, baseUrl } = req.body || {};
-    if (typeof apiKey !== 'string') return res.status(400).json({ error: 'apiKey must be a string' });
-    if (baseUrl != null && typeof baseUrl !== 'string') return res.status(400).json({ error: 'baseUrl must be a string' });
+    if (typeof apiKey !== 'string') return res.status(400).json(apiError('apiKey must be a string'));
+    if (baseUrl != null && typeof baseUrl !== 'string') return res.status(400).json(apiError('baseUrl must be a string'));
     if (apiKey) {
         const origin = apiKeyOriginOf(process.env.AI_BASE_URL || baseUrl || getAISettings().baseUrl);
-        if (!origin) return res.status(400).json({ error: 'Set a valid base URL before saving a key' });
+        if (!origin) return res.status(400).json(keyed('Set a valid base URL before saving a key'));
         // The key goes to the credentials file beside the library, never into
         // it; the library keeps the origin it is bound to (ai.js, secrets.js).
         saveActiveKey(apiKey, origin);
@@ -149,7 +149,7 @@ app.post('/api/ai/openrouter/start', (req, res) => {
     let callback;
     try { callback = new URL(String(callbackUrl || '')); } catch { callback = null; }
     if (!callback || !/^https?:$/.test(callback.protocol)) {
-        return res.status(400).json({ error: 'callbackUrl must be an http(s) URL' });
+        return res.status(400).json(apiError('callbackUrl must be an http(s) URL'));
     }
     const verifier = randomBytes(32).toString('base64url');
     const state = randomBytes(24).toString('base64url');
@@ -168,18 +168,18 @@ app.post('/api/ai/openrouter/start', (req, res) => {
 app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
     const { code, state } = req.body || {};
     if (typeof code !== 'string' || !code.trim() || code.length > 512) {
-        return res.status(400).json({ error: 'code must be a string' });
+        return res.status(400).json(apiError('code must be a string'));
     }
     const pending = openRouterPending;
     if (!pending || Date.now() - pending.at > OPENROUTER_CONNECT_TTL_MS) {
         openRouterPending = null;
         releaseHold('openrouter');
-        return res.status(400).json({ error: 'This connection attempt has expired. Press Connect again.' });
+        return res.status(400).json(keyed('This connection attempt has expired. Press Connect again.'));
     }
     // Checked BEFORE the attempt is spent: a return that is not this one
     // leaves the learner's own attempt pending.
     if (typeof state !== 'string' || state.length > 512 || !sameSecret(state, pending.state)) {
-        return res.status(400).json({ error: 'This sign-in did not come from the Connect button on this app. Press Connect again.' });
+        return res.status(400).json(keyed('This sign-in did not come from the Connect button on this app. Press Connect again.'));
     }
     openRouterPending = null;   // single use, whatever happens next
     releaseHold('openrouter');
@@ -195,14 +195,15 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
         });
         const json = await readCappedJson(upstream, 64 * 1024).catch(() => ({}));
         if (!upstream.ok) {
-            const why = typeof json?.error?.message === 'string' ? json.error.message : `HTTP ${upstream.status}`;
-            return res.status(502).json({ error: `OpenRouter did not issue a key: ${why}` });
+            // The provider's words, bounded and with any path removed.
+            const why = typeof json?.error?.message === 'string' ? publicMessage(json.error.message.slice(0, 200)) : `HTTP ${upstream.status}`;
+            return res.status(502).json(keyed('OpenRouter did not issue a key: {{why}}', { why }));
         }
         key = typeof json?.key === 'string' ? json.key : '';
     } catch (e) {
-        return res.status(502).json({ error: endpointError('OpenRouter', e) });
+        return res.status(502).json(endpointBody('OpenRouter', e));
     }
-    if (!key) return res.status(502).json({ error: 'OpenRouter answered without a key' });
+    if (!key) return res.status(502).json(keyed('OpenRouter answered without a key'));
 
     // The key is bound to OpenRouter's origin like any key saved by hand, and
     // the provider and base URL move with it, so the next model call uses it.
@@ -230,16 +231,16 @@ app.get('/api/search/keys', (req, res) => {
 });
 app.put('/api/search/keys/:provider', (req, res) => {
     if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
-        return res.status(400).json({ error: 'Unknown search backend' });
+        return res.status(400).json(keyed('Unknown search backend'));
     }
     const { key } = req.body || {};
-    if (typeof key !== 'string') return res.status(400).json({ error: 'key must be a string' });
+    if (typeof key !== 'string') return res.status(400).json(apiError('key must be a string'));
     const saved = setSearchBackendKey(req.params.provider, key);
     res.json({ success: true, hasKey: saved });
 });
 app.delete('/api/search/keys/:provider', (req, res) => {
     if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
-        return res.status(400).json({ error: 'Unknown search backend' });
+        return res.status(400).json(keyed('Unknown search backend'));
     }
     setSearchBackendKey(req.params.provider, '');
     res.json({ success: true, hasKey: false });
@@ -250,7 +251,7 @@ app.delete('/api/search/keys/:provider', (req, res) => {
 // happens when they ask for it and never on a page load.
 app.post('/api/search/keys/:provider/test', wrap(async (req, res) => {
     if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
-        return res.status(400).json({ error: 'Unknown search backend' });
+        return res.status(400).json(keyed('Unknown search backend'));
     }
     res.json(await testSearchBackend(req.params.provider));
 }));
@@ -303,14 +304,14 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
         // not happen: it is told apart (502), so the panel asks again later
         // rather than printing that the endpoint publishes nothing.
         if (upstream.status === 404 || upstream.status === 405) return res.json({ available: false, endpoints: [] });
-        if (!upstream.ok) return res.status(502).json({ error: endpointError('The endpoint', { httpStatus: upstream.status }) });
+        if (!upstream.ok) return res.status(502).json(endpointBody('The endpoint', { httpStatus: upstream.status }));
         const json = await upstream.json();
         const raw = Array.isArray(json?.data?.endpoints) ? json.data.endpoints : [];
         if (!raw.length) return res.json({ available: false, endpoints: [] });
         // Only the fields the panel draws, one row per slug it can send back.
         res.json({ available: true, model, endpoints: servingEndpointRows(raw) });
     } catch (e) {
-        res.status(502).json({ error: endpointError('The endpoint', e) });
+        res.status(502).json(endpointBody('The endpoint', e));
     } finally {
         clearTimeout(timer);
     }
@@ -319,7 +320,7 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
 app.post('/api/ai/models/pull', async (req, res) => {
     const { name } = req.body;
     if (!name || typeof name !== 'string') {
-        return res.status(400).json({ error: 'Model name is required' });
+        return res.status(400).json(keyed('Model name is required'));
     }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -332,7 +333,7 @@ app.post('/api/ai/models/pull', async (req, res) => {
         res.end();
     } catch (error) {
         console.error('Model pull error:', error);
-        res.write(`data: ${JSON.stringify({ error: publicMessage(error) })}\n\n`);
+        res.write(`data: ${JSON.stringify(publicBody(error))}\n\n`);
         res.end();
     }
 });
@@ -342,7 +343,7 @@ app.delete('/api/ai/models/:name', wrap(async (req, res) => {
     if (result.success) {
         res.json({ success: true });
     } else {
-        res.status(500).json({ error: result.error });
+        res.status(500).json(errorFields(result));
     }
 }));
 

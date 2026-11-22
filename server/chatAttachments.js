@@ -39,6 +39,7 @@ import { getAISettings, visionAvailability } from './ai.js';
 import { firstChoice } from './aiJobs.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
 import { promptTitle } from './citations.js';
+import { k, keyed, publicBody } from './clientError.js';
 
 /** Files one message (and one upload request) may carry. */
 export const ATTACH_MAX_FILES = 10;
@@ -127,7 +128,8 @@ export function attachmentSummary(row) {
     };
 }
 
-const refuse = (name, reason, error) => ({ ok: false, name, reason, error });
+/** A file the composer cannot take; the words are a message key (clientError `keyed`). */
+const refuse = (name, reason, key, params) => ({ ok: false, name, reason, ...keyed(key, params) });
 
 /**
  * Take one uploaded file into the composer. Returns its summary, or a refusal
@@ -137,7 +139,7 @@ export async function stageAttachment(buffer, originalname, now = Date.now()) {
     sweepAttachments(now);
     const name = cleanName(originalname);
     if (buffer.length > ATTACH_MAX_BYTES) {
-        return refuse(name, 'too_large', `This file is larger than ${Math.round(ATTACH_MAX_BYTES / 1024 / 1024)} MB.`);
+        return refuse(name, 'too_large', k('This file is larger than {{mb}} MB.'), { mb: Math.round(ATTACH_MAX_BYTES / 1024 / 1024) });
     }
     const sniffed = sniffMediaType(buffer);
     let row;
@@ -152,19 +154,23 @@ export async function stageAttachment(buffer, originalname, now = Date.now()) {
     } else if (sniffed?.kind === 'image') {
         // HEIC, AVIF, BMP: a picture, but not one a model is sent. The composer
         // redraws one the browser can draw; this is the rest.
-        return refuse(name, 'unsupported', `This picture is ${sniffed.ext.toUpperCase()}, which can't be read here. Save it as JPEG or PNG and attach it again.`);
+        return refuse(name, 'unsupported', k("This picture is {{format}}, which can't be read here. Save it as JPEG or PNG and attach it again."), { format: sniffed.ext.toUpperCase() });
     } else if (sniffed?.kind === 'audio') {
-        return refuse(name, 'unsupported', 'Sound files can\'t be attached yet.');
+        return refuse(name, 'unsupported', k("Sound files can't be attached yet."));
     } else {
         let extracted;
         try {
             extracted = await extractText(buffer, originalname);
         } catch (err) {
-            const message = String(err?.message || 'This file could not be read.');
-            return refuse(name, /no extractable text/i.test(message) ? 'no_text' : 'unsupported', message.slice(0, 300));
+            // The extractor's own words, with paths removed (a parser's
+            // TypeError becomes the referenced sentence); not a key.
+            const reason = /no extractable text/i.test(String(err?.message)) ? 'no_text' : 'unsupported';
+            if (!err?.message) return refuse(name, reason, k('This file could not be read.'));
+            const said = publicBody(err);
+            return { ok: false, name, reason, ...said, error: String(said.error).slice(0, 300) };
         }
         const { text, kind, meta } = extracted;
-        if (!text) return refuse(name, 'unsupported', 'This file could not be read.');
+        if (!text) return refuse(name, 'unsupported', k('This file could not be read.'));
         const { hash, size } = vaultStorage.put(buffer);
         const info = db.prepare(`INSERT INTO chat_attachments
             (name, kind, file_type, mime, file_hash, file_size, page_count, content, created_at)

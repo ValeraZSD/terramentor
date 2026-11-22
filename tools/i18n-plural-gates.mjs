@@ -153,9 +153,12 @@ const SAME_SINCE_PLURAL_SWEEP = {
     de: ['({{length}} chars)', '{{charCount}} characters generated', '{{chars}} chars', '{{length}} chars',
         '{{resourceCount}} links', '{{thinkingChars}} characters', '{{times}} times', '{{totalResources}} links',
         '{{width}} × {{height}} pixels', 'Building widget…', 'Designing the widget…', 'Drawing…', 'Generating…',
-        'Planning the scene…', 'Reasoning…', 'The model reasoned for'],
+        'Planning the scene…', 'Reasoning…', 'The model reasoned for',
+        // The server's refusals (2026-11-21): "Zeichen" again.
+        'At most {{count}} characters', 'New password must be at least', 'Password must be at least'],
     fr: ['({{length}} chars)', '{{chars}} chars', '{{rows}} of {{max}} events', '{{times}} times'],
-    it: ['{{width}} × {{height}} pixels', 'Add {{length}} files', 'One loop,'],
+    it: ['{{width}} × {{height}} pixels', 'Add {{length}} files', 'One loop,',
+        'A message may carry at most', 'Attach at most', 'Reading {{count}} files'],
     nl: ['{{resourceCount}} links', '{{times}} times', '{{totalResources}} links'],
     pl: ['{{seconds}} seconds', 'You reviewed all {{length}} flashcards'],
     ru: ['({{length}} chars)', '{{date}}: {{done}} things done', '{{n}} projects scheduled', '{{seconds}} seconds',
@@ -163,7 +166,7 @@ const SAME_SINCE_PLURAL_SWEEP = {
         'Planning the scene…', 'You reviewed all {{length}} flashcards'],
     uk: ['{{date}}: {{done}} things done', '{{length}} questions', '{{resourceCount}} links', '{{round}}% recalled over',
         '{{seconds}} seconds', '{{totalResources}} links', 'A sitting of {{n}}', 'Busiest day', 'Each row is a band',
-        'Predicted {{p}}%', 'You reviewed all {{length}} flashcards'],
+        'Predicted {{p}}%', 'You reviewed all {{length}} flashcards', 'Needs at least {{count}} day-level reviews'],
 };
 for (const [loc, list] of Object.entries(SAME_SINCE_PLURAL_SWEEP)) SAME_BY_DESIGN[loc] = [...(SAME_BY_DESIGN[loc] || []), ...list];
 

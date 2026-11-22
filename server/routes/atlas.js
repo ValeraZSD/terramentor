@@ -5,7 +5,7 @@ import { buildAtlas, drawnRegionSignatures, invalidateAtlas } from '../atlas.js'
 import { clearRegionName, regionNameStats, setRegionName, validateUserName } from '../regionNaming.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, k, keyed } from '../clientError.js';
 
 const app = routeTable('atlas');
 
@@ -25,7 +25,7 @@ app.get('/api/atlas', async (req, res) => {
         res.json(atlas);
     } catch (err) {
         console.error('[Atlas] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -37,7 +37,7 @@ app.get('/api/atlas/naming', (req, res) => {
     try {
         res.json(regionNameStats(drawnRegionSignatures()));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -54,14 +54,12 @@ app.get('/api/atlas/naming', (req, res) => {
 app.put('/api/atlas/regions/:signature/name', (req, res) => {
     try {
         const signature = String(req.params.signature || '');
-        if (!/^[0-9a-f]{64}$/.test(signature)) return res.status(400).json({ error: 'Not a region signature.' });
+        if (!/^[0-9a-f]{64}$/.test(signature)) return res.status(400).json(keyed('Not a region signature.'));
         const verdict = validateUserName(req.body?.label);
         if (!verdict.ok) {
-            return res.status(400).json({
-                error: verdict.reason === 'empty' ? 'A region needs a name.'
-                    : verdict.reason === 'too-long' ? 'That name is too long for the map.'
-                        : 'A region name is plain text.',
-            });
+            return res.status(400).json(keyed(verdict.reason === 'empty' ? k('A region needs a name.')
+                : verdict.reason === 'too-long' ? k('That name is too long for the map.')
+                    : k('A region name is plain text.')));
         }
         setRegionName(signature, verdict.label, Number(req.body?.size) || null);
         // The atlas cache key reads what topics and courses draw, which a
@@ -70,7 +68,7 @@ app.put('/api/atlas/regions/:signature/name', (req, res) => {
         invalidateAtlas();
         res.json({ label: verdict.label, labelSource: 'user' });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -78,12 +76,12 @@ app.put('/api/atlas/regions/:signature/name', (req, res) => {
 app.delete('/api/atlas/regions/:signature/name', (req, res) => {
     try {
         const signature = String(req.params.signature || '');
-        if (!/^[0-9a-f]{64}$/.test(signature)) return res.status(400).json({ error: 'Not a region signature.' });
+        if (!/^[0-9a-f]{64}$/.test(signature)) return res.status(400).json(keyed('Not a region signature.'));
         clearRegionName(signature);
         invalidateAtlas();
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -104,7 +102,7 @@ app.get('/api/nodes/:id/similar', async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error('[NodeEmbeddings/similar] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -128,7 +126,7 @@ app.get('/api/nodes/:id/transfer', async (req, res) => {
         res.json({ transfer: preview.sources.length ? { ...preview, spent: true, at: null } : null });
     } catch (err) {
         console.error('[Transfer] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -143,7 +141,7 @@ app.get('/api/nodes/search-semantic', async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error('[NodeEmbeddings/search] Error:', err.message);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

@@ -13,7 +13,7 @@ import { getGateConfig } from '../settingsStore.js';
 import { getSittingReview } from '../sittingReview.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { KeyedError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('today');
 
@@ -108,7 +108,7 @@ async function runTodayBriefing({ emit, signal }) {
     try {
         // Fail fast if the model server is down; stay patient if it's merely loading.
         const reachable = await probeAiReachable({ job: 'conversation' });
-        if (!reachable.ok) throw new Error(reachable.error);
+        if (!reachable.ok) throw new KeyedError(reachable.messageKey || reachable.error, reachable.params);
 
         loadingTimer = setInterval(() => {
             if (!firstTokenSeen && !signal.aborted) {
@@ -137,7 +137,7 @@ async function runTodayBriefing({ emit, signal }) {
         // surface the reasoning as raw output.
         if (!aiResponse.trim()) {
             throw Object.assign(
-                new Error('The AI model returned no briefing text — it may have spent its whole budget "thinking". Try again, or switch to a model that emits a final answer.'),
+                new KeyedError('The AI model returned no briefing text — it may have spent its whole budget "thinking". Try again, or switch to a model that emits a final answer.'),
                 { rawResponse: thinkingText || null }
             );
         }
@@ -184,7 +184,7 @@ app.get('/api/today', (req, res) => {
     try {
         res.json(buildTodayData({ decayDays: getGateConfig().decayDays }));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -200,7 +200,7 @@ app.get('/api/today/activity', (req, res) => {
         const date = m && Number(m[1]) >= 1000 && Number(m[1]) <= 9998 ? req.query.date : undefined;
         res.json(buildTodayActivity(date));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -208,9 +208,9 @@ app.get('/api/today/activity', (req, res) => {
 // learner's answers, which were right (server/sittingReview.js).
 app.get('/api/today/sittings/:evidenceId', (req, res) => {
     const evidenceId = Number(req.params.evidenceId);
-    if (!Number.isInteger(evidenceId)) return res.status(400).json({ error: 'Invalid sitting id' });
+    if (!Number.isInteger(evidenceId)) return res.status(400).json(keyed('Invalid sitting id'));
     const review = getSittingReview(evidenceId);
-    if (!review) return res.status(404).json({ error: 'No review was kept for this sitting' });
+    if (!review) return res.status(404).json(keyed('No review was kept for this sitting'));
     res.json(review);
 });
 

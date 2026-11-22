@@ -911,10 +911,11 @@ console.log('\n--- the log file and the shortcut ---');
     const nasty = "C:\\Apps\\O’Brien‘s ‚x‛ 'y' \"z\" $(Get-Date) `n\\Terramentor.exe";
     const ps = startMenuShortcutScript({ target: nasty, workingDir: 'C:\\Apps', icon: 'C:\\Apps\\Terramentor.ico' });
     ok('no quote character from a path reaches the PowerShell source', !/[’‘‚‛]/.test(ps) && !ps.includes("'y'") && !ps.includes('$(Get-Date)'));
-    ok('…while the path itself is carried whole, as data', psShown(ps).includes(`$s.TargetPath = ${nasty}`));
+    ok('…while the path itself is carried whole, as data', psShown(ps).includes(`$s.Path = ${nasty}`));
     ok('…and the script is plain ASCII, which PowerShell 5.1 reads right from a BOM-less file', /^[\x00-\x7f]*$/.test(ps));
     ok('the shortcut goes in the user Start Menu', psShown(ps).includes('Start Menu\\Programs'));
-    ok('the icon is set', ps.includes('IconLocation'));
+    ok('the icon is set', psShown(ps).includes('$s.SetIconLocation(C:\\Apps\\Terramentor.ico, 0)'));
+    ok('…and fields go through the shell\'s UTF-16 link object, never WScript.Shell', ps.includes('Shell.Application') && !ps.includes('WScript.Shell'));
 
     // An update is a NEW FOLDER, so a marker meaning only "done once" leaves
     // the shortcut opening the old copy. The marker names the target.
@@ -954,13 +955,25 @@ console.log('\n--- the log file and the shortcut ---');
     // shortcut. They are read as no marker, so an update still reaches those
     // installs through the item's own --data-dir.
     const script = L.autostartPlan({ platform: 'win32', target: `${OLD}\\Terramentor.exe`, args: lib(A), env: { APPDATA: 'C:\\x' } }).script;
-    // Windows stored a different string than it was given (a character outside
-    // the ANSI code page): the item is still this library's, and this copy
-    // asking for the same again is no reason to rewrite it at every start.
+    // An older copy's writer stored a different string than it was given (a
+    // character outside the ANSI code page, so the item opens a folder that is
+    // not the library): the item is still this library's, and even the same
+    // copy rewrites it, once. A marker whose records agree is left alone.
     const lossy = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\cafe --autostart', workingDir: OLD });
     const asked = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\café --autostart', workingDir: OLD });
-    check('shortcut Windows stored differently, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
+    const ansiMarker = JSON.stringify({ wrote: asked, holds: lossy }); // as the ANSI writer left it
+    check('shortcut an older writer stored differently, same copy: repaired', refresh({ ...shortcut, wanted: asked, marker: ansiMarker, current: lossy }), 'rewrite');
+    check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: ansiMarker, current: lossy }), 'rewrite');
+    check('…but not once someone else wrote the item since', refresh({ ...shortcut, wanted: asked, marker: ansiMarker, current: win(OLD, B) }), 'none');
+    // The repair writes a marker of its own; were Windows still to store
+    // something else, the same copy must not rewrite it at every start.
+    check('a UTF-16 write that still came back different, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
     check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
+    // The empty shortcut the script starts from, checked here on every
+    // platform: a header-only link the reader takes, with no fields.
+    const emptyLnk = Buffer.from((L.autostartPlan({ platform: 'win32', target: 'C:\\t.exe', args: [], env: { APPDATA: 'C:\\x' } }).script
+        .match(/FromBase64String\('([A-Za-z0-9+/=]+)'\)\)\s*\}/) || [])[1] || '', 'base64');
+    check('the empty shortcut is a header and a terminal block', [emptyLnk.length, emptyLnk.length && emptyLnk.readUInt32LE(0), emptyLnk.length && L.readShortcut?.(emptyLnk)], [80, 0x4C, {}]);
     check('shortcut, older marker (a script), naming this library: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
     check('shortcut, older marker (a script), naming another library: left', refresh({ ...shortcut, marker: script, current: win(OLD, B) }), 'none');
     check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
@@ -1026,15 +1039,21 @@ console.log('\n--- the log file and the shortcut ---');
     // Real shortcuts, written by Windows into a scratch Startup folder (never a
     // checked-in .lnk: a real one carries the machine's name and the user's id).
     if (process.platform === 'win32') {
-        const scratchLnk = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'lnk-'));
-        const write = (target, dir) => {
-            const plan = L.autostartPlan({ platform: 'win32', target, args: lib(dir), env: { APPDATA: scratchLnk } });
+        // The scratch folder's own name is outside every code page too: it
+        // stands in for a profile folder named that way (APPDATA, TEMP).
+        const scratchLnk = mkdtempSync(join(tmpdir(), 'terramentor-lnk-Ωμέγα 学-'));
+        // Every per-user folder points into the scratch one, so nothing this
+        // PowerShell does can reach the person's real Startup folder.
+        const scratchEnv = { ...process.env, APPDATA: scratchLnk, LOCALAPPDATA: scratchLnk, HOME: scratchLnk, USERPROFILE: scratchLnk, TEMP: scratchLnk, TMP: scratchLnk };
+        const write = (target, dir, icon = null) => {
+            const plan = L.autostartPlan({ platform: 'win32', target, args: lib(dir), icon, env: { APPDATA: scratchLnk } });
             const ps = join(scratchLnk, 'make.ps1');
             writeFileSync(ps, plan.script, 'utf8');
             const made = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps],
-                { env: { ...process.env, APPDATA: scratchLnk }, windowsHide: true, encoding: 'utf8' });
-            const fields = made.status === 0 && existsSync(plan.path) ? L.readShortcut?.(readFileSync(plan.path)) : null;
-            return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
+                { env: scratchEnv, windowsHide: true, encoding: 'utf8' });
+            const buf = made.status === 0 && existsSync(plan.path) ? readFileSync(plan.path) : null;
+            const fields = buf ? L.readShortcut?.(buf) : null;
+            return { plan, status: made.status, buf, fields, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
         };
         try {
             // Characters every code page has: Windows stores them as given.
@@ -1043,14 +1062,34 @@ console.log('\n--- the log file and the shortcut ---');
             check('the .lnk reader sees what the plan asked for', plain.holds, plain.plan.record);
             check('…and the library in it', plain.holds && L.dataDirOf(L.windowsArgs(JSON.parse(plain.holds).arguments)), 'C:\\Users\\u\\My "library"\\');
             check('the writing script reports what the file holds', plain.printed, plain.holds);
-            // Characters some code pages lack may come back changed; whatever
-            // Windows kept, the next start of the same copy leaves it alone.
-            const wide = write('C:\\Apps\\Терра mentor é\\Terramentor.exe', 'C:\\Users\\u\\Мой café');
-            check('a shortcut Windows may store differently is left alone by the same copy', refresh({
-                kind: 'shortcut', platform: 'win32', exists: true, dataDir: 'C:\\Users\\u\\Мой café',
-                wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.printed),
-            }), 'none');
-            check('…its report matching the file, changed characters and all', wide.printed, wide.holds);
+            check('…and it opens minimised (show command 7)', plain.buf?.readUInt32LE(0x3C), 7);
+            // A person's own change to the shortcut (here a hotkey, Ctrl+Shift+T)
+            // survives the app rewriting its fields.
+            if (plain.buf) {
+                plain.buf.writeUInt16LE(0x0354, 0x40);
+                writeFileSync(plain.plan.path, plain.buf);
+            }
+            const again = write('C:\\Apps\\Terra mentor 1.1\\Terramentor.exe', 'C:\\Users\\u\\My "library"\\');
+            check('a rewrite keeps the hotkey someone set on the shortcut', again.buf?.readUInt16LE(0x40), 0x0354);
+            check('…while taking the new app folder', again.holds, again.plan.record);
+            // Characters no single ANSI code page holds: Greek and Chinese
+            // beside Cyrillic and a Latin accent. Written through the ANSI
+            // page, the library came back as `?????` (a login item opening a
+            // folder that does not exist) and an app folder named this way got
+            // no shortcut at all. Every character must arrive as given.
+            const icon = 'C:\\Apps\\Τέρρα 中文 é\\Terramentor.ico';
+            const anyPage = write('C:\\Apps\\Τέρρα 中文 é\\Terramentor.exe', 'C:\\Users\\u\\Βιβλιοθήκη 学习 Мой café', icon);
+            check('a path outside every code page: Windows wrote the shortcut', anyPage.status, 0);
+            check('…holding the app folder and the library exactly', anyPage.holds, anyPage.plan.record);
+            check('…and the icon', anyPage.fields?.icon, icon);
+            check('…and the script reports exactly that', anyPage.printed, anyPage.plan.record);
+            const libOnly = write('C:\\Apps\\Terramentor\\Terramentor.exe', 'C:\\Users\\u\\Βιβλιοθήκη 学习');
+            check('a plain app folder with such a library: the library arrives exactly', libOnly.holds, libOnly.plan.record);
+            // A file in its place that is not a shortcut (cut short to nothing)
+            // is replaced, not left failing at every write.
+            writeFileSync(libOnly.plan.path, Buffer.alloc(0));
+            const fromBroken = write('C:\\Apps\\Terramentor\\Terramentor.exe', 'C:\\Users\\u\\lib');
+            check('an empty file where the shortcut goes is replaced by one', [fromBroken.status, fromBroken.holds], [0, fromBroken.plan.record]);
         } finally {
             rmSync(scratchLnk, { recursive: true, force: true });
         }
@@ -1105,7 +1144,7 @@ console.log('\n--- how the window opens, and starting at login ---');
         && win.path.replace(/\\/g, '/').endsWith('Start Menu/Programs/Startup/Terramentor.lnk'));
     ok('…written by a script that names the exe', psShown(win.script).includes('Terramentor.exe'));
     ok('…and opens minimized, so a checkout\'s console is not the first thing on screen at sign-in',
-        win.script.includes('$s.WindowStyle = 7'));
+        win.script.includes('$s.ShowCommand = 7'));
 
     const winArgs = autostartPlan({
         platform: 'win32', target: 'C:\\node.exe', args: ['C:\\My Apps\\launcher.js'],

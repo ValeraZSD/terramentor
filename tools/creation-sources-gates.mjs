@@ -16,7 +16,8 @@
 //   1. a dropped PDF is read before any project exists: its bookmarks become
 //      sections with page ranges, its title a suggested name; a scan with no
 //      text says so; nothing staged is visible in the vault;
-//   2. the FIRST model call of a creation already carries the file, and the
+//   2. the FIRST model call of a creation (the shape call), and the first that
+//      writes (the name check), already carry the file, and the
 //      phases prompt carries its outline (§ numbers, titles, pages) with the
 //      rule that the phases follow and cover it — two files both count;
 //   3. what the phases, topics and sub-topics cite is recorded per node
@@ -165,6 +166,7 @@ const bodies = [];
 let identityMode = 'keep';
 const stage = (system) =>
     system.includes('review the name and description') ? 'identity'
+    : system.includes('You decide what shape a new course takes') ? 'shape'
     : system.includes('Write out your thoughts') ? 'thinking'
     : system.includes('Summarize this learning project') ? 'summary'
     : system.includes('top-level categories') ? 'categories'
@@ -471,8 +473,11 @@ identityMode = 'name_from_files';
 r = await create({ name: '', description: '', content_language: '', documentIds: [bookDoc.id, examDoc.id, scanDoc.id] });
 ok('it completes', !!r.done, JSON.stringify(r.frames.at(-1)));
 ok('the run says what it is reading', r.frames.some(f => f.phase === 'sources' && f.sources?.length === 2 && f.sources[0].sections === 12));
-const first = r.bodies[0];
-ok('the FIRST model call already carries the files', first?.stage === 'identity' && first.user.includes('The Kitchen Garden') && first.user.includes('final-exam.txt'), first?.stage);
+// The course's shape is judged first (server/courseShape.js), from the files'
+// outline; the name check is the first call that writes anything.
+ok('the FIRST model call, the shape call, already carries the files', r.bodies[0]?.stage === 'shape' && r.bodies[0].user.includes('The Kitchen Garden') && r.bodies[0].user.includes('final-exam.txt'), r.bodies[0]?.stage);
+const first = r.bodies.find(b => b.stage !== 'shape');
+ok('the first call that writes, the name check, carries the files', first?.stage === 'identity' && first.user.includes('The Kitchen Garden') && first.user.includes('final-exam.txt'), first?.stage);
 ok('...with the rule that a name is written from them', first?.system.includes('names what those files teach'));
 ok('the name is the model\'s, written from the files', r.row?.name === 'Kitchen Gardening', r.row?.name);
 const think = r.bodies.find(b => b.stage === 'thinking');

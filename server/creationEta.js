@@ -49,8 +49,13 @@ const batches = (sections) => sections >= BATCH_MIN && sections <= BATCH_MAX;
 export function stageOf(phase, prev = 'think') {
     switch (phase) {
         case 'queued': return 'queued';
+        case 'sizing':
+        case 'sized':
         case 'thinking':
         case 'thinking_done': return 'think';
+        // A short course is written in one call (courseShape.js).
+        case 'writing_topics':
+        case 'topics_written': return 'build';
         case 'init':
         case 'summary': return 'prepare';
         case 'generating_categories':
@@ -206,6 +211,14 @@ export function createCreationTracker({ seeds = {}, curate = true } = {}) {
         },
         /** Drop the current call without timing it (an abort, a failure). */
         abandon() { current = null; },
+        /** Start the stage clocks over (the time spent waiting for a slot is
+         *  kept): a short course whose answer was unusable goes on in phases,
+         *  and its stages must not keep the failed attempt's times. */
+        restartStages() {
+            for (const key of Object.keys(stageTimes)) if (key !== 'queued') delete stageTimes[key];
+            stage = null;
+            current = null;
+        },
         phasesPlanned(n) {
             shape.phases = Array.from({ length: Math.max(0, n) }, () => ({ sections: null, batchTried: false }));
         },

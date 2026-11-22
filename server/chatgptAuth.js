@@ -34,6 +34,7 @@ import { credentialsOf, reconcile, saveCredentials } from './aiConnections.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
 import { holdOpen, releaseHold } from './signInHold.js';
+import { KeyedError } from './clientError.js';
 
 // A discovery document, a key set and a token answer are each a few kilobytes;
 // none has a reason to weigh a megabyte (httpBody.js).
@@ -419,7 +420,7 @@ export function saveSignIn({ claims, tokens, scopes, clientId, connectionId = nu
     }
     if (row) {
         const prev = credentialsOf(row) || {};
-        if (prev.subject && prev.subject !== claims.sub) throw new Error('A different ChatGPT account answered this sign-in');
+        if (prev.subject && prev.subject !== claims.sub) throw new KeyedError('A different ChatGPT account answered this sign-in');
         saveCredentials(row.id, credentialRecord({ claims, tokens, scopes, clientId }, prev));
         unsaved.delete(row.id);
         db.prepare('UPDATE ai_connections SET account = ? WHERE id = ?').run(claims.email || row.account, row.id);
@@ -485,20 +486,20 @@ const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'tok
 /** A current access token for a ChatGPT connection, refreshed when it is about to lapse. */
 export async function accessTokenFor(connectionId) {
     const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    if (row && closing.has(row.id)) throw new Error('This ChatGPT connection is being removed.');
+    if (row && closing.has(row.id)) throw new KeyedError('This ChatGPT connection is being removed.');
     const stored = credentialsOf(row);
     const pending = row ? unsaved.get(row.id) : null;
     // The renewal in memory only while it is the newest: a sign-in saved
     // since (here or by another process) is newer and wins.
     const creds = pending && !(stored && String(stored.saved_at || '') > String(pending.saved_at || '')) ? pending : stored;
-    if (!creds) throw new Error('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
+    if (!creds) throw new KeyedError('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
     if (pending) {
         if (creds !== pending) unsaved.delete(row.id);
         else { try { saveCredentials(row.id, creds); unsaved.delete(row.id); } catch { /* still kept in memory */ } }
     }
-    if (!creds.scopes?.includes(PLAN_SCOPE)) throw new Error('This ChatGPT sign-in did not allow plan usage. Sign in again and allow it.');
+    if (!creds.scopes?.includes(PLAN_SCOPE)) throw new KeyedError('This ChatGPT sign-in did not allow plan usage. Sign in again and allow it.');
     if (creds.access_token && creds.expires_at - Date.now() > REFRESH_MARGIN_MS) return creds.access_token;
-    if (!creds.refresh_token) throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
+    if (!creds.refresh_token) throw new KeyedError('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
     if (refreshing.has(row.id)) return refreshing.get(row.id);
     const run = (async () => {
         try {
@@ -520,7 +521,7 @@ export async function accessTokenFor(connectionId) {
                 // account and client id for the next sign-in.
                 const kept = { ...creds, access_token: '', refresh_token: '', expires_at: 0 };
                 saveCredentials(row.id, kept);
-                throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
+                throw new KeyedError('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
             }
             throw err;
         } finally { refreshing.delete(row.id); }

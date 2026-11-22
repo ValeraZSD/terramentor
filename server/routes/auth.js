@@ -12,6 +12,7 @@ import {
 import { isSiteLibrary } from '../siteLibrary.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { k, keyed } from '../clientError.js';
 
 const app = routeTable('auth');
 
@@ -68,10 +69,10 @@ async function tailscaleHint(req) {
 // shares the password's throttle.
 app.post('/api/auth/pair', (req, res) => {
     const wait = loginBlocked(req);
-    if (wait > 0) return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
+    if (wait > 0) return res.status(429).json({ ...keyed('Too many attempts. Try again in {{wait}}s.', { wait }), retryAfter: wait });
     if (!claimPairingOffer(req.body && req.body.code)) {
         recordLoginFailure(req);
-        return res.status(403).json({ error: 'This code has expired or was already used. Show a new one on the computer.' });
+        return res.status(403).json(keyed('This code has expired or was already used. Show a new one on the computer.'));
     }
     recordLoginSuccess(req);
     const { token } = addDevice({ name: deviceName(req.headers['user-agent']), via: 'qr' });
@@ -83,7 +84,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true, enabled: false });
     const check = await passwordThroughThrottle(req, req.body && req.body.password);
     if (check.refused) return res.status(check.refused.status).json(check.refused.body);
-    if (check.wrong) return res.status(401).json({ error: 'Incorrect password' });
+    if (check.wrong) return res.status(401).json(keyed('Incorrect password'));
     setSessionCookie(res, issueToken(req), isSecureRequest(req));
     res.json({ ok: true });
 }));
@@ -109,14 +110,14 @@ app.post('/api/auth/logout', (req, res) => {
  */
 app.post('/api/auth/sign-out-everywhere', wrap(async (req, res) => {
     if (!isAuthEnabled()) {
-        if (!isLocalRequest(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
+        if (!isLocalRequest(req)) return res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
         removeDevicesExcept(null);
         return res.json({ ok: true });
     }
-    if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
+    if (!isRequestAuthenticated(req)) return res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
     const check = await passwordThroughThrottle(req, req.body && req.body.password);
     if (check.refused) return res.status(check.refused.status).json(check.refused.body);
-    if (check.wrong) return res.status(401).json({ error: 'Password is incorrect' });
+    if (check.wrong) return res.status(401).json(keyed('Password is incorrect'));
     endEverySession();
     removeDevicesExcept(req.device?.id);
     if (!req.device) setSessionCookie(res, issueToken(req), isSecureRequest(req));
@@ -131,27 +132,27 @@ app.post('/api/auth/sign-out-everywhere', wrap(async (req, res) => {
 // code attempts share the login throttle.
 let firstPasswordPending = false;
 app.post('/api/auth/setup', wrap(async (req, res) => {
-    if (isAuthEnabled()) return res.status(409).json({ error: 'A password is already set' });
+    if (isAuthEnabled()) return res.status(409).json(keyed('A password is already set'));
     const password = req.body && req.body.password;
     if (!isLocalRequest(req)) {
         const wait = loginBlocked(req);
-        if (wait > 0) return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
+        if (wait > 0) return res.status(429).json({ ...keyed('Too many attempts. Try again in {{wait}}s.', { wait }), retryAfter: wait });
         if (!checkSetupCode(req.body && req.body.setupCode)) {
             recordLoginFailure(req);
             announceSetupCode();
-            return res.status(403).json({ error: 'That setup code is not the one in the server log', setupRequired: true });
+            return res.status(403).json({ ...keyed('That setup code is not the one in the server log'), setupRequired: true });
         }
         recordLoginSuccess(req);
     }
     // The minimum is checked where a password is CHOSEN; one set under the old
     // minimum of 6 still signs in.
     if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
-        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        return res.status(400).json(keyed('Password must be at least {{count}} characters', { count: MIN_PASSWORD_LENGTH }));
     }
     // Hashing is asynchronous now, so a second setup could pass the "no
     // password yet" check while the first is still hashing, and replace it.
     // The first one in holds the door until it has written.
-    if (firstPasswordPending) return res.status(409).json({ error: 'A password is already being set' });
+    if (firstPasswordPending) return res.status(409).json(keyed('A password is already being set'));
     firstPasswordPending = true;
     try { await setPassword(password); } finally { firstPasswordPending = false; }
     clearSetupCode();
@@ -171,17 +172,17 @@ app.post('/api/auth/setup', wrap(async (req, res) => {
 async function currentPasswordRefused(req, res, given, error) {
     const check = await passwordThroughThrottle(req, given);
     if (check.refused) { res.status(check.refused.status).json(check.refused.body); return true; }
-    if (check.wrong) { res.status(401).json({ error }); return true; }
+    if (check.wrong) { res.status(401).json(keyed(error)); return true; }
     return false;
 }
 
 app.post('/api/auth/change', wrap(async (req, res) => {
-    if (!isAuthEnabled()) return res.status(409).json({ error: 'No password is set' });
-    if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
+    if (!isAuthEnabled()) return res.status(409).json(keyed('No password is set'));
+    if (!isRequestAuthenticated(req)) return res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
     const { currentPassword, newPassword } = req.body || {};
-    if (await currentPasswordRefused(req, res, currentPassword, 'Current password is incorrect')) return;
+    if (await currentPasswordRefused(req, res, currentPassword, k('Current password is incorrect'))) return;
     if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
-        return res.status(400).json({ error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        return res.status(400).json(keyed('New password must be at least {{count}} characters', { count: MIN_PASSWORD_LENGTH }));
     }
     await setPassword(newPassword); // a new secret, every session ended → logs out other devices
     // …and ends every connected device but this one: a changed password is
@@ -194,8 +195,8 @@ app.post('/api/auth/change', wrap(async (req, res) => {
 // Remove the gate entirely (requires the current password).
 app.post('/api/auth/disable', wrap(async (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true });
-    if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
-    if (await currentPasswordRefused(req, res, req.body && req.body.password, 'Password is incorrect')) return;
+    if (!isRequestAuthenticated(req)) return res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
+    if (await currentPasswordRefused(req, res, req.body && req.body.password, k('Password is incorrect'))) return;
     clearAuth();
     clearSessionCookie(res, isSecureRequest(req));
     res.json({ ok: true });
@@ -207,11 +208,11 @@ app.post('/api/auth/disable', wrap(async (req, res) => {
 // anywhere. Refused with 403 and no `authRequired`, which would lock the page.
 function apiKeyRefused(req, res) {
     if (!isAuthEnabled() || !isRequestAuthenticated(req)) {
-        res.status(401).json({ error: 'Authentication required', authRequired: true });
+        res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
         return true;
     }
     if (!hasPasswordCredential(req)) {
-        res.status(403).json({ error: 'Sign in with the password to manage the API key' });
+        res.status(403).json(keyed('Sign in with the password to manage the API key'));
         return true;
     }
     return false;
