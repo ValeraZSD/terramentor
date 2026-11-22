@@ -76,9 +76,10 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
 
     const handleRate = async (rating: ReviewRating) => {
         if (!currentCard || writing.current) return;
-        // The decision the screen showed ("Knew it", the kept date), not a fresh
-        // one: a card can fall due between the flip and the press.
-        if (notDueYet && rating !== 'again') {
+        // Decided at the press, not at the render: a card can fall due between
+        // the flip and the press, and a due card is reviewed and written, so
+        // its "Knew it" is then a Good like any other.
+        if (keepsItsDate(currentCard, rating)) {
             undoSnapshots.current.push({ index: queue.index, snapshot: null });
             queue.advance(null);
             return;
