@@ -226,7 +226,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                     aria-current={selectedNodeId === node.id ? 'true' : undefined}
                     className={`flex-1 min-w-0 -mx-1 px-1 text-start text-sm truncate rounded ${FOCUS_RING} ${held || selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
                 >
-                    <span dir="auto" className="inline-block max-w-full truncate align-bottom">{node.title}</span>
+                    <span dir="auto" data-larger-wraps className="inline-block max-w-full truncate align-bottom">{node.title}</span>
                 </button>
                 {isLeaf && <HeadStartMark node={node} />}
                 {held && projectedDepth !== null && (
