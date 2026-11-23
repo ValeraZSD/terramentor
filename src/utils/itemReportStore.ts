@@ -36,6 +36,8 @@ interface ItemReportState {
     load: (refs: string[]) => Promise<void>;
     /** Ask again about refs whose report may have changed on the server (a reported card was edited). */
     refresh: (refs: string[]) => Promise<void>;
+    /** Forget who wrote every item (a course update or its undo rewrote them); answers already on their way are dropped. */
+    forgetWriters: () => void;
     /** List an item; `current` (the default) makes it the one the learner is on. */
     showItem: (item: ScreenItem, current?: boolean) => void;
     leaveItem: (ref: string) => void;
@@ -126,6 +128,13 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         return flush;
     },
     refresh: (refs) => ask([...new Set(refs.filter(Boolean))]),
+    forgetWriters: () => {
+        // An ask out now predates the rewrite: mark its refs as answered by a
+        // newer ask, so its answer does not set who wrote them.
+        const now = ++asks;
+        for (const r of new Set([...writerAsk.keys(), ...asking])) writerAsk.set(r, now);
+        set({ written: {} });
+    },
     showItem: (item, current = true) => set(s => {
         const rest = s.screen.filter(e => e.ref !== item.ref);
         if (current) return { screen: [{ ...item, current: true }, ...rest.map(e => ({ ...e, current: false }))].slice(0, SCREEN_ITEMS) };

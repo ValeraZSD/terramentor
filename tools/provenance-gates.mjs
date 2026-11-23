@@ -302,6 +302,11 @@ eq(splitAiWrittenTag([`ai-written::${'x'.repeat(201)}`, 'ai-written::second:2'])
     'a name longer than a course file may claim is no claim, and every ai-written tag leaves the deck\'s tags');
 eq(splitAiWrittenTag(['ai-written::evil\u202emodel\u0007']).model, 'evilmodel', 'control and direction characters are dropped from the name');
 eq(splitAiWrittenTag(['ai-written::', 'ai-written::\u200b']), { model: null, tags: [] }, 'an empty name claims nothing');
+// A settings row may name a model in 256 characters; the importer reads 200.
+const { aiWrittenTag } = await import('../server/ankiAiTag.js');
+const longName = 'm'.repeat(250);
+eq(splitAiWrittenTag([aiWrittenTag(JSON.stringify({ model: longName }))]).model, 'm'.repeat(200),
+    'a model name longer than the importer reads is cut on export, so the card keeps its mark');
 
 await new Promise(r => server.close(r));
 
@@ -335,6 +340,7 @@ await build({
             export async function boot() { await i18n.use(initReactI18next).init({ lng: 'en', resources: {}, returnEmptyString: false }); }
             // Every ref already known, so mounting asks the server nothing.
             export const setWritten = (written, refs) => useItemReports.setState({ written, byRef: Object.fromEntries(refs.map(r => [r, null])) });
+            export const reports = useItemReports;
             // Mounted, not rendered to a string: a store renders its INITIAL
             // state on the server (zustand's server snapshot).
             export function flag(itemRef) {
@@ -379,6 +385,37 @@ ok(named?.heard.includes('Written by AI (gate-model:9b)') && named.heard.split('
 eq([unnamed?.seen, unnamed?.hover ?? null], ['Written by AI', null], 'an unnamed model\'s item says "Written by AI" with no empty name');
 ok(!/Written by AI/.test(noneHtml), 'an item no model wrote says nothing about AI');
 ok(/This is wrong/.test(noneHtml), 'and still carries its flag');
+
+// A course update or its undo rewrites items, so who wrote one is asked again;
+// an answer already on its way when the update lands does not put the old writer back.
+{
+    const realFetch = globalThis.fetch;
+    let release = null;
+    const asked = [];
+    const answer = (url, model) => {
+        const refs = new URL(url, 'http://localhost/').searchParams.get('refs').split(',');
+        return new Response(JSON.stringify({ reports: [], written: Object.fromEntries(refs.map(r => [r, { model }])) }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    globalThis.fetch = async (url) => {
+        asked.push(String(url));
+        if (asked.length === 1) { await new Promise(r => { release = r; }); return answer(String(url), 'before-update'); }
+        return answer(String(url), 'after-update');
+    };
+    const store = R.reports;
+    store.setState({ written: { 'fi:8': { model: 'held' } }, byRef: { 'fi:8': null } });
+    const first = store.getState().load(['fi:7']);
+    for (let i = 0; i < 20 && !release; i++) await new Promise(r => setTimeout(r, 0));
+    store.getState().forgetWriters();
+    eq(store.getState().written, {}, 'a course update forgets who wrote every item it may have rewritten');
+    release?.();
+    await first;
+    ok(!('fi:7' in store.getState().written), 'an answer asked before the update does not set who wrote the item');
+    await store.getState().load(['fi:7', 'fi:8']);
+    eq([store.getState().written['fi:7']?.model, store.getState().written['fi:8']?.model, asked.length],
+        ['after-update', 'after-update', 2], 'the next load asks again and shows the writer after the update');
+    globalThis.fetch = realFetch;
+}
 
 db.close();
 rmSync(SCRATCH, { recursive: true, force: true });

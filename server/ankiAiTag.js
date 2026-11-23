@@ -21,7 +21,10 @@ export function aiWrittenTag(stamp) {
     let model = null;
     try { model = stamp ? JSON.parse(stamp)?.model : null; } catch { model = null; }
     if (typeof model !== 'string' || !model.trim()) return '';
-    return PREFIX + model.trim().replace(/\s+/g, '_').replace(/:{2,}/g, ':');
+    // Cut to what the importer reads back (a settings row allows 256), so the
+    // mark survives a round trip even when the name does not fit whole.
+    const name = model.trim().replace(/\s+/g, '_').replace(/:{2,}/g, ':').slice(0, MODEL_NAME_MAX).replace(/:$/, '');
+    return PREFIX + name;
 }
 
 /** As long a model name as a course file may claim (curriculumSchema.js LIMITS.modelName). */

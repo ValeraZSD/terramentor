@@ -176,11 +176,15 @@ function drillSources(nodeId) {
     return out;
 }
 
-/** Every drill in a node's texts, parsed once: `{ key, parsed, by }`. */
+/**
+ * Every drill in a node's texts: `{ key, body, by, parsed }`. `parsed` is
+ * filled on first use and kept (null for a body that does not parse), so many
+ * refs into one drill parse it once.
+ */
 function drillsOf(nodeId) {
     const out = [];
     for (const { text, by } of drillSources(nodeId)) {
-        for (const d of findDrills(text)) out.push({ key: drillKeyOf(d.body), body: d.body, by });
+        for (const d of findDrills(text)) out.push({ key: drillKeyOf(d.body), body: d.body, by, parsed: undefined });
     }
     return out;
 }
@@ -192,11 +196,12 @@ function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
         return card && card.node_id === nodeId
             ? { prompt: card.front, answer: card.back, cardId: card.id, by: stampWriter(card.generated_by) } : null;
     }
-    for (const { key, body, by } of drills ?? drillsOf(nodeId)) {
-        if (key !== drillKey) continue;
-        const parsed = parseDrillBody(body);
+    for (const d of drills ?? drillsOf(nodeId)) {
+        if (d.key !== drillKey) continue;
+        if (d.parsed === undefined) d.parsed = parseDrillBody(d.body) ?? null;
+        const parsed = d.parsed;
         const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
-        if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by };
+        if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by: d.by };
     }
     return null;
 }
