@@ -6,6 +6,8 @@ import { useStreamHeading } from './streamCourse';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
+import { TopicPhotoFigure, TopicPhotoGrid } from '../TopicPhoto';
+import { photoSegments } from '../../utils/photoMarkers';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
@@ -183,6 +185,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     const repairFeedVisual = useStore(s => s.repairFeedVisual);
 
     const { heading, body } = splitLessonHeading(card.markdown, card.partTitle);
+    const placed = new Map((card.photos ?? []).map(p => [p.uuid, p]));
     // Assembled in code, so each must be a real key: a hardcoded "PART 1 OF 3"
     // would sit above translated chrome, and no coverage report could see it.
     const label = card.partCount > 1
@@ -304,19 +307,34 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
 
             <ReadingLine>
             <div ref={bodyRef}>
-            <Markdown
-                content={body}
-                nodeId={card.nodeId}
-                className="text-[0.9375rem] sm:text-base leading-7 text-slate-700 dark:text-slate-200"
-                autoRepair={card.source === 'generated' && !done}
-                // Widgets in the feed are pre-compiled by feedGen, so a cached
-                // build renders instantly. Never start one on view: that would
-                // block the learner mid-scroll on an LLM call. A spec that
-                // missed its pre-build shows a "Build widget" button instead.
-                autoBuild={false}
-                surface="feed-lesson"
-                onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
-            />
+            {/* A topic learned by sight: the text is cut where it places a
+                photo, and the photo is drawn there from the card's own list
+                (a marker naming a photo the card does not carry draws nothing). */}
+            {photoSegments(body).map((seg, i) => 'photo' in seg ? (
+                placed.get(seg.photo) && (
+                    <div key={`p${i}`} className="my-5">
+                        <TopicPhotoFigure photo={placed.get(seg.photo)!} />
+                    </div>
+                )
+            ) : (
+                <Markdown
+                    key={`t${i}`}
+                    content={seg.text}
+                    nodeId={card.nodeId}
+                    className="text-[0.9375rem] sm:text-base leading-7 text-slate-700 dark:text-slate-200"
+                    autoRepair={card.source === 'generated' && !done}
+                    // Widgets in the feed are pre-compiled by feedGen, so a cached
+                    // build renders instantly. Never start one on view: that would
+                    // block the learner mid-scroll on an LLM call. A spec that
+                    // missed its pre-build shows a "Build widget" button instead.
+                    autoBuild={false}
+                    surface="feed-lesson"
+                    onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
+                />
+            ))}
+            {card.photoStrip && card.photoStrip.length > 0 && (
+                <TopicPhotoGrid photos={card.photoStrip} className="mt-5" />
+            )}
             </div>
             </ReadingLine>
             </div>

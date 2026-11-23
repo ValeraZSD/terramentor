@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import { api, OllamaModel } from '../../api';
 import {
     RefreshCw, Loader2, Search, Database, Workflow,
-    Image as ImageIcon, Map as MapIcon, FileText,
+    Image as ImageIcon, Map as MapIcon, FileText, Camera,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -74,6 +74,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     const [findResources, setFindResources] = useState(true);
     // Whether a lesson part reads an excerpt of its topic's first two links.
     const [readLinks, setReadLinks] = useState(true);
+    // Whether creation looks for photos for the topics learned by sight.
+    const [findPhotos, setFindPhotos] = useState(true);
     const [recoveryMode, setRecoveryMode] = useState<RecoveryMode>('auto');
     // Optional dedicated vision model for PDF recovery ('' = use the chat model).
     const [recoveryVisionModel, setRecoveryVisionModel] = useState('');
@@ -127,6 +129,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             setFindResources(settings.creation_find_resources !== 'false');
         }
         if (settings.lesson_reads_links !== undefined) setReadLinks(settings.lesson_reads_links !== 'false');
+        if (settings.creation_find_photos !== undefined) setFindPhotos(settings.creation_find_photos !== 'false');
         // Derive the single recovery control from the two backend settings.
         {
             const rec = settings.pdf_math_recovery ?? 'auto';
@@ -158,6 +161,16 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     const saveReadLinks = async (enabled: boolean) => {
         try {
             await readLinksSaver(enabled, setReadLinks, () => api.setSetting('lesson_reads_links', enabled ? 'true' : 'false'));
+            addToast('success', tr("Saved"));
+        } catch (e: any) {
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+
+    const findPhotosSaver = useRef(switchSaver()).current;
+    const saveFindPhotos = async (enabled: boolean) => {
+        try {
+            await findPhotosSaver(enabled, setFindPhotos, () => api.setSetting('creation_find_photos', enabled ? 'true' : 'false'));
             addToast('success', tr("Saved"));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
@@ -265,6 +278,30 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 checked={readLinks}
                                 onChange={v => void saveReadLinks(v)}
                                 label={tr("Let lessons read their topic’s links")}
+                            />
+                        </div>
+                    </ModelJobRow>
+
+                    <ModelJobRow
+                        icon={Camera}
+                        title={tr("Photos")}
+                        desc={tr("Finds freely licensed photos for topics you learn by looking.")}
+                        aside={findPhotos ? tr("On") : tr("Off")}
+                    >
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <label htmlFor="creation-find-photos" className="block cursor-pointer font-medium text-slate-900 dark:text-white">
+                                    {tr("Find photos for topics learned by sight")}
+                                </label>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    {tr("When a course is created, the model marks the topics you learn by looking and names examples. The app searches Wikimedia Commons for each one, keeps photos under a free licence with their credit, and stores them with the course so they show offline. From your course it sends Commons only the search words. The model picks by each file’s title and description; when your vision model can see images, it also looks at the photo it picked.")}
+                                </p>
+                            </div>
+                            <Switch
+                                id="creation-find-photos"
+                                checked={findPhotos}
+                                onChange={v => void saveFindPhotos(v)}
+                                label={tr("Find photos for topics learned by sight")}
                             />
                         </div>
                     </ModelJobRow>

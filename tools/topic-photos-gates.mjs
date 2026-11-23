@@ -169,13 +169,17 @@ const page = (index, title, o = {}) => {
         imageinfo: [{
             url: `https://upload.wikimedia.org/wikipedia/commons/a/ab/${enc(title)}`,
             descriptionurl: `https://commons.wikimedia.org/wiki/File:${enc(title)}`,
-            thumburl: o.thumb ?? `https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/${enc(title)}/960px-${enc(title)}`,
+            // As the archive answers since Nov 2026: thumbnails on their own
+            // host, tagged with campaign parameters.
+            thumburl: o.thumb ?? `https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/${enc(title)}/960px-${enc(title)}?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail`,
             thumbwidth: 960, thumbheight: Math.round(960 * h / w), width: w, height: h, mime: o.mime ?? 'image/jpeg', extmetadata: meta,
         }],
     };
 };
 const HALL = page(2, 'Hall of Supreme Harmony 2019.jpg');
-const TODAIJI = page(1, 'Todaiji Daibutsuden.jpg', { lic: 'CC0', code: 'cc0', artist: '', licUrl: 'https://creativecommons.org/publicdomain/zero/1.0' });
+// A file whose thumbnail is still on the upload host, as before Nov 2026.
+const TODAIJI = page(1, 'Todaiji Daibutsuden.jpg', { lic: 'CC0', code: 'cc0', artist: '', licUrl: 'https://creativecommons.org/publicdomain/zero/1.0',
+    thumb: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Todaiji_Daibutsuden.jpg/960px-Todaiji_Daibutsuden.jpg' });
 const ARCHIVE = {
     'Hall of Supreme Harmony Forbidden City': [
         page(1, 'Taihedian NC.jpg', { lic: 'CC BY-NC-SA 2.0', code: 'cc-by-nc-sa-2.0' }),
@@ -213,7 +217,7 @@ async function fakeArchive(url, init = {}) {
             const pages = ARCHIVE[q] || [];
             return new Response(JSON.stringify({ batchcomplete: true, query: { pages } }), { status: 200, headers: { 'content-type': 'application/json' } });
         }
-        if (u.hostname === 'upload.wikimedia.org') {
+        if (u.hostname === 'upload.wikimedia.org' || u.hostname === 'thumb.wikimedia.org') {
             return new Response(jpeg(u.pathname), { status: 200, headers: { 'content-type': 'image/jpeg' } });
         }
         archive.foreign.push(url);
@@ -322,7 +326,11 @@ ok('the picker sees only the candidates that passed the filter', !!choice && cho
 ok('...by number, with no address in its prompt', !!choice && !/https?:\/\//.test(choice.user));
 
 const api = archive.requests.filter(r => r.url.hostname === 'commons.wikimedia.org');
-const downloads = archive.requests.filter(r => r.url.hostname === 'upload.wikimedia.org');
+const downloads = archive.requests.filter(r => r.url.hostname === 'upload.wikimedia.org' || r.url.hostname === 'thumb.wikimedia.org');
+ok('the photos came from both file hosts the archive uses', downloads.some(r => r.url.hostname === 'thumb.wikimedia.org')
+    && downloads.some(r => r.url.hostname === 'upload.wikimedia.org'), JSON.stringify(downloads.map(r => r.url.hostname)));
+ok('a download carries none of the archive\'s campaign tags', downloads.length > 0 && downloads.every(r => ![...r.url.searchParams.keys()].some(k => /^utm_/i.test(k))),
+    JSON.stringify(downloads.map(r => r.url.search)));
 ok(`three searches, one per example (got ${api.length})`, api.length === 3);
 ok('every request names the app and a contact address in its User-Agent',
     archive.requests.length > 0 && archive.requests.every(r => /^Terramentor\/\S+ \(https:\/\/\S+[;)]/.test(r.ua)), archive.requests[0]?.ua);
@@ -330,8 +338,8 @@ ok('...and nothing about the learner or the course', archive.requests.length > 0
 ok('every search asks for the 960 px thumbnail, with maxlag', api.length > 0 && api.every(r => r.url.searchParams.get('iiurlwidth') === '960' && r.url.searchParams.get('maxlag') === '5'));
 ok('every search is a file search for bitmaps', api.length > 0 && api.every(r => r.url.searchParams.get('gsrnamespace') === '6' && /filetype:bitmap$/.test(r.url.searchParams.get('gsrsearch') || '')));
 ok('one request at a time', archive.maxInflight === 1, `max in flight ${archive.maxInflight}`);
-ok('only the archive\'s two hosts were asked, never an address a model wrote', archive.requests.length > 0 && archive.foreign.length === 0 && archive.requests.every(r => /^(commons|upload)\.wikimedia\.org$/.test(r.url.hostname)), JSON.stringify(archive.foreign));
-ok('a redirect is checked against the two hosts', archive.requests.length > 0 && archive.requests.every(r => r.redirectChecked));
+ok('only the archive\'s own hosts were asked, never an address a model wrote', archive.requests.length > 0 && archive.foreign.length === 0 && archive.requests.every(r => /^(commons|upload|thumb)\.wikimedia\.org$/.test(r.url.hostname)), JSON.stringify(archive.foreign));
+ok('a redirect is checked against those hosts', archive.requests.length > 0 && archive.requests.every(r => r.redirectChecked));
 ok(`two downloads, both the chosen 960 px thumbnails (got ${downloads.length})`,
     downloads.length === 2 && downloads.every(r => /\/960px-/.test(r.url.pathname)), downloads.map(r => r.url.pathname).join(', '));
 
@@ -435,6 +443,8 @@ archive.requests = [];
 archive.busy = 2;
 const again = roofsTopic ? await fetch(`${base}/api/nodes/${roofsTopic.id}/photos/find`, { method: 'POST' }) : null;
 ok('"look again" on a topic with no photo starts a run', again?.status === 200);
+const againBody = again?.ok ? await again.json() : null;
+ok('...and its answer already says pending, so the screen keeps checking', againBody?.state === 'pending', againBody?.state);
 await settle();
 ok('the search was asked twice and no more', archive.requests.length === 2, archive.requests.length);
 const busyLog = db.prepare(`SELECT event FROM activity_log WHERE event LIKE 'photos.%' ORDER BY id DESC LIMIT 1`).get();
@@ -462,6 +472,35 @@ section('10. SECURITY.md names the new outbound hosts');
 const securityMd = readFileSync(SERVER_DIR ? join(SERVER_DIR, '..', 'SECURITY.md') : new URL('../SECURITY.md', import.meta.url), 'utf8');
 ok('commons.wikimedia.org', securityMd.includes('commons.wikimedia.org'));
 ok('upload.wikimedia.org', securityMd.includes('upload.wikimedia.org'));
+ok('thumb.wikimedia.org', securityMd.includes('thumb.wikimedia.org'));
+
+// ---- 11. the screen reads the markers the server writes --------------------------
+section('11. the lesson card finds each placed photo; other renderers drop the line');
+const srcRoot = SERVER_DIR ? join(SERVER_DIR, '..', 'src') : new URL('../src/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+let markers = null;
+try {
+    const esbuild = require('esbuild');
+    const out = join(scratch, 'photoMarkers.mjs');
+    await esbuild.build({ entryPoints: [join(srcRoot, 'utils/photoMarkers.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent' });
+    markers = await import(pathToFileURL(out).href);
+} catch { markers = null; }
+const twoPhotos = [{ uuid: '11111111-2222-4333-8444-555555555555' }, { uuid: '66666666-7777-4888-9999-000000000000' }];
+const written = photos?.placePhotoMarkers
+    ? photos.placePhotoMarkers('Look at the roof.\n[[photo:2]]\nNow the hall. [[photo:1]] And its eaves.', twoPhotos).text
+    : '';
+const segs = markers?.photoSegments ? markers.photoSegments(written) : [];
+ok('each placed photo comes back as its own segment, in the order written', segs.length > 0
+    && JSON.stringify(segs.filter(s => 'photo' in s).map(s => s.photo)) === JSON.stringify([twoPhotos[1].uuid, twoPhotos[0].uuid]), JSON.stringify(segs));
+ok('no segment of text still carries a marker', segs.length > 0 && segs.every(s => !('text' in s) || !s.text.includes('[[photo:')));
+const stripped = markers?.stripPhotoMarkers ? markers.stripPhotoMarkers(written) : written;
+ok('any other renderer drops the marker lines and keeps the words', written.length > 0 && !stripped.includes('[[photo:')
+    && stripped.includes('Look at the roof.') && stripped.includes('And its eaves.'), JSON.stringify(stripped));
+
+// ---- 12. the task says where its result lands ------------------------------------
+section('12. the photo task names its course');
+const appRun = tasks.listTasks().find(x => x.kind === 'find_photos' && x.origin?.surface === 'app');
+ok('a run started by course creation carries the course in its origin', !!appRun && appRun.origin?.job === 'find_photos'
+    && Number.isInteger(appRun.origin?.projectId), JSON.stringify(appRun?.origin));
 
 await new Promise(r => server.close(r));
 await new Promise(r => stub.close(r));

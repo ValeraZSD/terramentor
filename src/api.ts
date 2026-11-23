@@ -6,7 +6,7 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import { serverText } from './utils/serverText';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
+import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast, TopicPhotos } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, SearchResults, SearchSuggestion, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, DeletedItem, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
@@ -2545,6 +2545,13 @@ export const api = {
     // demand above a part that starts mid-topic (LessonCard).
     getReadLessonParts: (nodeId: number, before: number) =>
         request<{ parts: FeedReadPart[] }>(`/feed/nodes/${nodeId}/read-parts?before=${before}`),
+
+    // A topic learned by sight: its photos with their credit, and a new look
+    // for them when none were found.
+    getTopicPhotos: (nodeId: number) =>
+        request<TopicPhotos>(`/nodes/${nodeId}/photos`),
+    findTopicPhotos: (nodeId: number) =>
+        request<TopicPhotos & { started: boolean }>(`/nodes/${nodeId}/photos/find`, { method: 'POST' }),
 
     // Try again on a topic whose first lesson could not be written.
     retryLessonWrite: (nodeId: number) =>

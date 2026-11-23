@@ -8,6 +8,7 @@ import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import Breadcrumbs from './Breadcrumbs';
 import Checkbox from './Checkbox';
 import ResourceList from './ResourceList';
+import TopicPhotosSection from './TopicPhotosSection';
 import MarkdownNotes from './MarkdownNotes';
 import StudyTools from './StudyTools';
 import { TopicStudyTime } from './studyTime/StudyTime';
@@ -372,6 +373,10 @@ export default function DetailPanel() {
                                     : t("Add an overview — what this covers and why…")}
                             />
                         </div>
+
+                        {/* A topic learned by sight: its photos, under the text
+                            they illustrate. Draws nothing for any other topic. */}
+                        {selectedNodeId != null && <TopicPhotosSection key={`photos-${selectedNodeId}`} nodeId={selectedNodeId} />}
 
                         {/* Status & Is Note */}
                         <div className="flex items-center gap-4 flex-wrap">

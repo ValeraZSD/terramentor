@@ -607,7 +607,7 @@ export type AITaskKind =
     | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
     | 'bulk' | 'recover' | 'placement' | 'atlas'
-    | 'media_describe' | 'srs_optimize' | 'search_words' | 'short_course';
+    | 'media_describe' | 'srs_optimize' | 'search_words' | 'short_course' | 'find_photos';
 
 export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 
@@ -619,7 +619,7 @@ export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export interface AITaskOrigin {
     surface: 'assistant' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'atlas' | 'app';
     detail?: string;
-    job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing' | 'search_words';
+    job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing' | 'search_words' | 'find_photos';
     projectId?: number;
     nodeId?: number;
     messageId?: number;
@@ -888,6 +888,36 @@ export interface FeedLessonCard extends FeedCardCommon {
     preQuestions?: { feedItemId: number | null; question: QuizQuestion }[];
     /** A model is set up to mark the learner's own account of this part. */
     explainBack?: boolean;
+    /** A topic learned by sight: the photos this part's text places with
+     *  `[[photo:<uuid>]]` lines, drawn where each line stands. */
+    photos?: TopicPhoto[];
+    /** The topic's photos no part places, drawn after the text, on one part only. */
+    photoStrip?: TopicPhoto[];
+}
+
+/** One photo of a topic learned by sight (server/topicPhotos.js `photoView`):
+ *  the stored file and the archive's credit. */
+export interface TopicPhoto {
+    uuid: string;
+    hash: string;
+    /** The example it shows ("Tōdai-ji Great Buddha Hall"). */
+    subject: string;
+    /** What to look at in it, written by the model; may be empty. */
+    shows: string;
+    width: number | null;
+    height: number | null;
+    author: string | null;
+    licence: string | null;
+    licenceUrl: string | null;
+    sourceUrl: string | null;
+    /** A model that sees images confirmed it shows the example. */
+    checked: boolean;
+}
+
+/** `GET /api/nodes/:id/photos`. `state` null = the topic is not learned by sight. */
+export interface TopicPhotos {
+    state: 'pending' | 'found' | 'none' | null;
+    photos: TopicPhoto[];
 }
 
 /** A lesson part already read (`readLessonParts`, server/feed.js); the text
