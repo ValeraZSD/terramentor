@@ -8,6 +8,7 @@ import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, FLOAT_LAYER, MENU_SURFACE } from './Popover';
 import { canHover } from '../../utils/platform';
+import { isRtl } from '../../utils/direction';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 
@@ -511,7 +512,7 @@ function SelectList(props: ListProps & {
         const width = panel.offsetWidth;
         panel.style.maxWidth = capped;
         const p = placePopover(r, { width, height: Math.min(list.scrollHeight, maxHeight) + 2 },
-            bounds, { gap, margin });
+            bounds, { gap, margin, rtl: isRtl(btn) });
         // Its 3rem floor can be more than a keyboard leaves: then the room is the cap.
         setPlace({ ...p, maxHeight: p.maxHeight != null ? p.maxHeight - 2 : maxHeight, minWidth });
     }, [anchorRef, roomy]);
