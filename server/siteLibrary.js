@@ -12,6 +12,7 @@
 // Everything else about a hosted copy holds too (server/hosted.js): the front
 // desk starts each library with TERRAMENTOR_HOSTED=1 as well.
 import crypto from 'node:crypto';
+import { k } from './clientError.js';
 
 /** Is this process a library started by a site's front desk? */
 export function isSiteLibrary(env = process.env) {
@@ -99,5 +100,5 @@ export function siteAuthRefusal(method, path) {
     if (!isSiteLibrary()) return null;
     if (!/^\/api\/auth(?:\/|$)/.test(path)) return null;
     if (path === '/api/auth/status') return null;
-    return 'Signing in and out of this library happens at the site, not in the app.';
+    return k('Signing in and out of this library happens at the site, not in the app.');
 }

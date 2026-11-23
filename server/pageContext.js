@@ -29,7 +29,7 @@ const PAGE_DESCRIPTION_CHARS = 1200;
  */
 function topicMaterial(nodeId) {
     const notes = db.prepare(`
-        SELECT title, description FROM nodes
+        SELECT title, description FROM live_nodes nodes
         WHERE parent_id = ? AND is_note = 1
         ORDER BY position ASC LIMIT 4
     `).all(nodeId).filter(n => String(n.description || '').trim());
@@ -232,7 +232,7 @@ function standingReports(nodeId) {
  * assistant is given to write back.
  */
 function projectLook(projectId) {
-    const p = db.prepare('SELECT name, icon, color, description, status FROM projects WHERE id = ?').get(projectId);
+    const p = db.prepare('SELECT name, icon, color, description, status FROM live_projects projects WHERE id = ?').get(projectId);
     if (!p) return '';
     const colourName = projectColourName(p.color);
     const lines = [`Course "${p.name}" now: icon "${p.icon || 'folder'}", colour ${p.color}${colourName ? ` (${colourName})` : ''}, status ${p.status || 'active'}.`];
@@ -277,7 +277,7 @@ export function buildPageContext(context) {
     if (focusNodeId) {
         const node = db.prepare(`
             SELECT n.id, n.title, ${LEAF_STATUS} AS status, p.id AS pid, p.name AS pname
-            FROM nodes n JOIN projects p ON p.id = n.project_id WHERE n.id = ?
+            FROM live_nodes n JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?
         `).get(focusNodeId);
         if (node) {
             scopeProjectId = node.pid;
@@ -309,7 +309,7 @@ export function buildPageContext(context) {
             if (reports) lines.push(`Items the learner reported as wrong on this topic (they count neither way; undo one by its report number):\n${reports}`);
         }
     } else if (Number.isInteger(projectId)) {
-        const project = db.prepare('SELECT id, name, summary FROM projects WHERE id = ?').get(projectId);
+        const project = db.prepare('SELECT id, name, summary FROM live_projects projects WHERE id = ?').get(projectId);
         if (project) {
             lines.push(`Open project: "${project.name}" (projectId ${project.id}).`);
             const look = projectLook(project.id);

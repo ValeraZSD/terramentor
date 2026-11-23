@@ -16,7 +16,7 @@ import { hostedGuard, trustProxySetting } from './hosted.js';
 import { siteNoteReader } from './siteLibrary.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
-import { clientError } from './clientError.js';
+import { errorBody, keyed } from './clientError.js';
 import { buildId } from './buildId.js';
 import { SANDBOX_FRAME_PATH, sendSandboxFrame } from './sandboxFrame.js';
 import { RUNNER_FRAME_PATH, sendRunnerFrame } from './runnerFrame.js';
@@ -31,6 +31,7 @@ import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
 import * as authApi from './routes/auth.js';
 import * as projectsApi from './routes/projects.js';
+import * as deletedApi from './routes/deleted.js';
 import * as tasksApi from './routes/tasks.js';
 import * as catalogApi from './routes/catalog.js';
 import * as nodesApi from './routes/nodes.js';
@@ -326,10 +327,10 @@ app.use((err, req, res, next) => {
         if (status >= 400 && status < 500) {
             // Nothing is logged: a malformed body is the caller's mistake, and
             // a stack per bad request would let anyone fill the log.
-            const said = err.expose === false || !err.message ? 'Bad request' : clientError(err, status);
-            return res.status(status).json({ error: said });
+            const said = err.expose === false || !err.message ? keyed('Bad request') : errorBody(err, status);
+            return res.status(status).json(said);
         }
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
     // If headers were already sent (e.g. SSE stream), just end the response
     else {
@@ -391,7 +392,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
             // made by whichever of the two gets there first.
             instanceKey: loadInstanceKey(dataPaths().dataDir),
             libraryEmpty: () => {
-                try { return db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === 0; }
+                try { return db.prepare('SELECT COUNT(*) AS n FROM live_projects projects').get().n === 0; }
                 catch { return false; }
             },
         })
@@ -427,7 +428,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // computer, and the panel stays readable from anywhere.
     const onTheComputer = (req, res, next) => {
         if (req.method === 'GET' || ownerPresent(req)) return next();
-        res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+        res.status(403).json(keyed('Only on the computer itself, or with the password'));
     };
     app.use('/api/desktop', onTheComputer);
     app.use('/api/updates', onTheComputer);
@@ -459,6 +460,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(projectsApi.editRoutes);
     mount(catalogApi.routes);
     mount(projectsApi.deleteRoutes);
+    mount(deletedApi.routes);
     mount(nodesApi.nodeRoutes);
     mount(onboardingApi.routes);
     mount(assistantWritesApi.routes);

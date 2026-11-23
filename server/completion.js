@@ -186,8 +186,8 @@ const WORK_LEAF_ROWS = `
     SELECT n.id AS id, n.status AS status,
            COUNT(f.id) AS cards,
            SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-    FROM nodes n
-    LEFT JOIN flashcards f ON f.node_id = n.id
+    FROM live_nodes n
+    LEFT JOIN live_flashcards f ON f.node_id = n.id
     WHERE n.project_id = ? AND ${WORK_LEAF}
     GROUP BY n.id
 `;
@@ -195,7 +195,7 @@ const WORK_LEAF_ROWS = `
 const PROJECT_CARDS = `
     SELECT COUNT(*) AS total,
            SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS met
-    FROM flashcards f JOIN nodes n ON n.id = f.node_id
+    FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
     WHERE n.project_id = ?
 `;
 
@@ -207,19 +207,19 @@ const ACTIVITY_MINUTES = `
     SELECT at, SUM(n) AS n FROM (
         SELECT ${MINUTE('rl.reviewed_at')} AS at, COUNT(*) AS n
         FROM review_log rl
-        JOIN flashcards f ON f.id = rl.card_id
-        JOIN nodes nd ON nd.id = f.node_id
+        JOIN live_flashcards f ON f.id = rl.card_id
+        JOIN live_nodes nd ON nd.id = f.node_id
         WHERE nd.project_id = ? AND rl.source = 'app'
         GROUP BY at
       UNION ALL
         SELECT ${MINUTE('me.created_at')} AS at, COUNT(*) AS n
         FROM mastery_evidence me
-        JOIN nodes nd ON nd.id = me.node_id
+        JOIN live_nodes nd ON nd.id = me.node_id
         WHERE nd.project_id = ? AND me.evidence_type != 'flashcard'
         GROUP BY at
       UNION ALL
         SELECT ${MINUTE('nd.completed_at')} AS at, COUNT(*) AS n
-        FROM nodes nd
+        FROM live_nodes nd
         WHERE nd.project_id = ? AND nd.completed_at IS NOT NULL AND nd.is_note = 0
         GROUP BY at
     )
@@ -262,53 +262,53 @@ let stmts = null;
 function statements() {
     if (stmts) return stmts;
     stmts = {
-        project: db.prepare('SELECT id, name, icon, color, status, start_date, deadline, created_at FROM projects WHERE id = ?'),
+        project: db.prepare('SELECT id, name, icon, color, status, start_date, deadline, created_at FROM live_projects projects WHERE id = ?'),
         leaves: db.prepare(WORK_LEAF_ROWS),
         cards: db.prepare(PROJECT_CARDS),
         activity: db.prepare(ACTIVITY_MINUTES),
         timeHours: db.prepare(`
             SELECT st.hour AS hour, SUM(st.active_ms) AS ms
-            FROM study_time st JOIN nodes nd ON nd.id = st.node_id
+            FROM study_time st JOIN live_nodes nd ON nd.id = st.node_id
             WHERE nd.project_id = ?
             GROUP BY st.hour
         `),
         reviews: db.prepare(`
             SELECT COUNT(*) AS reviews, COUNT(DISTINCT rl.card_id) AS cardsSeen
             FROM review_log rl
-            JOIN flashcards f ON f.id = rl.card_id
-            JOIN nodes n ON n.id = f.node_id
+            JOIN live_flashcards f ON f.id = rl.card_id
+            JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ? AND rl.source = 'app'
         `),
         answers: db.prepare(`
             SELECT COALESCE(SUM(me.total), 0) AS answers, COALESCE(SUM(me.score), 0) AS correct,
                    COUNT(*) AS sittings
             FROM mastery_evidence me
-            JOIN nodes n ON n.id = me.node_id
+            JOIN live_nodes n ON n.id = me.node_id
             WHERE n.project_id = ? AND me.evidence_type != 'flashcard'
         `),
         quizzes: db.prepare(`
             SELECT COUNT(*) AS quizzes FROM quiz_attempts qa
-            JOIN quizzes q ON q.id = qa.quiz_id
-            JOIN nodes n ON n.id = q.node_id
+            JOIN live_quizzes q ON q.id = qa.quiz_id
+            JOIN live_nodes n ON n.id = q.node_id
             WHERE n.project_id = ?
         `),
         papers: db.prepare(`
             SELECT COUNT(*) AS papers FROM paper_attempts pa
-            JOIN nodes n ON n.id = pa.node_id
+            JOIN live_nodes n ON n.id = pa.node_id
             WHERE n.project_id = ?
         `),
         mastery: db.prepare(`
             SELECT COUNT(*) AS tracked,
                    AVG(m.mastery_score) AS average
             FROM node_mastery m
-            JOIN nodes n ON n.id = m.node_id
+            JOIN live_nodes n ON n.id = m.node_id
             WHERE n.project_id = ? AND ${WORK_LEAF}
         `),
         // Over the line on the stored estimate; `estimateProven` then takes
         // card reviews and drills out, which never prove a topic.
         provenCandidates: db.prepare(`
             SELECT m.node_id FROM node_mastery m
-            JOIN nodes n ON n.id = m.node_id
+            JOIN live_nodes n ON n.id = m.node_id
             WHERE n.project_id = ? AND ${WORK_LEAF}
               AND m.mastery_score >= ? AND m.total_attempts > 0
         `),

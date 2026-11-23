@@ -4,6 +4,7 @@
 // stream, the cancel handle, the task-dock mirror and how a run ends.
 import { randomUUID } from 'node:crypto';
 import db, { NOW_ISO, interruptedCreations } from '../database.js';
+import { BY_APP, softDelete } from '../softDelete.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
@@ -35,7 +36,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { publicMessage } from '../clientError.js';
+import { apiError, keyed, publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -69,7 +70,7 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
-const projectExistsStmt = db.prepare('SELECT id FROM projects WHERE id = ?');
+const projectExistsStmt = db.prepare('SELECT id FROM live_projects projects WHERE id = ?');
 const refreshNoticeStmt = db.prepare(`
     UPDATE nodes
     SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -77,7 +78,7 @@ const refreshNoticeStmt = db.prepare(`
 `);
 const nextTopPositionStmt = db.prepare(`
     SELECT COALESCE(MAX(position), -1) + 1 as pos
-    FROM nodes
+    FROM live_nodes nodes
     WHERE project_id = ? AND parent_id IS NULL
 `);
 const insertNoticeStmt = db.prepare(`
@@ -87,7 +88,7 @@ const insertNoticeStmt = db.prepare(`
 const markCreationFinished = db.prepare('UPDATE projects SET creation_finished = 1 WHERE id = ?');
 const clearGeneratingStmt = db.prepare(`UPDATE projects SET ai_generating = 0, updated_at = ${NOW_ISO} WHERE id = ? AND ai_generating = 1`);
 const findNotice = db.prepare(`
-    SELECT id FROM nodes
+    SELECT id FROM live_nodes nodes
     WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
     LIMIT 1
 `);
@@ -120,20 +121,21 @@ function markProjectAsUnfinished(projectId, reason) {
  *  learner wrote in (the notice is written with the same text in both fields)
  *  or put something under. */
 function removeUnfinishedNotice(projectId) {
-    db.prepare(`
-        DELETE FROM nodes
+    const notices = db.prepare(`
+        SELECT id FROM live_nodes nodes
         WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
           AND COALESCE(notes, '') = COALESCE(description, '')
-          AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id)
-          AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
-    `).run(projectId, NOTICE_TITLE);
+          AND NOT EXISTS (SELECT 1 FROM live_nodes c WHERE c.parent_id = nodes.id)
+          AND NOT EXISTS (SELECT 1 FROM documents /* with deleted */ d WHERE d.node_id = nodes.id)
+    `).pluck().all(projectId, NOTICE_TITLE);
+    for (const id of notices) softDelete('nodes', id, { by: BY_APP });
 }
 
 // The runs the last process was in the middle of when it ended: no catch
 // wrote their notice, so it is written now, once, as the app starts.
 // A short course (`made_from`) says so on its own strip and is written again
 // whole by its Retry, so it gets no notice.
-const isShortCourse = db.prepare('SELECT 1 FROM projects WHERE id = ? AND made_from IS NOT NULL').pluck();
+const isShortCourse = db.prepare('SELECT 1 FROM live_projects projects WHERE id = ? AND made_from IS NOT NULL').pluck();
 for (const id of interruptedCreations) {
     try {
         if (isShortCourse.get(id)) continue;
@@ -580,7 +582,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // were stored as sent. Unset (absent, null, "") still means the default.
     const unset = (v) => v === undefined || v === null || v === '';
     const fieldError = projectFieldError({ color: unset(color) ? undefined : color, icon: unset(icon) ? undefined : icon });
-    if (fieldError) return res.status(400).json({ error: fieldError });
+    if (fieldError) return res.status(400).json(keyed(fieldError));
     // The learner's files, read when they were dropped into the dialog
     // (stagedDocuments.js) and in hand before the first model call: with them
     // the course is built FROM the files (sourceMaterial.js), and a name is no
@@ -589,7 +591,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // A link read in the dialog is a staged row too (a page or a video):
     // its origin, not "text", names what kind of source it is.
     const src = creationSources(asSourceRows(stagedRows));
-    if (!name && !hasSources(src)) return res.status(400).json({ error: 'Project name is required' });
+    if (!name && !hasSources(src)) return res.status(400).json(keyed('Project name is required'));
     const learnerName = String(name || '');
     // What the run is called until the identity step has named it.
     const runName = learnerName.trim() || src.docs[0]?.suggested || learnerName;
@@ -839,7 +841,7 @@ app.post('/api/ai/create-project', (req, res) => {
         };
         const stampProvenance = (fields) => {
             try {
-                const row = db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(projectId);
+                const row = db.prepare('SELECT generated_by FROM live_projects projects WHERE id = ?').get(projectId);
                 const next = addProvenanceFields(row?.generated_by, fields);
                 if (next) db.prepare('UPDATE projects SET generated_by = ? WHERE id = ?').run(next, projectId);
             } catch (e) { console.log('[AI] Project provenance stamp failed:', e.message); }
@@ -1011,7 +1013,7 @@ function settledWithin(promise, ms) {
 /** The topics a stopped run recorded as still waiting for their link pass. */
 function storedPendingLinks(projectId) {
     let stored = [];
-    try { stored = JSON.parse(db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(projectId)?.p || '[]'); } catch { /* none */ }
+    try { stored = JSON.parse(db.prepare('SELECT creation_pending_links AS p FROM live_projects projects WHERE id = ?').get(projectId)?.p || '[]'); } catch { /* none */ }
     return new Set(Array.isArray(stored) ? stored.map(Number).filter(Number.isInteger) : []);
 }
 
@@ -1022,8 +1024,8 @@ function storedPendingLinks(projectId) {
 function readOutline(projectId) {
     const rows = db.prepare(`
         SELECT n.id, n.parent_id, n.title, n.description, n.generated_by,
-               (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
-        FROM nodes n
+               (SELECT COUNT(*) FROM live_resources r WHERE r.node_id = n.id) AS links
+        FROM live_nodes n
         WHERE n.project_id = ? AND n.is_note = 0
         ORDER BY n.position, n.id
     `).all(projectId);
@@ -1083,9 +1085,9 @@ function creationUnfinished(projectId, finished) {
 /** Whether the course page offers "Continue creating" (`running`: a run is writing it now). */
 app.get('/api/ai/continue-creation/:projectId', (req, res) => {
     const projectId = requestedId(req.params.projectId);
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const project = db.prepare('SELECT id, kind, creation_finished, made_from FROM projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!projectId) return res.status(400).json(apiError('projectId is required'));
+    const project = db.prepare('SELECT id, kind, creation_finished, made_from FROM live_projects projects WHERE id = ?').get(projectId);
+    if (!project) return res.status(404).json(keyed('Project not found'));
     const running = activeGenerations.has(projectId);
     // A short course is one flat list of topics by design: its topics are not
     // phases waiting for sections.
@@ -1116,25 +1118,25 @@ app.get('/api/ai/continue-creation/:projectId', (req, res) => {
  */
 app.post('/api/ai/continue-creation', async (req, res) => {
     const projectId = requestedId(req.body?.projectId);
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const project = db.prepare('SELECT id, name, description, summary, color, kind, made_from FROM projects WHERE id = ?').get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (project.kind === 'deck') return res.status(400).json({ error: 'A card project has no outline to continue' });
-    if (project.made_from != null) return res.status(400).json({ error: 'A short course has no outline to continue' });
+    if (!projectId) return res.status(400).json(apiError('projectId is required'));
+    const project = db.prepare('SELECT id, name, description, summary, color, kind, made_from FROM live_projects projects WHERE id = ?').get(projectId);
+    if (!project) return res.status(404).json(keyed('Project not found'));
+    if (project.kind === 'deck') return res.status(400).json(keyed('A card project has no outline to continue'));
+    if (project.made_from != null) return res.status(400).json(keyed('A short course has no outline to continue'));
     // A run stopped a moment ago may still be unwinding its last call: Stop
     // and then Continue is waited out, a run still going is not. While it
     // waits this request is in no registry a Stop could find, so a client
     // that gave up (pressed Stop, closed the page) ends it here.
     const prior = activeGenerations.get(projectId);
     if (prior) {
-        if (!prior.stopping) return res.status(409).json({ error: 'This course is already being created' });
+        if (!prior.stopping) return res.status(409).json(keyed('This course is already being created'));
         let gone = false;
         res.on('close', () => { gone = true; });
         const settled = await settledWithin(prior.settled, STOP_GRACE_MS);
         if (gone) return;
-        if (!settled) return res.status(409).json({ error: 'The stopped run is still stopping; try again in a moment' });
+        if (!settled) return res.status(409).json(keyed('The stopped run is still stopping; try again in a moment'));
     }
-    if (activeGenerations.has(projectId)) return res.status(409).json({ error: 'This course is already being created' });
+    if (activeGenerations.has(projectId)) return res.status(409).json(keyed('This course is already being created'));
 
     const curate = getSetting('creation_find_resources', 'true') !== 'false';
     // The stopped run's record is this run's from the start, so one that
@@ -1363,7 +1365,7 @@ app.post('/api/ai/cancel-creation', (req, res) => {
 app.get('/api/ai/creation-status', (req, res) => {
     const resourceCountsStmt = db.prepare(`
         SELECT r.node_id, COUNT(*) AS c
-        FROM resources r JOIN nodes n ON n.id = r.node_id
+        FROM live_resources r JOIN live_nodes n ON n.id = r.node_id
         WHERE n.project_id = ?
         GROUP BY r.node_id
     `);

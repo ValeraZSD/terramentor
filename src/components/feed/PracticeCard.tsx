@@ -16,6 +16,7 @@ import { Button } from '../ui/Button';
 import ReportItem, { ReportLink, ReportScope } from '../ui/ReportItem';
 import { feedRowRef } from '../../utils/itemReports';
 import UncheckedKeyNote from '../UncheckedKeyNote';
+import { serverText } from '../../utils/serverText';
 
 interface Props {
     card: FeedPracticeCard;
@@ -211,7 +212,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 return;
             }
             // 'unreadable' / 'error' — the exercise stays live and retakeable.
-            setProblem(result.status === 'unreadable' ? result.reason : result.error);
+            setProblem(result.status === 'unreadable' ? result.reason : serverText(result) ?? null);
             setPhase('adjust');
         } catch (err: any) {
             setProblem(err.message);
@@ -243,7 +244,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
             // The exercise went (or was marked elsewhere) while this one was
             // open: nothing was recorded, so the card must not say it was.
             if (result.status === 'error') {
-                setProblem(result.error);
+                setProblem(serverText(result) ?? null);
                 return;
             }
             setUnproven(result.unproven === true);

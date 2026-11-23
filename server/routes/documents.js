@@ -15,7 +15,7 @@ import { getUiLanguage } from '../language.js';
 import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
-import { publicMessage } from '../clientError.js';
+import { apiError, errorBody, errorFields, keyed, publicMessage } from '../clientError.js';
 import { citedDocumentReadings, inertTitle } from '../citations.js';
 
 const app = routeTable('documents');
@@ -50,19 +50,19 @@ const IMAGE_KINDS = ['jpg', 'png', 'webp'];
 // cascaded it away from the topic it hung on. A missing owner was a 500 from
 // the foreign key. Returns `{ status, error }` or null.
 function documentOwnerError(projectId, nodeId) {
-    if (!projectId && !nodeId) return { status: 400, error: 'projectId or nodeId is required' };
+    if (!projectId && !nodeId) return { status: 400, ...apiError('projectId or nodeId is required') };
     // An object here reached better-sqlite3 as named bindings and threw, and a
     // boolean (`Number(true)` is 1) failed the bind the same way.
     const notAnId = (v) => !!v && !((typeof v === 'number' || typeof v === 'string') && Number.isSafeInteger(Number(v)) && Number(v) > 0);
-    if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, error: 'projectId and nodeId must be whole numbers' };
-    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
-        return { status: 404, error: 'Project not found' };
+    if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, ...apiError('projectId and nodeId must be whole numbers') };
+    if (projectId && !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
+        return { status: 404, ...keyed('Project not found') };
     }
     if (nodeId) {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
-        if (!node) return { status: 404, error: 'Topic not found' };
+        const node = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
+        if (!node) return { status: 404, ...keyed('Topic not found') };
         if (projectId && node.project_id !== Number(projectId)) {
-            return { status: 400, error: 'The topic belongs to another project' };
+            return { status: 400, ...keyed('The topic belongs to another project') };
         }
     }
     return null;
@@ -70,11 +70,11 @@ function documentOwnerError(projectId, nodeId) {
 
 app.post('/api/documents', (req, res) => {
     const { nodeId, projectId, title, content, fileType = 'text' } = req.body;
-    if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'A document needs a title' });
-    if (typeof content !== 'string') return res.status(400).json({ error: 'A document needs its text as content' });
-    if (typeof fileType !== 'string') return res.status(400).json({ error: 'fileType must be text' });
+    if (typeof title !== 'string' || !title.trim()) return res.status(400).json(keyed('A document needs a title'));
+    if (typeof content !== 'string') return res.status(400).json(keyed('A document needs its text as content'));
+    if (typeof fileType !== 'string') return res.status(400).json(apiError('fileType must be text'));
     const owner = documentOwnerError(projectId, nodeId);
-    if (owner) return res.status(owner.status).json({ error: owner.error });
+    if (owner) return res.status(owner.status).json(errorFields(owner));
     const chunks = chunkText(content);
     const insertChunk = db.prepare('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, ?, ?)');
     // The row and its chunks together: a document whose chunks failed to
@@ -100,12 +100,12 @@ const handleVaultUpload = (req, res, next) =>
     rejectOversizedBody(256 * 1024 * 1024)(req, res, () =>
         vaultUpload.array('files')(req, res, (err) => {
             if (err) {
-                const msg = err.code === 'LIMIT_FILE_SIZE'
-                    ? `File exceeds the ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB limit`
+                const body = err.code === 'LIMIT_FILE_SIZE'
+                    ? keyed('File exceeds the {{mb}} MB limit', { mb: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
                     : err.code === 'LIMIT_FILE_COUNT'
-                        ? 'Too many files in one upload (max 100) — please upload in smaller batches'
-                        : err.message || 'Upload failed';
-                return res.status(400).json({ error: msg });
+                        ? keyed('Too many files in one upload (max 100) — please upload in smaller batches')
+                        : err.message ? errorBody(err, 400) : keyed('Upload failed');
+                return res.status(400).json(body);
             }
             next();
         }));
@@ -118,10 +118,10 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
     // failure with the SAME foreign key — the second throw left the async
     // handler and the request was never answered.
     const owner = documentOwnerError(projectId, nodeId);
-    if (owner) return res.status(owner.status).json({ error: owner.error });
+    if (owner) return res.status(owner.status).json(errorFields(owner));
 
     const files = req.files || [];
-    if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    if (files.length === 0) return res.status(400).json(keyed('No files uploaded'));
 
     const results = [];
     for (const file of files) {
@@ -157,7 +157,7 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
 // with why it cannot be used.
 app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
     const files = req.files || [];
-    if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    if (files.length === 0) return res.status(400).json(keyed('No files uploaded'));
     const documents = [];
     // Each file's language is read with the interface language as its hint,
     // exactly as the creation reads the files (stagedDocuments.js filesLanguage).
@@ -170,8 +170,8 @@ app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
 app.post('/api/documents/staged/claim', (req, res) => {
     const projectId = Number(req.body?.projectId);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 100) : [];
-    if (!projectId || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
-        return res.status(404).json({ error: 'Project not found' });
+    if (!projectId || !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
+        return res.status(404).json(keyed('Project not found'));
     }
     const claimed = claimStaged(ids, projectId);
     res.json({ documents: [...claimed].map(([stagedId, id]) => ({ stagedId, id })) });
@@ -189,7 +189,7 @@ app.get('/api/documents', (req, res) => {
                       file_hash, file_size, status, error, page_count, embedding_status,
                       recovery_status, recovery_meta, created_at,
                       LENGTH(content) as char_count
-               FROM documents`;
+               FROM live_documents documents`;
     const params = [];
     // Passing both scopes returns node-or-project docs (matches RAG retrieval, so
     // the tutor's "Use docs (N)" count includes the project vault); a single scope
@@ -216,12 +216,12 @@ app.get('/api/documents', (req, res) => {
 const CITED_MAX_ENTRIES = 20;
 const CITED_MAX_CHARS = 500;
 let citedDocs;
-const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
+const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM live_documents documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
 app.get('/api/documents/cited', (req, res) => {
     const raw = req.query.entry;
     const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
     if (entries.length > CITED_MAX_ENTRIES || entries.some(e => typeof e !== 'string' || e.length > CITED_MAX_CHARS)) {
-        return res.status(400).json({ error: `entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters` });
+        return res.status(400).json(apiError(`entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters`));
     }
     if (!entries.length) return res.json([]);
     // name → the newest document of that name, or SHARED when two different files carry it.
@@ -259,8 +259,8 @@ app.get('/api/documents/cited', (req, res) => {
 // Return the full extracted text of one document, for the "view extracted text"
 // preview in the vault. Capped so a huge file can't blow up the response.
 app.get('/api/documents/:id/text', (req, res) => {
-    const doc = db.prepare('SELECT title, content, status, error FROM documents WHERE id = ?').get(req.params.id);
-    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    const doc = db.prepare('SELECT title, content, status, error FROM live_documents documents WHERE id = ?').get(req.params.id);
+    if (!doc) return res.status(404).json(keyed('Document not found'));
     res.json({
         title: doc.title,
         status: doc.status,
@@ -275,13 +275,13 @@ app.get('/api/documents/:id/text', (req, res) => {
 // vision model, won't retry on its own). `force` bypasses the settings gate and
 // the "already recovered" guard so this always re-reads the original.
 app.post('/api/documents/:id/recover', (req, res) => {
-    const doc = db.prepare('SELECT id, file_type, file_hash, status FROM documents WHERE id = ?').get(req.params.id);
-    if (!doc) return res.status(404).json({ error: 'Document not found' });
-    if (doc.file_type !== 'pdf') return res.status(400).json({ error: 'Math recovery only applies to PDFs' });
-    if (!doc.file_hash) return res.status(400).json({ error: 'No original stored for this document' });
+    const doc = db.prepare('SELECT id, file_type, file_hash, status FROM live_documents documents WHERE id = ?').get(req.params.id);
+    if (!doc) return res.status(404).json(keyed('Document not found'));
+    if (doc.file_type !== 'pdf') return res.status(400).json(keyed('Math recovery only applies to PDFs'));
+    if (!doc.file_hash) return res.status(400).json(keyed('No original stored for this document'));
     // Same eligibility the vault UI applies: a doc whose extraction failed has no
     // text layer to improve on — re-upload is the fix, not recovery.
-    if (doc.status === 'failed') return res.status(400).json({ error: 'Document extraction failed — re-upload it instead' });
+    if (doc.status === 'failed') return res.status(400).json(keyed('Document extraction failed — re-upload it instead'));
     db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('pending', doc.id);
     queueRecovery(doc.id, { force: true });
     res.json({ ok: true, recovery_status: 'pending' });
@@ -290,14 +290,14 @@ app.post('/api/documents/:id/recover', (req, res) => {
 // Stream the stored original for "open original". Served inline so PDFs/images
 // open in the browser; falls back to download for office formats.
 app.get('/api/documents/:id/original', (req, res) => {
-    const doc = db.prepare('SELECT title, file_type, file_hash, original_filename FROM documents WHERE id = ?').get(req.params.id);
-    if (!doc) return res.status(404).json({ error: 'Document not found' });
-    if (!doc.file_hash) return res.status(404).json({ error: 'No original stored for this document (text-only)' });
+    const doc = db.prepare('SELECT title, file_type, file_hash, original_filename FROM live_documents documents WHERE id = ?').get(req.params.id);
+    if (!doc) return res.status(404).json(keyed('Document not found'));
+    if (!doc.file_hash) return res.status(404).json(keyed('No original stored for this document (text-only)'));
     let filePath;
     try {
         filePath = vaultStorage.pathFor(doc.file_hash);
     } catch {
-        return res.status(404).json({ error: 'Original file is missing from the vault' });
+        return res.status(404).json(keyed('Original file is missing from the vault'));
     }
     // The same header trap as /api/media: a vault original stored under a
     // non-Latin-1 filename would have thrown here too.
@@ -308,7 +308,7 @@ app.get('/api/documents/:id/original', (req, res) => {
 });
 
 app.delete('/api/documents/:id', (req, res) => {
-    const doc = db.prepare('SELECT id, file_hash FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT id, file_hash FROM documents /* with deleted */ WHERE id = ?').get(req.params.id);
     const docs = doc ? [doc] : [];
     const chunkIds = documentChunkIds(docs);
 

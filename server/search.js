@@ -29,7 +29,7 @@ import { LEAF_STATUS } from './today.js';
 // project. The cache is deliberately per-call and NOT module-level — a
 // module-level one would keep serving a renamed or recoloured project's old
 // name until the process restarts.
-const projectMetaStmt = db.prepare('SELECT name, color FROM projects WHERE id = ?');
+const projectMetaStmt = db.prepare('SELECT name, color FROM live_projects projects WHERE id = ?');
 
 function projectMeta(cache, projectId) {
     if (projectId == null) return undefined;
@@ -39,7 +39,7 @@ function projectMeta(cache, projectId) {
 
 // A topic result says the status every other surface says (`LEAF_STATUS`),
 // read for the few rows that survive ranking, not for every row scored.
-const leafStatusStmt = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM nodes n WHERE n.id = ?`);
+const leafStatusStmt = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM live_nodes n WHERE n.id = ?`);
 
 //
 // Constants
@@ -316,7 +316,7 @@ function emptyResult() {
 function searchProjects(tokens, limit) {
     const rows = db.prepare(`
         SELECT id, name, description, summary, color, icon
-        FROM projects
+        FROM live_projects projects
     `).all();
 
     return rankAndSlice(rows, tokens, r => ({
@@ -341,13 +341,13 @@ function searchNodes(tokens, projectId, limit, withNotes = true) {
     if (projectId) {
         rows = db.prepare(`
             SELECT n.id, n.project_id, n.parent_id, n.title, n.description, n.notes, n.status
-            FROM nodes n
+            FROM live_nodes n
             WHERE n.project_id = ? AND n.is_note = 0
         `).all(projectId);
     } else {
         rows = db.prepare(`
             SELECT n.id, n.project_id, n.parent_id, n.title, n.description, n.notes, n.status
-            FROM nodes n
+            FROM live_nodes n
             WHERE n.is_note = 0
         `).all();
     }
@@ -401,16 +401,16 @@ function searchResources(tokens, projectId, limit) {
         rows = db.prepare(`
             SELECT r.id, r.node_id, r.title, r.url, r.type,
                    n.project_id, n.title as node_title
-            FROM resources r
-            JOIN nodes n ON n.id = r.node_id
+            FROM live_resources r
+            JOIN live_nodes n ON n.id = r.node_id
             WHERE n.project_id = ?
         `).all(projectId);
     } else {
         rows = db.prepare(`
             SELECT r.id, r.node_id, r.title, r.url, r.type,
                    n.project_id, n.title as node_title
-            FROM resources r
-            JOIN nodes n ON n.id = r.node_id
+            FROM live_resources r
+            JOIN live_nodes n ON n.id = r.node_id
         `).all();
     }
 
@@ -450,7 +450,7 @@ function searchDocuments(tokens, projectId, limit) {
                        dc.content as snippet
                 FROM documents_fts fts
                 JOIN document_chunks dc ON dc.id = fts.rowid
-                JOIN documents d ON d.id = dc.document_id
+                JOIN live_documents d ON d.id = dc.document_id
                 WHERE documents_fts MATCH ?
                   AND d.project_id = ?
                 ORDER BY rank
@@ -462,7 +462,7 @@ function searchDocuments(tokens, projectId, limit) {
                        dc.content as snippet
                 FROM documents_fts fts
                 JOIN document_chunks dc ON dc.id = fts.rowid
-                JOIN documents d ON d.id = dc.document_id
+                JOIN live_documents d ON d.id = dc.document_id
                 WHERE documents_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
@@ -475,7 +475,7 @@ function searchDocuments(tokens, projectId, limit) {
             rows = db.prepare(`
                 SELECT d.id, d.title, d.node_id, d.project_id,
                        SUBSTR(d.content, 1, 200) as snippet
-                FROM documents d
+                FROM live_documents d
                 WHERE d.project_id = ?
                   AND (d.title LIKE ? OR d.content LIKE ?)
                 LIMIT ?
@@ -484,7 +484,7 @@ function searchDocuments(tokens, projectId, limit) {
             rows = db.prepare(`
                 SELECT d.id, d.title, d.node_id, d.project_id,
                        SUBSTR(d.content, 1, 200) as snippet
-                FROM documents d
+                FROM live_documents d
                 WHERE d.title LIKE ? OR d.content LIKE ?
                 LIMIT ?
             `).all(likeQuery, likeQuery, limit);
@@ -552,7 +552,7 @@ export function quickSuggest(prefix, projectId, limit = 8) {
     if (projectId) {
         rows = db.prepare(`
             SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.project_id
-            FROM nodes n
+            FROM live_nodes n
             WHERE n.project_id = ? AND n.is_note = 0 AND LOWER(n.title) LIKE ?
             ORDER BY
                 CASE WHEN LOWER(n.title) = ? THEN 0
@@ -564,7 +564,7 @@ export function quickSuggest(prefix, projectId, limit = 8) {
     } else {
         rows = db.prepare(`
             SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.project_id
-            FROM nodes n
+            FROM live_nodes n
             WHERE n.is_note = 0 AND LOWER(n.title) LIKE ?
             ORDER BY
                 CASE WHEN LOWER(n.title) = ? THEN 0

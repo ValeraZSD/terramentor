@@ -31,16 +31,19 @@
 // Credentials are not here: `isSecretSettingKey` (server/auth.js) owns those
 // names, and the writer refuses them before it looks at this table.
 
-export class SettingValueError extends Error {}
+import { KeyedError, k } from './clientError.js';
 
-const refuse = (why) => { throw new SettingValueError(why); };
+/** A value the reader would not understand; the words are a message key. */
+export class SettingValueError extends KeyedError {}
+
+const refuse = (key, params) => { throw new SettingValueError(key, params); };
 
 /** A value arrives as JSON; a client sends strings, a script may send a number or a boolean. */
 const asText = (value) => {
     if (typeof value === 'string') return value;
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
     if (typeof value === 'boolean') return String(value);
-    return refuse('The value must be text');
+    return refuse(k('The value must be text'));
 };
 
 // Control characters other than a line break or a tab have no business in a
@@ -51,44 +54,44 @@ const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const text = (max, { lines = false } = {}) => (value) => {
     // Word and some PDFs paste a vertical tab or a form feed where a line ends.
     const s = lines ? asText(value).replace(/[\u000b\u000c]/g, '\n') : asText(value);
-    if (s.length > max) refuse(`At most ${max} characters`);
-    if (CONTROL.test(s) || (!lines && /[\r\n]/.test(s))) refuse('The value holds characters a setting cannot');
+    if (s.length > max) refuse(k('At most {{count}} characters'), { count: max });
+    if (CONTROL.test(s) || (!lines && /[\r\n]/.test(s))) refuse(k('The value holds characters a setting cannot'));
     return s;
 };
 
 const oneOf = (...allowed) => (value) => {
     const s = asText(value);
-    return allowed.includes(s) ? s : refuse(`One of: ${allowed.map(a => a || '(empty)').join(', ')}`);
+    return allowed.includes(s) ? s : refuse(k('One of: {{values}}'), { values: allowed.map(a => a || '(empty)').join(', ') });
 };
 
 const bool = oneOf('true', 'false');
 
 const int = (min, max) => (value) => {
     const s = asText(value).trim();
-    if (!/^-?\d+$/.test(s)) refuse('A whole number');
+    if (!/^-?\d+$/.test(s)) refuse(k('A whole number'));
     const n = Number(s);
-    return n >= min && n <= max ? String(n) : refuse(`A whole number from ${min} to ${max}`);
+    return n >= min && n <= max ? String(n) : refuse(k('A whole number from {{min}} to {{max}}'), { min, max });
 };
 
 const fraction = (value) => {
     const s = asText(value).trim();
     const n = Number(s);
-    return s !== '' && Number.isFinite(n) && n >= 0 && n <= 1 ? String(n) : refuse('A number from 0 to 1');
+    return s !== '' && Number.isFinite(n) && n >= 0 && n <= 1 ? String(n) : refuse(k('A number from 0 to 1'));
 };
 
 const hex = (value) => {
     const s = asText(value).trim();
     // Six digits: the readers (appIcon.js hex6) take nothing shorter, and the
     // colour field always writes six (utils/color.ts toHex).
-    return /^#[0-9a-fA-F]{6}$/.test(s) ? s : refuse('A colour written #rrggbb');
+    return /^#[0-9a-fA-F]{6}$/.test(s) ? s : refuse(k('A colour written #rrggbb'));
 };
 
 const json = (max, isShape) => (value) => {
     const s = asText(value);
-    if (s.length > max) refuse(`At most ${max} characters`);
+    if (s.length > max) refuse(k('At most {{count}} characters'), { count: max });
     let parsed;
-    try { parsed = JSON.parse(s); } catch { refuse('Not valid JSON'); }
-    return isShape(parsed) ? s : refuse('Not the expected shape');
+    try { parsed = JSON.parse(s); } catch { refuse(k('Not valid JSON')); }
+    return isShape(parsed) ? s : refuse(k('Not the expected shape'));
 };
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -102,11 +105,11 @@ const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const address = ({ allowEmpty = false } = {}) => (value) => {
     const s = asText(value).trim();
     if (s === '' && allowEmpty) return '';
-    if (s.length > 2048) refuse('That address is too long');
+    if (s.length > 2048) refuse(k('That address is too long'));
     let u;
-    try { u = new URL(s); } catch { refuse('Enter a full address starting with http:// or https://'); }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') refuse('Enter a full address starting with http:// or https://');
-    if (u.username || u.password) refuse('Put the key in its own field, not inside the address');
+    try { u = new URL(s); } catch { refuse(k('Enter a full address starting with http:// or https://')); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') refuse(k('Enter a full address starting with http:// or https://'));
+    if (u.username || u.password) refuse(k('Put the key in its own field, not inside the address'));
     return s;
 };
 
@@ -140,7 +143,7 @@ export const SETTINGS = {
     ui_scale: client('ui', int(80, 160)),
     ui_language: client('ui', (value) => {
         const s = asText(value).trim();
-        return s === '' || s === 'auto' || /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,3}$/.test(s) ? s : refuse('A language code such as en or pt-BR');
+        return s === '' || s === 'auto' || /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,3}$/.test(s) ? s : refuse(k('A language code such as en or pt-BR'));
     }),
     number_format: client('ui', text(16)),
     // Single-key shortcuts (src/utils/escapeKey.ts); 'false' turns them all off.
@@ -202,7 +205,7 @@ export const SETTINGS = {
     forgive_spelling: client('learning', oneOf('on', 'off')),
     visual_kinds_off: client('learning', (value) => {
         const s = text(1000)(value);
-        return /^[a-z0-9_,-]*$/.test(s) ? s : refuse('A comma-separated list of visual kinds');
+        return /^[a-z0-9_,-]*$/.test(s) ? s : refuse(k('A comma-separated list of visual kinds'));
     }),
     visual_tier: client('learning', oneOf('auto', 'basic', 'full')),
     pdf_math_recovery: client('learning', oneOf('auto', 'off')),

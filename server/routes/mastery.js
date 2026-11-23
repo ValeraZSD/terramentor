@@ -10,7 +10,7 @@ import { generateDailyPlan, getGhostQuestions } from '../dailyPlan.js';
 import { getGateConfig } from '../settingsStore.js';
 import { readAttempt } from './request.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('mastery');
 
@@ -19,15 +19,15 @@ const app = routeTable('mastery');
 app.get('/api/nodes/:nodeId/mastery', (req, res) => {
     // Asked first: reading a node's mastery creates its row, and a row for a
     // node that does not exist fails the foreign key.
-    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(req.params.nodeId)) {
-        return res.status(404).json({ error: 'Node not found' });
+    if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(req.params.nodeId)) {
+        return res.status(404).json(keyed('Node not found'));
     }
     try {
         const gate = getGateConfig();
         const detail = getNodeMasteryDetail(req.params.nodeId, { threshold: gate.threshold, checkPass: gate.checkPass });
         res.json(detail);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -35,13 +35,13 @@ app.get('/api/nodes/:nodeId/mastery', (req, res) => {
 // behind it (server/evidenceTrail.js). Reads only.
 app.get('/api/nodes/:nodeId/evidence', (req, res) => {
     const nodeId = Number(req.params.nodeId);
-    if (!Number.isInteger(nodeId) || nodeId < 1) return res.status(400).json({ error: 'Invalid node id' });
+    if (!Number.isInteger(nodeId) || nodeId < 1) return res.status(400).json(keyed('Invalid node id'));
     try {
         const trail = getEvidenceTrail(nodeId, getGateConfig());
-        if (!trail) return res.status(404).json({ error: 'Node not found' });
+        if (!trail) return res.status(404).json(keyed('Node not found'));
         res.json(trail);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -50,19 +50,19 @@ app.get('/api/projects/:projectId/mastery', (req, res) => {
         const stats = getProjectMasteryStats(req.params.projectId);
         res.json(stats);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
 app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
     const attempt = readAttempt(req.body);
-    if (!attempt) return res.status(400).json({ error: 'score and total are required' });
+    if (!attempt) return res.status(400).json(apiError('score and total are required'));
     const { score, total } = attempt;
     try {
         const result = updateMasteryFromAttempt(req.params.nodeId, score, total, 'quiz');
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -100,7 +100,7 @@ function readDrillItems(raw, score, total) {
 
 app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
     const attempt = readAttempt(req.body);
-    if (!attempt) return res.status(400).json({ error: 'score and total (> 0) are required' });
+    if (!attempt) return res.status(400).json(apiError('score and total (> 0) are required'));
     const { score, total } = attempt;
     const drillKey = typeof req.body?.drillKey === 'string' && DRILL_KEY.test(req.body.drillKey) ? req.body.drillKey : null;
     const items = drillKey ? readDrillItems(req.body?.items, score, total) : null;
@@ -110,7 +110,7 @@ app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
         });
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -121,7 +121,7 @@ app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
  */
 app.get('/api/nodes/:nodeId/drill-scores', (req, res) => {
     const nodeId = Number(req.params.nodeId);
-    if (!Number.isInteger(nodeId)) return res.status(400).json({ error: 'Invalid node id' });
+    if (!Number.isInteger(nodeId)) return res.status(400).json(keyed('Invalid node id'));
     const rows = db.prepare(`
         SELECT json_extract(metadata, '$.drillKey') AS drill_key, score, total, created_at
         FROM mastery_evidence
@@ -144,14 +144,14 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
     const { nodeId, questions, asked } = req.body || {};
     const attempt = readAttempt(req.body);
     if (!nodeId || !attempt) {
-        return res.status(400).json({ error: 'nodeId, score, and total are required' });
+        return res.status(400).json(apiError('nodeId, score, and total are required'));
     }
     const { score, total } = attempt;
     const attemptId = readAttemptId(req.body.attemptId);
-    if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
+    if (attemptId === undefined) return res.status(400).json(apiError(ATTEMPT_ID_ERROR));
     // Recorded only where it could have been drawn: on a topic.
     const target = masteryCheckTarget(nodeId);
-    if (target.refused) return res.status(target.httpStatus).json({ error: target.refused, code: target.code });
+    if (target.refused) return res.status(target.httpStatus).json({ ...keyed(target.refused), code: target.code });
     try {
         // The write itself is server/masteryCheck.js, shared with the check an
         // agent host draws in its own window.
@@ -160,8 +160,8 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
         });
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
-        res.status(500).json({ error: clientError(err) });
+        if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -172,7 +172,7 @@ app.get('/api/projects/:projectId/daily-plan', (req, res) => {
         const plan = generateDailyPlan(req.params.projectId, getGateConfig().decayDays);
         res.json(plan);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -187,7 +187,7 @@ app.get('/api/projects/:projectId/ghost-questions', (req, res) => {
             questions: picks.map(p => ({ ...p.question, quizId: p.quizId, quizIndex: p.index })),
         })));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

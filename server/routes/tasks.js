@@ -3,6 +3,7 @@ import * as tasks from '../tasks.js';
 import { onChatChanged } from '../chatEvents.js';
 import { attachTaskStream, startSseResponse } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { errorFields } from '../clientError.js';
 
 const app = routeTable('tasks');
 
@@ -28,14 +29,14 @@ app.get('/api/tasks/:id/stream', (req, res) => {
 
 app.post('/api/tasks/:id/cancel', (req, res) => {
     const result = tasks.cancelTask(req.params.id);
-    if (!result.ok) return res.status(404).json({ error: result.error });
+    if (!result.ok) return res.status(404).json(errorFields(result));
     res.json({ success: true });
 });
 
 // Dismiss a finished task from the list (the dock's ✕ on a done/failed chip).
 app.delete('/api/tasks/:id', (req, res) => {
     const result = tasks.dismissTask(req.params.id);
-    if (!result.ok) return res.status(400).json({ error: result.error });
+    if (!result.ok) return res.status(400).json(errorFields(result));
     res.json({ success: true });
 });
 

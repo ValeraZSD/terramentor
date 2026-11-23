@@ -275,10 +275,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     const projects = db.prepare(`
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
-                   SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
+                   SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
                    WHERE n.project_id = p.id
                ) AS has_cards
-        FROM projects p
+        FROM live_projects p
         WHERE COALESCE(p.status, 'active') = 'active'
           ${onlyProject ? 'AND p.id = ?' : ''}
         ORDER BY p.position ASC, p.created_at ASC
@@ -462,7 +462,7 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
     const node = db.prepare(`
         SELECT n.id, n.project_id, n.is_note,
                p.id AS pid, p.name, p.color, p.icon, p.start_date, p.deadline
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id = ?
     `).get(nodeId);
     if (!node || node.is_note) return { focus: [], projectInfos: [], catchUpActive: false };
@@ -481,7 +481,7 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
             SELECT ?, ''
             UNION ALL
             SELECT n.id, sub.path || printf('%06d.', n.position) || printf('%09d/', n.id)
-            FROM nodes n JOIN sub ON n.parent_id = sub.id WHERE n.is_note = 0
+            FROM live_nodes n JOIN sub ON n.parent_id = sub.id WHERE n.is_note = 0
         )
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.status, n.role
         FROM plan_nodes n JOIN sub ON sub.id = n.id
@@ -572,7 +572,7 @@ export function checkpointFacts(nodeId, gate) {
     // A topic's own page serves its closed leaves too (last), so a completed
     // topic's card must not offer to complete it, and a skipped one must not
     // offer to skip it again.
-    const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
+    const nodeStatus = db.prepare('SELECT status FROM live_nodes nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
     // The mode as it is NOW: a card composed before the setting changed would
     // otherwise keep offering the old mode's ways out.
     return { feedCorrect, feedTotal, masteryScore, gateScore, shownScore, practiceCeiling, practiceRight, practiceTotal, eligible, borrowedEstimate, borrowedFrom, practiceLifted, nodeStatus, gateMode: gate.mode };
@@ -602,15 +602,15 @@ function explainEmpty(projectIds) {
     const count = (sql, ids = projectIds) => (ids.length
         ? db.prepare(sql.replace('%IDS%', ids.map(() => '?').join(','))).get(...ids).c
         : 0);
-    const topics = count(`SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id IN (%IDS%) AND ${WORK_LEAF}`);
-    const openSql = `SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id IN (%IDS%) AND ${OPEN_WORK_LEAF}`;
+    const topics = count(`SELECT COUNT(*) AS c FROM live_nodes n WHERE n.project_id IN (%IDS%) AND ${WORK_LEAF}`);
+    const openSql = `SELECT COUNT(*) AS c FROM live_nodes n WHERE n.project_id IN (%IDS%) AND ${OPEN_WORK_LEAF}`;
     const open = count(openSql);
     const openTaught = count(openSql, projectIds.filter((id) => projectTeaches(id)));
     const cards = db.prepare(
-        `SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks})`,
+        `SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks})`,
     ).get(...projectIds).c;
     const cardsLeft = cards ? db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id IN (${marks}) AND (f.next_review IS NULL OR f.next_review <= ${NOW_ISO})
     `).get(...projectIds).c : 0;
     return { topics, cards, open, openTaught, cardsLeft };
@@ -700,14 +700,14 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         SELECT COUNT(*) AS c FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
     `);
     const latestQuizStmt = db.prepare(`
-        SELECT id, questions FROM quizzes WHERE node_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
+        SELECT id, questions FROM live_quizzes quizzes WHERE node_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
     `);
     const nodeFeedEvidenceTodayStmt = db.prepare(`
         SELECT COUNT(*) AS c FROM mastery_evidence
         WHERE node_id = ? AND ${IN_DAY('created_at')} AND metadata LIKE '%"source":"feed"%'
     `);
     const notesStmt = db.prepare(`
-        SELECT title, description, notes FROM nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position ASC
+        SELECT title, description, notes FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position ASC
     `);
 
     let anyDegradedServed = false;
@@ -986,7 +986,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // test an imported deck spent the day's review budget on cards the learner
     // last saw months ago in Anki, and the header announced thousands reviewed.
     const reviewsToday = db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
     `).get(day.start, day.end).c;
@@ -1002,7 +1002,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const dueRows = dueBudget > 0 && (!scoped || focusIds.length) ? db.prepare(`
         SELECT f.*, n.title AS node_title, n.project_id,
                p.name AS project_name, p.color AS project_color
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE f.next_review IS NOT NULL AND f.next_review <= ${NOW_ISO}
         ${dueWhere}
@@ -1022,8 +1022,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const introducedByProject = new Map(db.prepare(`
         SELECT n.project_id AS pid, COUNT(DISTINCT r.card_id) AS c
         FROM review_log r
-        JOIN flashcards f ON f.id = r.card_id
-        JOIN nodes n ON n.id = f.node_id
+        JOIN live_flashcards f ON f.id = r.card_id
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
         GROUP BY n.project_id
     `).all(day.start, day.end).map(r => [r.pid, r.c]));
@@ -1045,7 +1045,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         const candidates = db.prepare(`
             SELECT f.*, n.title AS node_title, n.project_id,
                    p.name AS project_name, p.color AS project_color
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             ${ACTIVE_PROJECT_JOIN}
             WHERE f.next_review IS NULL AND f.node_id IN (${focusIds.map(() => '?').join(',')})
             ORDER BY n.project_id ASC, f.id ASC
@@ -1409,7 +1409,7 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     // different accuracy.
     const lessonsDone = db.prepare(`
         SELECT COUNT(*) AS c FROM feed_items fi
-        JOIN nodes n ON n.id = fi.node_id
+        JOIN live_nodes n ON n.id = fi.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
     `).get(day.start, day.end).c;
@@ -1419,7 +1419,7 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     const ev = db.prepare(`
         SELECT COALESCE(SUM(me.score), 0) AS s, COALESCE(SUM(me.total), 0) AS t, COUNT(*) AS c
         FROM mastery_evidence me
-        JOIN nodes n ON n.id = me.node_id
+        JOIN live_nodes n ON n.id = me.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('me.created_at')} AND me.metadata LIKE '%"source":"feed"%'
     `).get(day.start, day.end);
@@ -1427,7 +1427,7 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     // Same `stability IS NOT NULL` discriminator as composeFeed: reviews done
     // here, never the importer's stamp.
     const cardsReviewed = db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
     `).get(day.start, day.end).c;
@@ -1442,8 +1442,8 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     const newIntroduced = db.prepare(`
         SELECT COUNT(DISTINCT r.card_id) AS c
         FROM review_log r
-        JOIN flashcards f ON f.id = r.card_id
-        JOIN nodes n ON n.id = f.node_id
+        JOIN live_flashcards f ON f.id = r.card_id
+        JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
     `).get(day.start, day.end).c;
@@ -1486,7 +1486,7 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     // one waiting behind a nearer date, is left out: the chip names a course
     // the stream is serving. Ties go to the learner's own order.
     const scheduled = db.prepare(`
-        SELECT id, name, color, deadline FROM projects
+        SELECT id, name, color, deadline FROM live_projects projects
         WHERE COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
           AND deadline IS NOT NULL AND deadline >= ?
         ORDER BY position ASC, created_at ASC, id ASC
@@ -1578,7 +1578,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     const readLesson = row
         ? row.kind === 'lesson'
         : kind === 'lesson' && Number.isInteger(nodeId)
-            && !!db.prepare(`SELECT 1 FROM nodes WHERE id = ?`).get(nodeId);
+            && !!db.prepare(`SELECT 1 FROM live_nodes nodes WHERE id = ?`).get(nodeId);
     if (readLesson) {
         db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('first_lesson_read_at', ${NOW_ISO})`).run();
     }

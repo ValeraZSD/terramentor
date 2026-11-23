@@ -5,10 +5,12 @@
 // guarded against a double write and turned into evidence exactly like one
 // rated in the app.
 import db from './database.js';
+import { logScheduleEvent, writesSchedule } from './softDelete.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from './reviewLog.js';
 import { recordCardEvidence } from './cardEvidence.js';
 import { cardEdited, parkedByReport } from './itemReports.js';
 import { markLearnerEdit } from './courseUpdate.js';
+import { apiError, keyed } from './clientError.js';
 
 /**
  * Apply `body` (the fields PUT /api/ai/flashcards/:id takes) to card `id`.
@@ -19,22 +21,22 @@ export function writeCard(id, body = {}) {
         stability, stability_fast, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = body;
     // The row as it was, for the review log: a review is "this rating, from
     // this state, after this many days" and only the pre-update row knows it.
-    const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id);
-    if (!before) return { status: 404, json: { error: 'Flashcard not found' } };
+    const before = db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(id);
+    if (!before) return { status: 404, json: keyed('Flashcard not found') };
     // The memory state is read back by the scheduler, which refuses anything but
     // a finite number: text stored here would break the card's next review. The
     // counts (lapses, review_count, learning_steps) are coerced below instead.
     for (const [name, v] of [['stability', stability], ['stability_fast', stability_fast], ['fsrs_difficulty', fsrs_difficulty],
         ['last_interval', last_interval], ['ease_factor', ease_factor]]) {
         if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
-            return { status: 400, json: { error: `${name} must be a non-negative number or null.` } };
+            return { status: 400, json: apiError(`${name} must be a non-negative number or null.`) };
         }
     }
     // The two traces are one memory state: a fast trace written beside a slow
     // one from another review would describe neither. The scheduler and the
     // undo snapshot always send both.
     if (stability_fast !== undefined && stability === undefined) {
-        return { status: 400, json: { error: 'stability_fast is written only together with stability.' } };
+        return { status: 400, json: apiError('stability_fast is written only together with stability.') };
     }
     // A rating arriving TWICE — a request retried after its answer was lost, a
     // double press that raced — carries the same `last_reviewed` stamp, and
@@ -63,7 +65,7 @@ export function writeCard(id, body = {}) {
             return { status: 200, json: before };
         }
         return { status: 409, json: {
-            error: 'This card was reviewed again after that rating, so the rating can no longer be taken back.',
+            ...keyed('This card was reviewed again after that rating, so the rating can no longer be taken back.'),
             conflict: 'reviewed_since',
         } };
     }
@@ -75,7 +77,7 @@ export function writeCard(id, body = {}) {
     // in the log would outlive the report and count after its Undo.
     const writesReview = next_review !== undefined || last_reviewed !== undefined || !!normalizeRating(rating) || undo_review === true;
     if (writesReview && parkedByReport(before)) {
-        return { status: 409, json: { error: 'This card is reported. Undo the report or edit the card first.', conflict: 'reported' } };
+        return { status: 409, json: { ...keyed('This card is reported. Undo the report or edit the card first.'), conflict: 'reported' } };
     }
     const updates = [];
     const values = [];
@@ -139,6 +141,10 @@ export function writeCard(id, body = {}) {
     // history never came back.
     const reviewRating = normalizeRating(rating);
     const isReview = !!reviewRating && last_reviewed !== undefined;
+    // An event records the schedule as stored (rounded, clamped, the fast
+    // trace cleared, the tally bumped), never the request: a replay of the
+    // events must arrive at the same card.
+    const stored = () => db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(before.id);
     db.transaction(() => {
         if (updates.length > 0) {
             db.prepare(`UPDATE flashcards SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -151,8 +157,16 @@ export function writeCard(id, body = {}) {
                 now: Number.isNaN(at.getTime()) ? new Date() : at,
             });
         } else if (undo_review === true) {
-            if (undo_of != null) undoReview(before.id, undo_of);
-            else undoLastReview(before.id);
+            // The schedule moves back with no review behind the move: an event,
+            // naming the review that was taken back.
+            const taken = [];
+            if (undo_of != null) undoReview(before.id, undo_of, taken);
+            else undoLastReview(before.id, taken);
+            logScheduleEvent(before.id, 'undo', { schedule: stored(), reviewUuid: taken[0] ?? null });
+        } else if (updates.length > 0 && writesSchedule(body)) {
+            // A schedule written with no rating (a client or an agent setting a
+            // due date): no review explains it, so the event is its record.
+            logScheduleEvent(before.id, 'set', { schedule: stored() });
         }
     })();
     if (isReview) {
@@ -179,5 +193,5 @@ export function writeCard(id, body = {}) {
         markLearnerEdit('card', before.uuid, ['front', 'back', 'extra', 'extra_front']
             .filter(k => body[k] !== undefined && asText(body[k]) !== asText(before[k])));
     }
-    return { status: 200, json: db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id) };
+    return { status: 200, json: db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(id) };
 }

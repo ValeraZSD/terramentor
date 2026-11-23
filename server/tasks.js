@@ -24,6 +24,7 @@
 
 import { AsyncResource } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { keyed } from './clientError.js';
 
 /**
  * How many tasks may run at once, asked on every pump.
@@ -687,8 +688,8 @@ function subscribe(id, fn) {
 
 function cancelTask(id) {
     const task = tasksById.get(id);
-    if (!task) return { ok: false, error: 'Task not found' };
-    if (!isActive(task)) return { ok: false, error: 'Task already finished' };
+    if (!task) return { ok: false, ...keyed('Task not found') };
+    if (!isActive(task)) return { ok: false, ...keyed('Task already finished') };
 
     if (task.external) {
         // Owner drives its own teardown (and will call handle.cancelled()).
@@ -720,11 +721,11 @@ function cancelTask(id) {
  */
 function resultUnusable(id) {
     const task = tasksById.get(id);
-    if (!task) return { ok: false, error: 'Task not found' };
+    if (!task) return { ok: false, ...keyed('Task not found') };
     // A repair, not a "Fix this" rebuild: they share the endpoint and the
     // dedupe prefix, and only a repair's answer is drawn before it is kept.
     if (task.status !== 'done' || task.kind !== 'visual' || task.labelKey !== 'Repairing a visual') {
-        return { ok: false, error: 'Not a finished visual repair' };
+        return { ok: false, ...keyed('Not a finished visual repair') };
     }
     task.status = 'error';
     task.errorMessage = "The AI's fix did not draw either.";
@@ -739,7 +740,7 @@ function resultUnusable(id) {
 function dismissTask(id) {
     const task = tasksById.get(id);
     if (!task) return { ok: true }; // already gone — dismissing is idempotent
-    if (isActive(task)) return { ok: false, error: 'Task is still active — cancel it first' };
+    if (isActive(task)) return { ok: false, ...keyed('Task is still active — cancel it first') };
     if (task.cleanupTimer) clearTimeout(task.cleanupTimer);
     tasksById.delete(id);
     scheduleNotify();

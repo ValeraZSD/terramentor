@@ -9,6 +9,7 @@ import Switch from '../ui/Switch';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { SectionHeader, Panel, StatusDot } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
+import { serverText } from '../../utils/serverText';
 
 // The hosted search backends. Their keys are write-only — Settings types a
 // replacement and never reads the stored value back.
@@ -99,7 +100,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             setSearchKeyStatus(s => ({
                 ...s,
                 [p]: r.ok ? { state: 'ok' }
-                    : r.configured ? { state: 'failed', detail: r.error }
+                    : r.configured ? { state: 'failed', detail: serverText(r) }
                         : { state: 'none' },
             }));
         } catch (e: any) {
@@ -154,7 +155,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             if (result.ok) {
                 addToast('success', tr("SearXNG is reachable"));
             } else {
-                addToast('error', result.error || tr("Cannot reach SearXNG"));
+                addToast('error', serverText(result) || tr("Cannot reach SearXNG"));
             }
         } catch {
             addToast('error', tr("Cannot reach SearXNG at this URL"));

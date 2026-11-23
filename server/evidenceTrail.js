@@ -54,7 +54,7 @@ function feedQuestion(meta, banks) {
     // One read and one parse per bank per request: a trail of 100 feed rows
     // usually comes from two or three banks.
     if (!banks.has(ref.quizId)) {
-        const qs = parse(stmt('SELECT questions FROM quizzes WHERE id = ?').get(ref.quizId)?.questions);
+        const qs = parse(stmt('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(ref.quizId)?.questions);
         banks.set(ref.quizId, Array.isArray(qs) ? qs : []);
     }
     const q = banks.get(ref.quizId).find(x => x && typeof x === 'object' && x.uuid === meta.uuid);
@@ -96,7 +96,7 @@ function levelOf({ record, rows, eligibility, fading, deck }) {
 export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, decayDays = 14 } = {}, now = new Date()) {
     const node = stmt(`
         SELECT n.id, n.title, n.status, n.is_note, n.project_id, p.kind AS project_kind
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id = ?
     `).get(nodeId);
     if (!node) return null;
@@ -107,7 +107,7 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
     // one when it is missing: asked only when there is a row.
     const eligibility = record ? checkMasteryEligibility(node.id, threshold, checkPass) : null;
     const fading = !!record && !!stmt(`
-        SELECT 1 FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
+        SELECT 1 FROM node_mastery nm JOIN live_nodes n ON n.id = nm.node_id
         WHERE nm.node_id = ? AND ${FADING_TOPIC}
     `).get(node.id, fadingCutoff(decayDays, now));
 

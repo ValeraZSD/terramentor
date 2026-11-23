@@ -13,6 +13,7 @@ import { refreshDesktopIcon } from '../desktopIcon.js';
 import { currentAppIcon } from '../appIconSettings.js';
 import { scheduleSearchWords } from '../searchWords.js';
 import { routeTable } from './routeTable.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('settings');
 
@@ -34,7 +35,7 @@ app.get('/api/settings', (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[Settings] DB error:', err.message);
-        res.status(500).json({ error: 'Failed to load settings', detail: err.message });
+        res.status(500).json({ ...keyed('Failed to load settings'), detail: err.message });
     }
 });
 
@@ -43,7 +44,7 @@ app.put('/api/settings/:key', (req, res) => {
     // /api/ai/key for the provider key) — block the generic writer so a client
     // can't overwrite the password hash, the session secret or the key.
     if (isSecretSettingKey(req.params.key)) {
-        return res.status(403).json({ error: 'This setting is managed via the security or AI settings' });
+        return res.status(403).json(keyed('This setting is managed via the security or AI settings'));
     }
     // Only what server/settingsSchema.js lists as the client's, in the shape its
     // reader expects. A name it does not know is refused rather than stored:
@@ -51,25 +52,25 @@ app.put('/api/settings/:key', (req, res) => {
     // client may write it" by being forgotten (the update check's answer, the
     // fitted scheduler parameters and the desktop switches all did).
     const spec = settingSpec(req.params.key);
-    if (!spec) return res.status(400).json({ error: 'No such setting' });
+    if (!spec) return res.status(400).json(keyed('No such setting'));
     if (spec.writable !== 'client') {
-        return res.status(403).json({ error: 'This setting is written by the app itself' });
+        return res.status(403).json(keyed('This setting is written by the app itself'));
     }
     // Where the app sends prompts and documents is the computer's to decide,
     // like quitting or updating it: a device let in without the password
     // reads these and changes the rest, not these.
     if (spec.sensitivity === 'network' && !ownerPresent(req)) {
-        return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+        return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     }
     // On a hosted copy the server's network is not the learner's: those rows
     // are the operator's, set in the environment (server/hosted.js).
     const hostedWhy = hostedSettingRefusal(spec, req.params.key);
-    if (hostedWhy) return res.status(403).json({ error: hostedWhy, hosted: true });
+    if (hostedWhy) return res.status(403).json({ ...keyed(hostedWhy), hosted: true });
     let value;
     try {
         value = spec.validate(req.body?.value);
     } catch (e) {
-        if (e instanceof SettingValueError) return res.status(400).json({ error: e.message });
+        if (e instanceof SettingValueError) return res.status(400).json(errorBody(e, 400));
         throw e;
     }
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(req.params.key, value);

@@ -23,7 +23,7 @@ import { BUNDLE_ZIP_LIMITS, BundleRefusal, readBundleCourse, restoreCardMedia, u
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { clientError, publicMessage } from '../clientError.js';
+import { errorBody, keyed, publicBody, publicMessage } from '../clientError.js';
 import { recordInstalledBase } from '../courseUpdate.js';
 
 const app = routeTable('bundle');
@@ -86,10 +86,10 @@ function importedFileType(label, realHash, kindByHash) {
  * @returns {{ zip: JSZip, project: object } | null}  null when there is no such project
  */
 function buildBundleZip(projectId, { includeNotes = false, includeProgress = false, includeResources = true } = {}) {
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return null;
 
-    const allNodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(projectId);
+    const allNodes = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position').all(projectId);
     const nodeById = new Map(allNodes.map(n => [n.id, n]));
     const media = projectMediaNames(projectId);
     const pathOf = (nodeId) => {
@@ -134,8 +134,8 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
 
     // A document whose upload failed has no text and no original: in a shared
     // course it would arrive as a broken row on someone else's machine.
-    const docs = db.prepare(`SELECT * FROM documents
-        WHERE (project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?))
+    const docs = db.prepare(`SELECT * FROM live_documents documents
+        WHERE (project_id = ? OR node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))
           AND COALESCE(status, 'ready') != 'failed'`).all(projectId, projectId);
 
     try {
@@ -232,8 +232,8 @@ function sendArchive(res, stream, { filename } = {}) {
 app.get('/api/export/:projectId/bundle', async (req, res) => {
     let built;
     try { built = buildBundleZip(req.params.projectId, bundleOptionsFrom(req.query)); }
-    catch (err) { return res.status(500).json({ error: clientError(err) }); }
-    if (!built) return res.status(404).json({ error: 'Project not found' });
+    catch (err) { return res.status(500).json(errorBody(err)); }
+    if (!built) return res.status(404).json(keyed('Project not found'));
     return sendArchive(res, built.zip.generateNodeStream({ type: 'nodebuffer', compression: 'DEFLATE' }),
         { filename: `${built.project.name || 'project'}.studyvault` });
 });
@@ -253,7 +253,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
     const { manifest, project, nodes, warnings, cardCount, questionCount } = await readBundleCourse(zip);
     const { documents } = manifest;
 
-    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM projects WHERE uuid = ?').get(project.uuid) : null;
+    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null;
     if (twin) {
         const editions = project.version && twin.version && project.version !== twin.version
             ? ` (you have ${twin.version}, this bundle is ${project.version})`
@@ -383,7 +383,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         // or if recovery is off) — the blob was restored above, so it's available.
         importedPdfIds.forEach(id => queueRecovery(id));
 
-        const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(result);
+        const newProject = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(result);
         console.log(`Imported bundle "${newProject.name}" (id ${result}) with ${(documents || []).length} document(s)${cardCount ? `, ${cardCount} card(s), ${mediaByName.size} media file(s)` : ''}${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
         logActivity({
             area: 'project',
@@ -434,7 +434,7 @@ async function importLibraryZip(zip) {
             assertZipSafe(innerZip, BUNDLE_ZIP_LIMITS);
             imported.push(await importBundleZip(innerZip, { spent, limit: LIBRARY_INFLATE_LIMIT }));
         } catch (e) {
-            failed.push({ name: entry.name, error: publicMessage(e) });
+            failed.push({ name: entry.name, ...publicBody(e) });
         }
     }
     if (!imported.length) {
@@ -468,7 +468,7 @@ async function importLibraryZip(zip) {
 // apart by what the archive holds, never by its name, so every screen that
 // takes a `.studyvault` takes both without knowing the difference.
 app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 * 1024 * 1024), bundleUpload.single('bundle'), wrap(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No bundle uploaded' });
+    if (!req.file) return res.status(400).json(keyed('No bundle uploaded'));
     try {
         let zip;
         try {
@@ -483,7 +483,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
         }
         return res.json(await importBundleZip(zip));
     } catch (err) {
-        if (err instanceof BundleRefusal) return res.status(400).json({ error: clientError(err, 400) });
+        if (err instanceof BundleRefusal) return res.status(400).json(errorBody(err, 400));
         throw err;
     }
 }));

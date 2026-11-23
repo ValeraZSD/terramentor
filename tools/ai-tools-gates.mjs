@@ -1291,7 +1291,9 @@ section('Undo on an added card never throws away what was studied');
 const { undoAssistantCard } = await import('../server/assistantWrites.js');
 const fresh = addAssistantCard({ nodeId: doppler, front: 'Undo me', back: 'fresh' });
 check('an unstudied card is removed', undoAssistantCard(fresh.id).removed === true
-    && !db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(fresh.id));
+    && !db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(fresh.id)
+    // Marked as the app's own removal: kept for sync, never listed in Recently deleted.
+    && db.prepare('SELECT deleted_by FROM flashcards WHERE id = ?').pluck().get(fresh.id) === 'app');
 const studied = addAssistantCard({ nodeId: doppler, front: 'Keep me', back: 'studied' });
 db.prepare('INSERT INTO review_log (card_id, reviewed_at, rating, state_before) VALUES (?, ?, 3, 0)').run(studied.id, new Date().toISOString());
 const keptResult = undoAssistantCard(studied.id);

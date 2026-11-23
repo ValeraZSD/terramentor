@@ -51,7 +51,7 @@ import {
 } from './ai.js';
 import { firstChoice } from './aiJobs.js';
 import { parseObjectResponse, LATEX_NR_COMMANDS } from './agentic.js';
-import { publicMessage } from './clientError.js';
+import { keyed, publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
 import { verifyQuestion } from './feedQuality.js';
@@ -518,7 +518,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         }
     } catch (err) {
         if (err?.name === 'AbortError') throw err;
-        return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
+        return { status: 'error', imageHash: hash, ...keyed('Could not read the photo: {{why}}', { why: publicMessage(err) }) };
     }
 
     // One pass asks a model to see, read, judge and emit JSON at once. That is a
@@ -531,7 +531,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
             transcription = await readSheet(imageBuffer, { signal, model });
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
-            return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
+            return { status: 'error', imageHash: hash, ...keyed('Could not read the photo: {{why}}', { why: publicMessage(err) }) };
         }
         if (isUnreadable(transcription)) {
             return {
@@ -545,7 +545,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
     }
 
     if (!grade) {
-        return { status: 'error', imageHash: hash, transcription, error: 'The model did not return a usable grade.' };
+        return { status: 'error', imageHash: hash, transcription, ...keyed('The model did not return a usable grade.') };
     }
     // A short answer is a real answer, so the one-pass marker's transcription is
     // not length-checked: it is unreadable when it is empty (a marker that never
