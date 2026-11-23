@@ -4,7 +4,9 @@ import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
+import { useBackClose } from '../../hooks/dialogHistory';
 import { FOCUS_RING, cx } from './vocabulary';
+import { isRtl } from '../../utils/direction';
 
 /**
  * What opens from a button: a MENU (`MenuPopover`) or a small PANEL of
@@ -18,7 +20,7 @@ import { FOCUS_RING, cx } from './vocabulary';
  * with rows a finger can hit (`MenuItem`'s `touch:min-h-11`).
  *
  * Hand-written menus each get a different part wrong. Hanging a menu from the
- * button's RIGHT edge with `absolute right-0` runs it off a card's left edge
+ * button's RIGHT edge with `absolute end-0` runs it off a card's left edge
  * wherever the button sits at the left of the card — the answer help after "Not
  * quite", on every phone — and placing a box assumed to be 144px wide is only
  * right at 100% `ui_scale`. So placement is one pure function over
@@ -70,7 +72,7 @@ export function placePopover(
     anchor: Box,
     size: { width: number; height: number },
     bounds: Box,
-    { align = 'start', gap = 4, margin = MARGIN }: { align?: 'start' | 'end'; gap?: number; margin?: number } = {},
+    { align = 'start', gap = 4, margin = MARGIN, rtl = false }: { align?: 'start' | 'end'; gap?: number; margin?: number; rtl?: boolean } = {},
 ): Placement {
     const minX = bounds.left + margin, maxX = bounds.right - margin;
     const minY = bounds.top + margin, maxY = bounds.bottom - margin;
@@ -79,8 +81,9 @@ export function placePopover(
 
     const width = Math.min(size.width, roomX);
     const fitsX = (l: number) => l >= minX && l + width <= maxX;
-    const start = anchor.left;
-    const end = anchor.right - width;
+    // In right to left the button's start edge is its right one.
+    const start = rtl ? anchor.right - width : anchor.left;
+    const end = rtl ? anchor.left : anchor.right - width;
     let left = align === 'start'
         ? (fitsX(start) ? start : fitsX(end) ? end : start)
         : (fitsX(end) ? end : fitsX(start) ? start : end);
@@ -250,7 +253,7 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         const height = el.scrollHeight + borders;
         el.style.maxWidth = maxWidth;
         el.style.minWidth = minWidth;
-        setPlace(placePopover(r, { width, height }, bounds, { align, gap }));
+        setPlace(placePopover(r, { width, height }, bounds, { align, gap, rtl: isRtl(anchorRef.current) }));
     }, [anchorRef, surfaceRef, align, gap]);
 
     // Measured before paint, so the surface never flashes at 0,0; it is
@@ -359,6 +362,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
         if (open && placed) focusItem(menuRef.current, 'first');
     }, [open, placed]);
     useFocusBackOnClose(open, anchorRef);
+    useBackClose(open, () => { closeRef.current(); anchorRef.current?.focus(); });
 
     useEffect(() => {
         if (!open) return;
@@ -519,7 +523,7 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
     current?: boolean;
 }) {
     const cls = cx(
-        'flex w-full items-center gap-2.5 min-h-10 touch:min-h-11 px-3 py-2 rounded-lg text-left text-sm',
+        'flex w-full items-center gap-2.5 min-h-10 touch:min-h-11 px-3 py-2 rounded-lg text-start text-sm',
         tone === 'danger'
             ? 'text-red-700 dark:text-red-300 can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 focus-visible:bg-red-50 dark:focus-visible:bg-red-950/40'
             : cx(current ? 'text-accent-fg font-medium' : 'text-slate-700 dark:text-slate-100',
@@ -531,7 +535,7 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
         <>
             {icon && <span className={cx('shrink-0', tone === 'danger' ? '' : 'text-slate-500 dark:text-slate-300')} aria-hidden="true">{icon}</span>}
             <span className="min-w-0 truncate">{children}</span>
-            {current && <Check className="w-4 h-4 shrink-0 ml-auto" aria-hidden="true" />}
+            {current && <Check className="w-4 h-4 shrink-0 ms-auto" aria-hidden="true" />}
         </>
     );
     const tabIndex = roving ? -1 : undefined;

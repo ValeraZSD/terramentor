@@ -398,12 +398,12 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("{{pct}}% correct", { pct })}{!fullRound ? t("· review round (not scored)") : ''}</p>
                 </div>
 
-                <ul className="mt-5 max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                <ul className="mt-5 max-h-52 overflow-y-auto space-y-1.5 pe-1">
                     {answered.map((a, i) => {
                         const item = bank[a.itemIndex];
                         const out = isOut(a.itemIndex);
                         return (
-                            <li key={i} className={`flex items-start gap-2 rounded-lg pl-3 pr-1 py-1 text-sm ${out
+                            <li key={i} className={`flex items-start gap-2 rounded-lg ps-3 pe-1 py-1 text-sm ${out
                                 ? 'bg-slate-50 dark:bg-slate-900/40'
                                 : a.correct
                                 ? 'bg-emerald-50 dark:bg-emerald-900/15'
@@ -495,7 +495,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         <ReportScope>
             <div className="py-1">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-                    <span className="tabular-nums">{pos + 1} / {order.length}</span>
+                    <span dir="ltr" className="tabular-nums">{pos + 1} / {order.length}</span>
                     {seconds && (
                         <span className="inline-flex items-center gap-1 tabular-nums">
                             <Timer className="h-3.5 w-3.5" aria-hidden="true" />
@@ -508,7 +508,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 {/* The item: its label and prompt, with the flag at its top-right.
                     Both sides are padded alike so a centred prompt stays centred. */}
                 <div className="relative px-9">
-                    <div className="absolute right-0 top-3">
+                    <div className="absolute end-0 top-3">
                         <ReportItem
                             key={currentRef ?? pos}
                             itemRef={currentRef}
@@ -521,9 +521,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     {/* A card's own task line ("de или het?") is its question;
                         the drill's generic label only stands in when it has none. */}
                     {(currentItem.context || spec.promptLabel) && (
-                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
+                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-start' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
                     )}
-                    <div className={`mt-2 ${promptMedia.length ? 'mb-3' : 'mb-5'} font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
+                    <div className={`mt-2 ${promptMedia.length ? 'mb-3' : 'mb-5'} font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-start leading-snug' : 'text-center leading-tight'}`}>
                         <MathText content={currentItem.prompt} />
                     </div>
                     {/* A listening card's sound IS the question: played as the
@@ -566,7 +566,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                     onClick={() => gradeChoice(option, idx)}
                                     aria-pressed={pick.confirm && !feedback ? pick.armed === idx : undefined}
                                     disabled={!!feedback}
-                                    className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-left' : 'px-4 py-3 justify-center text-center'} ${cls}`}
+                                    className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-start' : 'px-4 py-3 justify-center text-center'} ${cls}`}
                                 >
                                     {longOptions && (
                                         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-slate-100 dark:bg-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300">

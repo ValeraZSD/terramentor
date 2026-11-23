@@ -23,11 +23,12 @@ import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
 import { Panel } from './Panel';
-import { useDuration } from './mockFormat';
+import { REVEAL_AT, mockClockSeconds, useDuration, useHiddenClock } from './mockFormat';
+import { PractiseWeakest } from './PractiseWeakest';
 import { openingPlace, saveState } from './courseMockState';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
-import { EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
+import { ClockToggle, EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
 import type { CourseMockDetail, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
 
 /**
@@ -51,6 +52,8 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
+    const timeScale = useStore(s => s.drillTimeScale);
+    const duration = useDuration();
     const { exam } = course;
     const examSize = exam?.onScreen && exam.questions ? exam.questions : null;
     const sizes = useMemo(() => {
@@ -84,7 +87,7 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
     const drawn = Math.min(size, course.ready);
     const start = () => {
         setBusy(true);
-        api.drawMock(projectId, size, clock ? minutes : null)
+        api.drawMock(projectId, size, clock && timeScale !== 'off' ? minutes : null)
             .then(r => onStarted(r.sitting.id))
             .catch(e => addToast('error', e.message))
             .finally(() => setBusy(false));
@@ -109,10 +112,20 @@ export function CourseStartPanel({ projectId, course, onStarted, onChanged }: {
                         options={sizes.map(n => ({ value: n, label: sizeLabel(n) }))} />
                 </Row>
                 <Row label={t("Exam clock")}>
-                    <div className="flex items-center gap-3">
-                        {clock && <><Stepper value={minutes} min={1} max={600} step={5} onChange={setMinutes} label={t("Minutes")} className="w-36" /><span className="text-sm text-slate-600 dark:text-slate-300">{t("min")}</span></>}
-                        <Switch checked={clock} onChange={on => { setClock(on); }} label={t("Exam clock")} />
-                    </div>
+                    {/* The minutes are the exam's own; Time limits (Settings) stretches them or takes the clock away. */}
+                    {timeScale === 'off' ? <span className="text-sm text-slate-700 dark:text-slate-200">{t("No clock: Time limits is Off in Settings")}</span> : (
+                        <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-3">
+                                {clock && <><Stepper value={minutes} min={1} max={600} step={5} onChange={setMinutes} label={t("Minutes")} className="w-36" /><span className="text-sm text-slate-600 dark:text-slate-300">{t("min")}</span></>}
+                                <Switch checked={clock} onChange={on => { setClock(on); }} label={t("Exam clock")} />
+                            </div>
+                            {clock && timeScale !== '1' && (
+                                <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                                    {t("{{time}}, with your extra time", { time: duration(mockClockSeconds(minutes * 60, timeScale)) })}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </Row>
                 <Row label={t("The real exam")}>
                     <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
@@ -490,9 +503,16 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     // The last five minutes are told by weight, not alarm: real exam apps
     // bring the clock forward then, so the learner plans the end.
     const left = sitting.timeAllowed - elapsed;
+    // "Hide the clock", as on a past paper: the eye sits beside the time.
+    const { hidden: clockHidden, canHide, setHidden } = useHiddenClock(sitting.id, timed ? left : 0);
+    const toggle = timed && !timeUp && canHide
+        ? <ClockToggle short hidden={clockHidden} onToggle={() => setHidden(!clockHidden)} className="-my-1.5 ms-0.5 align-middle" />
+        : null;
     const clock = timeUp
         ? t("Time is up")
-        : <span className={left <= 300 ? 'font-semibold text-amber-800 dark:text-amber-300' : ''}>{t("{{time}} left", { time: duration(left + 59) })}</span>;
+        : clockHidden
+            ? <>{t("Clock hidden")}{toggle}</>
+            : <><span className={left <= REVEAL_AT ? 'font-semibold text-amber-800 dark:text-amber-300' : ''}>{t("{{time}} left", { time: duration(left + 59) })}</span>{toggle}</>;
     const status = [
         t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
         timed ? clock : null,
@@ -577,7 +597,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                             <p className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300 tabular-nums">
                                 {t("Question {{n}} of {{total}}", { n: index + 1, total: questions.length })}
                             </p>
-                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ml-2.5 whitespace-nowrap"
+                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ms-2.5 whitespace-nowrap"
                                 icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
                                 {later[q.partId] ? t("Marked to come back to") : t("Come back to this")}
                             </Button>
@@ -628,6 +648,16 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
     const { sitting, result } = detail;
     const date = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }).format(new Date(sitting.startedAt)), [sitting.startedAt]);
     if (!result) return null;
+    // The topic to practise: most answers missed; a tie goes to the larger share
+    // missed, then to the topic listed first. None when every answer was right.
+    const weakest = result.topics.reduce<(typeof result.topics)[number] | null>((best, tp) => {
+        const missed = tp.total - tp.right;
+        if (missed <= 0) return best;
+        if (!best) return tp;
+        const bestMissed = best.total - best.right;
+        if (missed !== bestMissed) return missed > bestMissed ? tp : best;
+        return missed / tp.total > bestMissed / best.total ? tp : best;
+    }, null);
     const groups = (['wrong', 'wrong_later', 'none', 'right'] as const)
         .map(g => ({ g, items: result.review.filter(r => r.group === g) }))
         .filter(x => x.items.length);
@@ -705,7 +735,7 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             <li key={tp.id} className="py-3">
                                 <div className="flex items-baseline gap-x-4">
                                     <span className="flex-1 min-w-0 text-sm text-slate-900 dark:text-white">{tp.title}</span>
-                                    <span className="shrink-0 text-right text-sm tabular-nums text-slate-700 dark:text-slate-200">
+                                    <span className="shrink-0 text-end text-sm tabular-nums text-slate-700 dark:text-slate-200">
                                         {t("{{right}} of {{total}}", { right: fmt(tp.right), total: fmt(tp.total) })}
                                     </span>
                                 </div>
@@ -713,11 +743,10 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             </li>
                         ))}
                     </ul>
-                    {/* Answers are recorded as practice per topic; a mock never completes or reopens a
-                        topic (the mastery check decides that), so the line says what the learner gains. */}
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each answer now shows in its topic as practice.")}
-                    </p>
+                    {weakest && (
+                        <PractiseWeakest projectId={detail.paper.projectId} nodeId={weakest.id}
+                            line={t("Most missed: {{topic}}, {{right}} of {{total}} right.", { topic: weakest.title, right: fmt(weakest.right), total: fmt(weakest.total) })} />
+                    )}
                 </Panel>
             )}
 
@@ -743,7 +772,7 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
             </Panel>
 
             <div className="flex justify-end">
-                <Button variant="primary" onClick={onDone}>{t("Done")}</Button>
+                <Button variant={weakest ? 'neutral' : 'primary'} onClick={onDone}>{t("Done")}</Button>
             </div>
         </div>
     );

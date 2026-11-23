@@ -5,6 +5,7 @@ import type { ChatAttachment } from '../../types';
 import type { ImageMarker } from '../../utils/attachments';
 import ImageViewer from './ImageViewer';
 import MarkedImage from './MarkedImage';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * A picture the answer pointed into (`[[img:ID|x0,y0,x1,y1|label]]`): the
@@ -43,7 +44,7 @@ export default function AttachmentFigure({ marker, attachment }: { marker: Image
                     maxHeight="24rem"
                 />
             </button>
-            <figcaption className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">{attachment.name}</figcaption>
+            <figcaption className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate"><OwnLine>{attachment.name}</OwnLine></figcaption>
             <ImageViewer
                 attachment={open ? attachment : null}
                 box={marker.box}

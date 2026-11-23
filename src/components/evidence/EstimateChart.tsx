@@ -119,6 +119,9 @@ export default function EstimateChart({ points, threshold, day, describe }: {
             </figcaption>
             <div
                 ref={box}
+                // Time runs left to right in every interface language: the
+                // chart is drawn in pixels from the left, so it stays an island.
+                dir="ltr"
                 // pan-y: a finger moving up and down still scrolls the dialog;
                 // across the chart, it moves between the dots.
                 className="relative mt-1.5 touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent-fg"
@@ -161,7 +164,7 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                 {/* Labels in HTML: 100 / 50 / 0 in the gutter, the proof line's name at its right end. */}
                 {[1, 0.5, 0].map(v => (
                     <span key={v} aria-hidden="true"
-                        className="absolute -translate-y-1/2 text-right text-2xs tabular-nums text-slate-500 dark:text-slate-400"
+                        className="absolute -translate-y-1/2 text-end text-2xs tabular-nums text-slate-500 dark:text-slate-400"
                         style={{ top: yOf(v), left: 0, width: gutter }}>
                         {t("{{pct}}%", { pct: pct(v) })}
                     </span>
@@ -169,13 +172,14 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                 {/* At the left end (the newest dot sits at the right one), on
                     the side of the line the oldest dot leaves free. */}
                 <span aria-hidden="true"
-                    className={`absolute pl-1 text-2xs text-slate-500 dark:text-slate-400 ${labelBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
+                    className={`absolute ps-1 text-2xs text-slate-500 dark:text-slate-400 ${labelBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
                     style={{ top: yOf(threshold), left }}>
                     {t("Proven")}
                 </span>
                 {shown && at && (
                     <div
                         aria-hidden="true"
+                        dir="auto"
                         // The app's one floating surface (menus, the hover card).
                         className={`pointer-events-none absolute z-10 w-max px-2.5 py-1.5 text-xs ${MENU_SURFACE}`}
                         style={{ top: tipTop, bottom: tipBottom, left: tipLeft, right: tipRight, maxWidth: tipMax }}
@@ -194,7 +198,7 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                     day: day(shown.row.at), what: describe(shown.row), pct: pct(shown.value),
                 }) : ''}
             </p>
-            <div aria-hidden="true" className="mt-1 flex justify-between text-2xs tabular-nums text-slate-500 dark:text-slate-400"
+            <div aria-hidden="true" dir="ltr" className="mt-1 flex justify-between text-2xs tabular-nums text-slate-500 dark:text-slate-400"
                 style={{ paddingLeft: left - pad }}>
                 <span>{day(first.row.at)}</span>
                 {points.length > 1 && <span>{day(last.row.at)}</span>}

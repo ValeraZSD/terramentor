@@ -13,7 +13,9 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
+import { useBackClose } from '../hooks/dialogHistory';
 import { followVisualViewport, popoverBounds, FLOAT_LAYER } from './ui/Popover';
+import { isRtl } from '../utils/direction';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -117,6 +119,7 @@ export default function ModelPicker({
         setQuery('');
         if (refocus) triggerRef.current?.focus();
     }, []);
+    useBackClose(open, close);
 
     const commit = (model: string) => {
         onChange(model);
@@ -144,7 +147,8 @@ export default function ModelPicker({
         const room = drop === 'down' ? b.bottom - 8 - edge : edge - (b.top + 8);
         setRect({
             top: edge,
-            left: Math.max(b.left + 8, Math.min(r.left, b.right - 8 - width)),
+            // Lined up with the field's start edge: its right one in right to left.
+            left: Math.max(b.left + 8, Math.min(isRtl(el) ? r.right - width : r.left, b.right - 8 - width)),
             width,
             drop,
             max: Math.max(0, Math.min(420, room)),
@@ -270,7 +274,7 @@ export default function ModelPicker({
                 onKeyDown={onTriggerKey}
                 className={cx(
                     'w-full', FIELD_BASE, FIELD_SIZE.md,
-                    'flex items-center gap-2 text-left cursor-pointer',
+                    'flex items-center gap-2 text-start cursor-pointer',
                     open && 'ring-2 ring-accent border-accent',
                 )}
             >
@@ -306,7 +310,7 @@ export default function ModelPicker({
                 >
                     <div className="flex items-center gap-2 p-2 border-b border-slate-200 dark:border-slate-700">
                         <div className="relative flex-1 min-w-0">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none" aria-hidden="true" />
+                            <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none" aria-hidden="true" />
                             <input
                                 ref={attachInput}
                                 type="text"
@@ -320,7 +324,7 @@ export default function ModelPicker({
                                 aria-controls={listId}
                                 aria-activedescendant={rows[active] ? `${listId}-${active}` : undefined}
                                 placeholder={tr("Filter, or type any model id")}
-                                className={cx('w-full', FIELD_BASE, FIELD_SIZE.md, 'pl-8')}
+                                className={cx('w-full', FIELD_BASE, FIELD_SIZE.md, 'ps-8')}
                             />
                         </div>
                         {models.length >= SORT_THRESHOLD && sorts.length > 1 && (

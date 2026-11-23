@@ -198,7 +198,7 @@ export function TimeRow({ title, context, color, ms, onOpen }: {
                 data-row="study-time"
                 onClick={onOpen}
                 title={t("{{nodeTitle}} — open the topic", { nodeTitle: title })}
-                className={cx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/40 touch:min-h-11', FOCUS_RING)}
+                className={cx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-start transition hover:bg-slate-50 dark:hover:bg-slate-900/40 touch:min-h-11', FOCUS_RING)}
             >
                 {color !== undefined && (
                     <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color || '#94a3b8' }} aria-hidden="true" />

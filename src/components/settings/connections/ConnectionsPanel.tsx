@@ -314,7 +314,7 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                     </p>
                 )}
             </div>
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ms-auto flex items-center gap-1.5">
                 {/* A connection with no model cannot answer: its one action
                     is choosing the model, which also puts it in use. */}
                 {!c.model && (c.kind !== 'chatgpt' || c.signedIn)

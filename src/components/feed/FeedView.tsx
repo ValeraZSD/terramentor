@@ -28,6 +28,7 @@ import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
 import { ContentLang } from '../../utils/contentLang';
 import { motionReduced } from '../../utils/accessibility';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The home page: a vertical learning feed, read like a book.
@@ -327,10 +328,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                 </Button>
                 <div className="min-w-0 flex-1">
                     <p className="text-2xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                        {[studyProject?.name, ...studyPath.map(n => n.title)].filter(Boolean).join(' › ')}
+                        <OwnLine>{[studyProject?.name, ...studyPath.map(n => n.title)].filter(Boolean).join(' › ')}</OwnLine>
                     </p>
                     <h1 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white truncate">
-                        {studyNode?.title ?? tr("Study")}
+                        {studyNode ? <OwnLine>{studyNode.title}</OwnLine> : tr("Study")}
                     </h1>
                 </div>
                 <Button

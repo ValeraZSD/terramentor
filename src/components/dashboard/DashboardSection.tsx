@@ -64,7 +64,7 @@ export function ToolRow({ icon: Icon, title, hint, onClick }: {
             // the full width of the page, divided rows left their middle
             // empty (title at the left, arrow at the far right, nothing
             // between). Tiles wrap and GROW to fill each row (see `ToolGrid`).
-            className="min-w-0 flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left group"
+            className="min-w-0 flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-start group"
         >
             <span className="p-1.5 rounded-lg bg-accent/10 shrink-0" aria-hidden="true">
                 <Icon className="w-4 h-4 text-accent-fg" />

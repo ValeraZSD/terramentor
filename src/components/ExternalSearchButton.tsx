@@ -143,10 +143,10 @@ export default function ExternalSearchButton({
         );
     }
 
-    // The menu is a `MenuPopover`: portalled, lined up with this button's LEFT
-    // edge and kept on the screen. Hanging it from the button's right edge
-    // (`absolute right-0`) would run it off the card's left edge in the answer
-    // help, where this button sits at the left of the card.
+    // The menu is a `MenuPopover`: portalled, lined up with this button's START
+    // edge and kept on the screen. Hanging it from the button's end edge
+    // (`absolute end-0`) would run it off the card's start edge in the answer
+    // help, where this button sits at the start of the card.
     return (
         <span className={`inline-block ${className}`}>
             {variant === 'icon' ? (

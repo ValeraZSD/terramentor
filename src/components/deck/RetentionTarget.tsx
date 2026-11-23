@@ -117,7 +117,7 @@ export function RetentionEditor({ projectId, value, onDone }: {
                                 <span className="text-sm text-slate-500 dark:text-slate-400">
                                     {r === REQUEST_RETENTION ? t("default") : ''}
                                 </span>
-                                <span className="ml-auto text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                                <span className="ms-auto text-sm tabular-nums text-slate-600 dark:text-slate-300">
                                     {n != null
                                         ? t("about {{fmt}} reviews a day", { count: perDayShown(n), fmt: fmt(perDayShown(n)) })
                                         : failed

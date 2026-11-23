@@ -13,7 +13,7 @@ import MockSittingScreen from './MockSittingScreen';
 import { CourseStartPanel } from './CourseMock';
 import { Panel } from './Panel';
 import type { CourseListSitting, MockExamList, MockListSitting } from './mockExamTypes';
-import { useDuration } from './mockFormat';
+import { mockClockSeconds, useDuration } from './mockFormat';
 import { runningSittings } from './courseMockState';
 
 /**
@@ -152,8 +152,9 @@ function StartPanel({ data, onStarted, onError }: {
     // reload of the same paper (which replaces every object in `data`).
     useEffect(() => { setQuestion(questions[0]); }, [paper.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const timeScale = useStore(s => s.drillTimeScale);
     const qPoints = paper.parts.filter(p => p.question === question).reduce((a, p) => a + p.points, 0);
-    const seconds = length === 'paper' ? paper.minutes * 60 : Math.ceil(paper.minutes * qPoints / paper.total) * 60;
+    const seconds = mockClockSeconds(length === 'paper' ? paper.minutes * 60 : Math.ceil(paper.minutes * qPoints / paper.total) * 60, timeScale);
 
     const start = () => {
         setBusy(true);
@@ -193,7 +194,11 @@ function StartPanel({ data, onStarted, onError }: {
                     </Row>
                 )}
                 <Row label={t("Exam clock")}>
-                    <span className="text-sm tabular-nums text-slate-900 dark:text-white">{duration(seconds)}</span>
+                    <span className="text-sm tabular-nums text-slate-900 dark:text-white">
+                        {timeScale === 'off'
+                            ? t("No clock: Time limits is Off in Settings")
+                            : timeScale === '1' ? duration(seconds) : t("{{time}}, with your extra time", { time: duration(seconds) })}
+                    </span>
                 </Row>
             </div>
             <p className="mt-4 rounded-xl bg-slate-100 dark:bg-slate-900/60 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
@@ -206,7 +211,7 @@ function StartPanel({ data, onStarted, onError }: {
                     </ButtonLink>
                 )}
                 <Button variant="primary" busy={busy} icon={<Timer className="w-4 h-4" aria-hidden="true" />} onClick={start}>
-                    {t("Start the clock")}
+                    {seconds > 0 ? t("Start the clock") : t("Start")}
                 </Button>
             </div>
         </Panel>
@@ -269,7 +274,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
                             type="button"
                             data-row
                             onClick={() => onOpen(s.id)}
-                            className="flex-1 min-w-0 flex items-center gap-3 py-3 text-left rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                            className="flex-1 min-w-0 flex items-center gap-3 py-3 text-start rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40"
                         >
                             <span className="flex-1 min-w-0 text-sm text-slate-900 dark:text-white">
                                 {dateFmt.format(new Date(s.startedAt))}

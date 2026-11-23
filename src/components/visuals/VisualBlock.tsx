@@ -1010,7 +1010,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 on a phone even the folded row can be wider than the card. */}
             <div className="relative flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
                 {kindLabel}
-                <div className="flex items-center shrink-0 -mr-2.5">
+                <div className="flex items-center shrink-0 -me-2.5">
                     {fixButton}
                     {folded ? (
                         // Copied from the menu: the tick shows where the finger is.
@@ -1032,10 +1032,10 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     shown: what `folded` is decided on. Code and Copy carry both
                     of their labels laid over each other, so the measure is the
                     wider one and pressing either cannot fold the row it is in. */}
-                <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true" inert>
+                <div className="absolute start-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true" inert>
                     <div ref={toolbarRowRef} data-toolbar-measure className="flex w-max items-center gap-x-3 px-4">
                         {kindLabel}
-                        <div className="flex items-center shrink-0 -mr-2.5">
+                        <div className="flex items-center shrink-0 -me-2.5">
                             {fixButton}{saveButton}
                             <Button {...TOOL} icon={<Code2 size={14} aria-hidden="true" />}>{widest(tr("Code"), tr("Hide code"))}</Button>
                             <Button {...TOOL} icon={<Copy size={14} aria-hidden="true" />}>{widest(tr("Copy"), tr("Copied!"))}</Button>
@@ -1163,7 +1163,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                         <Button
                                             {...TOOL}
                                             onClick={handleCopyDrawn}
-                                            className="-mr-2.5"
+                                            className="-me-2.5"
                                             icon={copiedDrawn ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                                         >
                                             {copiedDrawn ? tr("Copied!") : tr("Copy")}

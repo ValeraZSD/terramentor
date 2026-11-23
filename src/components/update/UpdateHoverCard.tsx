@@ -4,6 +4,7 @@ import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { MENU_PANEL, followVisualViewport, placePopover, popoverBounds, type Placement } from '../ui/Popover';
 import { cx } from '../ui/vocabulary';
 import { canHover } from '../../utils/platform';
+import { isRtl } from '../../utils/direction';
 
 /** Long enough that a pointer crossing the header on its way elsewhere
  *  opens nothing; short enough to feel like an answer. */
@@ -74,7 +75,7 @@ function HoverCard({ open, id, anchorRef, onClose, children }: {
         const btn = anchorRef.current, card = ref.current;
         if (!btn || !card) return;
         setPlace(placePopover(btn.getBoundingClientRect(), { width: card.offsetWidth, height: card.offsetHeight },
-            popoverBounds(), { align: 'end', gap: 6 }));
+            popoverBounds(), { align: 'end', gap: 6, rtl: isRtl(btn) }));
     }, [open, anchorRef, children]);
 
     useEffect(() => {

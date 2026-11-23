@@ -27,11 +27,13 @@ import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { appMayTakeShortcut, shortcutLetter } from '../utils/escapeKey';
 import { offerAppBack } from '../utils/appBack';
+import { scrolledFromStart } from '../utils/direction';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useTranslation } from 'react-i18next';
 import { ContentLang } from '../utils/contentLang';
+import OwnLine from './ui/OwnLine';
 
 const ASSISTANT_WIDTH_KEY = 'assistant.width';
 
@@ -200,8 +202,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         const el = tabRailRef.current;
         if (!el) { setRailFade('none'); return; }
         const measure = () => {
-            const start = el.scrollLeft > 4;
-            const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+            const start = scrolledFromStart(el) > 4;
+            const end = scrolledFromStart(el) + el.clientWidth < el.scrollWidth - 4;
             setRailFade(start && end ? 'both' : start ? 'start' : end ? 'end' : 'none');
         };
         measure();
@@ -373,8 +375,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             if (!header || !left || !right || !searchEl || !header.clientWidth) return;
             const gapOf = (el: Element) => parseFloat(getComputedStyle(el).columnGap) || 0;
             // The title at its full length: `scrollWidth` ignores the truncation.
+            // The name is cut inside its own line (ui/OwnLine), so that line,
+            // not the h1, holds the full width.
             const natural = (kids: Element[]) => {
-                const ws = kids.map(el => (el.tagName === 'H1' ? el.scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
+                const ws = kids.map(el => (el.tagName === 'H1' ? (el.querySelector('[data-own-line]') ?? el).scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
                 return ws.reduce((s, w) => s + w, 0);
             };
             const sum = (el: HTMLElement) => {
@@ -427,7 +431,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 data-skip-link
                 href="#main-content"
                 onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}
-                className={`sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
+                className={`sr-only focus:not-sr-only focus:fixed focus:start-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
             >
                 {t("Skip to content")}
             </a>
@@ -501,7 +505,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                         // header holds only the back arrow there.
                         view === 'settings' ? null : (
                             <h1 className="text-lg font-semibold text-slate-900 dark:text-white truncate min-w-0">
-                                {view === 'workspace' && currentProject?.name}
+                                {view === 'workspace' && currentProject?.name && <OwnLine>{currentProject.name}</OwnLine>}
                             </h1>
                         )
                     )}
@@ -576,7 +580,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     box that clips it to nothing). Horizontal classes only, the
                     same as the real ones above. */}
                 {isGlobalView && (
-                    <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true">
+                    <div className="absolute start-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true">
                         <div ref={measureRef} className="flex w-max gap-1">
                             {globalTabs.map(tab => (
                                 <span key={tab.key} className="px-2.5 text-sm font-medium whitespace-nowrap">{tab.label}</span>

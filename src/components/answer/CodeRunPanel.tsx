@@ -99,7 +99,7 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
             {call && (
                 <>
                     <p className={cx(LABEL, printed && 'mt-2')}>{t("Return value")}</p>
-                    <p className={cx('mt-1', MONO)}>
+                    <p dir="ltr" className={cx('mt-1', MONO)}>
                         {call} <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span> {run.value}
                     </p>
                 </>
@@ -234,14 +234,14 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
                                         : <X className="w-4 h-4 text-red-600 dark:text-red-400" aria-label={t("Failed")} />}
                                 </span>
                                 <span className={CELL}><InputShown kind={row.kind} input={row.input} /></span>
-                                <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
+                                <span className="inline-block rtl:-scale-x-100 text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
                                 <div className={cx(CELL, !row.pass && 'text-red-700 dark:text-red-300')}>
                                     <span className="sr-only">{t("Your result")}: </span>
                                     <Shown text={row.actual} over={row.over} kind={row.kind} parts={diff?.actual} tone="got" />
                                 </div>
                                 {!row.pass && (
                                     <>
-                                        <span className="col-start-2 col-span-2 text-right font-sans text-xs text-slate-600 dark:text-slate-300">{t("Expected")}</span>
+                                        <span className="col-start-2 col-span-2 text-end font-sans text-xs text-slate-600 dark:text-slate-300">{t("Expected")}</span>
                                         <div className={CELL}>
                                             <Shown text={row.expected} kind={row.kind} parts={diff?.expected} tone="expected" />
                                         </div>

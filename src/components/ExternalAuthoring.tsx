@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Copy, Check, Loader2, ArrowRight, AlertTriangle, BookOpen, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -10,6 +10,7 @@ import { AuthoringPhase, MaterialMergeResult, OutlineBriefFields } from '../type
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import OwnLine from './ui/OwnLine';
 
 /**
  * Writing a course with a chat model the learner already has open.
@@ -128,16 +129,19 @@ function PromptBox({ prompt, loading, error, onRetry }: {
  * no gain. The Import tab still takes files for everything that arrives as one.
  */
 function ReplyBox({
-    label, placeholder, busy, error, onSubmit,
+    label, placeholder, busy, error, onSubmit, initialText, onText,
 }: {
     label: string;
     placeholder: string;
     busy: boolean;
     error: string;
     onSubmit: (parsed: unknown) => void;
+    initialText?: string;
+    /** The box's text as it is typed or pasted. */
+    onText?: (text: string) => void;
 }) {
     const { t: tr } = useTranslation();
-    const [text, setText] = useState('');
+    const [text, setText] = useState(initialText ?? '');
     const [parseError, setParseError] = useState('');
     const verb = usePointerVerb();
 
@@ -167,7 +171,7 @@ function ReplyBox({
         <div className="space-y-2">
             <textarea
                 value={text}
-                onChange={e => setText(e.target.value)}
+                onChange={e => { setText(e.target.value); onText?.(e.target.value); }}
                 placeholder={placeholder}
                 rows={4}
                 spellCheck={false}
@@ -215,18 +219,30 @@ const DEPTHS = [
     k('everything there is'),
 ];
 
+export type BriefKept = { level: string; goal: string; reply: string };
+
 export function OutlineBriefPanel({
-    subject, setSubject, language, onImported,
+    subject, setSubject, language, onImported, kept, onKeep,
 }: {
     subject: string;
     setSubject: (v: string) => void;
     /** The modal's language selection, so the two tabs cannot disagree. */
     language: string;
     onImported: (projectId: number, name: string) => void;
+    /** What was typed here the last time the panel was open: a step back
+     *  and in again finds the level, the goal and the pasted reply still there. */
+    kept?: BriefKept;
+    /** Called as any of the three changes, for the window to keep and to
+     *  know there is work it would lose on close. */
+    onKeep?: (kept: BriefKept) => void;
 }) {
     const { t: tr } = useTranslation();
-    const [level, setLevel] = useState('');
-    const [goal, setGoal] = useState('');
+    const [level, setLevel] = useState(kept?.level ?? '');
+    const [goal, setGoal] = useState(kept?.goal ?? '');
+    const [reply, setReply] = useState(kept?.reply ?? '');
+    const onKeepRef = useRef(onKeep);
+    onKeepRef.current = onKeep;
+    useEffect(() => { onKeepRef.current?.({ level, goal, reply }); }, [level, goal, reply]);
     const [depth, setDepth] = useState(DEPTHS[1]);
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
@@ -369,6 +385,8 @@ export function OutlineBriefPanel({
                     busy={busy}
                     error={error}
                     onSubmit={handleReply}
+                    initialText={reply}
+                    onText={setReply}
                 />
             </Step>
         </div>
@@ -491,13 +509,13 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
                                 onClick={() => { setPhaseId(p.id); setResult(null); }}
                                 aria-pressed={selected}
                                 data-row="phase"
-                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-left flex items-center gap-3 border transition ${selected
+                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-start flex items-center gap-3 border transition ${selected
                                     ? 'border-accent bg-accent/10'
                                     : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}
                             >
                                 <BookOpen className={`w-4 h-4 shrink-0 ${complete ? 'text-emerald-500' : 'text-slate-400'}`} />
-                                <span className="flex-1 min-w-0 text-sm text-slate-800 dark:text-slate-100 truncate">{p.title}</span>
+                                <span className="flex-1 min-w-0 text-sm text-slate-800 dark:text-slate-100 truncate"><OwnLine>{p.title}</OwnLine></span>
                                 <span className={`text-sm shrink-0 ${complete ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                                     {tr("{{withMaterial}}/{{leaves}} written", { withMaterial: p.withMaterial, leaves: p.leaves })}
                                 </span>

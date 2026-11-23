@@ -15,6 +15,7 @@ import { uiLocale } from '../../utils/locale';
 import SittingReviewView from './SittingReviewView';
 import { DayBars, DayStudyTime } from '../studyTime/StudyTime';
 import { flushStudyTime } from '../../hooks/useStudyClock';
+import OwnLine from '../ui/OwnLine';
 
 interface Props {
     date: string;
@@ -303,17 +304,17 @@ function ActivityRow({ event, onOpen }: { event: TodayActivityEvent; onOpen: () 
                 title={event.evidenceId != null
                     ? t("{{label}} · {{nodeTitle}} — see each answer", { label, nodeTitle: event.nodeTitle })
                     : t("{{label}} · {{nodeTitle}} — open the topic", { label, nodeTitle: event.nodeTitle })}
-                className="w-full flex items-start gap-3 px-2 py-2 text-left rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/40 transition"
+                className="w-full flex items-start gap-3 px-2 py-2 text-start rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/40 transition"
             >
                 <span className="mt-0.5 text-2xs tabular-nums text-slate-500 dark:text-slate-400 w-10 shrink-0">
                     {clockTime(event.at)}
                 </span>
                 <Icon className="w-4 h-4 mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{event.title}</span>
+                    <span className="block text-sm text-slate-800 dark:text-slate-100 truncate"><OwnLine>{event.title}</OwnLine></span>
                     <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
                         <span
-                            className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
+                            className="inline-block w-1.5 h-1.5 rounded-full me-1.5 align-middle"
                             style={{ backgroundColor: event.projectColor || '#94a3b8' }}
                             aria-hidden="true"
                         />

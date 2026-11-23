@@ -1,6 +1,6 @@
 import { THEME_CHOICES, MIN_UI_SCALE, MAX_UI_SCALE, type ThemeChoice } from '../store';
 import { MIN_SPEECH_RATE, MAX_SPEECH_RATE } from './accessibility';
-import i18n, { LANGUAGES, isSupportedLanguage, k } from '../i18n';
+import i18n, { LANGUAGES, isSupportedLanguage, k, languageByName } from '../i18n';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
 
 /**
@@ -212,12 +212,12 @@ export function validateSettingChange(rawKey: string, rawValue: string): Setting
     // The interface language. The clearest case there is for any of this: a
     // learner whose app is in the wrong language is the one least able to find
     // the setting that fixes it, and most able to ASK — in their own language,
-    // which is itself the answer. Matched on the code and on the endonym, so
-    // "Nederlands" works as well as "nl".
+    // which is itself the answer. Matched on the code, the endonym, the English
+    // name and the name on screen, so "Nederlands", "Dutch" and "nl" all work.
     if (key === 'ui_language' || key === 'language' || key === 'interface_language') {
         const v = value.toLowerCase();
         const byCode = isSupportedLanguage(v) ? v : null;
-        const byName = LANGUAGES.find(l => l.name.toLowerCase() === v)?.code ?? null;
+        const byName = languageByName(v, i18n.language || 'en');
         // `auto` is a real value here (follow the browser), not a missing one.
         const code = v === 'auto' ? 'auto' : (byCode ?? byName);
         if (!code) return null;

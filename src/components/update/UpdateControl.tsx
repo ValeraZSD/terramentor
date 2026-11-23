@@ -109,7 +109,7 @@ export default function UpdateControl() {
     const narrowIcon = view.kind === 'available' ? (
         <span className="relative inline-flex">
             {icon}
-            <span data-update-dot className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent-fg ring-2 ring-slate-100 dark:ring-slate-700" aria-hidden="true" />
+            <span data-update-dot className="absolute -top-1 -end-1 w-2.5 h-2.5 rounded-full bg-accent-fg ring-2 ring-slate-100 dark:ring-slate-700" aria-hidden="true" />
         </span>
     ) : icon;
 

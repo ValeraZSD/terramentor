@@ -169,8 +169,11 @@ const accessibleName = (b) => {
     return text(b).replace(/\s+/g, ' ').trim();
 };
 const icon = (b) => [...b.querySelectorAll('svg')].map(s => s.getAttribute('class') || '').find(c => /lucide-/.test(c)) || '';
-const described = (w, b) => (b.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
-    .map(i => w.document.getElementById(i)?.textContent ?? '(missing)').join(' | ');
+// Names in a description are wrapped in direction isolates (U+2068 .. U+2069);
+// a screen reader says the words, so the check reads them without the marks.
+const ISOLATES = [String.fromCharCode(0x2068), String.fromCharCode(0x2069)];
+const described = (w, b) => ISOLATES.reduce((s, c) => s.split(c).join(''), (b.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
+    .map(i => w.document.getElementById(i)?.textContent ?? '(missing)').join(' | '));
 
 section('a "Study next" row starts the lesson');
 let nextIcon = '';

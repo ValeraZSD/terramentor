@@ -82,7 +82,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
                     <p className="min-w-0 truncate text-xs font-medium text-slate-500 dark:text-slate-400">
                         {spec.title ? <MathText content={spec.title} /> : t("Practice drill")}
                     </p>
-                    <IconButton size="sm" onClick={onClose} label={t("Close drill")} tooltip={false} icon={<X className="h-5 w-5" />} className="-mr-1.5" />
+                    <IconButton size="sm" onClick={onClose} label={t("Close drill")} tooltip={false} icon={<X className="h-5 w-5" />} className="-me-1.5" />
                 </div>
                 <div className="overflow-y-auto px-5 sm:px-6 pb-6 sm:pb-7 pt-1">
                     <DrillPlayer spec={spec} onRoundComplete={handleRound} onDone={onClose} />

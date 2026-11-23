@@ -47,7 +47,7 @@ export default function ServingEndpointsPicker({
             summary={<>
                 {tr("Where the model runs")}
                 {providerOrder.length > 0 && (
-                    <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
+                    <span className="ms-2 font-normal text-slate-500 dark:text-slate-400">
                         {tr("{{fmt}} preferred providers", { count: providerOrder.length, fmt: num(providerOrder.length) })}
                     </span>
                 )}
@@ -126,14 +126,14 @@ export default function ServingEndpointsPicker({
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>
-                                    <tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs font-medium text-slate-500 dark:text-slate-400">
-                                        <th scope="col" className="w-0 py-1.5 pr-2.5">
+                                    <tr className="border-b border-slate-200 dark:border-slate-700 text-start text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        <th scope="col" className="w-0 py-1.5 pe-2.5">
                                             <span className="sr-only">{tr("Preferred")}</span>
                                         </th>
-                                        <th scope="col" className="w-full py-1.5 pr-2">{tr("Provider")}</th>
-                                        <th scope="col" className="py-1.5 px-1.5 text-right whitespace-nowrap">{tr("In")}</th>
-                                        <th scope="col" className="py-1.5 px-1.5 text-right whitespace-nowrap">{tr("Out")}</th>
-                                        <th scope="col" className="py-1.5 pl-1.5 text-right whitespace-nowrap">{tr("Uptime")}</th>
+                                        <th scope="col" className="w-full py-1.5 pe-2">{tr("Provider")}</th>
+                                        <th scope="col" className="py-1.5 px-1.5 text-end whitespace-nowrap">{tr("In")}</th>
+                                        <th scope="col" className="py-1.5 px-1.5 text-end whitespace-nowrap">{tr("Out")}</th>
+                                        <th scope="col" className="py-1.5 ps-1.5 text-end whitespace-nowrap">{tr("Uptime")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -156,7 +156,7 @@ export default function ServingEndpointsPicker({
                                         const boxId = `serving-${ep.slug}`;
                                         return (
                                             <tr key={ep.slug} className="border-b border-slate-100 dark:border-slate-800 last:border-0">
-                                                <td className="py-2 touch:py-3 pr-2.5 align-middle">
+                                                <td className="py-2 touch:py-3 pe-2.5 align-middle">
                                                     <Checkbox
                                                         id={boxId}
                                                         checked={rank >= 0}
@@ -164,10 +164,10 @@ export default function ServingEndpointsPicker({
                                                         aria-label={ep.name}
                                                     />
                                                 </td>
-                                                <th scope="row" className="py-2 touch:py-3 pr-2 align-middle font-normal">
+                                                <th scope="row" className="py-2 touch:py-3 pe-2 align-middle font-normal">
                                                     {/* The name is the checkbox's label, so the
                                                         whole cell is part of the target. */}
-                                                    <label htmlFor={boxId} className="flex items-baseline gap-1.5 flex-wrap cursor-pointer text-left">
+                                                    <label htmlFor={boxId} className="flex items-baseline gap-1.5 flex-wrap cursor-pointer text-start">
                                                         {rank >= 0 && (
                                                             <span className="text-sm font-semibold text-accent-fg tabular-nums">{num(rank + 1)}.</span>
                                                         )}
@@ -177,13 +177,13 @@ export default function ServingEndpointsPicker({
                                                         )}
                                                     </label>
                                                 </th>
-                                                <td className="py-2 touch:py-3 px-1.5 text-right align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
+                                                <td className="py-2 touch:py-3 px-1.5 text-end align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
                                                     {ep.promptPrice > 0 ? `$${num(ep.promptPrice, { decimals: 2 })}` : <NotReported label={tr("Not reported")} />}
                                                 </td>
-                                                <td className="py-2 touch:py-3 px-1.5 text-right align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
+                                                <td className="py-2 touch:py-3 px-1.5 text-end align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
                                                     {ep.completionPrice > 0 ? `$${num(ep.completionPrice, { decimals: 2 })}` : <NotReported label={tr("Not reported")} />}
                                                 </td>
-                                                <td className="py-2 touch:py-3 pl-1.5 text-right align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
+                                                <td className="py-2 touch:py-3 ps-1.5 text-end align-middle text-sm tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">
                                                     {ep.uptime !== null ? `${num(Math.round(ep.uptime))}%` : <NotReported label={tr("Not reported")} />}
                                                 </td>
                                             </tr>

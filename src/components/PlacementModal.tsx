@@ -18,6 +18,7 @@ import { useStudyClock } from '../hooks/useStudyClock';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
 import { probeRef } from '../utils/itemReports';
 import { useReportOn } from '../utils/itemReportStore';
+import OwnLine from './ui/OwnLine';
 
 interface Props {
     isOpen: boolean;
@@ -289,7 +290,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     </span>
                     <div className="min-w-0 flex-1">
                         <h2 className="font-semibold text-slate-900 dark:text-slate-100">{t("Where should we start?")}</h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{projectName}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 truncate"><OwnLine>{projectName}</OwnLine></p>
                     </div>
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
@@ -306,7 +307,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             {question.phaseTitle && (
                                 <span
                                     ref={phaseRef}
-                                    className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-right ${phaseFits ? '' : 'invisible'}`}
+                                    className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-end ${phaseFits ? '' : 'invisible'}`}
                                 >{question.phaseTitle}</span>
                             )}
                             {/* Hidden from sight, never from a screen reader. */}
@@ -383,7 +384,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                     key={questionReportRef ?? index}
                                     itemRef={questionReportRef}
                                     surface="placement"
-                                    className="-mt-1.5 -mr-1.5"
+                                    className="-mt-1.5 -me-1.5"
                                 />
                             </div>
 
@@ -508,7 +509,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 )}
                 {phase === 'asking' && question && (
                     <DialogFooter>
-                        <Button variant="quiet" className="mr-auto" onClick={finish} disabled={busy}>
+                        <Button variant="quiet" className="me-auto" onClick={finish} disabled={busy}>
                             {t("Finish now")}
                         </Button>
                         {verdict || questionReport ? (

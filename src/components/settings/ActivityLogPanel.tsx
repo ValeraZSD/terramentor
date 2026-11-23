@@ -215,7 +215,7 @@ export default function ActivityLogPanel() {
                                     {/* The dash is for an event with nothing to say at
                                         all — a project's name is something to say,
                                         so "— · Log probe" is not a thing. */}
-                                    <div className="pl-4 mt-0.5 text-slate-700 dark:text-slate-200 break-words">
+                                    <div className="ps-4 mt-0.5 text-slate-700 dark:text-slate-200 break-words">
                                         {e.detail}
                                         {e.detail && e.projectTitle ? ' · ' : ''}
                                         {e.projectTitle && (
@@ -246,7 +246,7 @@ export default function ActivityLogPanel() {
                         })
                         : '…'}
                 </p>
-                <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <div className="ms-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
                     {/* A real link, not a fetch: the file goes straight from the
                         server to the browser's downloads, so a 20,000-line log
                         never passes through a string in this tab. */}

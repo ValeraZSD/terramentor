@@ -1,4 +1,5 @@
 import { useCallback, useRef, KeyboardEvent } from 'react';
+import { inlineArrow } from '../../utils/direction';
 
 /**
  * Arrow-key movement inside a grid of choices (a radiogroup drawn as tiles).
@@ -36,7 +37,7 @@ export function useRovingGrid({ count, index, columns, onSelect }: {
     }, [count, onSelect]);
 
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLElement>, i: number) => {
-        switch (e.key) {
+        switch (inlineArrow(e.key, e.currentTarget)) {
             case 'ArrowRight': e.preventDefault(); move(i + 1 >= count ? 0 : i + 1); break;
             case 'ArrowLeft': e.preventDefault(); move(i - 1 < 0 ? count - 1 : i - 1); break;
             // Down off the last row and Up off the first do nothing rather than

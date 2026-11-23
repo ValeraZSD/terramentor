@@ -57,7 +57,12 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
     // ConfirmDialog so the two cannot drift.
     const titleId = useId();
     const dialogRef = useRef<HTMLDivElement>(null);
-    useDialogFocus(isOpen, dialogRef, { onEscape: () => { if (closable) onClose(); } });
+    // The system's Back is the title's ← while there is one, and Escape after:
+    // a dialog of steps walks back through them before it closes.
+    useDialogFocus(isOpen, dialogRef, {
+        onEscape: () => { if (closable) onClose(); },
+        onBack: () => { if (onBack) onBack(); else if (closable) onClose(); },
+    });
 
     // Dismiss on a backdrop TAP, not on any click that happens to land there —
     // dragging a selection out of the dialog (a quiz explanation, a flashcard
@@ -108,7 +113,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                         label={t("Back")}
                                         tooltip={false}
                                         icon={<ArrowLeft className="w-5 h-5" />}
-                                        className="-ml-1.5"
+                                        className="-ms-1.5"
                                     />
                                 )}
                                 <h2 id={titleId} className="min-w-0 break-words text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
@@ -120,13 +125,13 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                     label={t("Close dialog")}
                                     tooltip={false}
                                     icon={<X className="w-5 h-5" />}
-                                    className="-mr-1.5"
+                                    className="-me-1.5"
                                 />
                             )}
                             {/* The ✕'s box without it (the same size class and
                                 margin), so neither the head's height nor the
                                 title's width changes when the ✕ comes and goes. */}
-                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -mr-1.5 shrink-0`} />}
+                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -me-1.5 shrink-0`} />}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : `${DIALOG_BODY} px-6 py-4`}>
                             {children}

@@ -27,6 +27,7 @@ import type { NumberOptions } from '../../utils/numberFormat';
 import { serverText } from '../../utils/serverText';
 import { READ_REASON, READ_REASON_OTHER } from '../shortCourses/readReasons';
 import type { ShortReadFail } from '../shortCourses/shortCourseTypes';
+import OwnLine from '../ui/OwnLine';
 
 /** One piece of material: a file or a link, being read, read, or refused. */
 export interface SourceFile {
@@ -154,13 +155,18 @@ export interface LinkFixes {
     onUseTitle: (key: string) => void;
 }
 
-export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: {
+export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes, draft = '', onDraft }: {
     files: SourceFile[];
     onAdd: (files: File[]) => void;
     onRemove: (key: string) => void;
     /** Links pasted, typed or dropped: each is read and listed. */
     onLinks: (urls: string[]) => void;
     fixes: LinkFixes;
+    /** The link box's text when it shows again: the window keeps it across a step. */
+    draft?: string;
+    /** The link box's text not yet added, as it changes: the window counts it
+     *  as typed work before it closes. */
+    onDraft?: (text: string) => void;
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
@@ -169,7 +175,12 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     const addRef = useRef<HTMLButtonElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [dragOver, setDragOver] = useState(false);
-    const [text, setText] = useState('');
+    // Seeded from the window: ← to the first choice and back again keeps a typed
+    // link, as it keeps the name and the goal, so it stays work to lose.
+    const [text, setText] = useState(draft);
+    const onDraftRef = useRef(onDraft);
+    onDraftRef.current = onDraft;
+    useEffect(() => { onDraftRef.current?.(text); }, [text]);
     // A failed link whose "Choose a file" opened the picker: the files picked
     // take its place in the list.
     const replacing = useRef<string | null>(null);
@@ -455,7 +466,7 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
                 <span className={cx(line && 'mt-0.5')}>{icon}</span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                        <span className={cx('min-w-0 truncate text-sm font-medium', leftOut ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100')} title={file.url || undefined}>{name}</span>
+                        <span className={cx('min-w-0 truncate text-sm font-medium', leftOut ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100')} title={file.url || undefined}><OwnLine>{name}</OwnLine></span>
                         {failed && <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{humanSize(file.size, fmt)}</span>}
                     </div>
                     {line && <p className={cx('text-sm', tone)} title={title}>{line}</p>}

@@ -55,6 +55,9 @@ const SUPPRESSED = {
     'src/components/answer/FillInInput.tsx': {
         'jsx-a11y/no-autofocus': 'the answer box takes focus only when the question surface asks for it',
     },
+    'src/components/atlas/BridgeList.tsx': {
+        'jsx-a11y/control-has-associated-label': 'the button shows the topic and course names, one level deeper (ui/OwnLine) than the rule looks',
+    },
 };
 const require = createRequire(import.meta.url);
 const OXLINT = join(dirname(require.resolve('oxlint/package.json')), 'bin', 'oxlint');

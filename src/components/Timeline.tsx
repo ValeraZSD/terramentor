@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 
 export function Timeline({ children }: { children?: ReactNode }) {
     return (
-        <ol className="timeline my-5 ml-2 list-none space-y-5 border-l-2 border-slate-200 pl-0 dark:border-slate-700">
+        <ol className="timeline my-5 ms-2 list-none space-y-5 border-s-2 border-slate-200 ps-0 dark:border-slate-700">
             {children}
         </ol>
     );
@@ -32,13 +32,13 @@ interface TimelineEventProps {
 
 export function TimelineEvent({ time, title, children }: TimelineEventProps) {
     return (
-        <li className="relative list-none pl-5">
+        <li className="relative list-none ps-5">
             {/* The dot sits ON the rail: half its width (rem, like the dot)
                 plus half the 2px border to the left, vertically aligned with the
                 first line of the badge. A bare `-7px` was right only at 100%. */}
             <span
                 aria-hidden="true"
-                className="absolute left-[calc(-0.375rem_-_1px)] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-accent dark:border-slate-900"
+                className="absolute start-[calc(-0.375rem_-_1px)] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-accent dark:border-slate-900"
             />
             {time && (
                 <div className="mb-1">
