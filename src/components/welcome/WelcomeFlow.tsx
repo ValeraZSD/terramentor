@@ -149,7 +149,7 @@ export default function WelcomeFlow() {
                         {/* Two numerals and a slash, like the Getting started checklist:
                             how far through, with nothing for a translator to get wrong. */}
                         <span role="img" className="text-sm tabular-nums text-slate-500 dark:text-slate-400" aria-label={t("Step {{n}} of {{total}}", { n: step + 1, total: STEP_COUNT })}>
-                            {step + 1} / {STEP_COUNT}
+                            <span dir="ltr">{step + 1} / {STEP_COUNT}</span>
                         </span>
                         {step < STEP_COUNT - 1 && (
                             <Button size="sm" variant="quiet" onClick={() => void finish('/')}>

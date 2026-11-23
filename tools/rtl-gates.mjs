@@ -203,6 +203,11 @@ for (const f of SOURCES) {
     const ownless = raw.split('\n').filter((line) => /\btruncate\b[^>]*>\s*\{[\w?.]*(?:title|name|Name|Title)\}\s*</.test(line) && !/dir="auto"/.test(line));
     ok(`${r}: a truncated name or title reads in its own direction (OwnLine)`, ownless.length === 0, ownless.map((l) => l.trim()).slice(0, 3).join(' | '));
 
+    // A spaced count ("3 / 20") laid out right to left splits into two
+    // numbers and reads "20 / 3"; a left-to-right span keeps it one count.
+    const fractions = raw.split('\n').filter((line) => /\{[^{}]+\}\s+\/\s+\{[^{}]+\}/.test(line) && !/dir="ltr"/.test(line));
+    ok(`${r}: a spaced count stays one left-to-right count`, fractions.length === 0, fractions.map((l) => l.trim()).slice(0, 3).join(' | '));
+
     const moves = unmirroredLines(text);
     ok(`${r}: sideways moves are mirrored in right to left`, moves.length === 0, moves.slice(0, 3).map((m) => m.what).join('; '));
 
@@ -271,6 +276,10 @@ for (const [name, file] of iconsUsed) {
         const locale = JSON.parse(readFileSync(path.join(ROOT, `src/locales/${c}.json`), 'utf8'));
         const wrong = Object.entries(locale).filter(([, v]) => typeof v === 'string' && v.includes('→')).map(([k]) => k);
         ok(`${c}: a path or a change points with ← in right to left`, wrong.length === 0, `${wrong.length} with →: ${wrong.slice(0, 3).join(' | ')}`);
+        // "{{done}}/{{total}}" stays one number run; with spaces round the
+        // slash the two numbers swap places in a right-to-left line.
+        const spaced = Object.entries(locale).filter(([, v]) => typeof v === 'string' && /(?:\}\}|\d)\s+\/\s+(?:\{\{|\d)/.test(v)).map(([k]) => k);
+        ok(`${c}: a count is written without spaces round its slash`, spaced.length === 0, `${spaced.length} spaced: ${spaced.slice(0, 3).join(' | ')}`);
     }
 }
 

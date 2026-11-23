@@ -329,7 +329,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                     <div className="flex items-center gap-1">
                                         <IconButton onClick={() => setSample(i => (i - 1 + samples.length) % samples.length)} label={t("Previous example")} icon={<ChevronLeft size={16} />} />
                                         <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 select-none">
-                                            {shown + 1} / {samples.length}
+                                            <span dir="ltr">{shown + 1} / {samples.length}</span>
                                         </span>
                                         <IconButton onClick={() => setSample(i => (i + 1) % samples.length)} label={t("Next example")} icon={<ChevronRight size={16} />} />
                                     </div>

@@ -228,7 +228,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {inCards
                         ? t("{{value}} / {{value2}} cards met", { count: subtreeCards, value: num(node.progress?.seen ?? 0), value2: num(subtreeCards) })
-                        : <>{node.progress?.completed || 0} / {node.progress?.total || 0} {t("completed")}</>}
+                        : <><span dir="ltr">{node.progress?.completed || 0} / {node.progress?.total || 0}</span> {t("completed")}</>}
                     </p>
                   )}
                   {isNote && <p className="text-xs text-slate-500 dark:text-slate-400">{t("Note")}</p>}

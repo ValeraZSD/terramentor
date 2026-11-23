@@ -619,7 +619,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         {title ?? t("Flashcard Review")}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 tabular-nums truncate">
-                        <span className="sm:hidden">{Math.min(queue.reviewedCount + 1, cards.length)} / {cards.length}</span>
+                        <span dir="ltr" className="sm:hidden">{Math.min(queue.reviewedCount + 1, cards.length)} / {cards.length}</span>
                         <span className="hidden sm:inline">
                             {t("{{min}} of {{length}} cards", { count: cards.length, min: Math.min(queue.reviewedCount + 1, cards.length), length: cards.length })}
                             {skipped > 0 && <>{' '}{t("• {{skipped}} skipped", { skipped })}</>}

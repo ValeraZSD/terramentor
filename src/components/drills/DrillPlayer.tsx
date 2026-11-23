@@ -495,7 +495,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         <ReportScope>
             <div className="py-1">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-                    <span className="tabular-nums">{pos + 1} / {order.length}</span>
+                    <span dir="ltr" className="tabular-nums">{pos + 1} / {order.length}</span>
                     {seconds && (
                         <span className="inline-flex items-center gap-1 tabular-nums">
                             <Timer className="h-3.5 w-3.5" aria-hidden="true" />
