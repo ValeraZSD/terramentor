@@ -74,7 +74,7 @@ let languageStmt = null;
 export function describeLanguageFor(hash, projectId = null) {
     // Prepared once: the sweep asks this for every picture.
     languageStmt ??= db.prepare(`SELECT p.content_language AS lang FROM media_files m
-        LEFT JOIN projects p ON p.id = m.project_id
+        LEFT JOIN live_projects p ON p.id = m.project_id
         WHERE m.hash = ? ORDER BY (m.project_id = ?) DESC, m.id LIMIT 1`);
     return descriptionLanguage(languageStmt.get(hash, projectId)?.lang);
 }
