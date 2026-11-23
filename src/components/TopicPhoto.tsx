@@ -29,7 +29,7 @@ function Credit({ photo }: { photo: TopicPhoto }) {
     if (photo.licence) parts.push(<span key="l">{link(licence, photo.licence)}</span>);
     parts.push(<span key="s">{link(source, 'Wikimedia Commons')}</span>);
     return (
-        <p className="text-2xs leading-5 text-slate-500 dark:text-slate-400">
+        <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
             {t("Photo:")}{' '}
             {parts.map((p, i) => <span key={i}>{i > 0 && ' · '}{p}</span>)}
         </p>
@@ -64,7 +64,7 @@ export function TopicPhotoFigure({ photo }: { photo: TopicPhoto }) {
                     loading="lazy"
                     decoding="async"
                     onError={() => setBroken(true)}
-                    className="block w-auto h-auto max-w-full max-h-[28rem] rounded-lg bg-slate-100 dark:bg-slate-800"
+                    className="block mx-auto w-auto h-auto max-w-full max-h-[28rem] rounded-lg bg-slate-100 dark:bg-slate-800"
                 />
             )}
             <figcaption className="mt-2 space-y-0.5">

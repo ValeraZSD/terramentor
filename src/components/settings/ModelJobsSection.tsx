@@ -294,7 +294,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                     {tr("Find photos for topics learned by sight")}
                                 </label>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {tr("When a course is created, the model marks the topics you learn by looking and names examples. The app searches Wikimedia Commons for each one, keeps photos under a free licence with their credit, and stores them with the course so they show offline. From your course it sends Commons only the search words. The model picks by each file’s title and description; when your vision model can see images, it also looks at the photo it picked.")}
+                                    {tr("When a course is created, the model marks the topics you learn by looking and names examples. The app searches Wikimedia Commons for each one, keeps only photos under CC0, public domain, CC BY or CC BY-SA, and stores them with their credit in the course so they show offline. From your course it sends Commons only the search words. The model picks by each file’s title and description; when your vision model can see images, it also looks at the photo it picked.")}
                                 </p>
                             </div>
                             <Switch

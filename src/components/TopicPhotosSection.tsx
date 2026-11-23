@@ -81,7 +81,7 @@ export default function TopicPhotosSection({ nodeId }: { nodeId: number }) {
             )}
             {data.state === 'none' && (
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {t("No photos with a free licence were found for this topic.")}
+                    {t("No photo was found for this topic yet.")}
                 </p>
             )}
         </div>
