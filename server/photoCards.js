@@ -87,9 +87,10 @@ export function syncPhotoCards(projectId) {
     // report is undone (server/itemReports.js takes the card of one reported after).
     const reported = standingRefs('photo:');
     // One card per picture: the same file kept under two topics would be two
-    // cards with one front and two backs. The course's cards so far count.
-    const pictures = new Set(stmt(`SELECT p.hash FROM flashcards f JOIN node_photos p ON p.uuid = f.photo_uuid
-        JOIN nodes n ON n.id = p.node_id WHERE n.project_id = ? /* with deleted */`).all(projectId).map(r => r.hash));
+    // cards with one front and two backs. The course's cards so far count,
+    // deleted ones too: a deleted card is never made again.
+    const pictures = new Set(stmt(`SELECT p.hash FROM flashcards f /* with deleted */ JOIN node_photos p ON p.uuid = f.photo_uuid
+        JOIN nodes n /* with deleted */ ON n.id = p.node_id WHERE n.project_id = ?`).all(projectId).map(r => r.hash));
     const spellings = answerSpellings(projectId);
     let added = 0;
     db.transaction(() => {
