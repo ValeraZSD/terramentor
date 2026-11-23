@@ -201,6 +201,7 @@ const KIND_WORDS = {
     recover: 'Recovering text from a PDF',
     feed: 'Preparing feed lessons',
     atlas: 'Naming atlas regions',
+    find_photos: 'Finding photos for topics',
 };
 
 /** Kinds whose label is the learner's topic title rather than the app's own sentence. */

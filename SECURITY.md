@@ -781,6 +781,43 @@ and is described here in the same detail as the update check.
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.
 
+## Photos for topics learned by sight
+
+A course about telling things apart by how they look (buildings, plants and animals,
+artworks) is taught with real photos of named examples, found in Wikimedia Commons
+(`server/topicPhotos.js`).
+
+- **A switch, on by default, and only for creation.** Settings → AI & Models → "Find photos"
+  sits beside "Find resources". With it on, a course you create with AI looks for photos once
+  its outline is written, as a task in the task list that you can stop. With it off, creating a
+  course opens no connection for photos. On a topic that has examples, **Look again** runs the
+  same search for that topic only, when you press it. Nothing about photos starts when the app
+  starts.
+- **Where it connects.** `commons.wikimedia.org` (the archive's search) and
+  `upload.wikimedia.org` (the chosen photo, at the 960 px width the archive keeps rendered).
+  Nothing else: the app downloads only the addresses the archive's own search answered with,
+  never an address a model wrote, and a redirect to any other host is refused. Both go
+  through `server/netSafety.js` like every other fetch.
+- **What it sends.** The example's name as search words (written by the course's model from
+  the course name, its description and the topic titles; your notes and documents are not in
+  front of it), a User-Agent naming the app, its version and its project page, because
+  Wikimedia refuses anonymous clients, and your IP, as a browser would. No key, no account.
+- **How often.** One request at a time, at least a second apart. A "slow down" answer (429,
+  503 or a lag notice) is waited out once, for as long as it asks; a second one stops the run.
+  At most 12 topics a course and 4 examples a topic are searched.
+- **What is kept.** Only photos under CC0, public domain, CC BY or CC BY-SA, of a sensible size
+  and shape, that the archive does not mark non-free or restricted. Each is stored in the
+  library's media folder, so the course works offline, with the author, licence and source page
+  the archive records for it; every screen that shows a photo shows that credit, with links.
+  A JSON export carries the credit, a course bundle the files as well. The credit is the
+  archive's record, copied as it stands: Wikimedia gives no warranty on it, and neither does
+  this app.
+- **Models.** The course's model names the examples and picks among the search results by
+  number. When the vision job's model is known to see images, it also looks at each photo
+  before it is kept (at most 24 a run). These calls go to your configured endpoints, like the
+  rest of course creation.
+- **The activity log** records each run as numbers only (topics, photos found, requests).
+
 ## The MCP server (an agent in another app)
 
 `mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
@@ -938,6 +975,9 @@ about ten minutes:
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
+   With "Find photos" on, a creation also reaches `commons.wikimedia.org` and
+   `upload.wikimedia.org` while it finds photos for topics learned by sight, and **Look again**
+   on one topic reaches them for that topic only.
    Reading a link added as course material reaches that link's host (and `www.youtube.com` for
    a video, up to six requests), once per link pasted, dropped or added in the New course
    window, or per press of Create on the assistant's card. Any of

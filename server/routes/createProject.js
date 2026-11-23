@@ -29,6 +29,7 @@ import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
+import { photosWanted, startPhotos } from '../topicPhotos.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, filesLanguage as filesLanguageOf, loadStaged, StagedClaimedError } from '../stagedDocuments.js';
 import {
@@ -660,6 +661,9 @@ app.post('/api/ai/create-project', (req, res) => {
     // once, at the start, so flipping the setting mid-run can't desync the
     // progress estimate from the work actually being done.
     const curateResources = getSetting('creation_find_resources', 'true') !== 'false';
+    // Photos for topics learned by sight are found after the outline is
+    // written, in a task of their own (server/topicPhotos.js).
+    const findPhotos = photosWanted();
     const run = beginRun(req, res, { name: runName, color: projectColor, curate: curateResources });
     const { send, tracker, startCall, endCall } = run;
     const signal = run.signal;
@@ -761,6 +765,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 run.adopt(made.projectId, made.name);
                 markCreationFinished.run(made.projectId);
                 send({ phase: 'topics_written', projectId: made.projectId, projectName: made.name, topics: made.topics });
+                if (findPhotos) startPhotos(made.projectId);
                 return run.finish({
                     phase: 'complete',
                     projectId: made.projectId,
@@ -974,6 +979,7 @@ app.post('/api/ai/create-project', (req, res) => {
         // a part left empty still makes this run a failure, not `complete`.
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
         markCreationFinished.run(projectId);
+        if (findPhotos) startPhotos(projectId);
 
         return run.finish({
             phase: 'complete',
@@ -1311,6 +1317,8 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
         removeUnfinishedNotice(projectId);
         markCreationFinished.run(projectId);
+        // Topics written by this run get theirs; ones that have photos keep them.
+        if (photosWanted()) startPhotos(projectId);
 
         return run.finish({
             phase: 'complete',
