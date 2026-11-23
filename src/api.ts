@@ -2258,13 +2258,13 @@ export const api = {
     // multipart Content-Type/boundary, so this bypasses the JSON `request` helper.
     uploadDocumentFiles: async (
         files: File[],
-        opts: { projectId?: number; nodeId?: number }
+        opts: { projectId?: number; nodeId?: number; signal?: AbortSignal }
     ): Promise<{ documents: UploadedDocument[] }> => {
         const form = new FormData();
         files.forEach(f => form.append('files', f));
         if (opts.projectId) form.append('projectId', String(opts.projectId));
         if (opts.nodeId) form.append('nodeId', String(opts.nodeId));
-        const res = await apiFetch(`${BASE}/documents/upload`, { method: 'POST', body: form });
+        const res = await apiFetch(`${BASE}/documents/upload`, { method: 'POST', body: form, signal: opts.signal });
         if (!res.ok) {
             let msg = `Upload failed: ${res.status}`;
             try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }

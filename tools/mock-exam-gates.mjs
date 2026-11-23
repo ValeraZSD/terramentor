@@ -456,6 +456,25 @@ try {
         mock.stopWriting(full.id, { now: 260_000 });
         for (const part of p.parts) mock.setPartScore(full.id, part.id, part.points);
         check('full marks everywhere: no weakest topic', mock.finishSitting(full.id, { now: 300_000 }).result?.weakest === null);
+        // A topic deleted after the paper was made: its points still count,
+        // but it is never named or offered to practise.
+        {
+            const gone = db.prepare("INSERT INTO nodes (project_id, title, status) VALUES (?, 'Gone topic', 'not_started')").run(c).lastInsertRowid;
+            const dp = mock.createPaper(c, { title: 'Deleted topic', minutes: 60, parts: [
+                { question: '1', part: '', points: 10, nodeId: gone },
+                { question: '2', part: '', points: 10, nodeId: algebra },
+            ] });
+            db.prepare('UPDATE nodes SET deleted_at = ? WHERE id = ?').run(new Date(0).toISOString(), gone);
+            const ds = mock.startSitting(dp.id, { now: 600_000 });
+            mock.stopWriting(ds.id, { now: 660_000 });
+            mock.setPartScore(ds.id, dp.parts[0].id, 0);  // the deleted topic loses all 10
+            mock.setPartScore(ds.id, dp.parts[1].id, 8);  // algebra loses 2
+            const dr = mock.finishSitting(ds.id, { now: 720_000 }).result;
+            check('a deleted topic is never the weakest: the live one that lost points is', dr?.weakest?.id === algebra && dr.earned === 8,
+                JSON.stringify({ weakest: dr?.weakest, earned: dr?.earned }));
+            check('…nor named under its question', !(dr?.questions ?? []).some(q => q.topics.some(t => t.id === gone || t.title == null)),
+                JSON.stringify(dr?.questions));
+        }
         // Ties: the same points lost goes to the topic that kept the smaller share.
         const tie = (parts, scores) => {
             const tp = mock.createPaper(c, { title: `Tie ${parts.length}`, minutes: 60, parts });
@@ -492,6 +511,13 @@ try {
         check('…holds Add while an upload runs', /disabled=\{[^}]*uploading > 0/.test(dialog)
             || (/disabled=\{held != null\}/.test(dialog) && /const held = [^;]*uploading > 0/.test(dialog)));
         check('…and names its two Upload buttons apart', /t\("Upload the paper"\)/.test(dialog) && /t\("Upload the worked solution"\)/.test(dialog) && /aria-label=\{label\}/.test(dialog));
+        // A stalled upload would hold Add, Cancel and Escape for good: it is given up after a limit.
+        check('…gives a stalled upload up after a limit, saying so', /setTimeout\(\(\) => \{ timedOut = true; controller\.abort\(\); \}, UPLOAD_LIMIT_MS\)/.test(pick)
+            && /signal: controller\.signal/.test(pick) && /t\("The upload took too long\. Try again\."\)/.test(pick)
+            && /signal: opts\.signal/.test(readFileSync(join(ROOT, 'src', 'api.ts'), 'utf8')));
+        // A file picked after Add was pressed would land after the save took its document ids.
+        check('…and takes no file while the paper is being added', /saving=\{busy\}/.test(dialog) && /if \(!file \|\| saving\) return;/.test(pick)
+            && /<Button busy=\{busy\} disabled=\{saving\}/.test(dialog));
     });
 
     await block('13. a course mock can hide its clock too, and every hidden clock comes back for the last five minutes', async () => {
@@ -522,8 +548,12 @@ try {
         const far = mock.takeAwayTimeOff(s.id, 86_400, { now: 1_000_000 });
         check('never further back than the clock\'s last start: banked time stays', far.elapsed === 600, String(far.elapsed));
         mock.pauseSitting(s.id, { now: 1_060_000 });
-        const paused = mock.takeAwayTimeOff(s.id, 30, { now: 2_000_000 });
-        check('a paused clock is left alone', paused.elapsed === 660 && paused.running === false, JSON.stringify(paused));
+        // Paused (in another tab) after the offer was made: refused, so the
+        // screen never takes an unchanged clock for time taken off.
+        let pausedStatus = null;
+        try { mock.takeAwayTimeOff(s.id, 30, { now: 2_000_000 }); } catch (e) { pausedStatus = e?.status; }
+        const paused = mock.getSitting(s.id, { now: 2_000_000 });
+        check('a paused clock is refused (409) and left alone', pausedStatus === 409 && paused.elapsed === 660 && paused.running === false, `${pausedStatus} ${JSON.stringify(paused)}`);
         // Over HTTP the server reads its own clock, so only answers that do not
         // depend on it are checked there: the refusals, and a paused clock.
         for (const [what, seconds] of [['negative', -5], ['over a day', 86_401], ['a fraction', 1.5], ['text', '60']]) {
@@ -532,10 +562,14 @@ try {
         }
         const none = await call('POST', '/api/mock-sittings/999999/away', { seconds: 60 });
         check('…a mock that does not exist is a 404', none.status === 404, String(none.status));
-        const ok = await call('POST', `/api/mock-sittings/${s.id}/away`, { seconds: 60 });
-        check('…and a paused clock is answered with its sitting, unchanged', ok.status === 200 && ok.body?.sitting?.elapsed === 660, JSON.stringify(ok.body)?.slice(0, 120));
+        const held = await call('POST', `/api/mock-sittings/${s.id}/away`, { seconds: 60 });
+        check('…and a paused clock is a 409 that says nothing was taken off', held.status === 409
+            && /no time was taken off/.test(JSON.stringify(held.body)) && mock.getSitting(s.id, { now: 2_000_000 }).elapsed === 660,
+            JSON.stringify(held.body)?.slice(0, 160));
         mock.stopWriting(s.id, { now: 2_100_000 });
-        check('a mock being marked is left alone', mock.takeAwayTimeOff(s.id, 60, { now: 2_200_000 }).elapsed === 660);
+        let markingStatus = null;
+        try { mock.takeAwayTimeOff(s.id, 60, { now: 2_200_000 }); } catch (e) { markingStatus = e?.status; }
+        check('a mock being marked is refused and left alone', markingStatus === 409 && mock.getSitting(s.id, { now: 2_200_000 }).elapsed === 660);
         const cp = mock.createPaper(c, { title: 'Course-made', minutes: 60, parts: [{ question: '1', part: '', points: 1 }] });
         // Started as a paper, then marked as one the course drew (the way a drawn mock is stored).
         const cs = mock.startSitting(cp.id, { now: 0 });

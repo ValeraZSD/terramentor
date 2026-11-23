@@ -353,10 +353,11 @@ export function takeAwayTimeOff(id, seconds, { now = Date.now() } = {}) {
     // Started with Time limits Off: no clock, and the time written it reports stays as written.
     if (!s.time_allowed) throw bad('This paper has no clock to take time off');
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400) throw bad('The time away must be a whole number of seconds, from 1 to a day');
-    if (s.status === 'writing' && s.running_since) {
-        const from = Math.max(Date.parse(s.running_since), now - seconds * 1000);
-        stmt('UPDATE mock_sittings SET elapsed = ?, running_since = ? WHERE id = ?').run(elapsedOf(s, from), iso(now), id);
-    }
+    // Paused (in another tab, say) since the offer was made: nothing is taken
+    // off, and the screen must hear that rather than a sitting that looks done.
+    if (s.status !== 'writing' || !s.running_since) throw new MockExamError(409, 'The clock is paused, so no time was taken off');
+    const from = Math.max(Date.parse(s.running_since), now - seconds * 1000);
+    stmt('UPDATE mock_sittings SET elapsed = ?, running_since = ? WHERE id = ?').run(elapsedOf(s, from), iso(now), id);
     return getSitting(id, { now });
 }
 
@@ -426,7 +427,8 @@ function resultOf(s, paper) {
         const q = byQ.get(p.question) ?? { question: p.question, points: 0, earned: 0, lost: 0, topics: [] };
         q.points += p.points;
         q.earned += p.earned ?? 0;
-        if (p.nodeId != null && !q.topics.some(t => t.id === p.nodeId)) q.topics.push({ id: p.nodeId, title: p.topic });
+        // A deleted topic keeps its part's points but is never named or offered.
+        if (p.nodeId != null && p.topic != null && !q.topics.some(t => t.id === p.nodeId)) q.topics.push({ id: p.nodeId, title: p.topic });
         byQ.set(p.question, q);
     }
     const questions = [...byQ.values()].map(q => ({ ...q, lost: q.points - q.earned }));
@@ -437,7 +439,7 @@ function resultOf(s, paper) {
     // share kept, then the paper's order. Parts with no topic are never offered.
     const byTopic = new Map();
     for (const p of parts) {
-        if (p.nodeId == null) continue;
+        if (p.nodeId == null || p.topic == null) continue;
         const t = byTopic.get(p.nodeId) ?? { id: p.nodeId, title: p.topic, points: 0, lost: 0 };
         t.points += p.points;
         t.lost += p.points - (p.earned ?? 0);

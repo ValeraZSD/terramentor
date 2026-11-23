@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Plus, Trash2, Upload } from 'lucide-react';
 import Modal from '../Modal';
@@ -106,7 +106,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                     {docs.map(d => <option key={d.id} value={String(d.id)}>{d.title}</option>)}
                 </Select>
             </div>
-            <UploadButton projectId={projectId} label={uploadLabel} onError={setError} onBusy={onBusy}
+            <UploadButton projectId={projectId} label={uploadLabel} saving={busy} onError={setError} onBusy={onBusy}
                 onUploaded={doc => { setDocs(ds => [...ds, doc]); set(doc.id); }} />
         </div>
     );
@@ -218,6 +218,8 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
  * the upload, since an uploaded file stays in the course's files.
  */
 const PAPER_KINDS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+/** How long an upload may take before it is given up (a big scanned paper on a slow link fits). */
+const UPLOAD_LIMIT_MS = 180_000;
 const paperKind = (name: string) => PAPER_KINDS.includes(name.split('.').pop()?.toLowerCase() ?? '');
 
 /**
@@ -225,10 +227,12 @@ const paperKind = (name: string) => PAPER_KINDS.includes(name.split('.').pop()?.
  * files, and pick it for the field it was uploaded from: no trip to the
  * course's files and back with the dialog half filled.
  */
-function UploadButton({ projectId, label, onUploaded, onError, onBusy }: {
+function UploadButton({ projectId, label, saving, onUploaded, onError, onBusy }: {
     projectId: number;
     /** The button's full name ("Upload the paper"): two sit in the dialog, both reading "Upload". */
     label: string;
+    /** The paper is being added: a file picked now would land after the save took its document ids. */
+    saving: boolean;
     onUploaded: (doc: MockExamList['documents'][number]) => void;
     onError: (message: string | null) => void;
     onBusy: (busy: boolean) => void;
@@ -237,8 +241,12 @@ function UploadButton({ projectId, label, onUploaded, onError, onBusy }: {
     const input = useRef<HTMLInputElement>(null);
     const [busy, setBusy] = useState(false);
     const working = (on: boolean) => { setBusy(on); onBusy(on); };
+    // An upload that never answers would hold Add, Cancel and Escape for good:
+    // it is given up after UPLOAD_LIMIT_MS, and the typed paper stays.
+    const pending = useRef<AbortController | null>(null);
+    useEffect(() => () => pending.current?.abort(), []);
     const pick = (file: File | undefined) => {
-        if (!file) return;
+        if (!file || saving) return;
         onError(null);
         const clear = () => { if (input.current) input.current.value = ''; };
         if (!paperKind(file.name)) {
@@ -247,20 +255,31 @@ function UploadButton({ projectId, label, onUploaded, onError, onBusy }: {
             return;
         }
         working(true);
-        api.uploadDocumentFiles([file], { projectId })
+        const controller = new AbortController();
+        pending.current = controller;
+        let timedOut = false;
+        const limit = setTimeout(() => { timedOut = true; controller.abort(); }, UPLOAD_LIMIT_MS);
+        api.uploadDocumentFiles([file], { projectId, signal: controller.signal })
             .then(({ documents: [doc] }) => {
                 if (!doc?.ok) throw new Error(doc?.error || t("That file could not be read."));
                 if (!PAPER_KINDS.includes(doc.file_type ?? '')) throw new Error(t("Upload a PDF or a picture: those open in the browser beside your points."));
                 onUploaded({ id: doc.id, title: doc.title, fileType: doc.file_type! });
             })
-            .catch(e => onError(e.message))
-            .finally(() => { working(false); clear(); });
+            .catch(e => {
+                if (timedOut) onError(t("The upload took too long. Try again."));
+                else if (!controller.signal.aborted) onError(e.message);
+            })
+            .finally(() => {
+                clearTimeout(limit);
+                if (pending.current === controller) pending.current = null;
+                if (!controller.signal.aborted || timedOut) { working(false); clear(); }
+            });
     };
     return (
         <>
             <input ref={input} type="file" accept=".pdf,image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} aria-hidden="true"
                 onChange={e => pick(e.target.files?.[0])} />
-            <Button busy={busy} aria-label={label} icon={<Upload className="w-4 h-4" aria-hidden="true" />} onClick={() => input.current?.click()}>
+            <Button busy={busy} disabled={saving} aria-label={label} icon={<Upload className="w-4 h-4" aria-hidden="true" />} onClick={() => input.current?.click()}>
                 {t("Upload")}
             </Button>
         </>
