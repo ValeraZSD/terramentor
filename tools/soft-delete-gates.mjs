@@ -522,11 +522,15 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     // a stub on loopback that keeps what it was sent.
     const LEAK = 'zqleak';
     const sent = [];
+    // Runs on each request before the stub answers: a row below deletes a
+    // topic while its file's embedding call is out.
+    let onRequest = null;
     const stub = createServer((req, res) => {
         let body = '';
         req.on('data', c => { body += c; });
         req.on('end', () => {
             sent.push(body);
+            onRequest?.(body);
             let input = [];
             try { input = JSON.parse(body || '{}').input ?? []; } catch { }
             const texts = Array.isArray(input) ? input : [input];
@@ -590,6 +594,10 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     db.prepare("UPDATE media_files SET description = ?, described_by = 'author' WHERE hash = ? AND project_id = ?").run(`${LEAK} old text`, hMoved, keep);
     const other = project('Second live course');
     picture(other, node(other, null, 'Second topic'), 'moved');
+    // Each course declares its own language: the description is asked in the
+    // language of the course whose card shows it.
+    db.prepare("UPDATE projects SET content_language = 'de' WHERE id = ?").run(keep);
+    db.prepare("UPDATE projects SET content_language = 'nl' WHERE id = ?").run(other);
     // Paper practice: an exercise and a marked attempt with its photo.
     const exercise = ins("INSERT INTO feed_items (node_id, kind, content, status) VALUES (?, 'practice', ?, 'ready')", lTopic,
         JSON.stringify({ prompt: `${LEAK} exercise`, reference_solution: `${LEAK} solution`, rubric: [{ criterion: `${LEAK} step`, points: 1 }] }));
@@ -632,6 +640,25 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
         ok('control: a live file waiting to be indexed is indexed', settled, `${embedStatus(liveIndex)}`);
         ok('a deleted course\'s file is never sent to the embedding model (heal, re-index all, a direct queue)',
             leaked() === 0 && embedStatus(deadIndex) !== 'indexed', `${leaked()} request(s) held its text; status ${embedStatus(deadIndex)}`);
+        // Deleted while its one embedding call is out: the answer is dropped,
+        // the file waits as pending for its Restore.
+        const midTopic = node(keep, null, 'Mid-call topic');
+        const midDoc = doc(keep, midTopic, 'midcall file');
+        let deletedMidCall = false;
+        onRequest = (body) => {
+            if (deletedMidCall || !body.includes('midcall file')) return;
+            deletedMidCall = true;
+            SD.softDelete('nodes', midTopic);
+        };
+        indexDocument(midDoc);
+        await waitFor(() => deletedMidCall, 5_000);
+        await new Promise(r => setTimeout(r, 500));
+        onRequest = null;
+        const midVectors = db.prepare(`SELECT COUNT(*) FROM vec_chunks WHERE rowid IN
+            (SELECT id FROM document_chunks WHERE document_id = ?)`).pluck().get(midDoc);
+        ok('a file deleted while its embedding call is out keeps no vectors and waits as pending',
+            deletedMidCall && midVectors === 0 && embedStatus(midDoc) === 'pending',
+            `deleted mid-call ${deletedMidCall}, ${midVectors} vector(s), status ${embedStatus(midDoc)}`);
     } else console.log('        (sqlite-vec is not available here: the indexing rows are skipped)');
 
     // 2. PDF recovery.
@@ -661,10 +688,22 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     ok('…nor sent to a vision model when asked for by its hash', !described.ok && described.reason === 'no such media' && leaked() === 0, JSON.stringify(described));
     const twice = await describeMedia(hTwice, { model: 'stub' });
     ok('a picture also in a live course is described from the live course\'s row, not the deleted one\'s',
-        twice.reason !== 'already described' && !String(twice.description ?? '').includes(LEAK), JSON.stringify(twice));
+        twice.reason !== 'already described' && twice.reason !== 'no such media' && !String(twice.description ?? '').includes(LEAK), JSON.stringify(twice));
+    // AI on for this one call, so its request reaches the stub and its prompt
+    // can be read; the stub's answer is no description, so nothing is stored.
+    const sentBefore = sent.length;
+    const closedPort = process.env.AI_BASE_URL;
+    process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
+    set.run('ai_enabled', 'true');
     const moved = await describeMedia(hMoved, { model: 'stub' });
+    set.run('ai_enabled', 'false');
+    process.env.AI_BASE_URL = closedPort;
     ok('…and one in two live courses from the row of the course whose card shows it',
-        moved.reason !== 'already described' && !String(moved.description ?? '').includes(LEAK), JSON.stringify(moved));
+        moved.reason !== 'already described' && moved.reason !== 'no such media' && !String(moved.description ?? '').includes(LEAK), JSON.stringify(moved));
+    const askedIn = sent.slice(sentBefore).join('\n');
+    ok('…and asked in that course\'s language, not the first row\'s',
+        askedIn.includes('Write the description in Dutch') && !askedIn.includes('Write the description in German'),
+        askedIn ? askedIn.match(/Write the description in \w+/)?.[0] ?? 'no language line' : `no request reached the stub: ${JSON.stringify(moved)}`);
     const served = async (h) => [(await call('GET', `/api/media/${h}`)).status, (await call('GET', `/api/media/${h}/info`)).status];
     ok('control: a live card\'s picture is served', (await served(hLive)).every(s => s === 200));
     ok('…and one of a deleted course or of only a deleted card is a 404', [...await served(hCourse), ...await served(hCard)].every(s => s === 404),

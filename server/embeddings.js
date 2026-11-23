@@ -383,20 +383,23 @@ async function runIndex(documentId) {
         origin: indexOrigin,
     });
 
+    // Deleted while a batch was out: nothing more is written, and its Restore
+    // indexes the file again. Not a failure, so its Restore's heal must not
+    // find the tries used up.
+    const stopIfDeleted = () => {
+        if (isLiveDocument(documentId)) return false;
+        markDoc(documentId, 'pending');
+        healAttempts.delete(documentId);
+        handle.cancelled();
+        return true;
+    };
     try {
         let done = 0;
         for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
-            // Deleted while earlier batches were out: the rest stays here, and
-            // its Restore indexes the file again.
-            if (i > 0 && !isLiveDocument(documentId)) {
-                markDoc(documentId, 'pending');
-                // Not a failure: its Restore's heal must not find the tries used up.
-                healAttempts.delete(documentId);
-                handle.cancelled();
-                return;
-            }
+            if (i > 0 && stopIfDeleted()) return;
             const batch = chunks.slice(i, i + EMBED_BATCH);
             const vectors = await embedBatch(batch.map(c => c.content));
+            if (stopIfDeleted()) return;
             const dim = vectors[0]?.length;
             if (!dim) throw new Error('embedding model returned empty vectors');
             if (!ensureVecTable(dim)) throw new Error('vector storage unavailable');
@@ -418,6 +421,7 @@ async function runIndex(documentId) {
         healAttempts.delete(documentId);
         handle.finish();
     } catch (err) {
+        if (stopIfDeleted()) return;
         const status = isUnavailable(err) ? 'unavailable' : 'error';
         markDoc(documentId, status);
         if (status === 'unavailable') {

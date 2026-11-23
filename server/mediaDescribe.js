@@ -238,7 +238,8 @@ export async function describeMedia(hash, { force = false, model, signal, projec
         return { ok: false, reason: k('the file is missing from the media store') };
     }
 
-    const language = describeLanguageFor(hash, projectId);
+    // The language of the course that uses it, not of whichever row is first.
+    const language = describeLanguageFor(hash, row.project_id);
     let text;
     try {
         text = await transcribeImageToText(bytes, {

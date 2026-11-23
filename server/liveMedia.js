@@ -45,7 +45,7 @@ let inUseStmt = null;
  */
 export function inUseMediaRow(hash, projectId = null) {
     inUseStmt ??= db.prepare(`
-        SELECT mf.hash, mf.kind, mf.mime, mf.filename, mf.description, mf.described_by FROM media_files mf
+        SELECT mf.project_id, mf.hash, mf.kind, mf.mime, mf.filename, mf.description, mf.described_by FROM media_files mf
         WHERE mf.hash = ? AND (
             EXISTS (SELECT 1 FROM live_nodes n JOIN live_flashcards f ON f.node_id = n.id
                     WHERE n.project_id = mf.project_id AND f.media IS NOT NULL AND instr(f.media, mf.hash) > 0)
