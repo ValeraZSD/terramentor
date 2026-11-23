@@ -203,7 +203,6 @@ const ADJACENT_LABELS = new Set([
     'BulkGenerateModal.tsx:stopped — everything finished is saved',
     'DeckDashboard.tsx:· {{fmt}} sections',          // a row of facts
     'ProjectsGrid.tsx:Activity log',                 // a heading beside a status
-    'ProjectQuizzesList.tsx:{{length}} questions',   // two facts on one line
     'AnkiImportModal.tsx:{{cards}} cards',           // "N cards" · "from M decks"
     'GlobalFlashcardReview.tsx:{{min}} of {{length}} cards', // a row of facts: position · skipped · deleted
 ]);
