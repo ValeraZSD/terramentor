@@ -275,31 +275,32 @@ function Trial({ item, verdict, label, picked, onSelect, onPick, sending, report
 const photoAlt = (p: Pick<TopicPhoto, 'subject' | 'shows'>) => (p.shows ? `${p.subject}. ${p.shows}` : p.subject);
 
 /** The example's name, what to look at, and the photo's credit. */
-function PhotoWords({ photo }: { photo: TopicPhoto }) {
+function PhotoWords({ photo, compact = false }: { photo: TopicPhoto; compact?: boolean }) {
     return (
         <div className="space-y-1">
             <p className="text-base font-medium text-slate-900 dark:text-white">{photo.subject}</p>
-            {photo.shows && <p className="text-base text-slate-700 dark:text-slate-200">{photo.shows}</p>}
+            {photo.shows && <p className={`${compact ? 'text-sm' : 'text-base'} text-slate-700 dark:text-slate-200`}>{photo.shows}</p>}
             <PhotoCredit photo={photo} />
         </div>
     );
 }
 
-/** The photo, in its own shape, up to a height that leaves the options in view. */
-function PracticePhoto({ hash, width, height, alt, large = false }: {
-    hash: string; width: number | null; height: number | null; alt: string; large?: boolean;
+/** The photo, in its own shape, up to a height that leaves the options in view.
+ *  `tile`: inside a 4:3 tile, so two photos of different shapes stand the same size. */
+function PracticePhoto({ hash, width, height, alt, large = false, tile = false }: {
+    hash: string; width: number | null; height: number | null; alt: string; large?: boolean; tile?: boolean;
 }) {
     const { t } = useTranslation();
     const [broken, setBroken] = useState(false);
     if (broken || !/^[a-f0-9]{64}$/.test(hash)) {
         return (
-            <div className="flex items-center justify-center gap-2 h-48 w-[28rem] max-w-full px-4 text-center rounded-xl bg-slate-200 dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300">
+            <div className={`flex items-center justify-center gap-2 px-4 text-center rounded-xl bg-slate-200 dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300 ${tile ? 'aspect-[4/3] w-full' : 'h-48 w-[28rem] max-w-full'}`}>
                 <ImageOff className="w-4 h-4 shrink-0" aria-hidden="true" />
                 {t("This photo could not be loaded.")}
             </div>
         );
     }
-    return (
+    const img = (
         <img
             src={`/api/media/${hash}`}
             alt={alt}
@@ -307,9 +308,14 @@ function PracticePhoto({ hash, width, height, alt, large = false }: {
             height={height && height > 0 ? height : undefined}
             decoding="async"
             onError={() => setBroken(true)}
-            className={`block w-auto h-auto max-w-full rounded-xl bg-slate-200 dark:bg-slate-800 ${large ? 'max-h-[min(28rem,55vh)]' : 'max-h-72'}`}
+            className={tile
+                ? 'block w-auto h-auto max-w-full max-h-full'
+                : `block w-auto h-auto max-w-full rounded-xl bg-slate-200 dark:bg-slate-800 ${large ? 'max-h-[min(28rem,55vh)]' : 'max-h-72'}`}
         />
     );
+    return tile
+        ? <div className="aspect-[4/3] w-full overflow-hidden rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center">{img}</div>
+        : img;
 }
 
 /** A wrong pick: the photo asked about beside one of the topic picked, each named and credited. */
@@ -322,15 +328,17 @@ function Comparison({ shown, picked, pickedTopic }: {
     const rem = useRootFontSize();
     // Side by side once each photo can be 15rem wide; stacked on a phone.
     const twoUp = width >= 31 * rem;
+    // Each panel is a subgrid of one three-row grid, so the labels, the photo tiles and the
+    // captions of the two panels start on the same lines whatever their lengths.
     const panel = (photo: TopicPhoto & { topic: string }, label: string) => (
-        <figure className="min-w-0 space-y-2">
+        <figure className={twoUp ? 'min-w-0 row-span-3 grid grid-cols-1 grid-rows-subgrid' : 'min-w-0 space-y-2'}>
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{label}</p>
-            <PracticePhoto hash={photo.hash} width={photo.width} height={photo.height} alt={photoAlt(photo)} />
-            <figcaption><PhotoWords photo={photo} /></figcaption>
+            <PracticePhoto hash={photo.hash} width={photo.width} height={photo.height} alt={photoAlt(photo)} tile={twoUp} />
+            <figcaption><PhotoWords photo={photo} compact={twoUp} /></figcaption>
         </figure>
     );
     return (
-        <div ref={ref} className={twoUp ? 'grid grid-cols-2 gap-5 items-start' : 'space-y-6'}>
+        <div ref={ref} className={twoUp ? 'grid grid-cols-2 grid-rows-[auto_auto_auto] gap-x-5 gap-y-2' : 'space-y-6'}>
             {/* The pick is a topic, so its photo is labelled with that topic:
                 "Your pick" alone read as a photo the learner had chosen. */}
             {panel(shown, t("This photo"))}
