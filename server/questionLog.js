@@ -61,7 +61,7 @@ const servable = (q) => !!q && typeof q === 'object' && !q.isGhost && hasUsableK
  * the storage order; the draw reorders.
  */
 export function bankOf(nodeId) {
-    const rows = db.prepare('SELECT id, questions FROM quizzes WHERE node_id = ? ORDER BY id').all(nodeId);
+    const rows = db.prepare('SELECT id, questions FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id').all(nodeId);
     const out = [];
     for (const row of rows) {
         const qs = safeParse(row.questions);
@@ -81,7 +81,7 @@ let projectBanks = null;
  */
 export function banksOfProject(projectId) {
     projectBanks ??= db.prepare(`
-        SELECT q.id, q.node_id, q.questions FROM quizzes q JOIN nodes n ON n.id = q.node_id
+        SELECT q.id, q.node_id, q.questions FROM live_quizzes q JOIN live_nodes n ON n.id = q.node_id
         WHERE n.project_id = ? ORDER BY q.node_id, q.id
     `);
     const out = new Map();
@@ -99,7 +99,7 @@ export function banksOfProject(projectId) {
 
 /** One quiz row's own questions, same tagging. */
 export function bankOfQuiz(quizId) {
-    const row = db.prepare('SELECT id, node_id, questions FROM quizzes WHERE id = ?').get(quizId);
+    const row = db.prepare('SELECT id, node_id, questions FROM live_quizzes quizzes WHERE id = ?').get(quizId);
     if (!row) return { nodeId: null, bank: [] };
     const qs = safeParse(row.questions);
     const bank = [];
@@ -340,9 +340,9 @@ export function shakyQuestions(nodeId) {
         FROM question_log
         WHERE (quiz_id IN (${quizIds.map(() => '?').join(',')})${byUuid}) AND correct IS NOT NULL
           AND NOT EXISTS (
-              SELECT 1 FROM quizzes q JOIN nodes n ON n.id = q.node_id
+              SELECT 1 FROM live_quizzes q JOIN live_nodes n ON n.id = q.node_id
               WHERE q.id = question_log.quiz_id
-                AND n.project_id IS NOT (SELECT project_id FROM nodes WHERE id = ?))
+                AND n.project_id IS NOT (SELECT project_id FROM live_nodes nodes WHERE id = ?))
         ORDER BY asked_at DESC, id DESC
     `).all(...quizIds, ...uuids, nodeId);
     // Confirmed after it was asked: the answers before that stay uncounted.
@@ -374,7 +374,7 @@ export function shakyQuestions(nodeId) {
 export function askedCount(nodeId) {
     return db.prepare(`
         SELECT COUNT(DISTINCT COALESCE(l.question_uuid, l.quiz_id || ':' || l.question_index)) AS n
-        FROM question_log l JOIN quizzes q ON q.id = l.quiz_id WHERE q.node_id = ?
+        FROM question_log l JOIN live_quizzes q ON q.id = l.quiz_id WHERE q.node_id = ?
     `).get(nodeId).n;
 }
 
@@ -397,7 +397,7 @@ const insertStmt = () => db.prepare(`
  */
 export function logAsked(entries, surface) {
     if (!Array.isArray(entries) || !entries.length) return 0;
-    const rowStmt = db.prepare('SELECT node_id, questions FROM quizzes WHERE id = ?');
+    const rowStmt = db.prepare('SELECT node_id, questions FROM live_quizzes quizzes WHERE id = ?');
     const rows = new Map();
     const rowOf = (quizId) => {
         if (!rows.has(quizId)) {

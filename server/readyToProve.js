@@ -54,7 +54,7 @@ const candidate = (nodeId) => (candidateStmt ??= db.prepare(`
     SELECT (${WORK_LEAF}) AS work,
            EXISTS (SELECT 1 FROM node_mastery WHERE node_id = n.id) AS measured,
            EXISTS (SELECT 1 FROM mastery_evidence WHERE node_id = n.id) AS answered
-    FROM nodes n WHERE n.id = ?
+    FROM live_nodes n WHERE n.id = ?
 `)).get(Number(nodeId));
 
 /**

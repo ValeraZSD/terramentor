@@ -152,13 +152,13 @@ const stmt = (sql) => {
  * leaves too, and their titles say nothing about the subject.
  */
 const TOPIC_LEAF = `COALESCE(n.is_note, 0) = 0 AND ${TOPIC_NODE}
-      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND COALESCE(c.is_note, 0) = 0)`;
+      AND NOT EXISTS (SELECT 1 FROM live_nodes c WHERE c.parent_id = n.id AND COALESCE(c.is_note, 0) = 0)`;
 
 /** The topic titles the model is shown: in course order, cleaned, deduped, one line each. */
 export function titlesFor(projectId) {
     const seen = new Set();
     const out = [];
-    const rows = stmt(`SELECT n.title FROM nodes n WHERE n.project_id = ? AND ${TOPIC_LEAF} ORDER BY n.id`).all(projectId);
+    const rows = stmt(`SELECT n.title FROM live_nodes n WHERE n.project_id = ? AND ${TOPIC_LEAF} ORDER BY n.id`).all(projectId);
     for (const { title } of rows) {
         const t = cleanRegionLabel(String(title || '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX_CHARS);
         const k = t.toLowerCase();
@@ -177,16 +177,16 @@ export function titlesFor(projectId) {
  */
 export function pendingCourses(model, limit = MAX_PER_SWEEP) {
     return stmt(`
-        SELECT id, name, description FROM projects
+        SELECT id, name, description FROM live_projects projects
         WHERE search_words IS NULL
           AND COALESCE(ai_generating, 0) = 0
           AND NOT (COALESCE(search_words_tries, 0) >= ? AND search_words_by = ?)
-          AND EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = projects.id AND ${TOPIC_LEAF})
+          AND EXISTS (SELECT 1 FROM live_nodes n WHERE n.project_id = projects.id AND ${TOPIC_LEAF})
         ORDER BY id LIMIT ?`).all(MAX_ATTEMPTS, model, limit);
 }
 
 /** The course as it is NOW: a sweep's list is minutes old by its last course. */
-const courseNow = (id) => stmt('SELECT id, name, description, search_words FROM projects WHERE id = ?').get(id);
+const courseNow = (id) => stmt('SELECT id, name, description, search_words FROM live_projects projects WHERE id = ?').get(id);
 
 /**
  * Ask for one course's words: `{words, reason}`, `words` null on any content
