@@ -38,3 +38,15 @@ export function fromInlineStart(clientX: number): number {
 export function scrolledFromStart(el: Element): number {
     return Math.abs(el.scrollLeft);
 }
+
+const FSI = String.fromCharCode(0x2068);
+const PDI = String.fromCharCode(0x2069);
+
+/** Course text (a topic or course name) placed inside an interface sentence,
+ *  as an interpolated value. Each name keeps its own direction and its words
+ *  stay together: "Near {{topic}} · {{course}}" in Arabic otherwise laid both
+ *  English names out as one run, and the cut at the line's end took the
+ *  START of the topic. */
+export function isolate(text: string | null | undefined): string {
+    return text ? FSI + text + PDI : '';
+}
