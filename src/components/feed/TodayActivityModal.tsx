@@ -15,6 +15,7 @@ import { uiLocale } from '../../utils/locale';
 import SittingReviewView from './SittingReviewView';
 import { DayBars, DayStudyTime } from '../studyTime/StudyTime';
 import { flushStudyTime } from '../../hooks/useStudyClock';
+import OwnLine from '../ui/OwnLine';
 
 interface Props {
     date: string;
@@ -310,7 +311,7 @@ function ActivityRow({ event, onOpen }: { event: TodayActivityEvent; onOpen: () 
                 </span>
                 <Icon className="w-4 h-4 mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{event.title}</span>
+                    <span className="block text-sm text-slate-800 dark:text-slate-100 truncate"><OwnLine>{event.title}</OwnLine></span>
                     <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
                         <span
                             className="inline-block w-1.5 h-1.5 rounded-full me-1.5 align-middle"

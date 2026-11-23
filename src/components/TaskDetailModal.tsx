@@ -13,6 +13,7 @@ import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
 import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
+import OwnLine from './ui/OwnLine';
 
 /**
  * What one background task is, where it belongs, and what it is doing — the
@@ -204,7 +205,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                         aria-hidden="true"
                     />
                     <div className="min-w-0 flex-1">
-                        <h2 className="truncate font-semibold text-slate-900 dark:text-white">{title}</h2>
+                        <h2 className="truncate font-semibold text-slate-900 dark:text-white"><OwnLine>{title}</OwnLine></h2>
                         <p className="truncate text-sm text-slate-500 dark:text-slate-400">
                             {subtitle}
                         </p>

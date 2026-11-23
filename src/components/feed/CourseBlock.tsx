@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAccentVars } from '../../hooks/useAccentVars';
 import { ProjectIcon } from '../ProjectIcon';
 import { StreamCourse, StreamHeadingShift } from './streamCourse';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * One course's run of Today (`courseBlocks.ts`): its name once, in a header
@@ -44,7 +45,7 @@ export default function CourseBlock({ name, color, icon, continued, children }: 
                 <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-white bg-accent">
                     <ProjectIcon icon={icon} className="h-4 w-4" />
                 </span>
-                <span className="min-w-0 truncate text-lg font-bold text-slate-900 dark:text-white">{name}</span>
+                <span className="min-w-0 truncate text-lg font-bold text-slate-900 dark:text-white"><OwnLine>{name}</OwnLine></span>
                 {continued && (
                     <span className="shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">{t("continued")}</span>
                 )}

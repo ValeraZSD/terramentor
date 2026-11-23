@@ -16,6 +16,7 @@ import { Button, IconButton } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
 import ProgressBar from './ui/ProgressBar';
 import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
+import OwnLine from './ui/OwnLine';
 
 /**
  * "Make me the material for all of this" — the exam-week button.
@@ -579,7 +580,7 @@ function TopicRow({ c, section, on, kinds, skipExisting, onToggle }: {
         >
             <Checkbox checked={on} onChange={onToggle} />
             <span className="min-w-0 flex-1">
-                <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{c.title}</span>
+                <span className="block text-sm text-slate-800 dark:text-slate-100 truncate"><OwnLine>{c.title}</OwnLine></span>
                 {sub && <span className="block text-sm text-slate-500 dark:text-slate-400 truncate">{sub}</span>}
             </span>
             <span className="shrink-0 flex items-center gap-1.5 text-2xs">

@@ -8,6 +8,7 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { motionReduced } from '../../utils/accessibility';
 import { inlineArrow, isRtl, scrolledFromStart } from '../../utils/direction';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The screen a mock exam is answered on. While it is mounted the app's own
@@ -64,7 +65,7 @@ export function ExamFrame({ title, status, actions, onLeave, leaveLabel, leaving
                         ? <IconButton size="md" label={outLabel} icon={<ArrowLeft className="w-5 h-5" />} onClick={onLeave} disabled={leaving} />
                         : <Button variant="quiet" size="sm" busy={leaving} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} onClick={onLeave}>{outLabel}</Button>}
                     <div className="flex-1 min-w-0 px-1 text-center">
-                        {roomy && <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>}
+                        {roomy && <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white"><OwnLine>{title}</OwnLine></h2>}
                         {(roomy || tiny) && statusLine}
                     </div>
                     {/* As wide as the way out when the title sits between them, so it sits at the true centre. */}

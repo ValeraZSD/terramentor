@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
 import { CREATION_NOTICE_TITLE, ContinueCreationNote } from './creation/ContinueCreationOffer';
+import OwnLine from './ui/OwnLine';
 
 type Tab = 'details' | 'quizzes' | 'flashcards';
 
@@ -278,7 +279,7 @@ export default function DetailPanel() {
                            With the setting off the row stays one line. */
                         className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-start px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
                     >
-                        <span className="min-w-0 truncate">{node.title}</span>
+                        <span className="min-w-0 truncate"><OwnLine>{node.title}</OwnLine></span>
                         {/* Renaming was discoverable only by clicking text that
                             does not look clickable. Shown outright on touch,
                             which has no hover to reveal it with. */}

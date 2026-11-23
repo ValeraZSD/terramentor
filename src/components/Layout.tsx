@@ -33,6 +33,7 @@ import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useTranslation } from 'react-i18next';
 import { ContentLang } from '../utils/contentLang';
+import OwnLine from './ui/OwnLine';
 
 const ASSISTANT_WIDTH_KEY = 'assistant.width';
 
@@ -502,7 +503,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                         // header holds only the back arrow there.
                         view === 'settings' ? null : (
                             <h1 className="text-lg font-semibold text-slate-900 dark:text-white truncate min-w-0">
-                                {view === 'workspace' && currentProject?.name}
+                                {view === 'workspace' && currentProject?.name && <OwnLine>{currentProject.name}</OwnLine>}
                             </h1>
                         )
                     )}

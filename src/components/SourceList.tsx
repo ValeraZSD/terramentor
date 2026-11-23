@@ -7,6 +7,7 @@ import type { SourceEntry } from '../utils/citations';
 import { planLink } from '../utils/sameOrigin';
 import { Chip, ChipLink } from './ui/Chip';
 import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
+import OwnLine from './ui/OwnLine';
 
 /** What GET /api/documents/cited takes per request (server/routes/documents.js). */
 const ENTRIES_PER_REQUEST = 20;
@@ -119,7 +120,7 @@ export default function SourceList({ sources }: { sources: SourceEntry[] }) {
                 const page = doc?.page ? t("page {{page}}", { page: doc.page }) : '';
                 const body = (
                     <>
-                        <span className="truncate">{name}</span>
+                        <span className="truncate"><OwnLine>{name}</OwnLine></span>
                         {page && <span className={QUIET}>{page}</span>}
                     </>
                 );

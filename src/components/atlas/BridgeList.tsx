@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { FOCUS_RING } from '../ui/vocabulary';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The width at which a pair may be drawn side by side — measured on the LIST's
@@ -68,7 +69,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     className={`flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
-                        <span className="truncate">{b.a.title}</span>
+                        <span className="truncate"><OwnLine>{b.a.title}</OwnLine></span>
                         {b.proven && (
                             <>
                                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
@@ -76,7 +77,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                             </>
                         )}
                     </span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{b.a.projectName}</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate"><OwnLine>{b.a.projectName}</OwnLine></span>
                 </button>
 
                 {/* The arrow and the number are ONE mark, because the number is
@@ -103,8 +104,8 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     onClick={() => openProjectNode(b.b.projectId, b.b.id)}
                     className={`flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
-                    <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">{b.b.title}</span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{b.b.projectName}</span>
+                    <span className="block text-sm font-medium text-slate-900 dark:text-white truncate"><OwnLine>{b.b.title}</OwnLine></span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate"><OwnLine>{b.b.projectName}</OwnLine></span>
                 </button>
             </div>
         </li>

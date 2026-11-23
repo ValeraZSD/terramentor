@@ -8,6 +8,7 @@ import { ProjectStudyTimeSection } from '../studyTime/StudyTime';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The page for a project whose content is CARDS.
@@ -111,7 +112,7 @@ export default function DeckDashboard() {
                             >
                                 <Layers className="h-5 w-5" />
                             </span>
-                            <span className="truncate">{deck.project.name}</span>
+                            <span className="truncate"><OwnLine>{deck.project.name}</OwnLine></span>
                         </h2>
                         {/* Indented by the badge (h-10) plus the gap (gap-3), in
                             rem like them: `52px` drifted off the title as soon as

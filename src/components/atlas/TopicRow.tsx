@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AtlasTopic } from '../../types';
 import { k } from '../../i18n';
 import { topicDotStatus } from './topicStatus';
+import OwnLine from '../ui/OwnLine';
 
 const STATUS_DOT: Record<string, string> = {
     completed: 'bg-emerald-500',
@@ -64,7 +65,7 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
             {studies && <span className="sr-only">{tr("Study {{title}}", { title: topic.title })}</span>}
             <span className="min-w-0 flex-1" aria-hidden={studies || undefined}>
                 <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
-                    {topic.title}
+                    <OwnLine>{topic.title}</OwnLine>
                     {topic.transferred && (
                         <>
                             <History className="inline w-3 h-3 ms-1 -mt-0.5 text-accent-fg" aria-hidden="true" />

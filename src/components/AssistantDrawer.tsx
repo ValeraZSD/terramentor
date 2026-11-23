@@ -49,6 +49,7 @@ import { uiLocale } from '../utils/locale';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import ReadAloudButton from './ui/ReadAloudButton';
 import { speechAvailable } from '../utils/readAloud';
+import OwnLine from './ui/OwnLine';
 
 interface Props {
     open: boolean;
@@ -191,8 +192,8 @@ function TargetButtons({ targets, onOpen }: { targets: ResolvedTarget[]; onOpen:
                     className="w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-11 rounded-xl border border-accent/40 bg-accent/5 hover:bg-accent/10 text-start transition"
                 >
                     <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.title}</span>
-                        <span className="block text-sm text-slate-500 dark:text-slate-400 truncate">{t.projectName}</span>
+                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 truncate"><OwnLine>{t.title}</OwnLine></span>
+                        <span className="block text-sm text-slate-500 dark:text-slate-400 truncate"><OwnLine>{t.projectName}</OwnLine></span>
                     </span>
                     <ArrowUpRight className="w-4 h-4 text-accent-fg shrink-0" aria-hidden="true" />
                 </button>

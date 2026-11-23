@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { topicStatusLines } from './topicStatus';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The atlas's floating card — what a bubble or a dot says when you point at it.
@@ -85,13 +86,13 @@ export default function AtlasCard({ focus, anchor, size, interactive, onOpenTopi
                         {tr("{{count}} topics", { count: focus.region.size })} {tr("· {{proven}} proven", { proven: focus.region.mastery.proven })}
                     </p>
                     <p className="text-slate-300 dark:text-slate-200 truncate">
-                        {focus.region.projects.map(p => p.name).join(' · ')}
+                        <OwnLine>{focus.region.projects.map(p => p.name).join(' · ')}</OwnLine>
                     </p>
                 </>
             ) : (
                 <>
                     <p className="font-semibold leading-snug">{focus.topic.title}</p>
-                    <p className="text-slate-200 dark:text-slate-100 mt-0.5 truncate">{focus.topic.projectName}</p>
+                    <p className="text-slate-200 dark:text-slate-100 mt-0.5 truncate"><OwnLine>{focus.topic.projectName}</OwnLine></p>
                     {/* What IS known about how far along it is, counted the way
                         its project is (`topicStatusLines`): it read "Not
                         started" under the root of a deck with 491 cards met. */}

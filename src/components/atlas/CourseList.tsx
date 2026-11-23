@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Course } from './coursePaths';
 import { CourseSwatch } from './atlasColors';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
+import OwnLine from '../ui/OwnLine';
 
 interface Props {
     courses: Course[];
@@ -84,7 +85,7 @@ export default function CourseList({ courses, value, onChange, swatches }: Props
                                 {sw.steps.map((col, j) => <span key={j} className="w-1.5 h-3.5" style={{ background: col }} />)}
                             </span>
                         )}
-                        <span className={`min-w-0 flex-1 truncate text-sm ${picked ? 'font-medium' : ''}`} title={c.name}>{c.name}</span>
+                        <span className={`min-w-0 flex-1 truncate text-sm ${picked ? 'font-medium' : ''}`} title={c.name}><OwnLine>{c.name}</OwnLine></span>
                         {/* A label on a plain span is not read by every screen
                             reader, so the sentence is text and the figure is
                             only drawn. */}

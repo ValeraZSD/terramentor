@@ -32,6 +32,7 @@ import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { MenuItem } from './ui/Popover';
+import OwnLine from './ui/OwnLine';
 
 /** The row being dragged, when this card is the one drawing it. */
 export interface CardRowDrag {
@@ -220,7 +221,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                       aria-label={t("Open {{title}}", { title: node.title })}
                       className={`-mx-1 px-1 max-w-full truncate align-top text-start rounded ${FOCUS_RING}`}
                     >
-                      {node.title}
+                      <OwnLine>{node.title}</OwnLine>
                     </button>
                   </h3>
                   {!isNote && (

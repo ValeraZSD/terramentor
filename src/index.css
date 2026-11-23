@@ -68,6 +68,7 @@ html.dark {
 .lucide-corner-down-right:dir(rtl),
 .lucide-log-in:dir(rtl),
 .lucide-send:dir(rtl),
+.lucide-skip-forward:dir(rtl),
 .lucide-undo-2:dir(rtl),
 .lucide-list-tree:dir(rtl) {
   scale: -1 1;
@@ -85,6 +86,15 @@ kbd {
 }
 pre {
   text-align: left;
+}
+
+/* Interface text set in the monospace face (a visual's toolbar, a key hint).
+   Monospace fonts have no Arabic, and the first fallback that does (Courier
+   New) spreads each letter over a fixed cell, so Arabic reads letter-spaced.
+   A proportional face sits before it here; Latin text never reaches it while
+   one of the monospace faces before it is installed. */
+html[dir="rtl"] .font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Segoe UI", "Noto Sans Arabic", system-ui, "Courier New", monospace;
 }
 
 /* Course text reads in its own direction, not the interface's: an English
@@ -540,6 +550,11 @@ html[data-larger-ui] :is(
    chapter; and the course tree is at least 17.5rem wide, since a 44px
    column (and a chapter's badge) stands before every title. */
 html[data-larger-ui] [data-larger-wraps] {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* A title in its own direction (ui/OwnLine) inside a wrapping row wraps too. */
+html[data-larger-ui] [data-larger-wraps] [data-own-line] {
   white-space: normal;
   overflow-wrap: break-word;
 }

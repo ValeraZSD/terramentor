@@ -197,6 +197,12 @@ for (const f of SOURCES) {
     const phys = physicalClasses(text);
     ok(`${r}: classes name start and end, not left and right`, phys.length === 0, phys.slice(0, 6).join(' '));
 
+    // Course text (a name, a title) on a line that truncates is read in the
+    // interface's direction unless it gets its own: an English title in the
+    // Arabic interface was cut at its START ("…omy for Beginners").
+    const ownless = raw.split('\n').filter((line) => /\btruncate\b[^>]*>\s*\{[\w?.]*(?:title|name|Name|Title)\}\s*</.test(line) && !/dir="auto"/.test(line));
+    ok(`${r}: a truncated name or title reads in its own direction (OwnLine)`, ownless.length === 0, ownless.map((l) => l.trim()).slice(0, 3).join(' | '));
+
     const moves = unmirroredLines(text);
     ok(`${r}: sideways moves are mirrored in right to left`, moves.length === 0, moves.slice(0, 3).map((m) => m.what).join('; '));
 
