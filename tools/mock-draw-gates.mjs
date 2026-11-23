@@ -35,7 +35,9 @@
  *      page pauses;
  *  10. every format the app checks alone leaves no key in the open mock, a
  *      placement answer starts no topic, and reading what a course can draw
- *      costs the same for one topic as for many.
+ *      costs the same for one topic as for many;
+ *  11. Time limits (Settings) stretches the clock a course mock was given, or
+ *      takes it away, by the rule the start panel shows.
  *
  * --root runs the same cases against another checkout's server and screen
  * code; on the code before the draw existed every case fails.
@@ -482,8 +484,9 @@ try {
         check('a past paper\'s way out says Back, not Save and leave',
             /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(paperSrc));
         check('a paused past paper leads with Resume; Finish writing is then the quiet button',
-            /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{sitting\.running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
-                && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*act\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc));
+            /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
+                && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*onAct\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc)
+                && /<ClockButtons paused=\{paused\} running=\{sitting\.running\}/.test(paperSrc));
     });
 
     await block('9. the screen\'s decisions: where a mock opens, the save line, the clocks a closing page pauses', async () => {
@@ -582,6 +585,71 @@ try {
         check('and a draw orders the course in one read too: as many statements for 6 topics as for 1',
             dOne === dSix, JSON.stringify({ dOne, dSix }));
         for (const d of drawn) mock.discardSitting(d.sitting.id);
+    });
+
+    await block('11. extra time stretches the course mock\'s own clock, and Off takes it away', async () => {
+        const setScale = (v) => (v == null
+            ? db.prepare("DELETE FROM settings WHERE key = 'drill_time_scale'").run()
+            : db.prepare("INSERT INTO settings (key, value) VALUES ('drill_time_scale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(v));
+        const geo = Number(db.prepare("INSERT INTO projects (name) VALUES ('Geography')").run().lastInsertRowid);
+        const rivers = Number(db.prepare(
+            "INSERT INTO nodes (project_id, parent_id, title, position, status) VALUES (?, NULL, 'Rivers', 0, 'in_progress')",
+        ).run(geo).lastInsertRowid);
+        bank(rivers, [mc(rivers, 1), mc(rivers, 2), mc(rivers, 3)]);
+        const draw = (minutes) => {
+            const r = mock.drawCourseMock(geo, { size: 2, minutes, now: T0 });
+            const printed = db.prepare('SELECT e.minutes FROM exam_papers e JOIN mock_sittings s ON s.paper_id = e.id WHERE s.id = ?').get(r.sitting.id).minutes;
+            mock.discardSitting(r.sitting.id);
+            return { allowed: r.sitting.timeAllowed, printed };
+        };
+        try {
+            setScale(null);
+            check('with no setting a 45-minute clock is 45 minutes', draw(45).allowed === 45 * 60);
+            setScale('2');
+            const twice = draw(45);
+            check('twice as long: 45 minutes chosen, 90 on the clock, 45 kept as the mock\'s own',
+                twice.allowed === 90 * 60 && twice.printed === 45, JSON.stringify(twice));
+            setScale('3');
+            check('three times as long: 600 minutes, the most the panel offers, gives 30 hours', draw(600).allowed === 600 * 60 * 3);
+            let refused = false;
+            try { draw(24 * 60 + 1); } catch (e) { refused = e?.status === 400; }
+            check('the minutes chosen keep their own limit (a day): extra time comes on top, never into the check', refused);
+            check('no clock chosen stays no clock', draw(null).allowed === 0);
+            setScale('off');
+            check('Off: a 45-minute clock chosen gives no clock', draw(45).allowed === 0);
+            setScale('2');
+            const r = await call('POST', `/api/projects/${geo}/mock-exams/draw`, { size: 2, minutes: 30 });
+            check('the draw route gives the same stretched clock', r.status === 200 && r.body?.sitting?.timeAllowed === 60 * 60, `${r.status} ${r.body?.sitting?.timeAllowed}`);
+            if (r.body?.sitting?.id) mock.discardSitting(r.body.sitting.id);
+            // The panel's "with your extra time" line comes from the screens' rule; the server must agree.
+            const file = join(ROOT, 'src', 'components', 'mockExam', 'mockClock.ts');
+            const outfile = join(scratch, 'mockClock.mjs');
+            const built = await createRequire(import.meta.url)('esbuild')
+                .build({ entryPoints: [file], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' })
+                .then(() => true, () => false);
+            const rules = built ? await import(pathToFileURL(outfile).href) : null;
+            const differ = [];
+            for (const v of [null, '1', '2', '3', 'off', '5']) {
+                setScale(v);
+                const server = draw(45).allowed;
+                const shown = rules?.mockClockSeconds(45 * 60, v ?? '');
+                if (server !== shown) differ.push(`${v}: server ${server}, panel ${shown}`);
+            }
+            check('the start panel and the server give the same clock for every setting', rules != null && differ.length === 0, differ.join('; '));
+        } finally {
+            setScale(null);
+            db.prepare('DELETE FROM projects WHERE id = ?').run(geo);
+        }
+
+        const screen = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'CourseMock.tsx'), 'utf8');
+        const from = screen.indexOf('export function CourseStartPanel');
+        const to = screen.indexOf('function RealExamDialog', from);
+        check('the start panel is where these checks look (CourseStartPanel, then RealExamDialog)', from >= 0 && to > from);
+        const start = screen.slice(from, to);
+        check('the start panel shows the stretched clock beside the minutes chosen',
+            /useStore\(s => s\.drillTimeScale\)/.test(start) && /mockClockSeconds\(minutes \* 60, timeScale\)/.test(start));
+        check('with Time limits Off the start panel offers no clock and says why',
+            /timeScale === 'off'\s*\?\s*<span[^>]*>\{t\("No clock: Time limits is Off in Settings"\)\}<\/span>/.test(start));
     });
 } finally {
     server.close();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Eye, EyeOff, FileText } from 'lucide-react';
+import { ArrowLeft, FileText } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { Button, ButtonLink } from '../ui/Button';
@@ -11,9 +11,10 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { uiLocale } from '../../utils/locale';
 import { Panel } from './Panel';
-import { useDuration } from './mockFormat';
+import { useDuration, useHiddenClock } from './mockFormat';
 import { CourseMockScreen, CourseResultScreen } from './CourseMock';
-import { ExamFrame } from './ExamFrame';
+import { ClockToggle, ExamFrame } from './ExamFrame';
+import { PractiseWeakest } from './PractiseWeakest';
 import { isCourseDetail, type CourseMockDetail, type MockDetail } from './mockExamTypes';
 
 /** One mock, whichever moment it is at: writing, marking or done. */
@@ -36,13 +37,7 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
         return <CourseMockScreen detail={detail} onChange={setDetail} onLeave={onClose} />;
     }
     if (detail && !isCourseDetail(detail) && detail.sitting.status === 'writing') {
-        return (
-            <ExamFrame title={t("Mock exam")} leaveLabel={t("Back")} onLeave={onClose}>
-                <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
-                    <ClockScreen detail={detail} onChange={setDetail} reload={refresh} />
-                </div>
-            </ExamFrame>
-        );
+        return <ClockScreen detail={detail} onChange={setDetail} reload={refresh} onLeave={onClose} />;
     }
 
     return (
@@ -69,13 +64,15 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
 
 // ---- writing: the clock on the desk -------------------------------------------
 
-function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChange: (d: MockDetail) => void; reload: () => void }) {
+/** Away from the clock this long (seconds) before it offers to take the time off: a glance at a message is not asked about. */
+const AWAY_ASK = 60;
+
+function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail; onChange: (d: MockDetail) => void; reload: () => void; onLeave: () => void }) {
     const { t } = useTranslation();
     const duration = useDuration();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
     const { sitting, paper } = detail;
-    const [hidden, setHidden] = useState(false);
     const [busy, setBusy] = useState(false);
     // The server's reading when it arrived, and when: the screen counts on
     // from there, so a reload or a second device shows the same time. Taken in
@@ -89,9 +86,57 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
         return () => window.clearInterval(id);
     }, [sitting.running]);
     const elapsed = base.elapsed + (sitting.running ? Math.floor((Date.now() - base.at) / 1000) : 0);
+    // No time allowed: Time limits was Off when the mock started. The time
+    // written is still kept (the result says it), but no clock counts down.
+    const timed = sitting.timeAllowed > 0;
     const left = sitting.timeAllowed - elapsed;
-    const timeUp = left <= 0;
+    const timeUp = timed && left <= 0;
     const paused = !sitting.running && !timeUp;
+    const { hidden, canHide, setHidden } = useHiddenClock(sitting.id, timed ? left : 0);
+
+    // Time away from the screen: a call, another app, the phone put down
+    // and locked. The clock keeps running, as it would in the exam room, and
+    // coming back after a minute or more offers to take that time off. The
+    // moment the page was hidden is kept in storage, so a tab the phone
+    // killed in the background still asks when it is opened again. (A browser
+    // that fires pagehide on an app switch pauses the clock instead; then
+    // nothing ran while away and nothing is offered.) Two tabs on one mock
+    // share the moment: the tab that comes back first asks.
+    // Reading the paper in the tab (or app) "Open the paper" gave is writing
+    // it, not time away: leaving that way is not asked about.
+    const awayKey = `mock-away:${sitting.id}`;
+    const readingPaper = useRef(false);
+    const [away, setAway] = useState<number | null>(null);
+    useEffect(() => {
+        const store = {
+            get: () => { try { return Number(localStorage.getItem(awayKey)) || 0; } catch { return 0; } },
+            set: (v: number) => { try { localStorage.setItem(awayKey, String(v)); } catch { /* no storage: not asked */ } },
+            drop: () => { try { localStorage.removeItem(awayKey); } catch { /* nothing kept */ } },
+        };
+        if (!sitting.running) { store.drop(); setAway(null); return; }
+        const seen = () => {
+            if (document.visibilityState === 'hidden') { if (!readingPaper.current) store.set(Date.now()); return; }
+            readingPaper.current = false;
+            const since = store.get();
+            store.drop();
+            const seconds = since > 0 ? Math.floor((Date.now() - since) / 1000) : 0;
+            if (seconds >= AWAY_ASK) setAway(seconds);
+        };
+        seen();
+        document.addEventListener('visibilitychange', seen);
+        return () => document.removeEventListener('visibilitychange', seen);
+    }, [sitting.running, awayKey]);
+    // What is offered is what the button says: whole minutes (as the time
+    // reads), never more than the clock has used, and at most the day the
+    // server accepts.
+    const awayOff = away == null ? 0 : Math.floor(Math.min(away, elapsed, 86_400) / 60) * 60;
+    const takeOff = (seconds: number) => {
+        setBusy(true);
+        api.mockAway(sitting.id, seconds)
+            .then(r => { setAway(null); onChange({ ...detail, sitting: r.sitting }); })
+            .catch(e => addToast('error', e.message))
+            .finally(() => setBusy(false));
+    };
 
     // The screen stays on while the clock runs: the device is the clock on the
     // desk. The browser drops the lock when the tab is hidden, so it is asked
@@ -149,61 +194,107 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
 
     const what = sitting.question ? t("{{paper}}, question {{q}}", { paper: paper.title, q: sitting.question }) : paper.title;
 
+    // The card fills the screen between the exam bar and the buttons, the
+    // clock centred in what is left. A short screen (a phone held sideways)
+    // drops the reminder line and the spacing, so the time and the buttons
+    // are all in view without scrolling. "Short" is the viewport's height,
+    // not a container's: the exam frame always fills the whole window.
     return (
-        <Panel>
-            <div className="flex flex-wrap items-start gap-3">
-                <div className="flex-1 min-w-0">
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">{what}</h2>
-                    <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{t("Write on paper. The app keeps the time.")}</p>
-                </div>
-                {paper.paperDocumentId != null && (
-                    <ButtonLink size="sm" href={api.documentOriginalUrl(paper.paperDocumentId)} target="_blank" rel="noopener" icon={<FileText className="w-4 h-4" aria-hidden="true" />}>
-                        {t("Open the paper")}
-                    </ButtonLink>
-                )}
-            </div>
-
-            <div className="my-10 text-center [container-type:inline-size]" aria-live="off">
-                {/* Time up wins over Paused and a hidden clock: there is nothing left to resume or hide. */}
-                {timeUp ? (
-                    <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Time is up")}</p>
-                ) : !sitting.running ? (
-                    <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Paused")}</p>
-                ) : hidden ? (
-                    <p className="text-3xl font-semibold text-slate-400 dark:text-slate-500">{t("Clock hidden")}</p>
-                ) : (
-                    <ClockLeft time={duration(left + 59)} />
-                )}
-                {timeUp ? (
-                    <p role="status" className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("On the real exam you would hand in now. Finish your sentence, then grade what you wrote.")}
-                    </p>
-                ) : (
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("{{used}} used of {{allowed}}", { used: duration(elapsed), allowed: duration(sitting.timeAllowed) })}
-                    </p>
-                )}
-                {sitting.running && !timeUp && (
-                    <div className="mt-3">
-                        <Button variant="quiet" size="sm" onClick={() => setHidden(h => !h)}
-                            icon={hidden ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />}>
-                            {hidden ? t("Show the clock") : t("Hide the clock")}
-                        </Button>
+        <ExamFrame title={t("Mock exam")} leaveLabel={t("Back")} onLeave={onLeave}
+            footer={<ClockButtons paused={paused} running={sitting.running} timeUp={timeUp} busy={busy} onAct={act} />}>
+            <div className="mx-auto w-full max-w-3xl min-h-full flex flex-col px-4 py-4 [@media(max-height:30rem)]:py-2">
+                <Panel className="flex-1 flex flex-col [@media(max-height:30rem)]:py-2">
+                    <div className="flex flex-wrap items-start gap-3">
+                        <div className="flex-1 min-w-0 [@media(max-height:30rem)]:hidden">
+                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">{what}</h2>
+                            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{t("Write on paper. The app keeps the time.")}</p>
+                        </div>
+                        {paper.paperDocumentId != null && (
+                            <ButtonLink size="sm" href={api.documentOriginalUrl(paper.paperDocumentId)} target="_blank" rel="noopener" onClick={() => { readingPaper.current = true; }} icon={<FileText className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Open the paper")}
+                            </ButtonLink>
+                        )}
                     </div>
-                )}
-            </div>
 
-            {/* Paused, the way on is Resume: finishing is then the quiet one,
-                so a learner coming back does not end the paper by reflex. */}
-            <div className="flex flex-wrap justify-end gap-2">
-                {!timeUp && (
-                    <Button variant={paused ? 'primary' : 'neutral'} busy={busy} onClick={() => act(sitting.running ? 'pause' : 'resume')}>
-                        {sitting.running ? t("Pause") : t("Resume")}
-                    </Button>
-                )}
-                <Button variant={paused ? 'neutral' : 'primary'} busy={busy} onClick={() => act('stop')}>{t("Finish writing")}</Button>
+                    {/* With no clock there is nothing to take the time off. */}
+                    {awayOff >= AWAY_ASK && sitting.running && timed && (
+                        <div role="status" className="mt-4 rounded-xl bg-slate-100 dark:bg-slate-900/60 px-4 py-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-200">
+                                {t("You were away from this screen for {{time}}. If you stopped writing (a call, say), take that time off the clock.", { time: duration(awayOff) })}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                <Button busy={busy} onClick={() => takeOff(awayOff)}>{t("Take {{time}} off", { time: duration(awayOff) })}</Button>
+                                <Button variant="quiet" onClick={() => setAway(null)}>{t("I kept writing")}</Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* On a short screen the time and what goes with it sit side by side. */}
+                    <div className="flex-1 flex flex-col justify-center py-8 text-center [container-type:inline-size] [@media(max-height:30rem)]:py-1 [@media(max-height:30rem)]:flex-row [@media(max-height:30rem)]:items-center [@media(max-height:30rem)]:gap-x-10" aria-live="off">
+                        <div>
+                            {/* Time up wins over Paused and a hidden clock: there is nothing left to resume or hide. */}
+                            {timeUp ? (
+                                <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Time is up")}</p>
+                            ) : !sitting.running ? (
+                                <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Paused")}</p>
+                            ) : !timed ? (
+                                <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("No time limit")}</p>
+                            ) : hidden ? (
+                                <p className="text-3xl font-semibold text-slate-500 dark:text-slate-400">{t("Clock hidden")}</p>
+                            ) : (
+                                <ClockLeft time={duration(left + 59)} />
+                            )}
+                        </div>
+                        <div className="mt-3 [@media(max-height:30rem)]:mt-0 [@media(max-height:30rem)]:max-w-[50%]">
+                            {timeUp ? (
+                                <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
+                                    {t("On the real exam you would hand in now. Finish your sentence, then grade what you wrote.")}
+                                </p>
+                            ) : hidden ? null : timed ? (
+                                // Hidden means hidden: time used and allowed would give the time left away.
+                                <p className="text-sm text-slate-600 dark:text-slate-300">
+                                    {t("{{used}} used of {{allowed}}", { used: duration(elapsed), allowed: duration(sitting.timeAllowed) })}
+                                </p>
+                            ) : (
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{t("This paper started with no clock.")}</p>
+                            )}
+                            {sitting.running && canHide && (
+                                <div className="mt-3 [@media(max-height:30rem)]:mt-2">
+                                    <ClockToggle hidden={hidden} onToggle={() => setHidden(!hidden)} />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </Panel>
             </div>
-        </Panel>
+        </ExamFrame>
+    );
+}
+
+/**
+ * Pause and Finish writing, in the exam frame's footer: always in view,
+ * whatever the screen's height or text size. Paused, the way on is Resume
+ * and finishing is the quiet one, so a learner coming back does not end the
+ * paper by reflex. On a narrow phone the two share the row equally.
+ */
+function ClockButtons({ paused, running, timeUp, busy, onAct }: {
+    paused: boolean; running: boolean; timeUp: boolean; busy: boolean;
+    onAct: (action: 'pause' | 'resume' | 'stop') => void;
+}) {
+    const { t } = useTranslation();
+    const ref = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(ref);
+    const rem = useRootFontSize();
+    const share = width > 0 && width < 32 * rem ? 'flex-1 min-w-[8rem]' : '';
+    return (
+        <div ref={ref} className="mx-auto w-full max-w-3xl flex flex-wrap justify-end gap-2 px-4 py-2.5">
+            {!timeUp && (
+                <Button variant={paused ? 'primary' : 'neutral'} busy={busy} className={share} onClick={() => onAct(running ? 'pause' : 'resume')}>
+                    {running ? t("Pause") : t("Resume")}
+                </Button>
+            )}
+            <Button variant={paused ? 'neutral' : 'primary'} busy={busy} className={share} onClick={() => onAct('stop')}>{t("Finish writing")}</Button>
+        </div>
     );
 }
 
@@ -306,7 +397,9 @@ function MarkingScreen({ detail, onChange }: { detail: MockDetail; onChange: (d:
             <div>
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Grade your paper")}</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                    {t("{{paper}} · written in {{used}} of {{allowed}}", { paper: paper.title, used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })}
+                    {sitting.timeAllowed > 0
+                        ? t("{{paper}} · written in {{used}} of {{allowed}}", { paper: paper.title, used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })
+                        : t("{{paper}} · written in {{used}}", { paper: paper.title, used: duration(sitting.elapsed) })}
                 </p>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {t("Points go in halves. Each one is saved as you set it, so you can leave and come back.")}
@@ -378,8 +471,6 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
     const { sitting, paper, result } = detail;
     const date = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }).format(new Date(sitting.startedAt)), [sitting.startedAt]);
     const graded = result.grade != null;
-    // Evidence was written only for graded parts that name a topic (server/mockExams.js finishSitting).
-    const practised = result.parts.some(p => p.nodeId != null && p.earned != null);
     const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin) : '';
 
     return (
@@ -389,7 +480,9 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                     {sitting.question ? t("{{paper}}, question {{q}}, {{date}}", { paper: paper.title, q: sitting.question, date }) : t("{{paper}}, {{date}}", { paper: paper.title, date })}
                 </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                    {t("Written on paper in {{used}} of {{allowed}} · graded by you against the worked solution", { used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })}
+                    {sitting.timeAllowed > 0
+                        ? t("Written on paper in {{used}} of {{allowed}} · graded by you against the worked solution", { used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })
+                        : t("Written on paper in {{used}} · graded by you against the worked solution", { used: duration(sitting.elapsed) })}
                 </p>
             </div>
             <Panel>
@@ -442,12 +535,11 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                         </li>
                     ))}
                 </ul>
-                {/* The paper is recorded as practice per topic; it never closes a topic (a self-graded
-                    paper is not proof), so the line says what the learner gains, not what is withheld. */}
-                {practised && (
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each topic above now shows this paper as practice.")}
-                    </p>
+                {result.weakest && (
+                    <PractiseWeakest projectId={paper.projectId} nodeId={result.weakest.id}
+                        line={t("Most points lost: {{topic}}, {{lost}} of {{points}}.", {
+                            topic: result.weakest.title, lost: fmt(result.weakest.lost), points: fmt(result.weakest.points),
+                        })} />
                 )}
             </Panel>
             <div className="flex flex-wrap justify-end gap-2">
@@ -456,7 +548,8 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                         {t("See the worked solution")}
                     </ButtonLink>
                 )}
-                <Button variant="primary" onClick={onDone}>{t("Done")}</Button>
+                {/* Practising the weakest topic is the way on when there is one; Done is then the quiet way out. */}
+                <Button variant={result.weakest ? 'neutral' : 'primary'} onClick={onDone}>{t("Done")}</Button>
             </div>
         </div>
     );
@@ -464,13 +557,15 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
 
 /** The running clock: "Time left" on its own line, the time centred under it on one unbroken
  *  line sized to the card, so on a phone the hours never wrap away from the minutes, in any
- *  language. Font sizes in rem, so the interface scale still reaches it. */
+ *  language. Font sizes in rem, so the interface scale still reaches it: up to 4.5rem where the
+ *  card is wide (a tablet, a desk). On a short screen (a phone held sideways) it also follows the
+ *  height left over once the bars, which grow with the interface scale, have taken theirs. */
 function ClockLeft({ time }: { time: string }) {
     const { t } = useTranslation();
     return (
         <>
-            <p className="text-lg font-medium text-slate-600 dark:text-slate-300">{t("Time left")}</p>
-            <p className="mt-1 whitespace-nowrap font-semibold tabular-nums text-slate-900 dark:text-white text-[clamp(1.875rem,12cqi,3rem)]">{time}</p>
+            <p className="text-lg font-medium text-slate-600 dark:text-slate-300 [@media(max-height:30rem)]:text-base">{t("Time left")}</p>
+            <p className="mt-1 whitespace-nowrap font-semibold tabular-nums text-slate-900 dark:text-white text-[clamp(1.875rem,12cqi,4.5rem)] [@media(max-height:30rem)]:text-[clamp(1.875rem,min(12cqi,calc(40vh-4rem)),4.5rem)] [@media(max-height:30rem)]:leading-none">{time}</p>
         </>
     );
 }
