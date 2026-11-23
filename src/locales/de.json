@@ -807,6 +807,7 @@
   "The model wrote too few topics for this short course.": "Das Modell hat zu wenige Themen für diesen Kurzkurs geschrieben.",
   "The paper must be a file of this course": "Die Altklausur muss eine Datei dieses Kurses sein",
   "The parent node belongs to another project": "Das übergeordnete Element gehört zu einem anderen Projekt",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "Die Teile ergeben {{sum}} Punkte, auf der Prüfung stehen aber {{printed}}",
   "The pass grade must be a number from 0 to {{max}}": "Die Bestehensnote muss eine Zahl von 0 bis {{max}} sein",
   "The pass grade must lie between the lowest and the highest grade": "Die Bestehensnote muss zwischen der niedrigsten und der höchsten Note liegen",
   "The pass line is a number of right answers, at most the number of questions": "Die Bestehensgrenze ist eine Anzahl richtiger Antworten, höchstens die Zahl der Fragen",

@@ -3604,6 +3604,7 @@
   "The paper must be a file of this course": "The paper must be a file of this course",
   "The paper you typed in will not be added.": "The paper you typed in will not be added.",
   "The parent node belongs to another project": "The parent node belongs to another project",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "The parts add up to {{sum}} points, but the paper prints {{printed}}",
   "The pass grade must be a number from 0 to {{max}}": "The pass grade must be a number from 0 to {{max}}",
   "The pass grade must lie between the lowest and the highest grade": "The pass grade must lie between the lowest and the highest grade",
   "The pass line is a number of right answers, at most the number of questions": "The pass line is a number of right answers, at most the number of questions",

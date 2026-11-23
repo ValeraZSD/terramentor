@@ -807,6 +807,7 @@
   "The model wrote too few topics for this short course.": "Het model schreef te weinig onderwerpen voor deze korte cursus.",
   "The paper must be a file of this course": "Het examen moet een bestand van deze cursus zijn",
   "The parent node belongs to another project": "Het bovenliggende knooppunt hoort bij een ander project",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "De onderdelen tellen op tot {{sum}} punten, maar op het examen staat {{printed}}",
   "The pass grade must be a number from 0 to {{max}}": "Het slagingscijfer moet een getal van 0 tot {{max}} zijn",
   "The pass grade must lie between the lowest and the highest grade": "Het slagingscijfer moet tussen het laagste en het hoogste cijfer liggen",
   "The pass line is a number of right answers, at most the number of questions": "De slaaggrens is een aantal goede antwoorden, hoogstens het aantal vragen",

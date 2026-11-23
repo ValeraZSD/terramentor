@@ -1065,6 +1065,7 @@
   "The model wrote too few topics for this short course.": "Model napisał za mało tematów dla tego krótkiego kursu.",
   "The paper must be a file of this course": "Arkusz musi być plikiem tego kursu",
   "The parent node belongs to another project": "Element nadrzędny należy do innego projektu",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "Suma punktów za części: {{sum}}, a na arkuszu jest {{printed}}",
   "The pass grade must be a number from 0 to {{max}}": "Ocena zaliczająca musi być liczbą od 0 do {{max}}",
   "The pass grade must lie between the lowest and the highest grade": "Ocena zaliczająca musi leżeć między najniższą a najwyższą oceną",
   "The pass line is a number of right answers, at most the number of questions": "Próg zaliczenia to liczba poprawnych odpowiedzi, nie większa niż liczba pytań",

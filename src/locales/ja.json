@@ -678,6 +678,7 @@
   "The model wrote too few topics for this short course.": "モデルがこのショートコースに作成したトピックが少なすぎます。",
   "The paper must be a file of this course": "ペーパーはこのコースのファイルにしてください",
   "The parent node belongs to another project": "親ノードは別のプロジェクトに属しています",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "各問の合計は{{sum}}点ですが、問題用紙には{{printed}}点と記載されています",
   "The pass grade must be a number from 0 to {{max}}": "合格評点は 0 から {{max}} までの数値にしてください",
   "The pass grade must lie between the lowest and the highest grade": "合格評点は最低評点と最高評点の間にしてください",
   "The pass line is a number of right answers, at most the number of questions": "合格ラインは正解数で指定します。問題数を超えない値にしてください",

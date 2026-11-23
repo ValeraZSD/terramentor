@@ -936,6 +936,7 @@
   "The model wrote too few topics for this short course.": "Il modello ha scritto troppo pochi argomenti per questo corso breve.",
   "The paper must be a file of this course": "La prova d'esame deve essere un file di questo corso",
   "The parent node belongs to another project": "Il nodo genitore appartiene a un altro progetto",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "Le parti sommano {{sum}} punti, ma la prova ne riporta {{printed}}",
   "The pass grade must be a number from 0 to {{max}}": "Il voto di sufficienza deve essere un numero da 0 a {{max}}",
   "The pass grade must lie between the lowest and the highest grade": "Il voto di sufficienza deve stare tra il voto minimo e quello massimo",
   "The pass line is a number of right answers, at most the number of questions": "La soglia di superamento è un numero di risposte esatte, al massimo pari al numero di domande",

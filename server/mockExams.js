@@ -203,7 +203,7 @@ function readPaperInput(projectId, input) {
         const printed = input.printedTotal;
         if (!Number.isInteger(printed) || printed < 1 || printed > MAX_POINTS * MAX_PARTS) throw bad('The total printed on the paper must be a whole number of points');
         const sum = parts.reduce((a, p) => a + p.points, 0);
-        if (sum !== printed) throw bad(`The parts add up to ${sum} points, but the paper prints ${printed}`);
+        if (sum !== printed) throw bad('The parts add up to {{sum}} points, but the paper prints {{printed}}', { sum, printed });
     }
     return { title, minutes, gradeMin, gradeMax, passGrade, paperDocumentId, solutionDocumentId, parts };
 }

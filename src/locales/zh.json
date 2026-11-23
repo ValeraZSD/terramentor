@@ -678,6 +678,7 @@
   "The model wrote too few topics for this short course.": "模型为这门短课程写出的主题太少。",
   "The paper must be a file of this course": "试卷必须是本课程的文件",
   "The parent node belongs to another project": "父节点属于另一个项目",
+  "The parts add up to {{sum}} points, but the paper prints {{printed}}": "各部分合计 {{sum}} 分，但试卷上印的是 {{printed}} 分",
   "The pass grade must be a number from 0 to {{max}}": "及格分必须是 0 到 {{max}} 之间的数字",
   "The pass grade must lie between the lowest and the highest grade": "及格分必须介于最低分和最高分之间",
   "The pass line is a number of right answers, at most the number of questions": "及格线是答对的题数，不能超过题目总数",
