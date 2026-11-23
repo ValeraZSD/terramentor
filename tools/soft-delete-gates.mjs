@@ -577,6 +577,13 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     const hCourse = picture(lc, lTopic, `${LEAK}-course`);
     const hCard = picture(keep, kTopic, `${LEAK}-card`, { deleteCard: true });
     const hLive = picture(keep, kTopic, 'keep-live');
+    // One picture in two courses: the deleted course's row has a description,
+    // the live course's row none.
+    const hTwice = picture(lc, lTopic, 'twice');
+    db.prepare("UPDATE media_files SET description = ?, described_by = 'author' WHERE hash = ? AND project_id = ?").run(`${LEAK} author text`, hTwice, lc);
+    ins("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'twice.png', 'image/png', 'image', 20)", keep, hTwice);
+    ins('INSERT INTO flashcards (node_id, front, back, media) VALUES (?, ?, ?, ?)', kTopic, 'twice card', 'back',
+        JSON.stringify({ front: [{ hash: hTwice, kind: 'image', name: 'twice.png' }] }));
     // Paper practice: an exercise and a marked attempt with its photo.
     const exercise = ins("INSERT INTO feed_items (node_id, kind, content, status) VALUES (?, 'practice', ?, 'ready')", lTopic,
         JSON.stringify({ prompt: `${LEAK} exercise`, reference_solution: `${LEAK} solution`, rubric: [{ criterion: `${LEAK} step`, points: 1 }] }));
@@ -646,6 +653,9 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     ok('…nor queued for the description sweep', pending.includes(hLive) && !pending.includes(hCourse) && !pending.includes(hCard), JSON.stringify(pending));
     const described = await describeMedia(hCourse, { model: 'stub' });
     ok('…nor sent to a vision model when asked for by its hash', !described.ok && described.reason === 'no such media' && leaked() === 0, JSON.stringify(described));
+    const twice = await describeMedia(hTwice, { model: 'stub' });
+    ok('a picture also in a live course is described from the live course\'s row, not the deleted one\'s',
+        twice.reason !== 'already described' && !String(twice.description ?? '').includes(LEAK), JSON.stringify(twice));
     const served = async (h) => [(await call('GET', `/api/media/${h}`)).status, (await call('GET', `/api/media/${h}/info`)).status];
     ok('control: a live card\'s picture is served', (await served(hLive)).every(s => s === 200));
     ok('…and one of a deleted course or of only a deleted card is a 404', [...await served(hCourse), ...await served(hCard)].every(s => s === 404),

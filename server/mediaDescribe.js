@@ -222,7 +222,8 @@ export function describeStats(projectId = null) {
 export async function describeMedia(hash, { force = false, model, signal, projectId = null } = {}) {
     // A file only deleted cards or banks show is not sent to a model.
     const row = mediaInUse(hash)
-        ? db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash)
+        ? db.prepare(`SELECT hash, kind, mime, filename, description, described_by FROM media_files
+            WHERE hash = ? AND project_id IN (SELECT id FROM live_projects) LIMIT 1`).get(hash)
         : null;
     if (!row) return { ok: false, reason: k('no such media') };
     if (row.kind !== 'image') return { ok: false, reason: k('only images can be described') };
