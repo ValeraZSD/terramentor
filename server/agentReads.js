@@ -47,7 +47,7 @@ const pct = (x) => `${Math.round(Math.max(0, Math.min(1, Number(x) || 0)) * 100)
 /** Every project by id, active ones first, for an agent that has not picked one yet. */
 function projectList() {
     const rows = db.prepare(`
-        SELECT id, name, COALESCE(status, 'active') AS status, kind FROM projects
+        SELECT id, name, COALESCE(status, 'active') AS status, kind FROM live_projects projects
         ORDER BY CASE COALESCE(status, 'active') WHEN 'active' THEN 0 ELSE 1 END, position ASC, created_at ASC, id ASC
     `).all();
     const lines = rows.slice(0, PROJECTS_LISTED)

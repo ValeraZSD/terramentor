@@ -7,6 +7,7 @@ import db, { NOW_ISO } from './database.js';
 import { ENTITY_FIELDS, KINDS, PROJECT_FIELDS, fieldHash } from './courseMerge.js';
 import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { claimUuid } from './courseFiles.js';
+import { BY_APP, revive, softDelete } from './softDelete.js';
 import { k } from './clientError.js';
 
 const ORDERED = new Set(['node', 'resource']);
@@ -54,11 +55,11 @@ const STATE_TABLES = ['mastery_evidence', 'node_mastery', 'study_time', 'chat_co
 let stateQueries = null;
 const topicsWithState = (projectId) => {
     stateQueries ??= STATE_TABLES.filter(t => db.prepare(`SELECT 1 FROM pragma_table_info('${t}') WHERE name = 'node_id'`).get())
-        .map(t => db.prepare(`SELECT DISTINCT node_id AS id FROM ${t} WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)`));
+        .map(t => db.prepare(`SELECT DISTINCT node_id AS id FROM ${t} WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)`));
     const ids = new Set();
     for (const s of stateQueries) for (const r of s.all(projectId)) ids.add(r.id);
     // A practice set this library's model wrote is the learner's too.
-    for (const r of prep('SELECT DISTINCT node_id AS id FROM quizzes WHERE generated_by IS NOT NULL AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)').all(projectId)) ids.add(r.id);
+    for (const r of prep('SELECT DISTINCT node_id AS id FROM live_quizzes quizzes WHERE generated_by IS NOT NULL AND node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)').all(projectId)) ids.add(r.id);
     return ids;
 };
 /** Whether a topic holds anything of the learner's; `withState` is `topicsWithState`. */
@@ -67,9 +68,9 @@ const topicHasState = (n, withState) => (n.status && n.status !== 'not_started')
 /** The course as it stands in the library: every item with its author-owned
  *  fields, its row id, and whether anything of the learner's hangs on it. */
 export function readInstalledCourse(projectId) {
-    const project = prep('SELECT * FROM projects WHERE id = ?').get(projectId);
+    const project = prep('SELECT * FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return null;
-    const nodes = prep('SELECT * FROM nodes WHERE project_id = ? ORDER BY position, id').all(projectId);
+    const nodes = prep('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position, id').all(projectId);
     const byId = new Map(nodes.map(n => [n.id, n]));
     const withState = topicsWithState(projectId);
     const tracked = new Set(prep("SELECT uuid FROM course_base WHERE project_id = ? AND kind = 'question' AND field = 'content'").all(projectId).map(r => r.uuid));
@@ -85,9 +86,9 @@ export function readInstalledCourse(projectId) {
     }
     const nodeIds = nodes.map(n => n.id);
     if (nodeIds.length) {
-        const inProject = 'SELECT id FROM nodes WHERE project_id = ?';
+        const inProject = 'SELECT id FROM live_nodes nodes WHERE project_id = ?';
         const seen = new Set();
-        for (const row of prep(`SELECT id, node_id, questions, generated_by FROM quizzes WHERE node_id IN (${inProject}) ORDER BY id`).all(projectId)) {
+        for (const row of prep(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE node_id IN (${inProject}) ORDER BY id`).all(projectId)) {
             const node = byId.get(row.node_id);
             const qs = safeParse(row.questions);
             if (!Array.isArray(qs)) continue;
@@ -101,8 +102,8 @@ export function readInstalledCourse(projectId) {
                     hasState: false, label: String(q.question ?? '').slice(0, 160), where: node.title, rawUuid: q.uuid });
             }
         }
-        const reviewed = new Set(prep(`SELECT DISTINCT card_id AS id FROM review_log WHERE card_id IN (SELECT f.id FROM flashcards f WHERE f.node_id IN (${inProject}))`).all(projectId).map(r => r.id));
-        for (const c of prep(`SELECT * FROM flashcards WHERE node_id IN (${inProject}) ORDER BY id`).all(projectId)) {
+        const reviewed = new Set(prep(`SELECT DISTINCT card_id AS id FROM review_log WHERE card_id IN (SELECT f.id FROM live_flashcards f WHERE f.node_id IN (${inProject}))`).all(projectId).map(r => r.id));
+        for (const c of prep(`SELECT * FROM live_flashcards flashcards WHERE node_id IN (${inProject}) ORDER BY id`).all(projectId)) {
             const node = byId.get(c.node_id);
             entities.push({
                 kind: 'card', uuid: c.uuid, id: c.id, parentUuid: node.uuid,
@@ -111,7 +112,7 @@ export function readInstalledCourse(projectId) {
                 label: c.front, where: node.title,
             });
         }
-        for (const r of prep(`SELECT * FROM resources WHERE node_id IN (${inProject}) ORDER BY position, id`).all(projectId)) {
+        for (const r of prep(`SELECT * FROM live_resources resources WHERE node_id IN (${inProject}) ORDER BY position, id`).all(projectId)) {
             const node = byId.get(r.node_id);
             entities.push({
                 kind: 'resource', uuid: r.uuid, id: r.id, parentUuid: node.uuid, position: r.position,
@@ -234,19 +235,19 @@ const RESTORE = {
     quizzes: ['node_id', 'title', 'questions'],
 };
 const scopeSql = {
-    nodes: 'SELECT * FROM nodes WHERE project_id = ?',
-    resources: 'SELECT * FROM resources WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)',
-    flashcards: 'SELECT * FROM flashcards WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)',
-    quizzes: 'SELECT * FROM quizzes WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)',
+    nodes: 'SELECT * FROM live_nodes nodes WHERE project_id = ?',
+    resources: 'SELECT * FROM live_resources resources WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
+    flashcards: 'SELECT * FROM live_flashcards flashcards WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
+    quizzes: 'SELECT * FROM live_quizzes quizzes WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
 };
 
 function takeUndoSnapshot(projectId) {
     const rows = {};
     for (const [t, sql] of Object.entries(scopeSql)) rows[t] = prep(sql).all(projectId);
     return {
-        project: prep('SELECT name, description, content_language, learning_language, version FROM projects WHERE id = ?').get(projectId),
+        project: prep('SELECT name, description, content_language, learning_language, version FROM live_projects projects WHERE id = ?').get(projectId),
         rows,
-        questionLog: prep('SELECT * FROM question_log WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)').all(projectId),
+        questionLog: prep('SELECT * FROM question_log WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)').all(projectId),
         base: prep('SELECT kind, uuid, field, base_hash, edited FROM course_base WHERE project_id = ?').all(projectId),
         upstream: prep('SELECT exported_at, version, synced_at FROM course_upstream WHERE project_id = ?').get(projectId) || null,
     };
@@ -257,7 +258,7 @@ function takeUndoSnapshot(projectId) {
 // anything here moved since (a topic, card or link added, an edit, a rename).
 function courseFingerprint(projectId) {
     const h = createHash('sha256');
-    h.update(JSON.stringify(prep('SELECT name, description, content_language, learning_language, version FROM projects WHERE id = ?').get(projectId)));
+    h.update(JSON.stringify(prep('SELECT name, description, content_language, learning_language, version FROM live_projects projects WHERE id = ?').get(projectId)));
     for (const t of Object.keys(scopeSql)) {
         for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) h.update(JSON.stringify([t, r.id, ...RESTORE[t].map(c => r[c] ?? null)]));
     }
@@ -326,8 +327,11 @@ export function undoLastUpdate(projectId) {
         // cascade handles); rows it changed or removed come back.
         for (const t of ['quizzes', 'flashcards', 'resources', 'nodes']) {
             const keep = new Set(snap.rows[t].map(r => r.id));
-            for (const r of prep(scopeSql[t]).all(projectId)) if (!keep.has(r.id)) prep(`DELETE FROM ${t} WHERE id = ?`).run(r.id);
+            for (const r of prep(scopeSql[t]).all(projectId)) if (!keep.has(r.id)) softDelete(t, r.id, { by: BY_APP });
         }
+        // What the update removed is still there, marked deleted by the app:
+        // every row the snapshot holds was live when it was taken.
+        for (const t of ['nodes', 'resources', 'flashcards', 'quizzes']) revive(t, snap.rows[t].map(r => r.id));
         for (const t of ['nodes', 'resources', 'flashcards', 'quizzes']) {
             const cols = prep(`SELECT name FROM pragma_table_info('${t}')`).all().map(c => c.name);
             const exists = prep(`SELECT 1 FROM ${t} WHERE id = ?`);
@@ -377,7 +381,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
     const touched = new Set();
     db.transaction(() => {
         const undo = takeUndoSnapshot(projectId);
-        const nodeIdByUuid = new Map(prep('SELECT id, uuid FROM nodes WHERE project_id = ?').all(projectId).map(r => [r.uuid, r.id]));
+        const nodeIdByUuid = new Map(prep('SELECT id, uuid FROM live_nodes nodes WHERE project_id = ?').all(projectId).map(r => [r.uuid, r.id]));
         const insertedUuid = new Map();   // `new:<ref>` -> the uuid the row got
         const insertedResource = new Map();   // the same, for links
         const resolveNode = (ref) => {
@@ -388,7 +392,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             }
             return nodeIdByUuid.get(ref) ?? null;
         };
-        const uuidOfNode = (id) => prep('SELECT uuid FROM nodes WHERE id = ?').get(id)?.uuid;
+        const uuidOfNode = (id) => prep('SELECT uuid FROM live_nodes nodes WHERE id = ?').get(id)?.uuid;
         const put = putBaseStmt();
         const writeBase = (kind, uuid, fields) => {
             for (const [f, v] of Object.entries(fields)) put.run(projectId, kind, uuid, f, v.hash, v.edited ? 1 : 0);
@@ -417,7 +421,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         const pf = plan.project || {};
         const pcols = Object.keys(pf).filter(f => PROJECT_FIELDS.includes(f));
         if (pcols.length) prep(`UPDATE projects SET ${pcols.map(c => `${c} = ?`).join(', ')} WHERE id = ?`).run(...pcols.map(c => pf[c]), projectId);
-        const projectUuid = prep('SELECT uuid FROM projects WHERE id = ?').get(projectId).uuid;
+        const projectUuid = prep('SELECT uuid FROM live_projects projects WHERE id = ?').get(projectId).uuid;
         writeBase('project', projectUuid, plan.projectBase || {});
 
         const byKind = (op, kind) => plan.ops.filter(o => o.op === op && o.kind === kind);
@@ -445,8 +449,8 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         }
 
         // Question banks. A topic's course bank is its unmarked quiz row.
-        const bankRow = (nodeId) => prep('SELECT id, questions FROM quizzes WHERE node_id = ? AND generated_by IS NULL ORDER BY id').get(nodeId);
-        const readBank = (quizId) => safeParse(prep('SELECT questions FROM quizzes WHERE id = ?').get(quizId)?.questions) || [];
+        const bankRow = (nodeId) => prep('SELECT id, questions FROM live_quizzes quizzes WHERE node_id = ? AND generated_by IS NULL ORDER BY id').get(nodeId);
+        const readBank = (quizId) => safeParse(prep('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quizId)?.questions) || [];
         const writeBank = (quizId, qs) => prep('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
         const clearAsked = (quizId, rawUuid) => prep('DELETE FROM question_log WHERE quiz_id = ? AND question_uuid = ?').run(quizId, rawUuid);
         const addToBank = (nodeId, question) => {
@@ -458,7 +462,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 writeBank(row.id, qs);
                 return { quizId: row.id, index: qs.length - 1 };
             }
-            const title = prep('SELECT title FROM nodes WHERE id = ?').get(nodeId)?.title || 'Questions';
+            const title = prep('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId)?.title || 'Questions';
             const quizId = prep('INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, NULL)')
                 .run(nodeId, title, JSON.stringify([question])).lastInsertRowid;
             return { quizId, index: 0 };
@@ -468,12 +472,12 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const raw = rawOf(o.uuid);
             writeBank(o.id, readBank(o.id).filter(q => q?.uuid !== raw));
             clearAsked(o.id, raw);
-            touched.add(prep('SELECT node_id FROM quizzes WHERE id = ?').get(o.id)?.node_id);
+            touched.add(prep('SELECT node_id FROM live_quizzes quizzes WHERE id = ?').get(o.id)?.node_id);
         }
         for (const o of byKind('update', 'question')) {
             const raw = rawOf(o.uuid);
             const next = { ...importedQuestion(o.source), uuid: raw };
-            const nodeId = prep('SELECT node_id FROM quizzes WHERE id = ?').get(o.id)?.node_id;
+            const nodeId = prep('SELECT node_id FROM live_quizzes quizzes WHERE id = ?').get(o.id)?.node_id;
             clearAsked(o.id, raw);
             touched.add(nodeId);
             const qs = readBank(o.id);
@@ -521,10 +525,10 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const id = prep(`INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(nodeId, c.front, c.back, c.extra ?? null, c.extra_front ?? null,
                 resolveMedia(c.media), declaredBy(c.generated_by), claimUuid('flashcards', o.uuid)).lastInsertRowid;
-            const uuid = prep('SELECT uuid FROM flashcards WHERE id = ?').get(id).uuid;
+            const uuid = prep('SELECT uuid FROM live_flashcards flashcards WHERE id = ?').get(id).uuid;
             writeBase('card', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });
         }
-        for (const o of byKind('delete', 'card')) prep('DELETE FROM flashcards WHERE id = ?').run(o.id);
+        for (const o of byKind('delete', 'card')) softDelete('flashcards', o.id, { by: BY_APP });
 
         // Links.
         for (const o of byKind('update', 'resource')) {
@@ -543,21 +547,21 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const r = o.source || {};
             const id = prep('INSERT INTO resources (node_id, title, url, type, completed, position, uuid) VALUES (?, ?, ?, ?, 0, ?, ?)')
                 .run(nodeId, r.title, r.url ?? null, r.type || 'link', o.position, claimUuid('resources', o.uuid)).lastInsertRowid;
-            const uuid = prep('SELECT uuid FROM resources WHERE id = ?').get(id).uuid;
+            const uuid = prep('SELECT uuid FROM live_resources resources WHERE id = ?').get(id).uuid;
             insertedResource.set(`new:${o.ref}`, uuid);
             writeBase('resource', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });
         }
-        for (const o of byKind('delete', 'resource')) prep('DELETE FROM resources WHERE id = ?').run(o.id);
+        for (const o of byKind('delete', 'resource')) softDelete('resources', o.id, { by: BY_APP });
 
         // Topics the file dropped and nothing of the learner's holds: gone.
-        for (const o of byKind('delete', 'node')) prep('DELETE FROM nodes WHERE id = ?').run(o.id);
+        for (const o of byKind('delete', 'node')) softDelete('nodes', o.id, { by: BY_APP });
 
         // Sibling order, the file's for what it knows.
         for (const r of plan.reorder || []) {
             const table = r.kind === 'node' ? 'nodes' : 'resources';
             const idOf = r.kind === 'node'
                 ? (u) => resolveNode(u)
-                : (u) => prep('SELECT id FROM resources WHERE uuid = ?').get(String(u).startsWith('new:') ? insertedResource.get(u) ?? '' : u)?.id;
+                : (u) => prep('SELECT id FROM live_resources resources WHERE uuid = ?').get(String(u).startsWith('new:') ? insertedResource.get(u) ?? '' : u)?.id;
             const ids = r.children.map(idOf).filter(id => id != null);
             ids.forEach((id, i) => prep(`UPDATE ${table} SET position = ? WHERE id = ?`).run(i, id));
         }
@@ -573,7 +577,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 ? { ...b.fields, parent: { ...b.fields.parent, hash: fieldHash(insertedUuid.get(b.newParent) ?? null) } }
                 : b.fields);
         }
-        putUpstreamStmt().run(projectId, plan.exportedAt, pf.version ?? prep('SELECT version FROM projects WHERE id = ?').get(projectId).version);
+        putUpstreamStmt().run(projectId, plan.exportedAt, pf.version ?? prep('SELECT version FROM live_projects projects WHERE id = ?').get(projectId).version);
         undo.after = courseFingerprint(projectId);
         prep(`UPDATE course_upstream SET undo = ?, undo_at = ${NOW_ISO} WHERE project_id = ?`).run(JSON.stringify(undo), projectId);
 

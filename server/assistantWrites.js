@@ -11,6 +11,7 @@
  * back at the right time.
  */
 import db from './database.js';
+import { BY_APP, softDelete } from './softDelete.js';
 import { aiProvenance } from './ai.js';
 import { LEAF_NODE } from './today.js';
 import { KeyedError } from './clientError.js';
@@ -34,7 +35,7 @@ export function addAssistantCard({ nodeId, front, back, extra = null }) {
     if (f.length > CARD_SIDE_MAX || b.length > CARD_SIDE_MAX || (x && x.length > CARD_SIDE_MAX)) {
         throw new Error(`A card side is limited to ${CARD_SIDE_MAX} characters.`);
     }
-    const node = db.prepare(`SELECT n.id, n.is_note, (${LEAF_NODE}) AS leaf FROM nodes n WHERE n.id = ?`).get(Number(nodeId));
+    const node = db.prepare(`SELECT n.id, n.is_note, (${LEAF_NODE}) AS leaf FROM live_nodes n WHERE n.id = ?`).get(Number(nodeId));
     if (!node) throw new KeyedError('That topic does not exist.');
     // A note is a topic's reading material; its cards belong to the topic.
     if (node.is_note) throw new KeyedError('A card belongs to a topic, not to a note.');
@@ -42,7 +43,7 @@ export function addAssistantCard({ nodeId, front, back, extra = null }) {
     // progress and no topic's evidence. A deck's stage is a leaf and takes cards.
     if (!node.leaf) throw new KeyedError('A card belongs to a topic, not to a section.');
 
-    const same = db.prepare('SELECT id FROM flashcards WHERE node_id = ? AND lower(trim(front)) = lower(?)').get(node.id, f);
+    const same = db.prepare('SELECT id FROM live_flashcards flashcards WHERE node_id = ? AND lower(trim(front)) = lower(?)').get(node.id, f);
     if (same) return { id: same.id, existed: true };
 
     // Every card starts NEW (next_review NULL): the scheduler decides when it
@@ -65,10 +66,10 @@ export function addAssistantCard({ nodeId, front, back, extra = null }) {
 export function undoAssistantCard(cardId) {
     const id = Number(cardId);
     if (!Number.isInteger(id)) throw new Error('Invalid card id.');
-    const card = db.prepare('SELECT id FROM flashcards WHERE id = ?').get(id);
+    const card = db.prepare('SELECT id FROM live_flashcards flashcards WHERE id = ?').get(id);
     if (!card) return { gone: true };
     const reviews = db.prepare('SELECT COUNT(*) AS n FROM review_log WHERE card_id = ?').get(id).n;
     if (reviews > 0) return { kept: true, reviews };
-    db.prepare('DELETE FROM flashcards WHERE id = ?').run(id);
+    softDelete('flashcards', id, { by: BY_APP });
     return { removed: true };
 }

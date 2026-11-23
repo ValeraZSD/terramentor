@@ -48,7 +48,7 @@ function statements() {
             FROM mastery_evidence WHERE evidence_type != 'flashcard' GROUP BY at
           UNION ALL
             SELECT ${MINUTE('completed_at')} AS at, 0, 0, 0
-            FROM nodes WHERE completed_at IS NOT NULL AND is_note = 0 GROUP BY at
+            FROM live_nodes nodes WHERE completed_at IS NOT NULL AND is_note = 0 GROUP BY at
           UNION ALL
             SELECT ${MINUTE('finished_at')} AS at, 0, 0, 0
             FROM mock_sittings WHERE status = 'done' AND finished_at IS NOT NULL GROUP BY at
@@ -61,12 +61,12 @@ function statements() {
         reviews: db.prepare("SELECT COUNT(*) AS n FROM review_log WHERE source = 'app'"),
         answers: db.prepare("SELECT COALESCE(SUM(total), 0) AS n FROM mastery_evidence WHERE evidence_type != 'flashcard'"),
         mocks: db.prepare("SELECT COUNT(*) AS n FROM mock_sittings WHERE status = 'done'"),
-        courses: db.prepare('SELECT COUNT(*) AS n FROM projects'),
+        courses: db.prepare('SELECT COUNT(*) AS n FROM live_projects projects'),
         // Over the line on the stored estimate; `estimateProven` then takes
         // out what cards and drills lifted, which never prove a topic.
         provenCandidates: db.prepare(`
             SELECT m.node_id FROM node_mastery m
-            JOIN nodes n ON n.id = m.node_id
+            JOIN live_nodes n ON n.id = m.node_id
             WHERE ${WORK_LEAF} AND m.mastery_score >= ? AND m.total_attempts > 0
         `),
     };

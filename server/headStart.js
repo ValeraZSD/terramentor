@@ -83,7 +83,7 @@ export function headStartFor(nodeId) {
 export function headStartsForProject(projectId, { placement = true } = {}) {
     const rows = stmt(`
         SELECT nm.node_id, nm.transferred_prior, nm.placement_prior, nm.mastery_score, nm.total_attempts
-        FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
+        FROM node_mastery nm JOIN live_nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
           AND (nm.transferred_prior IS NOT NULL OR nm.placement_prior IS NOT NULL)
     `).all(projectId);
@@ -153,7 +153,7 @@ export function getPlacementInfo(nodeId) {
     const kind = first?.kind === 'implied' ? 'implied' : 'direct';
     let via = null;
     if (kind === 'implied' && Number.isInteger(first?.via_node_id)) {
-        const live = stmt('SELECT id, title FROM nodes WHERE id = ? AND is_note = 0').get(first.via_node_id);
+        const live = stmt('SELECT id, title FROM live_nodes nodes WHERE id = ? AND is_note = 0').get(first.via_node_id);
         if (live) via = { node_id: live.id, title: live.title };
     }
     return {

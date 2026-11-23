@@ -181,7 +181,7 @@ app.get('/api/feed/nodes/:nodeId/checkpoint', (req, res) => {
     try {
         const nodeId = Number(req.params.nodeId);
         if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json(apiError('nodeId required'));
-        if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) return res.status(404).json(keyed('Node not found'));
+        if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(nodeId)) return res.status(404).json(keyed('Node not found'));
         res.json(checkpointFacts(nodeId, getGateConfig()));
     } catch (err) {
         res.status(500).json(errorBody(err));

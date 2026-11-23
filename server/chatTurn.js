@@ -82,7 +82,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
         // short or anaphoric turns ("explain this again", "why?") carry no
         // retrievable terms. Only meaningful when there IS a topic.
         if (chunks.length === 0 && nodeId != null) {
-            const node = db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId);
+            const node = db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId);
             if (node?.title) chunks = await searchDocuments(node.title, nodeId, projectId, limit);
         }
         // Then the whole library: standing in one course does not mean the
@@ -307,7 +307,7 @@ function collectRunningWork(skip = null) {
         });
         // A short course being written is flagged too, and has its own task.
         const accounted = new Set(list.filter(t => t.kind === 'create_project' || t.kind === 'short_course').map(t => t.projectId));
-        for (const p of db.prepare('SELECT id, name FROM projects WHERE ai_generating = 1').all()) {
+        for (const p of db.prepare('SELECT id, name FROM live_projects projects WHERE ai_generating = 1').all()) {
             if (accounted.has(p.id)) continue;
             work.push({ kind: 'create_project', status: 'running', projectId: p.id, projectName: p.name, progress: {} });
         }

@@ -58,7 +58,7 @@ const found = (v) => Number.isFinite(v);
 function projectOf(projectId) {
     return stmt(`
         SELECT id, kind, COALESCE(status, 'active') AS status, deadline, deadline_fixed, exam_on_screen, look_back_skipped_at
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 }
 
@@ -98,11 +98,11 @@ function lastFinished(projectId, lookBack) {
 /** The course's first answer of its own (a placement probe is no study). */
 function firstAnswer(projectId, t) {
     const e = stmt(`
-        SELECT MIN(e.created_at) AS t FROM mastery_evidence e JOIN nodes n ON n.id = e.node_id
+        SELECT MIN(e.created_at) AS t FROM mastery_evidence e JOIN live_nodes n ON n.id = e.node_id
         WHERE n.project_id = ? AND e.evidence_type <> 'placement'
     `).get(projectId)?.t;
     const q = stmt(`
-        SELECT MIN(q.asked_at) AS t FROM question_log q JOIN nodes n ON n.id = q.node_id
+        SELECT MIN(q.asked_at) AS t FROM question_log q JOIN live_nodes n ON n.id = q.node_id
         WHERE n.project_id = ?
     `).get(projectId)?.t;
     const both = [instantOf(e), instantOf(q)].filter(v => v != null && v <= t);
@@ -115,10 +115,10 @@ function firstAnswer(projectId, t) {
  * then. -Infinity when none has.
  */
 function lastPhaseClosed(projectId, t) {
-    const nodes = stmt('SELECT id, parent_id FROM nodes WHERE project_id = ?').all(projectId);
+    const nodes = stmt('SELECT id, parent_id FROM live_nodes nodes WHERE project_id = ?').all(projectId);
     const parent = new Map(nodes.map(n => [n.id, n.parent_id]));
     const rootOf = (id) => { let at = id; while (parent.get(at) != null) at = parent.get(at); return at; };
-    const leaves = stmt(`SELECT n.id, n.status, n.completed_at FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF}`).all(projectId);
+    const leaves = stmt(`SELECT n.id, n.status, n.completed_at FROM live_nodes n WHERE n.project_id = ? AND ${WORK_LEAF}`).all(projectId);
     const phases = new Map();
     for (const leaf of leaves) {
         const root = rootOf(leaf.id);
@@ -147,7 +147,7 @@ function lastPhaseClosed(projectId, t) {
  */
 function enough(projectId) {
     const withQuiz = stmt(`
-        SELECT COUNT(DISTINCT q.node_id) AS n FROM quizzes q JOIN nodes n ON n.id = q.node_id
+        SELECT COUNT(DISTINCT q.node_id) AS n FROM live_quizzes q JOIN live_nodes n ON n.id = q.node_id
         WHERE n.project_id = ? AND ${WORK_LEAF} AND ${STUDIED}
     `).get(projectId).n;
     if (withQuiz < LOOK_BACK_MIN_TOPICS) return null;
