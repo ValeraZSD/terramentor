@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import Modal from './Modal';
 import CardText from './CardText';
+import CardMedia, { parseCardMedia } from './CardMedia';
 import { api } from '../api';
 import { useStore } from '../store';
 import { Flashcard } from '../types';
 import { hasRichCardText } from '../utils/cardText';
+import { isPhotoPromptCard } from '../utils/photoCard';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 
@@ -55,8 +57,11 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
     const dirty = front !== (card.front ?? '') || back !== (card.back ?? '') || extra !== (card.extra ?? '')
         || extraFront !== (card.extra_front ?? '');
 
+    // A picture can be the whole question (a photo card): its text may stay empty.
+    const frontPictures = parseCardMedia(card.media).front.filter(m => m.kind === 'image');
+
     const save = async () => {
-        if (!front.trim() || !back.trim()) {
+        if ((!front.trim() && !frontPictures.length) || !back.trim()) {
             addToast('error', t("A card needs both sides"), t("Question and answer cannot be empty."));
             return;
         }
@@ -130,7 +135,13 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
             </Button>
         </>}>
             <div className="space-y-4">
-                {field('Question', front, setFront, 2)}
+                {frontPictures.length > 0 && <CardMedia media={frontPictures} size="preview" />}
+                {/* An empty question over a photo is not a missing one: the card
+                    asks it in words of its own (CardFace), so say which. */}
+                {field('Question', front, setFront, 2,
+                    isPhotoPromptCard(front, parseCardMedia(card.media))
+                        ? t("Left empty, the card asks \"Which one is this?\" over the photo.")
+                        : undefined)}
                 {/* What the card shows WITH the question — a phrasebook asks
                     "French" over "Hello", a vocabulary deck shows the word in a sentence.
                     Its own field, not a line among the answer's supporting

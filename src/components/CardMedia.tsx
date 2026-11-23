@@ -7,6 +7,7 @@ import { api } from '../api';
 import { storedInfo as keptInfo, forgetStoredInfo } from '../utils/mediaDescriptions';
 import type { MediaInfo } from '../types';
 import { imageAltText, needsStoredDescription } from './cardImageAlt';
+import { PhotoCredit, type PhotoCreditFields } from './TopicPhoto';
 
 /**
  * The pictures and audio attached to one side of a flashcard.
@@ -42,6 +43,10 @@ export interface CardMediaRef {
     alt?: string;
     /** The line of card text this clip was written on, if the deck placed it on one. */
     at?: string;
+    /** The picture IS the question (a photo card's front): nothing may describe it by its answer. */
+    prompt?: boolean;
+    /** A topic photo's credit (server/photoCards.js), drawn under it on the side that names it. */
+    credit?: PhotoCreditFields;
 }
 
 export interface CardMediaSides {
@@ -277,10 +282,10 @@ function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review'
         let live = true;
         void storedInfo(item.hash).then(found => { if (live) setInfo(found); });
         return () => { live = false; };
-    }, [item.hash, item.alt]);
+    }, [item.hash, item.alt, item.prompt]);
 
     // Never `alt=""`: a card picture is content. See imageAltText for the order.
-    const alt = imageAltText(item, info, description => t("AI description: {{description}}", { description }));
+    const alt = imageAltText(item, info, description => t("AI description: {{description}}", { description }), t("Photo to recognise"));
 
     if (failed) {
         return (
@@ -292,11 +297,11 @@ function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review'
             </div>
         );
     }
-    return (
+    const img = (
         <img
             src={srcFor(item.hash)}
             alt={alt}
-            title={item.alt || undefined}
+            title={(!item.prompt && item.alt) || undefined}
             loading="lazy"
             decoding="async"
             onError={() => setFailed(true)}
@@ -306,5 +311,16 @@ function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review'
             className={`max-w-full rounded-xl object-contain ${size === 'review' ? 'max-h-64 sm:max-h-80' : size === 'preview' ? 'max-h-32' : 'max-h-56'
                 }`}
         />
+    );
+    if (!item.credit || size === 'preview') return img;
+    // The credit's links keep their presses to themselves (PhotoCredit), so
+    // opening the archive's page does not turn the card.
+    return (
+        <div className="flex max-w-full flex-col items-center gap-1">
+            {img}
+            <div className="text-center">
+                <PhotoCredit photo={item.credit} />
+            </div>
+        </div>
     );
 }

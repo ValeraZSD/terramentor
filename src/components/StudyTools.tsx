@@ -6,6 +6,7 @@ import FlashcardView from './FlashcardView';
 import FlashcardEditor from './FlashcardEditor';
 import Modal from './Modal';
 import MathText from './MathText';
+import { parseCardMedia } from './CardMedia';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import { Button, IconButton } from './ui/Button';
@@ -39,6 +40,47 @@ function ListFailed({ text, retry, onRetry }: { text: string; retry: string; onR
             <span>{text}</span>
             <Button size="sm" variant="neutral" onClick={onRetry}>{retry}</Button>
         </div>
+    );
+}
+
+/**
+ * A card in the list: its front over its back. A card whose front is only a
+ * picture (a photo card, server/photoCards.js) shows the picture small beside
+ * its back instead of an empty first line.
+ */
+function CardRowText({ card }: { card: Flashcard }) {
+    const picture = card.front.trim() ? undefined : parseCardMedia(card.media).front.find(m => m.kind === 'image');
+    if (picture) {
+        // A topic's photo cards share one answer, the topic, so the row is named
+        // by its first supporting line (the example's name) when it has one.
+        const name = (card.extra ?? '').split('\n')[0].trim();
+        return (
+            <div className="flex items-center gap-3">
+                {/* The name beside it says what it is. */}
+                <img src={`/api/media/${picture.hash}`} alt="" loading="lazy" decoding="async"
+                    className="h-12 w-16 shrink-0 rounded-lg object-cover bg-slate-200 dark:bg-slate-800" />
+                <div className="min-w-0">
+                    <p className="font-medium text-slate-700 dark:text-slate-200 text-sm line-clamp-2 break-words">
+                        <MathText content={name || card.back} />
+                    </p>
+                    {name && (
+                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 line-clamp-1 break-words">
+                            <MathText content={card.back} />
+                        </p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+    return (
+        <>
+            <p className="font-medium text-slate-700 dark:text-slate-200 text-sm line-clamp-2 break-words">
+                <MathText content={card.front} />
+            </p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 line-clamp-2 break-words">
+                <MathText content={card.back} />
+            </p>
+        </>
     );
 }
 
@@ -516,12 +558,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                                         ones cut off, so the list could not be
                                         used to find a card. */}
                                     <div className="min-w-0 flex-1 overflow-hidden">
-                                        <p className="font-medium text-slate-700 dark:text-slate-200 text-sm line-clamp-2 break-words">
-                                            <MathText content={card.front} />
-                                        </p>
-                                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 line-clamp-2 break-words">
-                                            <MathText content={card.back} />
-                                        </p>
+                                        <CardRowText card={card} />
                                     </div>
                                     <div className="flex items-center gap-1 flex-shrink-0 transition-opacity can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100">
                                         <IconButton size="sm" onClick={() => setEditingFlashcard(card)} label={t("Edit")} icon={<Pencil className="w-4 h-4" />} />

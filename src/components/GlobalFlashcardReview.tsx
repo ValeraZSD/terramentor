@@ -23,13 +23,14 @@ import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
 import { RatingButton } from './flashcards/RatingButton';
 import ReportItem, { reportedLine } from './ui/ReportItem';
-import { cardRef } from '../utils/itemReports';
+import { cardRef, photoRef } from '../utils/itemReports';
 import { useItemReports, useReportOn } from '../utils/itemReportStore';
 import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
 import { ContentLang } from '../utils/contentLang';
+import { isPhotoPromptCard } from '../utils/photoCard';
 import ReadAloudButton from './ui/ReadAloudButton';
 import { useConfirmPress } from '../hooks/useConfirmPress';
 
@@ -276,11 +277,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     // Each card on its own course's target: a mixed session holds several.
     const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
+    // A photo card asks which topic it shows: the topic chips wait for the turn.
+    const placeHidden = !queue.flipped && isPhotoPromptCard(currentCard?.front, cardMedia);
     // A card reported as wrong is out of the session: a model-written one is
     // gone, the learner's own is set aside until they edit it. It is not rated
     // (a rating would schedule it again); the footer offers Next instead. Once
     // their own card is edited the report is settled and it is rated as usual.
-    const currentRef = cardRef(currentCard?.id);
+    // A card made from a topic's photo is reported as that photo: "wrong" is
+    // about the picture, which leaves practice with the card (server/itemReports.js).
+    const currentRef = (currentCard?.photo_uuid && photoRef(currentCard.photo_uuid)) || cardRef(currentCard?.id);
     const currentReport = useReportOn(currentRef);
     const reportHolds = !!currentReport && currentReport.rewrite?.state !== 'edited';
 
@@ -728,7 +733,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             <div className="flex-1 min-h-0 flex justify-center p-2 sm:p-6">
                 <div className="w-full max-w-2xl min-h-0 flex flex-col">
                     {/* Category context */}
-                    {(currentCard.categoryTitle || currentCard.project_name) && (
+                    {((!placeHidden && currentCard.categoryTitle) || currentCard.project_name) && (
                         <div className={`items-center justify-center gap-1.5 mb-3 flex-wrap ${projectId != null ? 'hidden sm:flex' : 'flex'}`}>
                             <span className="text-xs text-slate-500 dark:text-slate-400">{t("From:")}</span>
                             {currentCard.project_name && (
@@ -741,15 +746,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                         />
                                         {currentCard.project_name}
                                     </span>
-                                    {currentCard.categoryTitle && <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />}
+                                    {!placeHidden && currentCard.categoryTitle && <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />}
                                 </>
                             )}
-                            {currentCard.categoryTitle && (
+                            {!placeHidden && currentCard.categoryTitle && (
                                 <span className="text-xs font-medium text-accent-fg bg-accent/10 px-2 py-0.5 rounded-full">
                                     {currentCard.categoryTitle}
                                 </span>
                             )}
-                            {currentCard.node_title && currentCard.node_title !== currentCard.categoryTitle && (
+                            {!placeHidden && currentCard.node_title && currentCard.node_title !== currentCard.categoryTitle && (
                                 <>
                                     <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
                                     <span className="text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">

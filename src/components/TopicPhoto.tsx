@@ -17,12 +17,17 @@ import type { TopicPhoto } from '../types';
 const HASH = /^[a-f0-9]{64}$/;
 
 /** "Photo: Ann Lee · CC BY-SA 4.0 · Wikimedia Commons", each part a link where it has one. */
-function Credit({ photo }: { photo: TopicPhoto }) {
+export type PhotoCreditFields = Pick<TopicPhoto, 'author' | 'licence' | 'licenceUrl' | 'sourceUrl'>;
+
+export function PhotoCredit({ photo }: { photo: PhotoCreditFields }) {
     const { t } = useTranslation();
     const source = safeHref(photo.sourceUrl);
     const licence = safeHref(photo.licenceUrl);
+    // A press on a link opens the archive's page and nothing else: inside a
+    // card it must not also turn the card.
+    const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
     const link = (href: string | undefined, label: string) => href
-        ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline decoration-slate-400/60 underline-offset-2 hover:text-slate-700 dark:hover:text-slate-200">{label}</a>
+        ? <a href={href} target="_blank" rel="noopener noreferrer" onClick={stop} onKeyDown={stop} className="underline decoration-slate-400/60 underline-offset-2 hover:text-slate-700 dark:hover:text-slate-200">{label}</a>
         : <span>{label}</span>;
     const parts: ReactNode[] = [];
     if (photo.author) parts.push(<span key="a">{photo.author}</span>);
@@ -70,7 +75,7 @@ export function TopicPhotoFigure({ photo }: { photo: TopicPhoto }) {
             <figcaption className="mt-2 space-y-0.5">
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{photo.subject}</p>
                 {photo.shows && <p className="text-sm text-slate-600 dark:text-slate-300">{photo.shows}</p>}
-                <Credit photo={photo} />
+                <PhotoCredit photo={photo} />
             </figcaption>
         </figure>
     );
