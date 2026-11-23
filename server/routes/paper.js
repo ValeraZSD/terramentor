@@ -36,9 +36,10 @@ const handlePaperImage = (req, res, next) =>
         return res.status(400).json(errorBody(err, 400));
     });
 
-/** Load a practice feed_item and its authored exercise, or null. */
+/** Load a practice feed_item and its authored exercise, or null. Only one of a live topic. */
 function loadPracticeItem(feedItemId) {
-    const row = db.prepare(`SELECT * FROM feed_items WHERE id = ? AND kind = 'practice'`).get(feedItemId);
+    const row = db.prepare(`SELECT f.* FROM feed_items f JOIN live_nodes n ON n.id = f.node_id
+        WHERE f.id = ? AND f.kind = 'practice'`).get(feedItemId);
     if (!row) return null;
     let exercise = null;
     try { exercise = JSON.parse(row.content); } catch { return null; }
@@ -196,7 +197,8 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
 // what the model actually saw when a grade seems wrong.
 app.get('/api/paper/attempts/:id/image', (req, res) => {
     try {
-        const row = db.prepare('SELECT image_hash FROM paper_attempts WHERE id = ?').get(parseInt(req.params.id, 10));
+        const row = db.prepare(`SELECT a.image_hash FROM paper_attempts a JOIN live_nodes n ON n.id = a.node_id
+            WHERE a.id = ?`).get(parseInt(req.params.id, 10));
         if (!row?.image_hash) return res.status(404).json(keyed('No image stored for this attempt'));
         // A vault under a dot folder is still ours to serve (Express 5 checks every segment).
         res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash), { dotfiles: 'allow' });
