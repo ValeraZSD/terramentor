@@ -15,6 +15,7 @@ import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
 import { holdSampleStill, stillAtNextTop } from './sampleStill';
 import { switchSaver } from '../../utils/switchSaver';
+import { isRtl } from '../../utils/direction';
 
 /**
  * Where the switched-off animation sample stands still: the ball at the TOP of
@@ -574,10 +575,13 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
             const trackBox = track.getBoundingClientRect();
             const left = trackBox.left - rootBox.left, top = trackBox.top - rootBox.top;
 
-            // Where the handle is, in the card's own coordinates.
-            const onKnob = { x: left + frac * trackBox.width, y: top + trackBox.height / 2 };
-            // Where a hand comes from: below and to the right, off the picture.
-            const from = { x: left + trackBox.width + 18, y: top + 46 };
+            // Where the handle is, in the card's own coordinates. The knob rides
+            // from the inline START, which is the track's right edge in right
+            // to left; the hand's `translate` is always measured from the left.
+            const rtl = isRtl(track);
+            const onKnob = { x: rtl ? left + (1 - frac) * trackBox.width : left + frac * trackBox.width, y: top + trackBox.height / 2 };
+            // Where a hand comes from: below and past the track's end, off the picture.
+            const from = { x: rtl ? left - 18 : left + trackBox.width + 18, y: top + 46 };
 
             let hand: { x: number; y: number; on: number; press: number };
             if (u < DEMO.press) {
@@ -631,9 +635,12 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
                 </div>
             </div>
             {/* The hand. Drawn last so it passes over the slider, and given a
-                shadow so it stays readable on a bar and on the paper alike. */}
+                shadow so it stays readable on a bar and on the paper alike.
+                `dir="ltr"`: its `translate` is in left-origin pixels, so its
+                anchor must be the left edge in every language. */}
             <div
                 ref={cursorRef}
+                dir="ltr"
                 className="absolute start-0 top-0 opacity-0 pointer-events-none will-change-transform"
                 style={{ transform: 'translate(-100px, -100px)' }}
             >
