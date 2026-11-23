@@ -320,7 +320,8 @@ export function queueRecovery(documentId, { force = false } = {}) {
 export function resumePendingRecovery() {
     let rows;
     try {
-        rows = db.prepare("SELECT id FROM documents /* with deleted */ WHERE recovery_status IN ('pending', 'running')").all();
+        // A file of a deleted course or topic waits, pending, for its Restore.
+        rows = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status IN ('pending', 'running')").all();
     } catch { return; }
     if (!rows.length) return;
 
@@ -334,9 +335,23 @@ export function resumePendingRecovery() {
     for (const r of rows) queueRecovery(r.id);
 }
 
+/**
+ * Queue the files a Restore brought back that were waiting for recovery
+ * (routes/deleted.js). A file already on the chain is skipped by its second
+ * run, which finds it no longer pending.
+ */
+export function resumeRestoredRecovery() {
+    if (!recoveryEnabled()) return;
+    const ids = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status = 'pending'").pluck().all();
+    for (const id of ids) queueRecovery(id);
+}
+
+const isLiveDoc = (id) => !!db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?').get(id);
+
 async function runRecovery(documentId, { force }) {
+    // Only a live file: one of a deleted course or topic stays pending.
     const doc = db.prepare(
-        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM documents /* with deleted */ WHERE id = ?'
+        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM live_documents documents WHERE id = ?'
     ).get(documentId);
     if (!doc || doc.file_type !== 'pdf' || !doc.file_hash) return;
     if (!force && doc.recovery_status && doc.recovery_status !== 'pending') return;
@@ -408,6 +423,7 @@ async function runRecovery(documentId, { force }) {
         let done = 0;
 
         let cancelled = false;
+        let deleted = false;
         try {
             for (const p of analysis.pages) {
                 // cancelRequested is set by the TaskDock cancel hook. (The task's
@@ -415,6 +431,8 @@ async function runRecovery(documentId, { force }) {
                 // cancelTask leaves settling to the owner, i.e. this function.)
                 if (cancelRequested) { cancelled = true; break; }
                 if (!degradedSet.has(p.page)) continue;
+                // Its course or topic was deleted meanwhile: no further page goes out.
+                if (!isLiveDoc(documentId)) { deleted = true; break; }
 
                 done++;
                 handle.update({ phase: 'recover', message: `Page ${p.page} of ${analysis.numPages}`, percent: Math.round((done / total) * 100) });
@@ -454,6 +472,13 @@ async function runRecovery(documentId, { force }) {
         } finally {
             await renderDoc.destroy();
             scheduleOcrTeardown();
+        }
+
+        if (deleted) {
+            // Left as it was before this run, pending, for its Restore to resume.
+            db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE id = ?").run(documentId);
+            handle.cancelled();
+            return;
         }
 
         if (cancelled && recoveredCount === 0) {
