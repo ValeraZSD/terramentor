@@ -38,16 +38,24 @@ export const MEDIA_IN_USE = `media_in_use(project_id, hash) AS (
 // finding the row that names it. Cards first, whose media text is short; the
 // question banks' larger text is read only for a file no live card names.
 let inUseStmt = null;
-/** Whether a live card or question bank of a course holding this file names it. */
-export function mediaInUse(hash) {
+/**
+ * The `media_files` row of a file in use: the one of `projectId` when that
+ * course uses it, else the first, as the description list and sweep pick.
+ * Null when no live card or question bank of a course holding it names it.
+ */
+export function inUseMediaRow(hash, projectId = null) {
     inUseStmt ??= db.prepare(`
-        SELECT 1 FROM media_files mf
+        SELECT mf.hash, mf.kind, mf.mime, mf.filename, mf.description, mf.described_by FROM media_files mf
         WHERE mf.hash = ? AND (
             EXISTS (SELECT 1 FROM live_nodes n JOIN live_flashcards f ON f.node_id = n.id
                     WHERE n.project_id = mf.project_id AND f.media IS NOT NULL AND instr(f.media, mf.hash) > 0)
             OR EXISTS (SELECT 1 FROM live_nodes n JOIN live_quizzes q ON q.node_id = n.id
                     WHERE n.project_id = mf.project_id AND instr(q.questions, mf.hash) > 0))
+        ORDER BY mf.project_id IS ? DESC, mf.id
         LIMIT 1
     `);
-    return !!inUseStmt.get(String(hash ?? ''));
+    return inUseStmt.get(String(hash ?? ''), projectId ?? -1) ?? null;
 }
+
+/** Whether a live card or question bank of a course holding this file names it. */
+export const mediaInUse = (hash) => !!inUseMediaRow(hash);

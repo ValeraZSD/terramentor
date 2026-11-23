@@ -40,7 +40,7 @@ import * as tasks from './tasks.js';
 import { catalogLanguage } from './creationLanguage.js';
 import { checkDescription, descriptionLanguage } from './descriptionCheck.js';
 import { k, publicMessage } from './clientError.js';
-import { MEDIA_IN_USE, mediaInUse } from './liveMedia.js';
+import { MEDIA_IN_USE, inUseMediaRow } from './liveMedia.js';
 
 /** Kept short on purpose: this is read aloud and pasted into prompts. */
 const DESCRIBE_PROMPT = `Describe this image in one or two plain sentences, for someone who cannot see it.
@@ -221,10 +221,8 @@ export function describeStats(projectId = null) {
  */
 export async function describeMedia(hash, { force = false, model, signal, projectId = null } = {}) {
     // A file only deleted cards or banks show is not sent to a model.
-    const row = mediaInUse(hash)
-        ? db.prepare(`SELECT hash, kind, mime, filename, description, described_by FROM media_files
-            WHERE hash = ? AND project_id IN (SELECT id FROM live_projects) LIMIT 1`).get(hash)
-        : null;
+    // The row read is one a live card or bank uses, the swept course's first.
+    const row = inUseMediaRow(hash, projectId);
     if (!row) return { ok: false, reason: k('no such media') };
     if (row.kind !== 'image') return { ok: false, reason: k('only images can be described') };
     // A person's words (the deck author's alt, or the learner's correction)
