@@ -375,8 +375,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             if (!header || !left || !right || !searchEl || !header.clientWidth) return;
             const gapOf = (el: Element) => parseFloat(getComputedStyle(el).columnGap) || 0;
             // The title at its full length: `scrollWidth` ignores the truncation.
+            // The name is cut inside its own line (ui/OwnLine), so that line,
+            // not the h1, holds the full width.
             const natural = (kids: Element[]) => {
-                const ws = kids.map(el => (el.tagName === 'H1' ? el.scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
+                const ws = kids.map(el => (el.tagName === 'H1' ? (el.querySelector('[data-own-line]') ?? el).scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
                 return ws.reduce((s, w) => s + w, 0);
             };
             const sum = (el: HTMLElement) => {
