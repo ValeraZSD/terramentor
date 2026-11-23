@@ -850,14 +850,6 @@ export interface QuizQuestion {
     ghostNodeTitle?: string;
 }
 
-// Per-decaying-node review result reported back when a quiz containing ghost
-// questions is submitted, so each ghost topic's mastery/decay timer is refreshed.
-export interface GhostResult {
-    nodeId: number;
-    score: number;
-    total: number;
-}
-
 // Learning feed (server/feed.js, GET /api/feed) — the home page card stream.
 // A discriminated union: `kind` selects the card component; `key` is the
 // stable identity used for exclude-list paging and consume calls.
@@ -1801,21 +1793,6 @@ export interface AskedQuestion {
     correct?: boolean;
 }
 
-export interface QuizAttempt {
-    id: number;
-    quiz_id: number;
-    score: number;
-    total: number;
-    answers: Record<number, string>;
-    created_at: string;
-    /**
-     * The learner's own pass mark (`mastery_check_pass`), returned by the submit
-     * route so the results screen praises on the same number the gate judges on.
-     * Absent on a row read back out of the table — only the submission carries it.
-     */
-    passThreshold?: number;
-}
-
 export interface Flashcard {
     id: number;
     node_id: number;
@@ -2236,13 +2213,6 @@ export interface ProjectFlashcard extends Flashcard {
     parent_id?: number | null;
     categoryTitle?: string;
     categoryId?: number | null;
-}
-
-export interface ProjectQuiz extends Quiz {
-    node_title?: string;
-    attempt_count?: number;
-    best_score?: number | null;
-    avg_score?: number | null;
 }
 
 //

@@ -176,7 +176,7 @@ check('Settings → Learning has the switch', read('src/components/settings/Lear
 check('the line under a fill-in box says slips are forgiven only while they are',
     /forgiven/.test(clientFormats.answerHint(fill('x'), true)) && /Spelling counts/.test(clientFormats.answerHint(fill('x'), false))
     && clientFormats.answerHint({ type: 'short_answer' }, true) === clientFormats.answerHint({ type: 'short_answer' }, false));
-const hintReaders = ['src/components/feed/InlineQuestion.tsx', 'src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx']
+const hintReaders = ['src/components/feed/InlineQuestion.tsx', 'src/components/MasteryGateModal.tsx']
     .filter(p => /formatOf\([^)]*\)\.hint|format\.hint/.test(read(p)) || !/answerHint\(/.test(read(p)));
 check('every answer screen reads the hint through answerHint, never the plain one', hintReaders.length === 0, hintReaders.join(', '));
 check('the feed verdict shows the spelling note', /result\.correct && <SpellingNote/.test(read('src/components/feed/InlineQuestion.tsx')));
