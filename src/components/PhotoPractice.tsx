@@ -17,11 +17,12 @@ import type { PhotoRoundItem, PhotoVerdict, QuizQuestion, TopicPhoto } from '../
 
 /**
  * "Which one is this?": a round of the course's topic photos, each asked
- * among the course's topics learned by sight (server/photoPractice.js).
+ * among the kinds of thing the course's photos show (a style, a species, a
+ * country's buildings; else a topic): server/photoPractice.js.
  *
- * One photo at a time, large, and the topics as the options; the server says
+ * One photo at a time, large, and the kinds as the options; the server says
  * right or wrong. A right pick names the example, what to look at and the
- * photo's credit under it. A wrong pick puts the photo beside one of the topic
+ * photo's credit under it. A wrong pick puts the photo beside one of the kind
  * picked, each with what to look at, so the difference is seen, not only read.
  * Nothing that names the answer (the example, the credit) is on screen before
  * the pick.
@@ -68,8 +69,9 @@ export default function PhotoPractice({ projectId }: { projectId: number }) {
     const verdict = verdicts[at] ?? null;
     useStudyClock(item ? { nodeId: item.nodeId, activity: 'questions' } : null);
 
-    // The topics by the part of their title before a colon, the same for the
-    // whole round: the rest describes the answer (src/utils/shortTitles.ts).
+    // An option named by a topic's title shows the part before a colon, the
+    // same for the whole round: the rest describes the answer
+    // (src/utils/shortTitles.ts). A kind's own words have no colon to cut.
     const labels = useMemo(() => shortTitles(items?.flatMap(i => i.options.map(o => o.title)) ?? []), [items]);
     const label = useCallback((title: string) => labels.get(title) ?? title, [labels]);
 
@@ -99,7 +101,7 @@ export default function PhotoPractice({ projectId }: { projectId: number }) {
         if (!option) return;
         setSending(true);
         try {
-            const out = await api.answerPhoto(projectId, { photo: item.photo, picked: option.nodeId, attemptId: attempt.current });
+            const out = await api.answerPhoto(projectId, { photo: item.photo, picked: option.key, attemptId: attempt.current });
             setVerdicts(v => { const next = [...v]; next[at] = out; return next; });
         } catch (e: any) {
             // Sent again with the same id, a pick that did reach the server is written once.

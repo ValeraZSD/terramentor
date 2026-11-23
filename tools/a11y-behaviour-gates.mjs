@@ -404,14 +404,16 @@ try {
         const CN = 'Chinese Architecture: Curves, Power and Imperial Order';
         const photo = (uuid, topic) => ({ uuid, hash: 'b'.repeat(64), width: 40, height: 30, subject: 'Himeji Castle', shows: 'White walls.', author: 'A', licence: 'CC BY-SA 4.0', licenceUrl: null, sourceUrl: null, topic });
         const sent = [];
+        // An option's key is what the app sends back; the server makes it.
+        const kJP = 'kind-jp', kCN = 'kind-cn';
         globalThis.__api = {
             drawPhotoRound: async () => ({ items: [
-                { photo: 'p1', nodeId: 1, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ nodeId: 1, title: JP }, { nodeId: 2, title: CN }] },
-                { photo: 'p2', nodeId: 2, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ nodeId: 2, title: CN }, { nodeId: 1, title: JP }] },
+                { photo: 'p1', nodeId: 1, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ key: kJP, title: JP }, { key: kCN, title: CN }] },
+                { photo: 'p2', nodeId: 2, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ key: kCN, title: CN }, { key: kJP, title: JP }] },
             ] }),
             answerPhoto: async (_p, body) => {
                 sent.push(body);
-                return { correct: body.picked === 1, answer: { nodeId: 1, title: JP }, shown: photo('p1', JP), picked: body.picked === 1 ? null : photo('p3', CN) };
+                return { correct: body.picked === kJP, answer: { key: kJP, title: JP, nodeId: 1 }, shown: photo('p1', JP), picked: body.picked === kJP ? null : photo('p3', CN) };
             },
             sendStudyTime: async () => ({}),
         };
@@ -432,7 +434,7 @@ try {
         await settle(450);
         await press(optionsOf(on.host)[0]);
         await settle(60);
-        ok('…and the second press on it sends that topic', sent.length === 1 && sent[0].picked === 1 && sent[0].photo === 'p1', JSON.stringify(sent));
+        ok('…and the second press on it sends that topic', sent.length === 1 && sent[0].picked === kJP && sent[0].photo === 'p1', JSON.stringify(sent));
         const next = [...on.host.querySelectorAll('button')].find(b => /Next photo/.test(b.textContent));
         ok('the verdict in, focus is on Next photo', !!next && doc.activeElement === next, doc.activeElement?.outerHTML?.slice(0, 80));
         if (next) await press(next);
@@ -461,7 +463,7 @@ try {
         await settle(60);
         await press(optionsOf(off.host)[1]);
         await settle(60);
-        ok('with it off, one press sends the pick', sent.length === 1 && sent[0].picked === 2, JSON.stringify(sent));
+        ok('with it off, one press sends the pick', sent.length === 1 && sent[0].picked === kCN, JSON.stringify(sent));
         const said = off.host.textContent;
         ok('a wrong pick names the topic by its short name', /This is Japanese Architecture/.test(said) && !/This is Japanese Architecture:/.test(said), said.slice(0, 200));
         // On a phone the two photos fill the screen: the verdict above them is read first.

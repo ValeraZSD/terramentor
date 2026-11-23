@@ -924,6 +924,8 @@ export interface TopicPhotos {
 export interface PhotoPracticeState {
     topics: number;
     photos: number;
+    /** How many kinds of thing the photos show: practice needs two. */
+    kinds: number;
     available: boolean;
 }
 
@@ -934,13 +936,15 @@ export interface PhotoRoundItem {
     hash: string;
     width: number | null;
     height: number | null;
-    options: { nodeId: number; title: string }[];
+    /** What the photo may be: each kind by its `key` (sent back as the pick) and the words it is named by. */
+    options: { key: string; title: string }[];
 }
 
 /** The server's verdict on a pick, with the photo shown and (when wrong) one of the topic picked. */
 export interface PhotoVerdict {
     correct: boolean;
-    answer: { nodeId: number; title: string };
+    /** What the photo is, and the topic it was answered on. */
+    answer: { key: string; title: string; nodeId: number };
     shown: TopicPhoto & { topic: string };
     picked: (TopicPhoto & { topic: string }) | null;
     duplicate?: boolean;

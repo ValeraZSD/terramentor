@@ -72,9 +72,10 @@ app.post('/api/projects/:id/photo-practice/answer', (req, res) => {
     // pick sent without one would be written again on every retry.
     const attemptId = readAttemptId(req.body?.attemptId);
     if (!attemptId) return res.status(400).json(apiError(ATTEMPT_ID_ERROR));
-    const picked = Number(req.body?.picked);
+    // The option's key, as the round sent it: the words a photo is named by.
+    const picked = typeof req.body?.picked === 'string' ? req.body.picked.slice(0, 300) : null;
     try {
-        res.json(answerPhoto(id, { photo: req.body?.photo, picked: Number.isSafeInteger(picked) ? picked : null, attemptId }));
+        res.json(answerPhoto(id, { photo: req.body?.photo, picked, attemptId }));
     } catch (err) {
         if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));
         refuse(res, err);
