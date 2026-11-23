@@ -506,7 +506,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     // "Hide the clock", as on a past paper: the eye sits beside the time.
     const { hidden: clockHidden, canHide, setHidden } = useHiddenClock(sitting.id, timed ? left : 0);
     const toggle = timed && !timeUp && canHide
-        ? <ClockToggle short hidden={clockHidden} onToggle={() => setHidden(!clockHidden)} className="-my-1.5 ml-0.5 align-middle" />
+        ? <ClockToggle short hidden={clockHidden} onToggle={() => setHidden(!clockHidden)} className="-my-1.5 ms-0.5 align-middle" />
         : null;
     const clock = timeUp
         ? t("Time is up")
