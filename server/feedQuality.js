@@ -139,12 +139,12 @@ const SCRIPT_REFERENCE_CACHE = new Map();
 
 function nodeScriptReference(nodeId) {
     try {
-        const projectId = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id;
+        const projectId = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId)?.project_id;
         if (projectId == null) return '';
         if (SCRIPT_REFERENCE_CACHE.has(projectId)) return SCRIPT_REFERENCE_CACHE.get(projectId);
-        const project = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(projectId) || {};
+        const project = db.prepare('SELECT name, description FROM live_projects projects WHERE id = ?').get(projectId) || {};
         const nodes = db.prepare(
-            'SELECT title, description, notes FROM nodes WHERE project_id = ? LIMIT 2000',
+            'SELECT title, description, notes FROM live_nodes nodes WHERE project_id = ? LIMIT 2000',
         ).all(projectId);
         const reference = [project.name, project.description,
             ...nodes.flatMap(n => [n.title, n.description, n.notes])].filter(Boolean).join(' ');
@@ -331,10 +331,10 @@ const flatten = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')
  */
 function namesThisRecord(nodeId, raw, flat) {
     if (DEICTIC_RECORD.test(raw)) return true;
-    const node = db.prepare('SELECT project_id, parent_id FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT project_id, parent_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!node) return false;
 
-    const project = db.prepare('SELECT name FROM projects WHERE id = ?').get(node.project_id);
+    const project = db.prepare('SELECT name FROM live_projects projects WHERE id = ?').get(node.project_id);
     if (project) {
         const full = flatten(project.name);
         // Courses are named "Subject — Qualifier", and both the learner and the
@@ -346,7 +346,7 @@ function namesThisRecord(nodeId, raw, flat) {
 
     let id = node.parent_id;
     for (let depth = 0; id && depth < 20; depth++) {
-        const parent = db.prepare('SELECT parent_id, title FROM nodes WHERE id = ?').get(id);
+        const parent = db.prepare('SELECT parent_id, title FROM live_nodes nodes WHERE id = ?').get(id);
         if (!parent) break;
         if (DECORATED_HEADING.test(parent.title)) {
             // Numbering is not reproduced when someone means the subject, so the
@@ -369,10 +369,10 @@ function namesThisRecord(nodeId, raw, flat) {
 function optionsAreCurriculumTitles(question, nodeId) {
     const options = Array.isArray(question.options) ? question.options : [];
     if (options.length < 2) return false;
-    const projectId = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id;
+    const projectId = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId)?.project_id;
     if (projectId == null) return false;
     const titles = new Set(
-        db.prepare('SELECT title FROM nodes WHERE project_id = ?').all(projectId).map(r => flatten(r.title)),
+        db.prepare('SELECT title FROM live_nodes nodes WHERE project_id = ?').all(projectId).map(r => flatten(r.title)),
     );
     // Two, not one: a topic legitimately named after the thing it teaches
     // ("Newton's Three Laws of Motion") can be a correct answer on its own.

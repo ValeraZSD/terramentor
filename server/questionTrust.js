@@ -50,6 +50,7 @@
 // import it without pulling ai.js in behind them.
 
 import db from './database.js';
+import { BY_APP, softDelete } from './softDelete.js';
 
 /** First wait after a failed verification; doubles with each failure. */
 export const REVERIFY_BASE_WAIT_MS = 15 * 60 * 1000;
@@ -170,7 +171,7 @@ export function feedRowIsProof(row) {
 
 /** The stored question at a quiz row's position, or null. */
 export function storedQuestion(quizId, index) {
-    const row = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(quizId);
+    const row = db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quizId);
     const qs = row ? safeParse(row.questions) : null;
     return Array.isArray(qs) ? (qs[index] ?? null) : null;
 }
@@ -187,7 +188,7 @@ export function feedBankQuestion(key, uuid = null) {
     const ref = bankRefOfFeedKey(key);
     if (!ref) return null;
     if (typeof uuid !== 'string' || !uuid) return storedQuestion(ref.quizId, ref.index);
-    const row = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(ref.quizId);
+    const row = db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(ref.quizId);
     const qs = row ? safeParse(row.questions) : null;
     return Array.isArray(qs) ? (qs.find(q => q && typeof q === 'object' && q.uuid === uuid) ?? null) : null;
 }
@@ -252,8 +253,8 @@ export function locateAsked(qs, entry) {
 /** Does a quiz row (or any row a node owns) hold an own question no verifier confirmed? */
 export function bankHoldsUnverified({ quizId = null, nodeId = null } = {}) {
     const rows = quizId != null
-        ? db.prepare('SELECT questions FROM quizzes WHERE id = ?').all(quizId)
-        : nodeId != null ? db.prepare('SELECT questions FROM quizzes WHERE node_id = ?').all(nodeId) : [];
+        ? db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').all(quizId)
+        : nodeId != null ? db.prepare('SELECT questions FROM live_quizzes quizzes WHERE node_id = ?').all(nodeId) : [];
     return rows.some(r => {
         const qs = safeParse(r.questions);
         return Array.isArray(qs) && qs.some(q => q && typeof q === 'object' && !q.isGhost && isUnverified(q));
@@ -293,7 +294,7 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
     const cache = new Map();
     const rowOf = (id) => {
         if (!cache.has(id)) {
-            const row = db.prepare('SELECT node_id, questions FROM quizzes WHERE id = ?').get(id);
+            const row = db.prepare('SELECT node_id, questions FROM live_quizzes quizzes WHERE id = ?').get(id);
             const qs = row ? safeParse(row.questions) : null;
             cache.set(id, row ? { nodeId: row.node_id, qs: Array.isArray(qs) ? qs : [] } : null);
         }
@@ -356,7 +357,7 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
 export function pendingVerifications(nodeId, { now = Date.now(), limit = 1 } = {}) {
     const out = [];
     for (const row of db.prepare(`
-        SELECT id, questions FROM quizzes
+        SELECT id, questions FROM live_quizzes quizzes
         WHERE node_id = ? AND json_valid(questions) AND questions LIKE '%"unverified"%'
         ORDER BY id
     `).all(nodeId)) {
@@ -409,7 +410,7 @@ export function applyVerdict(entry, verdict, { now = Date.now() } = {}) {
     const outcome = !verdict?.available ? 'retry' : verdict.ok ? 'confirmed' : 'vetoed';
     return db.transaction(() => {
         if (entry.where === 'bank') {
-            const row = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(entry.quizId);
+            const row = db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(entry.quizId);
             const qs = row ? safeParse(row.questions) : null;
             if (!Array.isArray(qs)) return 'gone';
             const at = locate(qs, entry);
@@ -420,7 +421,7 @@ export function applyVerdict(entry, verdict, { now = Date.now() } = {}) {
             const emptied = outcome === 'vetoed' && !qs.some(q => q && !q.isGhost);
             const sat = emptied && !!db.prepare('SELECT 1 FROM quiz_attempts WHERE quiz_id = ? LIMIT 1').get(entry.quizId);
             if (emptied && !sat) {
-                db.prepare('DELETE FROM quizzes WHERE id = ?').run(entry.quizId);
+                softDelete('quizzes', entry.quizId, { by: BY_APP });
             } else {
                 db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), entry.quizId);
             }

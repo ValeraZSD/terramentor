@@ -554,10 +554,12 @@ const cardRow = () => evidenceOf(t2).filter(r => r.evidence_type === 'flashcard'
 const cardRowBefore = cardRow();
 ok('fixture: four ratings folded into one observation, 3/4', cardRowBefore?.score === 3 && cardRowBefore.total === 4, JSON.stringify(cardRowBefore));
 const rc5 = await report(`card:${C[4]}`, 'wrong', null, 'review');
-ok('a model-written card is deleted, its rating out of the observation (2/3)', rc5.status === 201 && !db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(C[4])
-    && cardRow()?.score === 2 && cardRow()?.total === 3 && rc5.json.report.canRewrite === true && rc5.json.report.editable === false);
+ok('a model-written card is deleted, its rating out of the observation (2/3)', rc5.status === 201 && !db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(C[4])
+    && db.prepare('SELECT deleted_by FROM flashcards WHERE id = ?').pluck().get(C[4]) === 'app'
+    && cardRow()?.score === 2 && cardRow()?.total === 3 && rc5.json.report.canRewrite === true && rc5.json.report.editable === false,
+    JSON.stringify({ s: rc5.status, row: db.prepare('SELECT deleted_at, deleted_by FROM flashcards WHERE id = ?').get(C[4]), obs: cardRow(), r: rc5.json?.report && { c: rc5.json.report.canRewrite, e: rc5.json.report.editable } }));
 await undo(rc5.json.report.id);
-ok('Undo restores the card, its review log and the observation', !!db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(C[4])
+ok('Undo restores the card, its review log and the observation', !!db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(C[4])
     && db.prepare('SELECT COUNT(*) AS n FROM review_log WHERE card_id = ?').get(C[4]).n === 1 && same(cardRow(), cardRowBefore));
 const rc3 = await report(`card:${C[2]}`, 'wrong', 'The back should say 6.', 'review');
 const c3 = () => db.prepare('SELECT * FROM flashcards WHERE id = ?').get(C[2]);

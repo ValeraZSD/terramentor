@@ -4,6 +4,7 @@
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
+import { softDelete } from '../softDelete.js';
 import { generateResponse, streamResponse } from '../ai.js';
 import { buildFlashcardPrompt, finalizeFlashcards } from '../studyMaterial.js';
 import * as tasks from '../tasks.js';
@@ -19,7 +20,7 @@ const app = routeTable('flashcards');
 // Top-level category for each card's node, memoised per ancestor so a session
 // of thousands of cards does not re-walk (and re-prepare) the same chain per
 // card. Same result as the old per-card loop: the root ancestor's title + id.
-const nodeParentStmt = db.prepare('SELECT id, title, parent_id FROM nodes WHERE id = ?');
+const nodeParentStmt = db.prepare('SELECT id, title, parent_id FROM live_nodes nodes WHERE id = ?');
 function withTopCategory(cards) {
     const memo = new Map();
     const topOf = (id) => {
@@ -110,7 +111,7 @@ app.post('/api/ai/flashcards/stream', (req, res) => {
 export const generationRoutes = app.takeRoutes();
 
 app.get('/api/ai/flashcards/:nodeId', (req, res) => {
-    const flashcards = db.prepare('SELECT * FROM flashcards WHERE node_id = ? ORDER BY created_at').all(req.params.nodeId);
+    const flashcards = db.prepare('SELECT * FROM live_flashcards flashcards WHERE node_id = ? ORDER BY created_at').all(req.params.nodeId);
     res.json(flashcards);
 });
 
@@ -122,7 +123,7 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
 });
 
 app.delete('/api/ai/flashcards/:id', (req, res) => {
-    db.prepare('DELETE FROM flashcards WHERE id = ?').run(req.params.id);
+    if (!softDelete('flashcards', Number(req.params.id))) return res.status(404).json(keyed('Flashcard not found'));
     res.json({ success: true });
 });
 
@@ -139,8 +140,8 @@ app.get('/api/projects/:projectId/flashcards', (req, res) => {
             SELECT f.*,
                 n.title as node_title,
                 n.parent_id
-            FROM flashcards f
-            JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f
+            JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ?
             ORDER BY n.position, f.created_at
         `).all(projectId);
@@ -151,7 +152,7 @@ app.get('/api/projects/:projectId/flashcards', (req, res) => {
             let currentId = card.parent_id;
             let depth = 0;
             while (currentId && depth < 10) {
-                const parent = db.prepare('SELECT id, title, parent_id FROM nodes WHERE id = ?').get(currentId);
+                const parent = db.prepare('SELECT id, title, parent_id FROM live_nodes nodes WHERE id = ?').get(currentId);
                 if (!parent) break;
                 if (parent.parent_id === null) {
                     categoryTitle = parent.title;

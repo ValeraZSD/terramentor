@@ -21,7 +21,7 @@ export function mediaContextForNode(nodeId, { max = 25 } = {}) {
     let rows;
     try {
         rows = db.prepare(
-            'SELECT media FROM flashcards WHERE node_id = ? AND media IS NOT NULL'
+            'SELECT media FROM live_flashcards flashcards WHERE node_id = ? AND media IS NOT NULL'
         ).all(nodeId);
     } catch { return ''; }
     if (!rows.length) return '';

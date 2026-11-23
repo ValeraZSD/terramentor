@@ -2662,6 +2662,21 @@ export interface ProjectCompletion {
     } | null;
 }
 
+/** One row of Recently deleted (GET /api/deleted, server/softDelete.js `listDeleted`). */
+export interface DeletedItem {
+    table: 'projects' | 'nodes' | 'resources' | 'flashcards' | 'quizzes';
+    id: number;
+    uuid: string | null;
+    kind: 'course' | 'deck' | 'topic' | 'note' | 'link' | 'card' | 'quiz';
+    title: string;
+    deletedAt: string;
+    /** The course it was in; null for a course or deck itself. */
+    projectId: number | null;
+    projectName: string | null;
+    /** Rows that went with it and come back with it. */
+    took: number;
+}
+
 /** A device connected from Settings by scanning its QR code (server/devices.js). */
 export interface ConnectedDevice {
     id: number;

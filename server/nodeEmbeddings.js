@@ -200,14 +200,14 @@ const CANDIDATES_SQL = `
     SELECT n.id, n.title, n.description, n.project_id,
            p.title AS parent_title,
            ne.text_hash AS stored_hash
-    FROM nodes n
-    LEFT JOIN nodes p ON p.id = n.parent_id
+    FROM live_nodes n
+    LEFT JOIN live_nodes p ON p.id = n.parent_id
     LEFT JOIN node_embeddings ne ON ne.node_id = n.id
     WHERE n.is_note = 0 AND ${TOPIC_NODE}
 `;
 
 /** The rows a vector may belong to, as a subquery for the stale sweep. */
-const EMBEDDABLE_IDS = `SELECT n.id FROM nodes n WHERE n.is_note = 0 AND ${TOPIC_NODE}`;
+const EMBEDDABLE_IDS = `SELECT n.id FROM live_nodes n WHERE n.is_note = 0 AND ${TOPIC_NODE}`;
 
 // Topics whose stored vector is missing or stale. No model calls — this is the
 // query that makes "sync often" cheap.
@@ -222,11 +222,13 @@ export function pendingNodes({ force = false } = {}) {
 // *converted into a note*.
 //
 // The two have to be swept independently, and that is the whole subtlety here.
-// `node_embeddings` has a real FK, so deleting a node takes its bookkeeping row
+// `node_embeddings` has a real FK, so removing a node for good takes its bookkeeping row
 // with it — which means a sweep driven by the sidecar is structurally blind to
 // exactly the case it most needs to catch: the row that would have told us to
 // drop the vector is the row the cascade just deleted. So `vec_nodes` (no FK,
-// nothing cascades to it) is swept against `nodes` directly.
+// nothing cascades to it) is swept against `nodes` directly. A deleted node is
+// not embeddable either, so its vector and row go at once and a restore embeds
+// it again.
 function dropStaleRows() {
     let removed = 0;
     if (vecTableExists('vec_nodes')) {
@@ -430,8 +432,8 @@ function knn(queryBlob, { limit, minSimilarity, excludeNodeId, projectId, exclud
         SELECT n.id, n.title, n.description, n.status, n.project_id, n.is_note,
                p.name AS project_name, p.color AS project_color, p.status AS project_status,
                nm.mastery_score, nm.last_updated AS mastery_updated
-        FROM nodes n
-        JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n
+        JOIN live_projects p ON p.id = n.project_id
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         WHERE n.id IN (${ids.map(() => '?').join(',')})
           AND n.is_note = 0
@@ -488,7 +490,7 @@ export async function similarNodes(nodeId, {
         // nothing, and let the background sweep store it properly later.
         const node = db.prepare(`
             SELECT n.id, n.title, n.description, p.title AS parent_title
-            FROM nodes n LEFT JOIN nodes p ON p.id = n.parent_id
+            FROM live_nodes n LEFT JOIN live_nodes p ON p.id = n.parent_id
             WHERE n.id = ? AND n.is_note = 0
         `).get(nodeId);
         if (!node) return [];
@@ -504,7 +506,7 @@ export async function similarNodes(nodeId, {
         scheduleNodeSync();
     }
 
-    const own = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id;
+    const own = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId)?.project_id;
     const mean = centred ? topicMean() : null;
     const useCentre = !!(mean && mean.vec && mean.count >= MIN_CENTRE_TOPICS);
     const rows = knn(queryBlob, {

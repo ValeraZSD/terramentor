@@ -59,7 +59,7 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
     // ordering; knowledge is settled by evidence, not by edges between nodes.
     const nextUnlocked = db.prepare(`
         SELECT n.id, n.title, n.parent_id
-        FROM nodes n
+        FROM live_nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
           AND n.status = 'not_started'
@@ -74,7 +74,7 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
             nm.mastery_score,
             n.title
         FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN live_nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
         ORDER BY nm.mastery_score ASC
         LIMIT 5
@@ -83,8 +83,8 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
     // 6. Get due flashcards count
     const dueFlashcards = db.prepare(`
         SELECT COUNT(*) as count
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ?
           AND ${reviewDue('f')}
     `).get(projectId);
@@ -94,7 +94,7 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
     // no attempt, and its feed answers are evidence that never touch that table.
     const untestedNodes = db.prepare(`
         SELECT n.id, n.title
-        FROM nodes n
+        FROM live_nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
           AND n.status NOT IN ('completed', 'skipped')

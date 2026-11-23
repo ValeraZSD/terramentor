@@ -53,6 +53,10 @@ function eq(actual, expected, label) {
 
 const DAY = 86400000;
 const iso = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+// The exporter reads through the live_* views (server/database.js), so a
+// hand-made schema carries the soft-delete column and the views too.
+const LIVE = ['projects', 'nodes', 'flashcards'].map(t =>
+    `ALTER TABLE ${t} ADD COLUMN deleted_at TEXT; CREATE VIEW live_${t} AS SELECT * FROM ${t} WHERE deleted_at IS NULL;`).join('\n');
 
 // ---------------------------------------------------------------------------
 // 1. Text conversion — the plain-text/HTML boundary
@@ -284,6 +288,7 @@ try {
             media TEXT, ease_factor REAL, last_interval INTEGER, last_reviewed TEXT,
             next_review TEXT, review_count INTEGER, lapses INTEGER
         );
+        ${LIVE}
         INSERT INTO projects (id, name) VALUES (1, 'Round Trip');
         INSERT INTO nodes (id, project_id, parent_id, title, is_note) VALUES
             (10, 1, NULL, 'Stage 1', 0),
@@ -376,6 +381,7 @@ try {
         CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT);
         CREATE TABLE nodes (id INTEGER PRIMARY KEY, project_id INTEGER, parent_id INTEGER, title TEXT, is_note INTEGER DEFAULT 0);
         CREATE TABLE flashcards (id INTEGER PRIMARY KEY, node_id INTEGER, front TEXT, back TEXT, extra TEXT, media TEXT, ease_factor REAL, last_interval INTEGER, last_reviewed TEXT, next_review TEXT, review_count INTEGER, lapses INTEGER);
+        ${LIVE}
         INSERT INTO projects (id, name) VALUES (2, 'Nothing Here');
     `);
     const emptyOut = await exportProjectApkg({ db: empty, mediaStorage: fakeStorage }, 2);

@@ -19,7 +19,7 @@ const app = routeTable('mastery');
 app.get('/api/nodes/:nodeId/mastery', (req, res) => {
     // Asked first: reading a node's mastery creates its row, and a row for a
     // node that does not exist fails the foreign key.
-    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(req.params.nodeId)) {
+    if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(req.params.nodeId)) {
         return res.status(404).json(keyed('Node not found'));
     }
     try {

@@ -102,7 +102,7 @@ export function passPointsFor(shape) {
 
 const partsOf = (paperId) => stmt(`
     SELECT p.id, p.question, p.part, p.points, p.node_id AS nodeId, n.title AS topic
-    FROM exam_paper_parts p LEFT JOIN nodes n ON n.id = p.node_id
+    FROM exam_paper_parts p LEFT JOIN live_nodes n ON n.id = p.node_id
     WHERE p.paper_id = ? ORDER BY p.position
 `).all(paperId);
 
@@ -123,7 +123,7 @@ function paperView(row) {
         solutionDocumentId: row.solution_document_id,
         // A PDF opens beside the points; a picture opens in its own tab.
         solutionKind: row.solution_document_id == null ? null
-            : stmt('SELECT file_type FROM documents WHERE id = ?').get(row.solution_document_id)?.file_type ?? null,
+            : stmt('SELECT file_type FROM live_documents documents WHERE id = ?').get(row.solution_document_id)?.file_type ?? null,
         total,
         passPoints: passPointsFor(shape),
         parts,
@@ -165,7 +165,7 @@ function readPaperInput(projectId, input) {
     const doc = (v, refusal) => {
         if (v == null) return null;
         if (!Number.isInteger(v) || !stmt(`
-            SELECT 1 FROM documents WHERE id = ? AND project_id = ? AND file_hash IS NOT NULL
+            SELECT 1 FROM live_documents documents WHERE id = ? AND project_id = ? AND file_hash IS NOT NULL
                 AND status IS NOT 'failed' AND file_type IN (${SHOWN_KINDS_SQL})
         `).get(v, projectId)) {
             throw bad(refusal);
@@ -190,7 +190,7 @@ function readPaperInput(projectId, input) {
         if (!Number.isInteger(p.points) || p.points < 1 || p.points > MAX_POINTS) throw bad('Question {{question}} needs its points, a whole number of at least 1', named);
         let nodeId = null;
         if (p.nodeId != null) {
-            if (!Number.isInteger(p.nodeId) || !stmt(`SELECT 1 FROM nodes n WHERE n.id = ? AND n.project_id = ? AND ${WORK_LEAF}`).get(p.nodeId, projectId)) {
+            if (!Number.isInteger(p.nodeId) || !stmt(`SELECT 1 FROM live_nodes n WHERE n.id = ? AND n.project_id = ? AND ${WORK_LEAF}`).get(p.nodeId, projectId)) {
                 throw bad('The topic of question {{question}} is not in this course', named);
             }
             nodeId = p.nodeId;
@@ -209,7 +209,7 @@ function readPaperInput(projectId, input) {
 }
 
 export function createPaper(projectId, input) {
-    if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
+    if (!stmt('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     const p = readPaperInput(projectId, input);
     const id = db.transaction(() => {
         const paperId = Number(stmt(`
@@ -236,7 +236,7 @@ export function deletePaper(id) {
 
 /** Everything the course's mock exam screen opens with. */
 export function listForProject(projectId, { now = Date.now() } = {}) {
-    if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
+    if (!stmt('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     const papers = stmt("SELECT * FROM exam_papers WHERE project_id = ? AND source = 'paper' ORDER BY created_at, id").all(projectId).map(row => {
         const view = paperView(row);
         const sittings = stmt('SELECT * FROM mock_sittings WHERE paper_id = ? ORDER BY started_at, id').all(row.id)
@@ -247,10 +247,10 @@ export function listForProject(projectId, { now = Date.now() } = {}) {
         return { ...view, sittings };
     });
     const topics = stmt(`
-        SELECT n.id, n.title FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF} ORDER BY n.position, n.id
+        SELECT n.id, n.title FROM live_nodes n WHERE n.project_id = ? AND ${WORK_LEAF} ORDER BY n.position, n.id
     `).all(projectId);
     const documents = stmt(`
-        SELECT id, title, file_type AS fileType FROM documents
+        SELECT id, title, file_type AS fileType FROM live_documents documents
         WHERE project_id = ? AND file_hash IS NOT NULL AND status IS NOT 'failed' AND file_type IN (${SHOWN_KINDS_SQL})
         ORDER BY id DESC
     `).all(projectId);
@@ -578,7 +578,7 @@ export function spreadOf(right, n) {
 
 /** The course's real exam as described, or null when it is not. Its date is the course's deadline. */
 export function getExam(projectId) {
-    const r = stmt('SELECT exam_on_screen, exam_questions, exam_minutes, exam_pass FROM projects WHERE id = ?').get(projectId);
+    const r = stmt('SELECT exam_on_screen, exam_questions, exam_minutes, exam_pass FROM live_projects projects WHERE id = ?').get(projectId);
     if (!r || r.exam_on_screen == null) return null;
     if (!r.exam_on_screen) return { onScreen: false, questions: null, minutes: null, passRight: null };
     return { onScreen: true, questions: r.exam_questions, minutes: r.exam_minutes, passRight: r.exam_pass };
@@ -586,7 +586,7 @@ export function getExam(projectId) {
 
 /** Describe the real exam: `{ onScreen }`, and for an on-screen one its length, minutes and pass line. `{}` clears it. */
 export function setExam(projectId, input) {
-    if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
+    if (!stmt('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     const write = stmt('UPDATE projects SET exam_on_screen = ?, exam_questions = ?, exam_minutes = ?, exam_pass = ? WHERE id = ?');
     if (input?.onScreen == null) { write.run(null, null, null, null, projectId); return null; }
     if (typeof input.onScreen !== 'boolean') throw bad('onScreen is true or false');
@@ -603,7 +603,7 @@ export function setExam(projectId, input) {
 
 /** The ready questions per studied topic, and what was left out and why. */
 function courseBanks(projectId) {
-    const topics = stmt(`SELECT n.id, n.title, ${STUDIED} AS studied FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF} ORDER BY n.position, n.id`).all(projectId);
+    const topics = stmt(`SELECT n.id, n.title, ${STUDIED} AS studied FROM live_nodes n WHERE n.project_id = ? AND ${WORK_LEAF} ORDER BY n.position, n.id`).all(projectId);
     const studied = topics.filter(t => t.studied);
     // One read for the whole course: the mock list asks for this on every open.
     const byTopic = banksOfProject(projectId);
@@ -684,7 +684,7 @@ function askedKeys(entries) {
  * mock is what there is, and says so.
  */
 export function drawCourseMock(projectId, { size, minutes = null, now = Date.now(), lookBack = false } = {}) {
-    if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
+    if (!stmt('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     if (!Number.isInteger(size) || size < 1 || size > MAX_DRAW) throw bad('A mock asks 1 to {{max}} questions', { max: MAX_DRAW });
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) throw bad('The clock is a whole number of minutes, at least 1');
     const { banks } = courseBanks(projectId);
@@ -763,7 +763,7 @@ const courseRows = (s) => stmt(`
     SELECT p.id, p.position, p.node_id AS nodeId, p.item, p.quiz_id AS quizId, p.question_index AS questionIndex,
            n.title AS topic, sc.answer, sc.points, sc.later, sc.in_time_answer AS inTimeAnswer, sc.in_time_points AS inTimePoints
     FROM exam_paper_parts p
-    LEFT JOIN nodes n ON n.id = p.node_id
+    LEFT JOIN live_nodes n ON n.id = p.node_id
     LEFT JOIN mock_part_scores sc ON sc.part_id = p.id AND sc.sitting_id = ?
     WHERE p.paper_id = ? ORDER BY p.position
 `).all(s.id, s.paper_id).map(r => ({ ...r, q: safeParse(r.item) || {}, later: !!r.later, right: r.answer != null && r.points === 1 }));
