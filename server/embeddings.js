@@ -389,6 +389,8 @@ async function runIndex(documentId) {
             // its Restore indexes the file again.
             if (i > 0 && !isLiveDocument(documentId)) {
                 markDoc(documentId, 'pending');
+                // Not a failure: its Restore's heal must not find the tries used up.
+                healAttempts.delete(documentId);
                 handle.cancelled();
                 return;
             }

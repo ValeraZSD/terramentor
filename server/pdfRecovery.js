@@ -486,6 +486,8 @@ async function runRecovery(documentId, { force }) {
             await renderDoc.destroy();
             scheduleOcrTeardown();
         }
+        // Deleted while the last page was read: nothing is written to it.
+        if (!deleted && !isLiveDoc(documentId)) deleted = true;
 
         if (deleted) {
             // Left as it was before this run, pending, for its Restore to resume.

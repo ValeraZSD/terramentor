@@ -36,6 +36,9 @@ const handlePaperImage = (req, res, next) =>
         return res.status(400).json(errorBody(err, 400));
     });
 
+let liveTopicStmt = null;
+const isLiveTopic = (nodeId) => !!(liveTopicStmt ??= db.prepare('SELECT 1 FROM live_nodes WHERE id = ?')).get(nodeId);
+
 /** Load a practice feed_item and its authored exercise, or null. Only one of a live topic. */
 function loadPracticeItem(feedItemId) {
     const row = db.prepare(`SELECT f.* FROM feed_items f JOIN live_nodes n ON n.id = f.node_id
@@ -139,12 +142,16 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
             feedItemId,
             exercise: item.exercise,
             imageBuffer: req.file.buffer,
-            claim: (grade) => !consumeFeedItem({
+            // Its topic deleted while the model had the photo: nothing is written.
+            claim: (grade) => isLiveTopic(item.row.node_id) && !consumeFeedItem({
                 key: `fi-${feedItemId}`, kind: 'practice', feedItemId,
                 nodeId: item.row.node_id,
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
+        if (result.status === 'duplicate' && !isLiveTopic(item.row.node_id)) {
+            return res.status(404).json(keyed('Practice item not found'));
+        }
         // A photo that could not be marked asks for a retake, unless the
         // exercise went while the model had it: then the retake has nothing to
         // go to, and the learner is told that instead.
