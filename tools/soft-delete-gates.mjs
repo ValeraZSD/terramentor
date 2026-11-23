@@ -629,6 +629,12 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     await new Promise(r => setTimeout(r, 300));
     ok('control: a live PDF waiting for recovery is run', recovered, `${recovery(livePdf)}`);
     ok('a deleted course\'s PDF is not run, and stays pending', recovery(deadPdf) === 'pending', `${recovery(deadPdf)}`);
+    // A restart while its run was going, with no live file waiting: it waits
+    // as pending for its Restore, and is not run.
+    db.prepare("UPDATE documents SET recovery_status = 'running' WHERE id = ?").run(deadPdf);
+    resumePendingRecovery();
+    await new Promise(r => setTimeout(r, 300));
+    ok('a deleted PDF caught running by a restart is pending again, and not run', recovery(deadPdf) === 'pending', `${recovery(deadPdf)}`);
 
     // 3. Pictures: listed, counted, swept, described, served.
     const listedHashes = ((await call('GET', '/api/media-descriptions?limit=200')).json?.items || []).map(i => i.hash);

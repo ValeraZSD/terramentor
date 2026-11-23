@@ -306,9 +306,20 @@ let recoveryChain = Promise.resolve();
 // Public: queue a document for background math recovery. Idempotent-ish — the
 // serial chain runs one document at a time. `force` bypasses the settings gate
 // and the "already recovered" guard (used by the manual re-run endpoint).
+// How many runs of each file are queued or running.
+const onChain = new Map();
+
 export function queueRecovery(documentId, { force = false } = {}) {
     if (!force && !recoveryEnabled()) return;
-    recoveryChain = recoveryChain.then(() => runRecovery(documentId, { force })).catch(() => {});
+    const key = Number(documentId);
+    onChain.set(key, (onChain.get(key) ?? 0) + 1);
+    recoveryChain = recoveryChain
+        .then(() => runRecovery(documentId, { force }))
+        .catch(() => {})
+        .finally(() => {
+            const left = onChain.get(key) - 1;
+            if (left > 0) onChain.set(key, left); else onChain.delete(key);
+        });
 }
 
 // The recovery queue lives in memory, so a restart (e.g. after a rebuild) orphans
@@ -320,33 +331,33 @@ export function queueRecovery(documentId, { force = false } = {}) {
 export function resumePendingRecovery() {
     let rows;
     try {
+        if (!recoveryEnabled()) {
+            db.prepare("UPDATE documents SET recovery_status = NULL WHERE recovery_status IN ('pending', 'running')").run();
+            return;
+        }
+        // An interrupted 'running' is just an un-started 'pending' now, a
+        // deleted file's too, so its Restore finds it waiting.
+        db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE recovery_status = 'running'").run();
         // A file of a deleted course or topic waits, pending, for its Restore.
-        rows = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status IN ('pending', 'running')").all();
+        rows = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status = 'pending'").all();
     } catch { return; }
     if (!rows.length) return;
-
-    if (!recoveryEnabled()) {
-        db.prepare("UPDATE documents SET recovery_status = NULL WHERE recovery_status IN ('pending', 'running')").run();
-        return;
-    }
-    // An interrupted 'running' is just an un-started 'pending' now.
-    db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE recovery_status = 'running'").run();
     console.log(`[recover] resuming ${rows.length} interrupted document(s) after restart`);
     for (const r of rows) queueRecovery(r.id);
 }
 
 /**
  * Queue the files a Restore brought back that were waiting for recovery
- * (routes/deleted.js). A file already on the chain is skipped by its second
- * run, which finds it no longer pending.
+ * (routes/deleted.js). A file already queued or running is left to that run.
  */
 export function resumeRestoredRecovery() {
     if (!recoveryEnabled()) return;
     const ids = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status = 'pending'").pluck().all();
-    for (const id of ids) queueRecovery(id);
+    for (const id of ids) if (!onChain.has(Number(id))) queueRecovery(id);
 }
 
-const isLiveDoc = (id) => !!db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?').get(id);
+let liveDocStmt = null;
+const isLiveDoc = (id) => !!(liveDocStmt ??= db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?')).get(id);
 
 async function runRecovery(documentId, { force }) {
     // Only a live file: one of a deleted course or topic stays pending.
@@ -443,6 +454,8 @@ async function runRecovery(documentId, { force }) {
 
                 if (vision === 'yes') {
                     await waitForModelIdle();
+                    // The wait can be minutes: check again before the page goes out.
+                    if (!isLiveDoc(documentId)) { deleted = true; break; }
                     try {
                         recovered = await transcribeImageToText(png, { model: visionModel });
                         if (recovered) method = 'vision';
@@ -478,6 +491,9 @@ async function runRecovery(documentId, { force }) {
             // Left as it was before this run, pending, for its Restore to resume.
             db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE id = ?").run(documentId);
             handle.cancelled();
+            // Restored while this run wound down: its Restore left the file to
+            // this run, so queue it again.
+            if (isLiveDoc(documentId)) queueRecovery(documentId);
             return;
         }
 

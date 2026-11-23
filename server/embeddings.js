@@ -355,13 +355,17 @@ export function isUnavailable(err) {
         || m.includes('429') || m.includes('502') || m.includes('503');
 }
 
+let liveDocumentStmt = null;
+const isLiveDocument = (id) =>
+    !!(liveDocumentStmt ??= db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?')).get(id);
+
 async function runIndex(documentId) {
     if (!vecAvailable) { markDoc(documentId, 'unavailable'); return; }
     // Left for the first call that works once the switch is back on.
     if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); healWanted = true; return; }
     // A file of a deleted course or topic is sent nowhere: it waits, pending,
     // and its Restore queues it again (routes/deleted.js).
-    if (!db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?').get(documentId)) { markDoc(documentId, 'pending'); return; }
+    if (!isLiveDocument(documentId)) { markDoc(documentId, 'pending'); return; }
 
     const chunks = db.prepare('SELECT id, content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }
@@ -381,6 +385,13 @@ async function runIndex(documentId) {
     try {
         let done = 0;
         for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+            // Deleted while earlier batches were out: the rest stays here, and
+            // its Restore indexes the file again.
+            if (i > 0 && !isLiveDocument(documentId)) {
+                markDoc(documentId, 'pending');
+                handle.cancelled();
+                return;
+            }
             const batch = chunks.slice(i, i + EMBED_BATCH);
             const vectors = await embedBatch(batch.map(c => c.content));
             const dim = vectors[0]?.length;
