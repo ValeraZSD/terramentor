@@ -743,7 +743,7 @@ function normalizeImportPhotos(photos, at, warnings) {
         const subject = words(p.subject, 160);
         if (!subject) continue;
         // The file's claim of which model wrote the example's words, kept as a claim (courseFiles.js).
-        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), generated_by: line(p.generated_by, 200) || null, media: null, credit: null };
+        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), answer: words(p.answer, 80) || null, generated_by: line(p.generated_by, 200) || null, media: null, credit: null };
         const media = line(p.media, 180);
         if (media) {
             const licence = line(p.licence, 80);

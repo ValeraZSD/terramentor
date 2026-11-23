@@ -151,9 +151,15 @@ export function licenceOf(meta) {
 }
 
 /** Who to credit: the archive's own attribution text when the file asks for
- *  one, else its author. A CC BY file with neither is not kept. */
+ *  one, else its author. A CC BY file with neither is not kept. A file with no
+ *  author template carries the archive's own note around the uploader's name
+ *  ("No machine-readable author provided. X assumed (based on copyright
+ *  claims)."): the credit is the name. */
 export function authorOf(meta) {
-    return (metaValue(meta, 'Attribution') || metaValue(meta, 'Artist')).slice(0, 200) || null;
+    const raw = metaValue(meta, 'Attribution') || metaValue(meta, 'Artist');
+    const assumed = raw.match(/^No machine-readable author provided\.\s*(.+?)\s+assumed\s*\(based on copyright claims\)\.?$/i);
+    if (/^No machine-readable author provided\b/i.test(raw) && !assumed) return null;
+    return (assumed ? assumed[1] : raw).slice(0, 200) || null;
 }
 
 const httpsOn = (raw, hosts) => {
@@ -349,17 +355,31 @@ export async function planPhotos(project, topics, { signal, answered } = {}) {
     const list = Array.isArray(parsed?.topics) ? parsed.topics : [];
     const seen = new Set();
     const out = [];
+    // One spelling per answer across the course: the first one met, so
+    // "Great tit" and "great tit" are one option in practice.
+    const spelling = new Map();
+    // An answer that is the example's own name ("koolmees" for "Koolmees")
+    // takes the name's spelling, so an option reads like a name.
+    const answerOf = (raw, name) => {
+        let a = modelLine(raw, 80);
+        if (!a) return null;
+        const key = a.toLowerCase();
+        if (key === name.toLowerCase()) a = name;
+        if (!spelling.has(key)) spelling.set(key, a);
+        return spelling.get(key);
+    };
+    // An example is listed under one topic only: the first that names it.
+    const names = new Set();
     for (const t of list) {
         const idx = Number(t?.topic);
         if (!Number.isInteger(idx) || idx < 1 || idx > topics.length || seen.has(idx)) continue;
         const examples = [];
-        const names = new Set();
         for (const e of Array.isArray(t.examples) ? t.examples : []) {
             const name = modelLine(e?.name, 160);
             const search = modelLine(e?.search, 160).replace(/["*|<>\[\]{}]/g, ' ').replace(/\s+/g, ' ').trim();
             if (!name || !search || names.has(search.toLowerCase())) continue;
             names.add(search.toLowerCase());
-            examples.push({ name, search, shows: modelLine(e?.shows, 300) });
+            examples.push({ name, search, shows: modelLine(e?.shows, 300), answer: answerOf(e?.answer, name) });
             if (examples.length >= MAX_EXAMPLES) break;
         }
         if (!examples.length) continue;
@@ -501,12 +521,18 @@ async function findForTopic(projectId, node, run) {
         const chosen = await choosePhotos(node.title, withCandidates, { signal: run.signal });
         withCandidates.forEach((e, i) => { picks[examples.indexOf(e)] = chosen[i]; });
     }
-    const usedHashes = new Set(stmt(`SELECT hash FROM node_photos WHERE node_id = ? AND hash IS NOT NULL`).all(node.id).map(r => r.hash));
+    // One picture is kept once in a course: practice and cards ask it once,
+    // so a second copy under another topic would only take an example's place.
+    const inCourse = stmt(`SELECT p.hash, p.file_title FROM node_photos p JOIN nodes n ON n.id = p.node_id
+        WHERE n.project_id = ? AND p.hash IS NOT NULL`).all(projectId);
+    const usedHashes = new Set(inCourse.map(r => r.hash));
+    const usedFiles = new Set(inCourse.map(r => r.file_title).filter(Boolean));
     for (let i = 0; i < examples.length; i++) {
         const { row, candidates } = examples[i];
         let kept = false;
         for (const k of picks[i]) {
             const candidate = candidates[k];
+            if (usedFiles.has(candidate.title)) continue;
             let photo;
             try { photo = await downloadPhoto(candidate, run); }
             catch (err) { if (err instanceof ArchiveBusy || err?.name === 'AbortError') throw err; run.stats.failed++; continue; }
@@ -520,6 +546,7 @@ async function findForTopic(projectId, node, run) {
             }
             keepPhoto(projectId, row, candidate, photo.buf, photo.type, checkedBy);
             usedHashes.add(sha256(photo.buf));
+            usedFiles.add(candidate.title);
             kept = true;
             run.stats.found++;
             break;
@@ -565,11 +592,11 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
             const answered = {};
             const plan = all.length ? await planPhotos(project, all, { signal: run.signal, answered }) : [];
             const by = aiProvenance({ job: 'courses', answered });
-            const insert = stmt(`INSERT INTO node_photos (node_id, position, subject, search, shows, status, generated_by)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?)`);
+            const insert = stmt(`INSERT INTO node_photos (node_id, position, subject, search, shows, answer, status, generated_by)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`);
             db.transaction(() => {
                 for (const p of plan) {
-                    p.examples.forEach((e, i) => insert.run(p.nodeId, i, e.name, e.search, e.shows, by));
+                    p.examples.forEach((e, i) => insert.run(p.nodeId, i, e.name, e.search, e.shows, e.answer ?? null, by));
                 }
             })();
             if (state) state.planned = true;
@@ -841,7 +868,7 @@ const modelOf = (stored) => {
 };
 export function exportedPhotos(nodeId, names = null) {
     return rowsOf(nodeId).map((r) => {
-        const out = { subject: r.subject, search: r.search || undefined, shows: r.shows || undefined, generated_by: modelOf(r.generated_by) };
+        const out = { subject: r.subject, search: r.search || undefined, shows: r.shows || undefined, answer: r.answer || undefined, generated_by: modelOf(r.generated_by) };
         if (r.status === 'found' && r.hash) {
             Object.assign(out, {
                 file_title: r.file_title || undefined,
