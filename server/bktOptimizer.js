@@ -29,7 +29,7 @@
 
 import db from './database.js';
 import {
-    bktUpdate, bktBatchUpdate, BKT_PARAMS, BKT_FIT_BOUNDS, GUESS_BY_QUESTION_TYPE, MIN_GATE_QUESTIONS,
+    bktUpdate, bktBatchUpdate, BKT_PARAMS, BKT_FIT_BOUNDS, guessOfEvidence, MIN_GATE_QUESTIONS,
 } from './mastery.js';
 
 /** Attempts (evidence rows) needed before a fit is attempted at all. */
@@ -49,7 +49,7 @@ export function loadAttemptSequences() {
     let cur = null;
     for (const r of rows) {
         let p_G;
-        try { p_G = GUESS_BY_QUESTION_TYPE[JSON.parse(r.metadata || '{}').questionType]; } catch { p_G = undefined; }
+        try { p_G = guessOfEvidence(JSON.parse(r.metadata || '{}')); } catch { p_G = undefined; }
         const t = Date.parse(String(r.created_at).replace(' ', 'T') + (String(r.created_at).endsWith('Z') ? '' : 'Z'));
         if (!cur || cur.nodeId !== r.node_id) { cur = { nodeId: r.node_id, attempts: [] }; out.push(cur); }
         cur.attempts.push({ t: Number.isFinite(t) ? t : 0, score: r.score, total: r.total, p_G });

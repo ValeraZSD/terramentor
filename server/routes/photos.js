@@ -2,8 +2,10 @@
 // look for them again when a run found none or was stopped.
 import db from '../database.js';
 import { startPhotos, topicPhotos } from '../topicPhotos.js';
+import { answerPhoto, drawRound, practiceState } from '../photoPractice.js';
+import { ATTEMPT_ID_ERROR, AttemptReusedError, readAttemptId } from '../mastery.js';
 import { routeTable } from './routeTable.js';
-import { keyed } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('photos');
 
@@ -31,6 +33,52 @@ app.post('/api/nodes/:id/photos/find', (req, res) => {
     const out = startPhotos(node.project_id, { nodeIds: [node.id], origin: { surface: 'topic', detail: 'overview', projectId: node.project_id, nodeId: node.id } });
     if (!out.started && out.reason === 'ai_off') return res.status(409).json(keyed('AI features are disabled'));
     res.json({ started: out.started, ...topicPhotos(node.id) });
+});
+
+// Telling the course's topics apart by their photos (server/photoPractice.js).
+let projectStmt = null;
+const courseOf = (raw) => {
+    const id = Number(raw);
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    projectStmt ??= db.prepare('SELECT id FROM live_projects projects WHERE id = ?');
+    return projectStmt.get(id)?.id ?? null;
+};
+const refuse = (res, err) => {
+    const status = Number(err?.status) || 500;
+    res.status(status).json(errorBody(err, status));
+};
+
+app.get('/api/projects/:id/photo-practice', (req, res) => {
+    const id = courseOf(req.params.id);
+    if (!id) return res.status(404).json(keyed('Project not found'));
+    res.json(practiceState(id));
+});
+
+app.get('/api/projects/:id/photo-practice/round', (req, res) => {
+    const id = courseOf(req.params.id);
+    if (!id) return res.status(404).json(keyed('Project not found'));
+    const size = req.query.size == null ? undefined : Number(req.query.size);
+    try {
+        res.json(drawRound(id, { size }));
+    } catch (err) {
+        refuse(res, err);
+    }
+});
+
+app.post('/api/projects/:id/photo-practice/answer', (req, res) => {
+    const id = courseOf(req.params.id);
+    if (!id) return res.status(404).json(keyed('Project not found'));
+    // Required: the one screen that asks sends one per photo shown, and a
+    // pick sent without one would be written again on every retry.
+    const attemptId = readAttemptId(req.body?.attemptId);
+    if (!attemptId) return res.status(400).json(apiError(ATTEMPT_ID_ERROR));
+    const picked = Number(req.body?.picked);
+    try {
+        res.json(answerPhoto(id, { photo: req.body?.photo, picked: Number.isSafeInteger(picked) ? picked : null, attemptId }));
+    } catch (err) {
+        if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));
+        refuse(res, err);
+    }
 });
 
 export const routes = app.takeRoutes();

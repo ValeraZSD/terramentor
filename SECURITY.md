@@ -794,8 +794,8 @@ artworks) is taught with real photos of named examples, found in Wikimedia Commo
   its outline is written, as a task in the task list that you can stop. With it off, creating a
   course opens no connection for photos. On a topic that has examples, **Look again** runs the
   same search for that topic only, when you press it, with the switch on or off (like **Find
-  resources**: a press is the request). Nothing about photos starts when the app
-  starts.
+  resources**: a press is the request). No connection for photos starts when the app
+  starts: at start it only makes, from photos already kept, the cards that have none yet.
 - **Where it connects.** `commons.wikimedia.org` (the archive's search) and the archive's file
   hosts `thumb.wikimedia.org` and `upload.wikimedia.org` (the chosen photo, at the 960 px width
   the archive keeps rendered; the archive's `utm_` tags are taken off the address first).
@@ -818,8 +818,10 @@ artworks) is taught with real photos of named examples, found in Wikimedia Commo
 - **What is kept.** Only photos under CC0, public domain, CC BY or CC BY-SA, of a sensible size
   and shape, that the archive does not mark non-free or restricted. Each is stored in the
   library's media folder, so the course works offline, with the author, licence and source page
-  the archive records for it; every screen that shows a photo shows that credit, with links.
-  A JSON export carries the credit, a course bundle the files as well. The credit is the
+  the archive records for it; a topic's page shows that credit, with links, under each photo.
+  Where a photo is asked about (a round of "Which one is this?", a photo card's front) the
+  credit waits until the answer is given, because an author or a file page often names the
+  place; small previews in a card list or the card editor show none. A JSON export carries the credit, a course bundle the files as well. The credit is the
   archive's record, copied as it stands: Wikimedia gives no warranty on it, and neither does
   this app.
 - **Models.** The course's model names the examples and picks among the search results by
