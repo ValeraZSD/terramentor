@@ -254,7 +254,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
             title: when
                 ? t("Delete the {{count}} questions made {{when}}?", { count: ownQuestions(quiz).length, when })
                 : t("Delete these {{count}} questions?", { count: ownQuestions(quiz).length }),
-            message: t("They are removed from this topic for good."),
+            message: t("You can bring them back from Recently deleted in Settings."),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });
@@ -273,7 +273,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     const handleDeleteFlashcard = async (id: number) => {
         const ok = await showConfirm({
             title: t("Delete this card?"),
-            message: t("It is removed from this deck for good. Its review history goes with it."),
+            message: t("You can bring it back, with its review history, from Recently deleted in Settings."),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });
