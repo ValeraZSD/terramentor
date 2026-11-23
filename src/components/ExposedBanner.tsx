@@ -32,7 +32,7 @@ export default function ExposedBanner() {
                 <p className="min-w-0 flex-1 basis-56">
                     {t("Other devices on your network can reach this app, and it has no password.")}
                 </p>
-                <Button size="sm" variant="primary" className="ml-auto" onClick={() => navigate('/settings#devices')}>
+                <Button size="sm" variant="primary" className="ms-auto" onClick={() => navigate('/settings#devices')}>
                     {t("Set a password")}
                 </Button>
             </div>

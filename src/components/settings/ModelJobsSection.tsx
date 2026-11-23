@@ -499,7 +499,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         <label className="font-medium text-slate-900 dark:text-white">{tr("Embedding model")}</label>
                                         {embStatus?.probe?.ok && (
                                             <span className="text-sm text-emerald-600 dark:text-emerald-400">
-                                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 align-middle" />
+                                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 me-1 align-middle" />
                                                 {tr("connected")}{embStatus.probe.dim ? tr("({{dim}}-dim)", { dim: embStatus.probe.dim }) : ''}{tr(". Vault files will be indexed automatically.")}
                                             </span>
                                         )}

@@ -3173,7 +3173,7 @@
   "Runs in the background and pauses while you use the assistant.": "S'exécute en arrière-plan et se met en pause lorsque vous utilisez l'assistant.",
   "Sage": "Sauge",
   "Same as chat": "Identique au chat",
-  "Same as the browser": "Identique au navigateur",
+  "Same as the browser ({{language}})": "Identique au navigateur ({{language}})",
   "Same as the chat model": "Identique au modèle de chat",
   "Same as the language": "Identique à la langue",
   "Sample exam 19": "Épreuve type 19",

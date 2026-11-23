@@ -111,7 +111,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
         }`}
     >
       {/* Left color accent */}
-      <div className="w-1 rounded-l-xl shrink-0" style={{ backgroundColor: cfg.dot, opacity: resource.completed ? 0.35 : 1 }} />
+      <div className="w-1 rounded-s-xl shrink-0" style={{ backgroundColor: cfg.dot, opacity: resource.completed ? 0.35 : 1 }} />
 
       {/* Drag handle */}
       <button data-drag-handle
@@ -129,7 +129,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
       {/* Completion checkbox */}
       <button
         onClick={onToggle}
-        className="flex items-center pl-1 pr-1 shrink-0"
+        className="flex items-center ps-1 pe-1 shrink-0"
         title={resource.completed ? tr("Mark incomplete") : tr("Mark complete")}
       >
         {resource.completed
@@ -139,7 +139,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
       </button>
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 py-2 pr-2">
+      <div className="flex-1 min-w-0 py-2 pe-2">
         <div className="flex items-center gap-2">
           <Icon className={`w-3.5 h-3.5 shrink-0 ${cfg.accent} ${resource.completed ? 'opacity-40' : ''}`} />
           {href ? (
@@ -175,7 +175,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
       {/* Actions */}
       {/* Open / Edit / Delete. Revealed on hover where hovering is possible; on a
           touchscreen there is no hover, so they stay visible instead of vanishing. */}
-      <div className="flex items-center gap-0.5 pr-2 transition-opacity shrink-0
+      <div className="flex items-center gap-0.5 pe-2 transition-opacity shrink-0
                       can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100">
         {href && (
           <IconLink

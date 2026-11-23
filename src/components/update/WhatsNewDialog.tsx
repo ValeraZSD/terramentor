@@ -22,7 +22,7 @@ export default function WhatsNewDialog({ isOpen, onClose, version, notes, repoUr
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={t("What's new in {{version}}", { version: unbroken(version) })} maxWidth="max-w-lg" footer={<>
             <NotesLink inList={false} href={releasePage(repoUrl, version)}>{t("Release page")}</NotesLink>
-            <div className="ml-auto"><Button variant="neutral" onClick={onClose}>{t("Close")}</Button></div>
+            <div className="ms-auto"><Button variant="neutral" onClick={onClose}>{t("Close")}</Button></div>
         </>}>
             <ReleaseNotesList notes={notes} repoUrl={repoUrl} />
         </Modal>

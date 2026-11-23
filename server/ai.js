@@ -4189,7 +4189,7 @@ The keys you may set, and ONLY these:
 - theme_tint — what colour the page itself is, which is SEPARATE from the mode: a colour name (none, warm, cream, sepia, black, oled, sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal) or a #RRGGBB hex. "Warm"/"sepia" is a cream page and "black"/"OLED" a true-black one — each is a TINT, so asked for either, set this and set \`theme\` to the mode that goes with it (light for cream, dark for black).
 - accent_color — a colour name (sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal, ink, paper) or a #RRGGBB hex
 - ui_scale — a whole percent from 80 to 160 (how large the whole interface is; "bigger text" means raising this)
-- ui_language — the language of the app's own buttons and labels: a code (en, de, es, fr, it, ja, nl, pl, pt, ru, uk, zh), the language's own name (Nederlands, Русский), or auto to follow the browser. This changes the INTERFACE only — it does not translate the learner's courses, their notes or their cards.
+- ui_language — the language of the app's own buttons and labels: a code (en, ar, de, es, fr, it, ja, nl, pl, pt, ru, tr, uk, zh), the language's own name (Nederlands, العربية) or its English name (Dutch, Arabic), or auto to follow the browser. This changes the INTERFACE only — it does not translate the learner's courses, their notes or their cards.
 - number_format — how numbers are written, named by example: 1,234.5 | 1.234,5 | 1 234,5 | 1 234.5 | 1234.5 | auto
 - contrast — system | standard | more  (more: darker text and stronger borders)
 - motion — system | full | reduce  (reduce stops animations and moving transitions)

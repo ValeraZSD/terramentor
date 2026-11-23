@@ -12,6 +12,7 @@ import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import OwnLine from './ui/OwnLine';
 
 // Anything binary that the server can't read as text is rejected on upload and
 // surfaced as a "failed" doc, so we intentionally don't restrict selection here
@@ -325,7 +326,7 @@ export default function VaultPanel({
                         <li key={`${f.name}:${f.size}:${i}`} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/40">
                             <FileKindIcon type={displayKind(undefined, f.name)} />
                             <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm text-slate-700 dark:text-slate-200">{f.name}</div>
+                                <div className="truncate text-sm text-slate-700 dark:text-slate-200"><OwnLine>{f.name}</OwnLine></div>
                                 <div className="text-xs text-slate-500 dark:text-slate-400">{tr("{{humanSize}} · will be processed on create", { humanSize: humanSize(f.size) })}</div>
                             </div>
                             <IconButton size="sm" onClick={() => onStagedFilesChange!(staged.filter((_, idx) => idx !== i))} label={tr("Remove")} icon={<X className="w-4 h-4" />} />
@@ -351,7 +352,7 @@ export default function VaultPanel({
                                         ? <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
                                         : <FileKindIcon type={displayKind(doc.file_type, doc.original_filename)} />}
                                     <div className="min-w-0 flex-1">
-                                        <div className="truncate text-sm text-slate-700 dark:text-slate-200">{doc.title}</div>
+                                        <div className="truncate text-sm text-slate-700 dark:text-slate-200"><OwnLine>{doc.title}</OwnLine></div>
                                         <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                                             {doc.status === 'failed'
                                                 ? <span className="text-red-500">{tr("Failed: {{error}}", { error: doc.error })}</span>

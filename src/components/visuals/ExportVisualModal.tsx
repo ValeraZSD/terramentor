@@ -203,7 +203,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                     <h2 id="export-visual-title" className="text-base font-semibold text-slate-900 dark:text-white">
                         {animated ? tr("Save as GIF") : tr("Save as image")}
                     </h2>
-                    <IconButton size="sm" onClick={cancel} label={tr("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
+                    <IconButton size="sm" onClick={cancel} label={tr("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-me-1.5" />
                 </div>
 
                 <div className={`${DIALOG_BODY} px-5 py-4 space-y-4`}>
@@ -252,7 +252,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                                         onClick={draft}
                                         disabled={busy}
                                         busy={drafting}
-                                        className="-ml-2.5"
+                                        className="-ms-2.5"
                                         title={tr("Ask the AI to draft a title and caption from the drawing")}
                                         icon={<PenLine size={14} aria-hidden="true" />}
                                     >

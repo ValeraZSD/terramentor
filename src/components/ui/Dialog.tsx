@@ -60,7 +60,7 @@ interface FooterProps {
 /**
  * The dialog's foot: its action row, outside the scroll. Buttons sit at the
  * right; a control that belongs at the left (Delete, Finish now) takes
- * `mr-auto`, or a group takes `ml-auto`.
+ * `me-auto`, or a group takes `ms-auto`.
  */
 export function DialogFooter({ children, inset = 'px-5', className = '' }: FooterProps) {
     return (

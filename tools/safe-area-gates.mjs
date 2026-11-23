@@ -74,10 +74,15 @@ const EDGE_CLASS = [
     [/^bottom-(px|[0-3]\.5|[0-9]|1[0-4])$/, ['bottom']],
     [/^left-(px|[0-3]\.5|[0-9]|1[0-4])$/, ['left']],
     [/^right-(px|[0-3]\.5|[0-9]|1[0-4])$/, ['right']],
+    // The logical twins, read left to right: `start-0` padded by `safe-ps-0`
+    // is clear in either direction (`--safe-start` follows `dir`), and
+    // rtl-gates.mjs keeps a physical pad off a logical edge.
+    [/^start-(px|[0-3]\.5|[0-9]|1[0-4])$/, ['left']],
+    [/^end-(px|[0-3]\.5|[0-9]|1[0-4])$/, ['right']],
     [/^safe-top-/, ['top']],
     [/^safe-bottom-/, ['bottom']],
 ];
-const COVER = { '': SIDES, x: ['left', 'right'], y: ['top', 'bottom'], t: ['top'], r: ['right'], b: ['bottom'], l: ['left'] };
+const COVER = { '': SIDES, x: ['left', 'right'], y: ['top', 'bottom'], t: ['top'], r: ['right'], b: ['bottom'], l: ['left'], s: ['left'], e: ['right'] };
 
 /** The edges a set of class tokens pins a fixed box to (base classes only: a `sm:fixed` is not a phone's). */
 function edgesOf(tokens) {
@@ -95,7 +100,7 @@ function coveredBy(tokens) {
         const variants = t.includes(':') ? t.slice(0, t.lastIndexOf(':')).split(':') : [];
         if (!variants.every(v => v === 'max-sm')) continue; // a `dark:` cover leaves the light theme bare
         const bare = t.slice(t.lastIndexOf(':') + 1);
-        let m = /^safe-p([xytrbl]?)-/.exec(bare);
+        let m = /^safe-p([xytrblse]?)-/.exec(bare);
         if (m) COVER[m[1]].forEach(s => out.add(s));
         m = /^safe-(top|bottom)-/.exec(bare);
         if (m) out.add(m[1]);
@@ -314,6 +319,8 @@ for (const s of SIDES) {
         'safe-pt-0': [['padding-top', 'max(0px, var(--safe-top))']],
         'safe-px-2': [['padding-left', 'max(0.5rem, var(--safe-left))'], ['padding-right', 'max(0.5rem, var(--safe-right))']],
         'safe-pb-0': [['padding-bottom', 'max(0px, var(--safe-bottom))']],
+        'safe-ps-0': [['padding-inline-start', 'max(0px, var(--safe-start))']],
+        'safe-pe-2': [['padding-inline-end', 'max(0.5rem, var(--safe-end))']],
         'safe-pt-\\[10vh\\]': [['padding-top', 'max(10vh, var(--safe-top))']],
         'safe-top-4': [['top', 'calc(1rem + var(--safe-top))']],
         'safe-bottom-3': [['bottom', 'calc(0.75rem + var(--safe-bottom))']],

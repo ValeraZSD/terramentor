@@ -10,6 +10,7 @@ import { AuthoringPhase, MaterialMergeResult, OutlineBriefFields } from '../type
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import OwnLine from './ui/OwnLine';
 
 /**
  * Writing a course with a chat model the learner already has open.
@@ -508,13 +509,13 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
                                 onClick={() => { setPhaseId(p.id); setResult(null); }}
                                 aria-pressed={selected}
                                 data-row="phase"
-                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-left flex items-center gap-3 border transition ${selected
+                                className={`w-full min-h-[44px] px-3 py-2 rounded-xl text-start flex items-center gap-3 border transition ${selected
                                     ? 'border-accent bg-accent/10'
                                     : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}
                             >
                                 <BookOpen className={`w-4 h-4 shrink-0 ${complete ? 'text-emerald-500' : 'text-slate-400'}`} />
-                                <span className="flex-1 min-w-0 text-sm text-slate-800 dark:text-slate-100 truncate">{p.title}</span>
+                                <span className="flex-1 min-w-0 text-sm text-slate-800 dark:text-slate-100 truncate"><OwnLine>{p.title}</OwnLine></span>
                                 <span className={`text-sm shrink-0 ${complete ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                                     {tr("{{withMaterial}}/{{leaves}} written", { withMaterial: p.withMaterial, leaves: p.leaves })}
                                 </span>

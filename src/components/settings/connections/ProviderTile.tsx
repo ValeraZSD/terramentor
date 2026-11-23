@@ -32,7 +32,7 @@ export default function ProviderTile({ provider, onClick }: { provider: Provider
             data-tile="provider"
             onClick={onClick}
             className={cx(
-                'group flex w-full flex-1 items-center gap-3 px-3 text-left transition-colors',
+                'group flex w-full flex-1 items-center gap-3 px-3 text-start transition-colors',
                 blurb ? 'py-2.5' : 'py-2',
                 'can-hover:hover:bg-accent/5 dark:can-hover:hover:bg-accent/10',
                 'touch:min-h-11', FOCUS_RING, 'focus-visible:ring-inset',

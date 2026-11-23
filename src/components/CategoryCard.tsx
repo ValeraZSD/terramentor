@@ -32,6 +32,7 @@ import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { MenuItem } from './ui/Popover';
+import OwnLine from './ui/OwnLine';
 
 /** The row being dragged, when this card is the one drawing it. */
 export interface CardRowDrag {
@@ -174,10 +175,10 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
       >
         {/* Grid drop hint: a bar in the gutter on the side the dragged card lands. */}
         {dropIndicator === 'before' && (
-          <div className="absolute -left-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
+          <div className="absolute -start-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
         )}
         {dropIndicator === 'after' && (
-          <div className="absolute -right-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
+          <div className="absolute -end-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
         )}
         {/* Header band. Light: slate-50 — a hair off the card's white, and
             distinct from the canvas. Dark: slate-700/50, a raised band over
@@ -218,16 +219,16 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
                       data-larger-wraps
                       aria-label={t("Open {{title}}", { title: node.title })}
-                      className={`-mx-1 px-1 max-w-full truncate align-top text-left rounded ${FOCUS_RING}`}
+                      className={`-mx-1 px-1 max-w-full truncate align-top text-start rounded ${FOCUS_RING}`}
                     >
-                      {node.title}
+                      <OwnLine>{node.title}</OwnLine>
                     </button>
                   </h3>
                   {!isNote && (
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {inCards
                         ? t("{{value}} / {{value2}} cards met", { count: subtreeCards, value: num(node.progress?.seen ?? 0), value2: num(subtreeCards) })
-                        : <>{node.progress?.completed || 0} / {node.progress?.total || 0} {t("completed")}</>}
+                        : <><span dir="ltr">{node.progress?.completed || 0} / {node.progress?.total || 0}</span> {t("completed")}</>}
                     </p>
                   )}
                   {isNote && <p className="text-xs text-slate-500 dark:text-slate-400">{t("Note")}</p>}
@@ -264,7 +265,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                 aria-expanded={isExpanded}
                 onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
                 icon={isExpanded ? <ChevronDown className="w-4 h-4" aria-hidden="true" /> : <ChevronRight className="w-4 h-4" aria-hidden="true" />}
-                className="-ml-2.5"
+                className="-ms-2.5"
               >
                 {isExpanded ? t("Collapse") : t("Expand")} {t("({{length}} items)", { count: node.children.length, length: node.children.length })}
               </Button>

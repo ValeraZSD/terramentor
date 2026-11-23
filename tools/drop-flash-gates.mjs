@@ -386,9 +386,9 @@ for (const [name, file, held] of [
         /\bheld\s*\?\s*'drag-ring\b/.test(row), row.slice(0, 160));
     check(`${name}: and nothing else in the file draws one (no second copy of the row)`,
         (text.match(/drag-ring/g) ?? []).length === 1, `${(text.match(/drag-ring/g) ?? []).length} uses`);
-    check(`${name}: one element sets the indent`, (text.match(/paddingLeft/g) ?? []).length === 1);
+    check(`${name}: one element sets the indent`, (text.match(/paddingInlineStart/g) ?? []).length === 1);
     // Held, the indent is where it will land; the badge is drawn only once projected.
-    const indentVar = (row.match(/paddingLeft:\s*`(?:calc\()?(?:min\()?\$\{(\w+)\}?\s*\*/) ?? [])[1] ?? '';
+    const indentVar = (row.match(/paddingInlineStart:\s*`(?:calc\()?(?:min\()?\$\{(\w+)\}?\s*\*/) ?? [])[1] ?? '';
     check(`${name}: held, it stands at the projected depth, else its own`,
         indentVar !== '' && new RegExp(`const ${indentVar} = held \\? projectedDepth \\?\\? (item\\.)?depth : (item\\.)?depth;`).test(text), indentVar);
     check(`${name}: the badge is drawn only while held and projected`, /\{held && projectedDepth !== null && \(/.test(text));

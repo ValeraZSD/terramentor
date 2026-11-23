@@ -908,9 +908,15 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     ];
     await React.act(async () => root.render(React.createElement(StudyNext, { next, regions })));
     const rows = [...el.querySelectorAll('button[data-row]')];
+    // Each name is wrapped in a first-strong isolate (U+2068 .. U+2069) so it
+    // keeps its own direction inside an Arabic sentence; the reading drops them.
+    const [fsi, pdi] = [String.fromCharCode(0x2068), String.fromCharCode(0x2069)];
+    const plainText = (s) => s.split(fsi).join('').split(pdi).join('');
     check('a suggestion is drawn as a row: the topic, then what it is near and its course',
-        rows.length === 1 && rows[0].textContent.includes('Derivatives') && rows[0].textContent.includes('Near Limits · Calculus'),
-        rows.map(r => r.textContent).join(' | '));
+        rows.length === 1 && rows[0].textContent.includes('Derivatives') && plainText(rows[0].textContent).includes('Near Limits · Calculus'),
+        rows.map(r => plainText(r.textContent)).join(' | '));
+    check('…each name in that line keeps its own direction (isolated)',
+        rows.length === 1 && rows[0].textContent.includes(`${fsi}Limits${pdi}`) && rows[0].textContent.includes(`${fsi}Calculus${pdi}`));
     await React.act(async () => { rows[0]?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     check('…and pressing it starts that topic\'s lesson in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
         JSON.stringify(globalThis.__opened));

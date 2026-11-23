@@ -3173,7 +3173,7 @@
   "Runs in the background and pauses while you use the assistant.": "Se ejecuta en segundo plano y se pausa mientras usas el asistente.",
   "Sage": "Salvia",
   "Same as chat": "Igual que el chat",
-  "Same as the browser": "Igual que el navegador",
+  "Same as the browser ({{language}})": "Igual que el navegador ({{language}})",
   "Same as the chat model": "Igual que el modelo de chat",
   "Same as the language": "Igual que el idioma",
   "Sample exam 19": "Examen de muestra 19",

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, ReactNode } from 'react';
 import { cx, FOCUS_RING } from './vocabulary';
 import { useSettingHint } from './settingHint';
+import { inlineArrow } from '../../utils/direction';
 
 export interface Segment<T extends string | number> {
     value: T;
@@ -185,7 +186,7 @@ export function SegmentedControl<T extends string | number>({
     };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
-        switch (e.key) {
+        switch (inlineArrow(e.key, e.currentTarget)) {
             case 'ArrowRight': case 'ArrowDown': e.preventDefault(); move(1); break;
             case 'ArrowLeft': case 'ArrowUp': e.preventDefault(); move(-1); break;
             case 'Home': e.preventDefault(); select(options.find(o => !o.disabled)!.value); break;

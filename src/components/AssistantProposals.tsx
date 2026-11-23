@@ -1165,7 +1165,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                                     </p>
                                 </div>
                             </div>
-                            <ol className="list-decimal pl-5 text-sm leading-6 text-slate-700 dark:text-slate-200">
+                            <ol className="list-decimal ps-5 text-sm leading-6 text-slate-700 dark:text-slate-200">
                                 {s.topics.map((topic, n) => <li key={n}>{topic}</li>)}
                             </ol>
                         </div>

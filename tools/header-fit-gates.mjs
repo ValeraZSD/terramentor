@@ -134,6 +134,13 @@ if (typeof centresSearch === 'function') {
     check('390px phone, a long project name (480px): the title keeps the room', !side(390, back + 480));
     check('a title one pixel too wide for half the row is not centred', !side(390, (390 - 16 - 44 - 8) / 2 + 1));
 }
+// The project name is cut inside its own line (ui/OwnLine), so the h1's own
+// scrollWidth is only the cut width: read there, every long name "fitted",
+// the search was centred and a phone showed "Astronomy…".
+const h1Title = /<h1[^>]*>\s*\{[^}]*<OwnLine>/.test(layout);
+const measuresLine = /el\.tagName === 'H1' \? \(el\.querySelector\('\[data-own-line\]'\) \?\? el\)\.scrollWidth/.test(layout);
+check('the title is measured at its full length inside its own line', !h1Title || measuresLine,
+    h1Title ? 'the h1 holds an OwnLine but the bar reads the h1\'s own scrollWidth' : '');
 const rightClass = /ref=\{rightRef\}\s*className=\{`([^`]*)`\}/.exec(layout)?.[1] ?? '';
 check('the right column\'s centring is not keyed on a viewport breakpoint',
     rightClass !== '' && !/\b(sm|md|lg|xl):(grow|basis)/.test(rightClass), rightClass || 'right column not found');

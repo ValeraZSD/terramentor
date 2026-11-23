@@ -318,7 +318,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                <Loader2 className="w-5 h-5 animate-spin me-2" />
                 {t("Loading...")}
             </div>
         );

@@ -529,7 +529,7 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                             <div className="flex items-baseline gap-x-4">
                                 <span className="w-24 shrink-0 text-sm font-medium text-slate-900 dark:text-white">{t("Question {{q}}", { q: q.question })}</span>
                                 <span className="flex-1 min-w-0 text-sm text-slate-600 dark:text-slate-300">{q.topics.map(x => x.title).join(' · ')}</span>
-                                <span className="shrink-0 text-right text-sm tabular-nums text-slate-700 dark:text-slate-200">{t("{{earned}} of {{total}}", { earned: fmt(q.earned), total: fmt(q.points) })}</span>
+                                <span className="shrink-0 text-end text-sm tabular-nums text-slate-700 dark:text-slate-200">{t("{{earned}} of {{total}}", { earned: fmt(q.earned), total: fmt(q.points) })}</span>
                             </div>
                             <ProgressBar value={q.earned} max={q.points} size="sm" className="mt-2" label={t("Question {{q}}", { q: q.question })} />
                         </li>

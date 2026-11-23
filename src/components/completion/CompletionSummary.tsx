@@ -173,7 +173,7 @@ export default function CompletionSummary() {
 
                 {/* An absolute child sits against the panel's padding edge, not
                     inside its inset padding: on a phone it offsets by the inset. */}
-                <div className="absolute right-2 top-4 max-sm:right-[calc(0.5rem+var(--safe-right))] max-sm:safe-top-4 z-10 flex gap-0.5">
+                <div className="absolute end-2 top-4 max-sm:end-[calc(0.5rem+var(--safe-end))] max-sm:safe-top-4 z-10 flex gap-0.5">
                     <IconButton
                         label={t("Save this as a picture")}
                         icon={<Download className="h-5 w-5" />}
@@ -362,7 +362,7 @@ function Crest({ icon }: { icon: string }) {
             <div className="absolute inset-0 flex items-center justify-center overflow-hidden text-[2.125rem] leading-none text-accent-fg" aria-hidden="true">
                 <ProjectIcon icon={icon} className="h-9 w-9" />
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-accent ring-4 ring-white dark:ring-slate-900">
+            <span className="absolute -bottom-0.5 -end-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-accent ring-4 ring-white dark:ring-slate-900">
                 <Check className="h-4 w-4 text-white" strokeWidth={3} aria-hidden="true" />
             </span>
         </div>

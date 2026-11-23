@@ -25,7 +25,7 @@ export default function ReleaseNotesList({ notes, repoUrl, limit }: { notes: Not
             + notes.releases.reduce((n, r) => n + hidden(r) + (r.title ? r.items.length : 0), 0);
         return (
             <>
-                <ul className="list-disc pl-4 space-y-1">
+                <ul className="list-disc ps-4 space-y-1">
                     {/* The clamp sits on a span: on the li it would replace
                         list-item display and drop the bullet. */}
                     {shown.map((item, i) => <li key={i} className="break-words"><span className="line-clamp-2">{item}</span></li>)}
@@ -59,7 +59,7 @@ function Release({ release, repoUrl }: { release: ReleaseNote; repoUrl: string }
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{heading}</h3>
             {under && <p className="text-xs text-slate-500 dark:text-slate-400">{under}</p>}
             {release.items.length > 0 && (
-                <ul className="mt-2 list-disc pl-5 space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
+                <ul className="mt-2 list-disc ps-5 space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
                     {release.items.map((item, i) => <li key={i} className="break-words">{item}</li>)}
                 </ul>
             )}
@@ -79,7 +79,7 @@ const hidden = (release: ReleaseNote) => release.more + release.libraries;
  *  its text lines up with the lines above it. */
 export function NotesLink({ href, children, inList = true }: { href: string; children: string; inList?: boolean }) {
     return (
-        <ButtonLink href={href} target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" className={inList ? 'mt-1 -ml-2.5' : ''} trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>
+        <ButtonLink href={href} target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" className={inList ? 'mt-1 -ms-2.5' : ''} trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>
             {children}
         </ButtonLink>
     );

@@ -161,7 +161,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     if (queue.isComplete) {
         return (
             <div className="p-4 space-y-6">
-                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ml-2.5">
+                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ms-2.5">
                     {t("Back")}
                 </Button>
 
@@ -190,7 +190,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     return (
         <div className="p-4 space-y-4 h-full flex flex-col">
             <div className="flex items-center justify-between">
-                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ml-2.5">
+                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ms-2.5">
                     {t("Exit")}
                 </Button>
                 <div className="flex items-center gap-3">

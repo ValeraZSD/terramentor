@@ -55,7 +55,7 @@ export function CompactCard({
                         aria-label={t("Open {{name}}", { name })}
                         title={name}
                         data-row="title"
-                        className={cx('-mx-1 px-1 block max-w-full text-left rounded font-medium leading-snug text-slate-900 dark:text-white line-clamp-2', FOCUS_RING)}
+                        className={cx('-mx-1 px-1 block max-w-full text-start rounded font-medium leading-snug text-slate-900 dark:text-white line-clamp-2', FOCUS_RING)}
                     >
                         {name}
                     </button>
@@ -63,12 +63,12 @@ export function CompactCard({
                         {meta}
                     </div>
                 </div>
-                <div className="shrink-0 -mr-1 -mt-1" onClick={e => e.stopPropagation()}>{menu}</div>
+                <div className="shrink-0 -me-1 -mt-1" onClick={e => e.stopPropagation()}>{menu}</div>
             </div>
             {(reading || action) && (
                 <div className="mt-auto flex items-center gap-3 min-h-10">
                     {reading}
-                    {action && <div className="ml-auto shrink-0" onClick={e => e.stopPropagation()}>{action}</div>}
+                    {action && <div className="ms-auto shrink-0" onClick={e => e.stopPropagation()}>{action}</div>}
                 </div>
             )}
         </div>

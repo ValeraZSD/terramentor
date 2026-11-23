@@ -10,7 +10,7 @@ import { BrandMark } from '../BrandMark';
 import Checkbox from '../Checkbox';
 import { Button } from '../ui/Button';
 import { Field, TextArea, TextInput } from '../ui/Field';
-import { LanguageRow, ThemeCards } from '../settings/AppearanceControls';
+import { LanguageRow, ThemeCards, autoLanguageLabel } from '../settings/AppearanceControls';
 import ConnectModel from './ConnectModel';
 import PrivacyNote from './PrivacyNote';
 
@@ -131,7 +131,7 @@ export default function WelcomeFlow() {
     };
 
     const languageName = uiLanguage === 'auto'
-        ? t("Same as the browser")
+        ? autoLanguageLabel(t)
         : LANGUAGES.find(l => l.code === uiLanguage)?.name ?? uiLanguage;
 
     return (
@@ -149,7 +149,7 @@ export default function WelcomeFlow() {
                         {/* Two numerals and a slash, like the Getting started checklist:
                             how far through, with nothing for a translator to get wrong. */}
                         <span role="img" className="text-sm tabular-nums text-slate-500 dark:text-slate-400" aria-label={t("Step {{n}} of {{total}}", { n: step + 1, total: STEP_COUNT })}>
-                            {step + 1} / {STEP_COUNT}
+                            <span dir="ltr">{step + 1} / {STEP_COUNT}</span>
                         </span>
                         {step < STEP_COUNT - 1 && (
                             <Button size="sm" variant="quiet" onClick={() => void finish('/')}>
@@ -330,7 +330,7 @@ function StepActions({ onBack, children }: { onBack?: () => void; children: Reac
             {onBack
                 ? <Button variant="quiet" onClick={onBack} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
                 : <span />}
-            <div className="ml-auto flex flex-wrap justify-end gap-2">{children}</div>
+            <div className="ms-auto flex flex-wrap justify-end gap-2">{children}</div>
         </div>
     );
 }
@@ -347,7 +347,7 @@ function SummaryRow({ done, label, value }: { done: boolean; label: string; valu
                 {done ? <Check className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
             </span>
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100 shrink-0">{label}</span>
-            <span className="ml-auto min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 text-right">{value}</span>
+            <span className="ms-auto min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 text-end">{value}</span>
         </li>
     );
 }

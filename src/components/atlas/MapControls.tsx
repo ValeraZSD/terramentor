@@ -27,7 +27,7 @@ export interface MapControl {
 export default function MapControls({ controls, row = false }: { controls: MapControl[]; row?: boolean }) {
     return (
         <div className={`pointer-events-auto shrink-0 flex overflow-hidden ${row
-            ? 'flex-row divide-x'
+            ? 'flex-row divide-x rtl:divide-x-reverse'
             : 'flex-col divide-y'} divide-slate-200 dark:divide-slate-600 ${CHROME_SURFACE}`}>
             {controls.map(({ icon: Icon, name, act, active }) => (
                 <button

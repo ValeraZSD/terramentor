@@ -114,7 +114,7 @@ function LauncherCard({ spec, open, setOpen }: { spec: DrillSpec; open: boolean;
                 type="button"
                 data-row="drill-launcher"
                 onClick={() => setOpen(true)}
-                className="group my-4 flex w-full items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-left transition hover:bg-accent/10 hover:border-accent/50"
+                className="group my-4 flex w-full items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-start transition hover:bg-accent/10 hover:border-accent/50"
             >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white">
                     <Target className="h-5 w-5" aria-hidden="true" />

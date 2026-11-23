@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AtlasNext, AtlasRegion, AtlasTopic } from '../../types';
 import { useStore } from '../../store';
 import TopicRow from './TopicRow';
+import { isolate } from '../../utils/direction';
 
 /**
  * What to study next, at the top of the region list: up to three topics not
@@ -47,7 +48,7 @@ export default function StudyNext({ next, regions }: {
                             // The reason first: a long course name cut
                             // "near …" off every row, the one part that says
                             // why this topic and not another.
-                            detail={tr("Near {{topic}} · {{course}}", { topic: near, course: topic.projectName })}
+                            detail={tr("Near {{topic}} · {{course}}", { topic: isolate(near), course: isolate(topic.projectName) })}
                             onOpen={() => studyNode(topic.projectId, topic.id)}
                             studies
                         />

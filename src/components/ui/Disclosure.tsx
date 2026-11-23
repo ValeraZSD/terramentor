@@ -118,7 +118,7 @@ const BODY_RULE = 'border-t border-slate-300 dark:border-slate-600';
  * stays `slate-600` / `slate-300`, above 4.5:1 on every surface it opens on.
  */
 const EXPLAIN_BOX = cx('group rounded-xl open:px-3 open:pt-1 open:pb-3', OPEN_EDGE);
-const EXPLAIN_BODY = 'details-reveal mt-1 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300';
+const EXPLAIN_BODY = 'details-reveal mt-1 ps-[1.375rem] text-sm text-slate-600 dark:text-slate-300';
 
 /**
  * Prose behind a name.
@@ -238,7 +238,7 @@ export function ExpandableSection({
                     // chevron sit on the title's line; with a title alone,
                     // centred, or a one-line title hung off the top of a
                     // picture-sized mark (the app icon's).
-                    'flex flex-wrap gap-3 px-4 py-3 text-left',
+                    'flex flex-wrap gap-3 px-4 py-3 text-start',
                     desc ? 'items-start' : 'items-center',
                     // Open, the body follows this summary and its square top edge
                     // does not cover the summary's own rounded bottom corners, so
@@ -298,12 +298,12 @@ export function ExpandableSection({
                         // No guide line under the icon: a vertical rule down the
                         // opened body read as a second block hung off the row.
                         // The indent alone ties the body to its title. A flush
-                        // body's children pad themselves by 16px, so `pl-8`
+                        // body's children pad themselves by 16px, so `ps-8`
                         // lands their text on the same 48px title column as
-                        // `pl-12` does.
+                        // `ps-12` does.
                         flushBody
-                            ? (marked ? 'pl-8' : '')
-                            : cx('pb-4 pt-1 pr-4', marked ? 'pl-12' : 'pl-4'),
+                            ? (marked ? 'ps-8' : '')
+                            : cx('pb-4 pt-1 pe-4', marked ? 'ps-12' : 'ps-4'),
                     )}                >
                     {children}
                 </div>

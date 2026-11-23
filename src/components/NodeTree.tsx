@@ -16,6 +16,7 @@ import { useDragA11y, useDragKeyboard, nodeTitle } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
 import { TextInput } from './ui/Field';
+import { inlineDelta } from '../utils/direction';
 
 export default function NodeTree() {
     const { t } = useTranslation();
@@ -168,7 +169,7 @@ export default function NodeTree() {
         const target = event.over;
         // Kept as whole indentation levels, so a drag re-renders the board when
         // the depth can change, not on every pixel.
-        setDragOffsetX(Math.round(event.delta.x / indentPx) * indentPx);
+        setDragOffsetX(Math.round(inlineDelta(event.delta.x) / indentPx) * indentPx);
         if (!target || (target.id === event.active.id && drag?.kind === 'card')) { setOver(null); return; }
         setOver({ kind: kindOf(target), id: target.id as number });
         if (drag?.kind !== 'row') return;
@@ -222,7 +223,7 @@ export default function NodeTree() {
         }
 
         const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
-            { kind: kindOf(target), id: target.id as number }, event.delta.x, indentPx);
+            { kind: kindOf(target), id: target.id as number }, inlineDelta(event.delta.x), indentPx);
         if (!placed) return;
         if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
             flashAfterDrop(`node:${activeId}`);

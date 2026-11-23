@@ -60,7 +60,7 @@ export default function AppPlacementNotice() {
             <p className="min-w-0 flex-1 basis-64">
                 {t("macOS is running Terramentor from a temporary copy, so it cannot update itself or start when you sign in. Quit it, drag Terramentor into your Applications folder, and open it from there.")}
             </p>
-            <Button size="sm" variant="neutral" className="ml-auto" onClick={quit}>{t("Quit now")}</Button>
+            <Button size="sm" variant="neutral" className="ms-auto" onClick={quit}>{t("Quit now")}</Button>
             {quitting && <DesktopQuitScreen onStillRunning={() => setQuitting(false)} />}
         </Strip>
     );

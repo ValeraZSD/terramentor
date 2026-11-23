@@ -105,7 +105,7 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
     return (
         <div className="relative">
             {!pair && (
-                <div ref={measureRef} aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden whitespace-nowrap text-base">
+                <div ref={measureRef} aria-hidden="true" className="pointer-events-none invisible absolute start-0 top-0 -z-10 h-0 w-0 overflow-hidden whitespace-nowrap text-base">
                     {options.map((option, idx) => (
                         <span key={idx} data-measure className="inline-block"><MathText content={option} /></span>
                     ))}
@@ -145,7 +145,7 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
                                 // row are the same height, and a one-line option beside a
                                 // two-line one must not float at its top.
                                 tiled && 'w-full justify-center text-center',
-                                !pair && !tiled && 'w-full text-left',
+                                !pair && !tiled && 'w-full text-start',
                                 'disabled:cursor-default',
                                 FOCUS_RING,
                                 paint(option),

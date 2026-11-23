@@ -642,7 +642,7 @@ export default function MasteryGateModal({
                     {loading && !submitted && (
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
-                            <span className="ml-3 text-slate-500 dark:text-slate-200">
+                            <span className="ms-3 text-slate-500 dark:text-slate-200">
                                 {verifying
                                     ? t("Checking every answer…")
                                     : loadingModel && charCount === 0 && thinkingChars === 0
@@ -704,7 +704,7 @@ export default function MasteryGateModal({
                             <p className="text-slate-600 dark:text-slate-300">{error}</p>
 
                             {showRawOutput && (
-                                <div className="mt-4 w-full p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-left overflow-auto max-h-[30vh]">
+                                <div className="mt-4 w-full p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-start overflow-auto max-h-[30vh]">
                                     <pre className="text-xs text-slate-800 dark:text-slate-300 whitespace-pre-wrap font-mono">
                                         {rawOutput || t("No raw output was provided by the server. Check if your backend route includes \"rawResponse: ...\" in the error payload.")}
                                     </pre>
@@ -729,7 +729,7 @@ export default function MasteryGateModal({
                                                 itemRef={ref}
                                                 surface="mastery_check"
                                                 shown={answers[currentQ] ? { answer: answers[currentQ] } : undefined}
-                                                className="-mt-1.5 -mr-1.5"
+                                                className="-mt-1.5 -me-1.5"
                                             />
                                         </div>
 
@@ -836,11 +836,11 @@ export default function MasteryGateModal({
                             {questions.length > 0 && Object.keys(answerResults).length > 0 && (() => {
                                 const wrongCount = questions.filter((_, i) => answerResults[i] && !answerResults[i].correct && !isReported(i)).length;
                                 return (
-                                    <div className="mt-8 text-left">
+                                    <div className="mt-8 text-start">
                                         <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
                                             {t("Review Answers")}
                                             {wrongCount > 0 && (
-                                                <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
+                                                <span className="ms-2 font-normal text-slate-500 dark:text-slate-400">
                                                     {t("· {{wrongCount}} to revisit", { wrongCount })}
                                                 </span>
                                             )}
@@ -925,7 +925,7 @@ export default function MasteryGateModal({
                                 {/* The ways out of a failed check are quiet, as in
                                     the footer while answering: a new draw is the
                                     way on, not an outlined equal of these. */}
-                                <Button variant="quiet" className="mr-auto" onClick={leave}>
+                                <Button variant="quiet" className="me-auto" onClick={leave}>
                                     {t("Study More")}
                                 </Button>
                                 {offerSkip && (
@@ -978,7 +978,7 @@ export default function MasteryGateModal({
                                     {t("Mark done without the check")}
                                 </Button>
                             )}
-                            <div className="ml-auto flex gap-2">
+                            <div className="ms-auto flex gap-2">
                                 <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0 || submitting}>
                                     {t("Previous")}
                                 </Button>

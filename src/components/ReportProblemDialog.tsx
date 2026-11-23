@@ -308,7 +308,7 @@ function ReportDialogBody({ onClose, prefill, draftKey = 'settings', onOpened }:
                                 <p className="min-w-[12rem] flex-1 text-sm text-slate-500 dark:text-slate-400">
                                     {t("Reports on GitHub are public: leave out anything private.")}
                                 </p>
-                                <div className="ml-auto flex gap-2">
+                                <div className="ms-auto flex gap-2">
                                     <Button
                                         onClick={copy}
                                         icon={copied

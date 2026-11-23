@@ -96,7 +96,7 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                     data-disclosure="heading"
                     onClick={() => setExpanded(v => !v)}
                     aria-expanded={expanded}
-                    className="flex-1 min-w-0 text-left"
+                    className="flex-1 min-w-0 text-start"
                 >
                     <span className="block text-sm font-semibold text-slate-900 dark:text-white">
                         {t("Getting started")}
@@ -106,7 +106,7 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                         wrong. The sentence it replaced ran to three lines on a
                         phone beside two icon buttons. */}
                     <span className="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">
-                        {doneCount} / {STEPS.length}
+                        <span dir="ltr">{doneCount} / {STEPS.length}</span>
                     </span>
                 </button>
                 <IconButton

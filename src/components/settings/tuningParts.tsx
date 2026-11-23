@@ -28,7 +28,7 @@ export function TuningBlock({ title, note, actions, hint, result, children }: {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <p className="min-w-0 flex-1 basis-48 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
-                <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+                <div className="ms-auto flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
             </div>
             {result && <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">{result}</div>}
         </section>

@@ -701,15 +701,15 @@ try {
         check('a held Add says why in the footer, the first thing still to do: a name, then the upload, then the points',
             /const held = !title\.trim\(\) \? t\("Give the paper a name to add it\."\)\s*: uploading > 0 \? t\("Waiting for the upload to finish\."\)\s*: printedBad \|\| mismatch \? t\("Make the questions add up to the printed total\."\)\s*: null;/.test(dialog)
                 && /\{held && \(\s*<span [^>]*>\{held\}<\/span>/.test(dialog)
-                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\} disabled=\{uploading > 0\}>[^\n]*\n\s*<Button variant="primary"[^\n]*disabled=\{held != null\}[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+                && /<div className="ms-auto flex gap-2">\s*<Button onClick=\{leave\} disabled=\{uploading > 0\}>[^\n]*\n\s*<Button variant="primary"[^\n]*disabled=\{held != null\}[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
         check("Cancel is shown disabled, and Escape waits, while an upload runs (it would land in the course with nothing pointing at it)",
             /if \(busy \|\| uploading > 0\) return;/.test(dialog));
         const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
         check('the away offer\'s two buttons are full-size tap targets',
             /takeOff\(awayOff\)/.test(offer) && /I kept writing/.test(offer) && !/size="sm"/.test(offer));
         const practise = readFileSync(join(dir, 'PractiseWeakest.tsx'), 'utf8');
-        check('"Practise this topic" stays at the right when a narrow result wraps it under its line',
-            /<Button variant="primary" className="ml-auto"[^\n]*>\s*\{t\("Practise this topic"\)\}/.test(practise));
+        check('"Practise this topic" stays at the end of its line (the right, or the left in a right-to-left language) when a narrow result wraps it under its line',
+            /<Button variant="primary" className="ms-auto"[^\n]*>\s*\{t\("Practise this topic"\)\}/.test(practise));
     });
 
     await block('9b. what the review round found', async () => {

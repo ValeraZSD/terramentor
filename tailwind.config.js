@@ -92,6 +92,8 @@ export default {
         // a surface that touches an edge draws under them unless it pads.
         //   safe-p{,x,y,t,r,b,l}-N   padding of at least N, more where a
         //                            screen edge is covered: max(N, inset)
+        //   safe-p{s,e}-N            the same at the line's start or end
+        //                            (the right-hand side in right to left)
         //   safe-{top,bottom}-N      an offset N clear of the covered strip:
         //                            N + inset (a floating chip, a toast)
         // The insets are `--safe-*` in `index.css` (env(), 0px on a plain
@@ -100,8 +102,8 @@ export default {
         plugin(({ matchUtilities, theme }) => {
             // Widest first, so `safe-p-4 safe-pb-0` lets the one side win, the
             // way `p-4 pb-0` does.
-            const side = { '': ['top', 'right', 'bottom', 'left'], x: ['left', 'right'], y: ['top', 'bottom'], t: ['top'], r: ['right'], b: ['bottom'], l: ['left'] };
-            const cap = s => s[0].toUpperCase() + s.slice(1);
+            const side = { '': ['top', 'right', 'bottom', 'left'], x: ['left', 'right'], y: ['top', 'bottom'], t: ['top'], r: ['right'], b: ['bottom'], l: ['left'], s: ['start'], e: ['end'] };
+            const cap = s => ({ start: 'InlineStart', end: 'InlineEnd' })[s] ?? s[0].toUpperCase() + s.slice(1);
             const values = theme('spacing');
             for (const [key, edges] of Object.entries(side)) {
                 matchUtilities({

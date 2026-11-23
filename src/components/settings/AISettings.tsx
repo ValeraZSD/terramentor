@@ -741,7 +741,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                             <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300 mb-1">
                                                 <span className="truncate">{installProgress.status}</span>
                                                 {installProgress.total && installProgress.completed && (
-                                                    <span className="ml-2 tabular-nums">{getInstallProgressPercent()}%</span>
+                                                    <span className="ms-2 tabular-nums">{getInstallProgressPercent()}%</span>
                                                 )}
                                             </div>
                                             {installProgress.total && installProgress.completed && (

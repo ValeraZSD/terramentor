@@ -309,7 +309,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <div className="min-w-0 flex-1">
                                     <p className="font-medium text-slate-900 dark:text-white truncate">
                                         {d.name}
-                                        {d.current && <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{t("(this device)")}</span>}
+                                        {d.current && <span className="ms-2 text-sm font-normal text-slate-500 dark:text-slate-400">{t("(this device)")}</span>}
                                     </p>
                                     <p className="text-sm text-slate-500 dark:text-slate-400">
                                         {t("Connected {{date}}", { date: date(d.createdAt) })}

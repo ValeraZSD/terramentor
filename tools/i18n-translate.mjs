@@ -93,6 +93,11 @@ const ADDRESS = {
     uk: "Address the reader as 'ви' (lowercase, not capitalised), never 'ти'.",
     ja: "Use polite です/ます throughout, never the plain form.",
     zh: "Use 你 rather than 您, and drop the pronoun where Chinese UI convention would.",
+    // Arabic marks the reader's gender on every second-person verb and on the
+    // imperative, so the rule is about forms, not a pronoun: written without
+    // diacritics, the suffix ـك and a verbal noun read the same for anyone.
+    ar: "Write Modern Standard Arabic without diacritics. Buttons and menu items are verbal nouns (حفظ، إلغاء، متابعة), never an imperative (احفظ / احفظي). In sentences avoid second-person present-tense verbs and imperatives: use يمكنك + a verbal noun, يرجى + a verbal noun, a passive (تم الحفظ) or a noun. Use Arabic punctuation (، ؛ ؟) and Western digits; never add Unicode direction marks.",
+    tr: "Address the reader politely with 'siz' (-(n)ız/-(n)iz, imperative -(y)ın/-(y)in), never 'sen'. Buttons use the short form Turkish software uses (Kaydet, İptal, Sil). Never put a suffix after a {{placeholder}}: reword so the placeholder needs none ('Kurs: {{name}}').",
 };
 
 /** The form of address ADDRESS rules out, so --register can find the drift. */
@@ -106,6 +111,10 @@ const WRONG_REGISTER = {
     pl: /\b(Pan|Pani|Państwa|Państwo)\b/,
     ru: /(?<!\p{L})(ты|твой|твоя|твои|тебе|тебя|Вы|Вас|Вам|Ваш)(?!\p{L})/u,
     uk: /(?<!\p{L})(ти|твій|твоя|твої|тобі|тебе|Ви|Вас|Вам|Ваш)(?!\p{L})/u,
+    // A feminine imperative or second-person verb (ـي / ـين on a verb the app
+    // uses) is the gendered form the table rules out.
+    ar: /(?<!\p{L})(اختاري|احفظي|افتحي|اضغطي|انقري|أدخلي|تستطيعين|تريدين|ستجدين|أنتِ)(?!\p{L})/u,
+    tr: /(?<!\p{L})(sen|senin|sana|seni)(?!\p{L})/iu,
 };
 
 const SYSTEM = (lang, code) => `You translate the user interface of a study app (flashcards, lessons, schedules, a curriculum "project", an AI tutor) from English into ${lang}.

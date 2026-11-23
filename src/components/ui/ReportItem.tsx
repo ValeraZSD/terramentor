@@ -189,9 +189,9 @@ export function ReportedNote({ report, onUndone, onEdit, takeFocus, className }:
                 "Reported" were read as decoration by people who had just
                 pressed it. */}
             {report.editable && onEdit && (
-                <Button size="sm" variant="neutral" className="ml-1" onClick={onEdit}>{t('Edit card')}</Button>
+                <Button size="sm" variant="neutral" className="ms-1" onClick={onEdit}>{t('Edit card')}</Button>
             )}
-            <Button ref={undoButton} size="sm" variant="neutral" className="ml-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
+            <Button ref={undoButton} size="sm" variant="neutral" className="ms-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
         </span>
     );
 }
@@ -362,7 +362,7 @@ export function ItemQuote({ item, kind, hideKey = false }: { item: Record<string
     const shown = lines.filter(Boolean).map(l => l.replace(/```[\s\S]*?```/g, '…').replace(/\s+/g, ' ').trim());
     if (!shown.length) return null;
     return (
-        <blockquote className="rounded-lg border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
+        <blockquote className="rounded-lg border-s-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
             {shown.map((l, i) => <p key={i} className="line-clamp-3 break-words">{l}</p>)}
         </blockquote>
     );

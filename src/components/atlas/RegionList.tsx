@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput } from '../ui/Field';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
+import OwnLine from '../ui/OwnLine';
 
 interface Props {
     regions: AtlasRegion[];
@@ -197,7 +198,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                     data-row
                     onClick={() => onSelect(open ? null : region.id)}
                     aria-expanded={open}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
                         ? 'bg-accent/10'
                         : 'can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60'}`}
                 >
@@ -207,7 +208,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                         style={{ background: regionColor(region, colorMode, hues, accent, dark, surface) }}
                     />
                     <span className={`min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100 ${open ? 'font-medium' : ''}`}>
-                        {region.label}
+                        <OwnLine>{region.label}</OwnLine>
                     </span>
                     <span aria-hidden="true" className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
                         {inKnown ? `${num(region.mastery.proven)}/${num(region.size)}` : num(region.size)}
@@ -224,7 +225,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                 </button>
 
                 {open && (
-                    <div className="mx-1 mb-2 px-2 pb-1 rounded-b-lg border-l-2 border-accent/40">
+                    <div className="mx-1 mb-2 px-2 pb-1 rounded-b-lg border-s-2 border-accent/40">
                         <RegionName region={region} onRename={onRename} onResetName={onResetName}>
                             {region.projects.map(p => (
                                 <span
@@ -236,7 +237,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                                         className="w-2 h-2 shrink-0 rounded-full"
                                         style={{ background: p.color || '#94a3b8' }}
                                     />
-                                    <span className="truncate">{p.name}</span>
+                                    <span className="truncate"><OwnLine>{p.name}</OwnLine></span>
                                     <span className="shrink-0 tabular-nums">{num(p.count)}</span>
                                 </span>
                             ))}
