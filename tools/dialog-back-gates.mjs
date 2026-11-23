@@ -3,8 +3,8 @@
 // the New course window asks before it drops what was typed.
 //
 // Run:  node tools/dialog-back-gates.mjs              (this checkout)
-//       node tools/dialog-back-gates.mjs --root DIR   (another copy of src/,
-//                                                      e.g. `git archive origin/main src`,
+//       node tools/dialog-back-gates.mjs --root DIR   (another copy of src/ and server/,
+//                                                      e.g. `git archive origin/main src server`,
 //                                                      where it must fail)
 //
 // WHY. A dialog closed on its ✕, Escape and a tap outside, but no dialog had a
