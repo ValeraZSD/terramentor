@@ -604,7 +604,7 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
         // run after this one searches it.
         const next = state?.followUp?.ids || new Set();
         for (const { node_id: id } of stmt(`SELECT DISTINCT node_id FROM node_photos WHERE status = 'pending'
-            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`).all(projectId)) {
+            AND node_id IN (SELECT id FROM nodes WHERE project_id = ? /* with deleted */)`).all(projectId)) {
             if (!next.has(id)) stmt(`UPDATE node_photos SET status = 'none' WHERE node_id = ? AND status = 'pending'`).run(id);
         }
     }
@@ -633,7 +633,7 @@ export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
         // and searched by a run that starts when this one ends.
         current.followUp ??= { ids: new Set(), origin };
         const mark = stmt(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
-            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`);
+            AND node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)`);
         for (const id of nodeIds) { current.followUp.ids.add(Number(id)); mark.run(id, projectId); }
         return { started: true, queued: true };
     }
@@ -660,7 +660,7 @@ export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
     // says pending and the screen keeps checking until the run is over.
     if (nodeIds) {
         const mark = stmt(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
-            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`);
+            AND node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)`);
         for (const id of nodeIds) mark.run(id, projectId);
     }
     const p = chain.then(() => runPhotos(projectId, { nodeIds, controller, handle }))
@@ -705,7 +705,7 @@ export function photoState(nodeId, rows = null) {
 }
 
 const runningFor = (nodeId) => {
-    const row = stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+    const row = stmt('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
     return !!row && running.has(row.project_id);
 };
 
@@ -748,7 +748,7 @@ export function lessonPhotos(nodeId) {
  * what `lessonPhotos` returns once it is settled or the wait is over.
  */
 export async function awaitTopicPhotos(nodeId, { timeoutMs = 45_000, signal } = {}) {
-    const row = stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+    const row = stmt('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
     const until = Date.now() + timeoutMs;
     while (row && Date.now() < until && !signal?.aborted) {
         const state = running.get(row.project_id);
