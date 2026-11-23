@@ -26,7 +26,7 @@ app.post('/api/nodes/:id/photos/find', (req, res) => {
     if (!node) return res.status(404).json(keyed('Topic not found'));
     const current = topicPhotos(node.id);
     if (current.state === null) return res.status(409).json(keyed('This topic has no photos to look for'));
-    const out = startPhotos(node.project_id, { nodeIds: [node.id], origin: { surface: 'topic', detail: 'overview' } });
+    const out = startPhotos(node.project_id, { nodeIds: [node.id], origin: { surface: 'topic', detail: 'overview', projectId: node.project_id, nodeId: node.id } });
     if (!out.started && out.reason === 'ai_off') return res.status(409).json(keyed('AI features are disabled'));
     res.json({ started: out.started, ...topicPhotos(node.id) });
 });

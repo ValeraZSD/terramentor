@@ -51,7 +51,9 @@ import { WORK_LEAF } from './today.js';
 export const PHOTO_SETTING = 'creation_find_photos';
 export const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const API_HOST = 'commons.wikimedia.org';
-const UPLOAD_HOST = 'upload.wikimedia.org';
+/** Where the archive serves a file: its thumbnails moved from the upload host
+ *  to their own host (Nov 2026), and either may answer or redirect. */
+const FILE_HOSTS = new Set(['upload.wikimedia.org', 'thumb.wikimedia.org']);
 /** One of the thumbnail widths Wikimedia keeps rendered; any other width is
  *  a new rendering on their servers and is answered 429. */
 export const PHOTO_WIDTH = 960;
@@ -131,10 +133,14 @@ export function authorOf(meta) {
     return (metaValue(meta, 'Attribution') || metaValue(meta, 'Artist')).slice(0, 200) || null;
 }
 
-const httpsOn = (raw, host) => {
+const httpsOn = (raw, hosts) => {
     try {
         const u = new URL(String(raw).replace(/^\/\//, 'https://'));
-        return u.protocol === 'https:' && u.hostname === host ? u.toString() : null;
+        if (u.protocol !== 'https:' || !(typeof hosts === 'string' ? u.hostname === hosts : hosts.has(u.hostname))) return null;
+        // The archive tags its addresses with campaign parameters; the file
+        // is the same without them, and the request carries less.
+        for (const k of [...u.searchParams.keys()]) if (/^utm_/i.test(k)) u.searchParams.delete(k);
+        return u.toString();
     } catch { return null; }
 };
 
@@ -157,7 +163,7 @@ export function candidateOf(page) {
     if (!licence) return null;
     const author = authorOf(meta);
     if (!author && (licence.kind === 'by' || licence.kind === 'by-sa')) return null;
-    const thumb = httpsOn(ii.thumburl || ii.url, UPLOAD_HOST);
+    const thumb = httpsOn(ii.thumburl || ii.url, FILE_HOSTS);
     if (!thumb) return null;
     const source = httpsOn(ii.descriptionurl, API_HOST)
         || `https://${API_HOST}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
@@ -215,7 +221,7 @@ class ArchiveBusy extends Error {
     constructor(msg) { super(msg); this.name = 'ArchiveBusy'; }
 }
 
-const onArchive = (next) => next.protocol === 'https:' && (next.hostname === API_HOST || next.hostname === UPLOAD_HOST);
+const onArchive = (next) => next.protocol === 'https:' && (next.hostname === API_HOST || FILE_HOSTS.has(next.hostname));
 
 /**
  * One request, in the queue. A 429, a 503 or a lag answer is waited out once
@@ -501,10 +507,8 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
         run.vision = await visionReady();
         let nodes;
         if (nodeIds) {
+            // startPhotos already marked these topics pending.
             nodes = nodeIds.map(id => db.prepare('SELECT id, title, description FROM live_nodes nodes WHERE id = ? AND project_id = ?').get(id, projectId)).filter(Boolean);
-            for (const n of nodes) {
-                db.prepare(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'`).run(n.id);
-            }
         } else {
             // Topics that already have examples keep them (a course continued
             // after a stop); the rest are asked about.
@@ -577,11 +581,18 @@ export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
     const controller = new AbortController();
     const state = { controller, nodes: new Set(nodeIds || []), planned: !!nodeIds, done: null };
     running.set(projectId, state);
+    // Marked before the run starts, so the answer to "look again" already
+    // says pending and the screen keeps checking until the run is over.
+    if (nodeIds) {
+        const mark = db.prepare(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
+            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`);
+        for (const id of nodeIds) mark.run(id, projectId);
+    }
     const handle = tasks.registerExternal({
         kind: 'find_photos',
         label: 'Finding photos',
         labelKey: 'Finding photos',
-        origin: origin || { surface: 'app', job: 'find_photos' },
+        origin: origin || { surface: 'app', job: 'find_photos', projectId },
         projectId,
         cancel: () => controller.abort(Object.assign(new Error('Cancelled'), { name: 'AbortError' })),
     });

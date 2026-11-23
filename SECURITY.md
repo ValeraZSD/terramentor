@@ -787,14 +787,15 @@ A course about telling things apart by how they look (buildings, plants and anim
 artworks) is taught with real photos of named examples, found in Wikimedia Commons
 (`server/topicPhotos.js`).
 
-- **A switch, on by default, and only for creation.** Settings → AI & Models → "Find photos"
-  sits beside "Find resources". With it on, a course you create with AI looks for photos once
+- **A switch, on by default, and only for creation.** Settings → AI & Models → Model jobs →
+  "Photos" sits beside "Resource hunting". With it on, a course you create with AI looks for photos once
   its outline is written, as a task in the task list that you can stop. With it off, creating a
   course opens no connection for photos. On a topic that has examples, **Look again** runs the
   same search for that topic only, when you press it. Nothing about photos starts when the app
   starts.
-- **Where it connects.** `commons.wikimedia.org` (the archive's search) and
-  `upload.wikimedia.org` (the chosen photo, at the 960 px width the archive keeps rendered).
+- **Where it connects.** `commons.wikimedia.org` (the archive's search) and the archive's file
+  hosts `thumb.wikimedia.org` and `upload.wikimedia.org` (the chosen photo, at the 960 px width
+  the archive keeps rendered; the archive's `utm_` tags are taken off the address first).
   Nothing else: the app downloads only the addresses the archive's own search answered with,
   never an address a model wrote, and a redirect to any other host is refused. Both go
   through `server/netSafety.js` like every other fetch.
@@ -975,8 +976,8 @@ about ten minutes:
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
-   With "Find photos" on, a creation also reaches `commons.wikimedia.org` and
-   `upload.wikimedia.org` while it finds photos for topics learned by sight, and **Look again**
+   With the "Photos" model job on, a creation also reaches `commons.wikimedia.org`, `thumb.wikimedia.org`
+   and `upload.wikimedia.org` while it finds photos for topics learned by sight, and **Look again**
    on one topic reaches them for that topic only.
    Reading a link added as course material reaches that link's host (and `www.youtube.com` for
    a video, up to six requests), once per link pasted, dropped or added in the New course
