@@ -636,13 +636,14 @@ await settle();
 const [busyHalls, busyRoofs] = topicsOf(busyCourse.id);
 ok('the temple topic starts with no photo', !!busyRoofs && photoRows(busyRoofs.id).every(r => r.status === 'none'));
 // A run for the halls that waits at its first search...
-if (busyHalls) db.prepare(`UPDATE node_photos SET status = 'none', hash = NULL WHERE node_id = ?`).run(busyHalls.id);
+if (busyHalls && hasTable) db.prepare(`UPDATE node_photos SET status = 'none', hash = NULL WHERE node_id = ?`).run(busyHalls.id);
 const templeAsks = () => archive.requests.filter(r => r.url.searchParams.get('gsrsearch')?.startsWith('Bulguksa temple')).length;
 const templeAtCreation = templeAsks();
 const askedSoFar = archive.requests.length;
 archive.hold = new Promise(r => { release = r; });
-const hallsRun = busyHalls ? await (await fetch(`${base}/api/nodes/${busyHalls.id}/photos/find`, { method: 'POST' })).json() : null;
-await until(() => archive.requests.length > askedSoFar);
+const hallsRes = busyHalls ? await fetch(`${base}/api/nodes/${busyHalls.id}/photos/find`, { method: 'POST' }) : null;
+const hallsRun = hallsRes?.ok ? await hallsRes.json() : null;
+await until(() => archive.requests.length > askedSoFar, hallsRun?.started ? 15_000 : 0);
 // ...and Look again on the temple while it waits.
 const asked = busyRoofs ? await fetch(`${base}/api/nodes/${busyRoofs.id}/photos/find`, { method: 'POST' }) : null;
 const askedBody = asked?.ok ? await asked.json() : null;
