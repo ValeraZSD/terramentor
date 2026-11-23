@@ -43,7 +43,7 @@ Terramentor shows its explanation once you have answered, not before.
 crammed into one session: g = 0.74 across 11 studies, after a correction for unpublished null
 results (Latimier, Peyre & Ramus, 2021). Flashcards in Terramentor are scheduled with FSRS, an
 open model of when you are likely to forget a card, and a proven topic that has gone unpractised
-for a while comes back as recall questions in the stream and in practice quizzes.
+for a while comes back as recall questions in the stream.
 
 **A look back every two weeks or so.** The best gap before a review grows with how long you mean
 to remember: in an online study of 1,354 people it was about 20 to 40% of the time to a test a

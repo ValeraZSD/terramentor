@@ -18,7 +18,7 @@ const app = routeTable('insights');
 // AI INSIGHTS
 
 function buildInsightContext(projectId) {
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return {};
 
     refreshTopicDates();
@@ -93,7 +93,7 @@ function buildInsightContext(projectId) {
 
     const recentlyCompleted = db.prepare(`
         SELECT n.id, n.title
-        FROM nodes n
+        FROM live_nodes n
         WHERE n.project_id = ? AND ${WORK_LEAF}
         AND n.status = 'completed'
         AND julianday(n.completed_at) >= julianday(?)
@@ -104,7 +104,7 @@ function buildInsightContext(projectId) {
         // Added n.id as node_id so the AI can reference it
         weakQuizAreas = db.prepare(`
             SELECT n.title as weak_area, n.id as node_id, ROUND(AVG(qa.score * 100.0 / qa.total)) as avg_score
-            FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id JOIN nodes n ON n.id = q.node_id
+            FROM quiz_attempts qa JOIN live_quizzes q ON q.id = qa.quiz_id JOIN live_nodes n ON n.id = q.node_id
             WHERE n.project_id = ? GROUP BY q.node_id HAVING avg_score < 75 ORDER BY avg_score ASC LIMIT 3
         `).all(projectId);
     } catch (e) { }
@@ -113,7 +113,7 @@ function buildInsightContext(projectId) {
     try {
         fcStats = db.prepare(`
             SELECT COUNT(*) as total, SUM(CASE WHEN ${reviewDue('f')} THEN 1 ELSE 0 END) as due
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ?
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ?
         `).get(projectId) || { total: 0, due: 0 };
     } catch (e) { }
 
@@ -161,7 +161,7 @@ function finalizeInsights(projectId, contextPayload, aiResponse) {
     // 'recalibrate' legitimately carries no nodeId.
     if (parsedInsights && Array.isArray(parsedInsights.actions)) {
         const validIds = new Set(
-            db.prepare('SELECT id FROM nodes WHERE project_id = ?').all(projectId).map(n => n.id)
+            db.prepare('SELECT id FROM live_nodes nodes WHERE project_id = ?').all(projectId).map(n => n.id)
         );
         parsedInsights.actions = parsedInsights.actions
             .filter(a => a && typeof a === 'object' && a.type)
@@ -233,7 +233,7 @@ async function runInsightsGeneration({ projectId, emit, signal }) {
 app.post('/api/ai/insights/stream', (req, res) => {
     const { projectId } = req.body;
     if (!projectId) return res.status(400).json(apiError('Missing required field: projectId'));
-    const project = db.prepare('SELECT id, name, color FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name, color FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json(keyed('Project not found'));
 
     const insightsOrigin = { surface: 'project', detail: 'insights', projectId: Number(projectId) };
@@ -252,7 +252,7 @@ app.post('/api/ai/insights/stream', (req, res) => {
 
 app.get('/api/projects/:id/insights', (req, res) => {
     const project = db.prepare(
-        'SELECT insights, insights_generated_at FROM projects WHERE id = ?'
+        'SELECT insights, insights_generated_at FROM live_projects projects WHERE id = ?'
     ).get(req.params.id);
     if (!project) return res.status(404).json(keyed('Project not found'));
 

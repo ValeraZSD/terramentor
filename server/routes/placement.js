@@ -91,7 +91,7 @@ app.put('/api/placement/:projectId/dismissed', (req, res) => {
 app.post('/api/placement/:projectId/start', (req, res) => {
     const projectId = Number(req.params.projectId);
     if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
-    const project = db.prepare('SELECT id, name, color FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name, color FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json(keyed('Project not found'));
 
     let probe;

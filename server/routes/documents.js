@@ -55,11 +55,11 @@ function documentOwnerError(projectId, nodeId) {
     // boolean (`Number(true)` is 1) failed the bind the same way.
     const notAnId = (v) => !!v && !((typeof v === 'number' || typeof v === 'string') && Number.isSafeInteger(Number(v)) && Number(v) > 0);
     if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, ...apiError('projectId and nodeId must be whole numbers') };
-    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+    if (projectId && !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
         return { status: 404, ...keyed('Project not found') };
     }
     if (nodeId) {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        const node = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
         if (!node) return { status: 404, ...keyed('Topic not found') };
         if (projectId && node.project_id !== Number(projectId)) {
             return { status: 400, ...keyed('The topic belongs to another project') };
@@ -170,7 +170,7 @@ app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
 app.post('/api/documents/staged/claim', (req, res) => {
     const projectId = Number(req.body?.projectId);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 100) : [];
-    if (!projectId || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+    if (!projectId || !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
         return res.status(404).json(keyed('Project not found'));
     }
     const claimed = claimStaged(ids, projectId);
@@ -189,7 +189,7 @@ app.get('/api/documents', (req, res) => {
                       file_hash, file_size, status, error, page_count, embedding_status,
                       recovery_status, recovery_meta, created_at,
                       LENGTH(content) as char_count
-               FROM documents`;
+               FROM live_documents documents`;
     const params = [];
     // Passing both scopes returns node-or-project docs (matches RAG retrieval, so
     // the tutor's "Use docs (N)" count includes the project vault); a single scope
@@ -216,7 +216,7 @@ app.get('/api/documents', (req, res) => {
 const CITED_MAX_ENTRIES = 20;
 const CITED_MAX_CHARS = 500;
 let citedDocs;
-const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
+const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM live_documents documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
 app.get('/api/documents/cited', (req, res) => {
     const raw = req.query.entry;
     const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
@@ -259,7 +259,7 @@ app.get('/api/documents/cited', (req, res) => {
 // Return the full extracted text of one document, for the "view extracted text"
 // preview in the vault. Capped so a huge file can't blow up the response.
 app.get('/api/documents/:id/text', (req, res) => {
-    const doc = db.prepare('SELECT title, content, status, error FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT title, content, status, error FROM live_documents documents WHERE id = ?').get(req.params.id);
     if (!doc) return res.status(404).json(keyed('Document not found'));
     res.json({
         title: doc.title,
@@ -275,7 +275,7 @@ app.get('/api/documents/:id/text', (req, res) => {
 // vision model, won't retry on its own). `force` bypasses the settings gate and
 // the "already recovered" guard so this always re-reads the original.
 app.post('/api/documents/:id/recover', (req, res) => {
-    const doc = db.prepare('SELECT id, file_type, file_hash, status FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT id, file_type, file_hash, status FROM live_documents documents WHERE id = ?').get(req.params.id);
     if (!doc) return res.status(404).json(keyed('Document not found'));
     if (doc.file_type !== 'pdf') return res.status(400).json(keyed('Math recovery only applies to PDFs'));
     if (!doc.file_hash) return res.status(400).json(keyed('No original stored for this document'));
@@ -290,7 +290,7 @@ app.post('/api/documents/:id/recover', (req, res) => {
 // Stream the stored original for "open original". Served inline so PDFs/images
 // open in the browser; falls back to download for office formats.
 app.get('/api/documents/:id/original', (req, res) => {
-    const doc = db.prepare('SELECT title, file_type, file_hash, original_filename FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT title, file_type, file_hash, original_filename FROM live_documents documents WHERE id = ?').get(req.params.id);
     if (!doc) return res.status(404).json(keyed('Document not found'));
     if (!doc.file_hash) return res.status(404).json(keyed('No original stored for this document (text-only)'));
     let filePath;
@@ -308,7 +308,7 @@ app.get('/api/documents/:id/original', (req, res) => {
 });
 
 app.delete('/api/documents/:id', (req, res) => {
-    const doc = db.prepare('SELECT id, file_hash FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT id, file_hash FROM documents /* with deleted */ WHERE id = ?').get(req.params.id);
     const docs = doc ? [doc] : [];
     const chunkIds = documentChunkIds(docs);
 

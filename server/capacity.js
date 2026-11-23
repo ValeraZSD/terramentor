@@ -29,7 +29,7 @@ const bestOf = (pace) => (pace.weeksOfData >= VERDICT_FROM_WEEKS ? pace.best : n
  */
 export function libraryCapacity({ now = Date.now(), timeZone = learnerTimeZone(), library = null, offers = false } = {}) {
     activeStmt ??= db.prepare(`
-        SELECT id, deadline, COALESCE(paused, 0) AS paused FROM projects
+        SELECT id, deadline, COALESCE(paused, 0) AS paused FROM live_projects projects
         WHERE COALESCE(status, 'active') = 'active'
         ORDER BY position ASC, created_at ASC, id ASC
     `);

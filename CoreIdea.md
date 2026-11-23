@@ -45,8 +45,7 @@ the topic's bank. Pass, and the topic counts as proven. You can still close a to
 and it stays unproven, so you can always tell the two apart.
 
 **Remember.** Flashcards are scheduled with FSRS-7, the newest FSRS. A proven topic starts to fade after a set
-number of days, and questions from fading topics come back as recall questions, in the feed
-and in your practice quizzes.
+number of days, and questions from fading topics come back as recall questions in the feed.
 
 **Repeat.** The schedule adjusts, and the reviews keep coming.
 

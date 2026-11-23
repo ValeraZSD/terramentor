@@ -64,7 +64,8 @@ export function migrateToConversations(db, nowIso = new Date().toISOString()) {
         WHERE conversation_id IS NULL AND node_id IS ? AND role = 'user'
         ORDER BY created_at, id LIMIT 1
     `);
-    const nodeTitle = db.prepare('SELECT title FROM nodes WHERE id = ?');
+    // Runs before the live_ views exist on a library that predates them.
+    const nodeTitle = db.prepare('SELECT title FROM nodes /* with deleted */ WHERE id = ?');
     const insert = db.prepare('INSERT INTO chat_conversations (title, node_id, created_at, updated_at) VALUES (?, ?, ?, ?)');
     const file = db.prepare(`
         UPDATE chat_messages SET conversation_id = ?, node_id = NULL, project_id = NULL

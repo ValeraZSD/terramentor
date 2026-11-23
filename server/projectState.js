@@ -68,10 +68,10 @@ export function findProject(query) {
     };
     // An id first; a number that is no id may still be a name ("2026").
     if (/^\d+$/.test(q)) {
-        const byId = db.prepare(`SELECT ${cols} FROM projects WHERE id = ?`).all(Number(q));
+        const byId = db.prepare(`SELECT ${cols} FROM live_projects projects WHERE id = ?`).all(Number(q));
         if (byId.length) return decide(byId);
     }
-    const all = db.prepare(`SELECT ${cols} FROM projects ORDER BY id`).all();
+    const all = db.prepare(`SELECT ${cols} FROM live_projects projects ORDER BY id`).all();
     const lq = q.toLowerCase();
     const exact = all.filter(p => String(p.name).toLowerCase() === lq);
     if (exact.length) return decide(exact);
@@ -112,7 +112,7 @@ const dateOf = (s) => String(s || '').slice(0, 10);
  * reader that has none (an outside agent over MCP, server/agentReads.js).
  */
 export function projectStateText(projectId, { markers = true } = {}) {
-    const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days, icon, color, description FROM projects WHERE id = ?').get(projectId);
+    const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days, icon, color, description FROM live_projects projects WHERE id = ?').get(projectId);
     if (!p) return null;
     const today = studyToday();
 
@@ -125,7 +125,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
     `).all(p.id);
     // Course order is the tree walked depth-first — `position` only orders
     // siblings, so sorting on it interleaves every section's first topic.
-    const tree = db.prepare('SELECT id, parent_id, title, position FROM nodes WHERE project_id = ? AND is_note = 0 ORDER BY position, id').all(p.id);
+    const tree = db.prepare('SELECT id, parent_id, title, position FROM live_nodes nodes WHERE project_id = ? AND is_note = 0 ORDER BY position, id').all(p.id);
     // A topic's section, named on its line: asked for "the whole Sound
     // section", the model read a flat list and said the project had none.
     const byNode = new Map(tree.map(n => [n.id, n]));
@@ -143,7 +143,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
                SUM(CASE WHEN ${reviewDue('f')} THEN 1 ELSE 0 END) AS due,
                SUM(CASE WHEN f.next_review IS NULL THEN 1 ELSE 0 END) AS unseen,
                COUNT(*) AS total
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ?
         GROUP BY f.node_id
     `).all(p.id);
@@ -152,7 +152,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
 
     const tests = db.prepare(`
         SELECT me.evidence_type AS type, me.score, me.total, me.created_at, n.id AS nodeId, n.title
-        FROM mastery_evidence me JOIN nodes n ON n.id = me.node_id
+        FROM mastery_evidence me JOIN live_nodes n ON n.id = me.node_id
         WHERE n.project_id = ? AND me.evidence_type IN ('quiz', 'mastery_check', 'paper')
         ORDER BY me.created_at DESC, me.id DESC LIMIT ${RECENT_TESTS}
     `).all(p.id);
@@ -163,8 +163,8 @@ export function projectStateText(projectId, { markers = true } = {}) {
     // card order), which are not topics — so a deck with no topics read as
     // "0 of 0 topics" and the assistant had nowhere to put a card.
     const sections = db.prepare(`
-        SELECT n.id, n.title, (SELECT COUNT(*) FROM flashcards f WHERE f.node_id = n.id) AS cards
-        FROM nodes n WHERE n.project_id = ? AND ${LEAF_NODE} AND NOT (${WORK_LEAF})
+        SELECT n.id, n.title, (SELECT COUNT(*) FROM live_flashcards f WHERE f.node_id = n.id) AS cards
+        FROM live_nodes n WHERE n.project_id = ? AND ${LEAF_NODE} AND NOT (${WORK_LEAF})
     `).all(p.id).sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9));
     const closed = topics.filter(t => t.status === 'completed' || t.status === 'skipped');
 
@@ -216,7 +216,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
         // Closed topics still take cards, and a completed one can be retaken
         // (its check is then a retake: the topic stays completed).
         const recent = db.prepare(`
-            SELECT id FROM nodes WHERE project_id = ? AND status IN ('completed', 'skipped')
+            SELECT id FROM live_nodes nodes WHERE project_id = ? AND status IN ('completed', 'skipped')
             ORDER BY COALESCE(completed_at, updated_at) DESC, id DESC LIMIT ${CLOSED_TOPICS_LISTED}
         `).all(p.id).map(r => r.id);
         const byId = new Map(closed.map(t => [t.id, t]));
@@ -245,7 +245,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
 /** When nothing matched: the projects that DO exist, so the model can ask again by id. */
 export function projectListText(limit = 20) {
     const rows = db.prepare(`
-        SELECT id, name FROM projects WHERE COALESCE(status, 'active') = 'active'
+        SELECT id, name FROM live_projects projects WHERE COALESCE(status, 'active') = 'active'
         ORDER BY position ASC, created_at ASC LIMIT ?
     `).all(limit);
     return rows.map(r => `(projectId ${r.id}) ${r.name}`).join('\n');

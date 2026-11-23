@@ -18,11 +18,11 @@ let statusStmt = null;
 const completeProvenTopic = (nodeId) => {
     completeStmt ??= db.prepare(`
         UPDATE nodes SET status = 'completed', completed_at = ${NOW_ISO}, updated_at = ${NOW_ISO}
-        WHERE id IN (SELECT n.id FROM nodes n WHERE n.id = ? AND n.status != 'completed' AND ${WORK_LEAF})
+        WHERE id IN (SELECT n.id FROM live_nodes n WHERE n.id = ? AND n.status != 'completed' AND ${WORK_LEAF})
     `);
     completeStmt.run(nodeId);
 };
-const topicStatus = (nodeId) => (statusStmt ??= db.prepare('SELECT status FROM nodes WHERE id = ?')).get(nodeId)?.status;
+const topicStatus = (nodeId) => (statusStmt ??= db.prepare('SELECT status FROM live_nodes nodes WHERE id = ?')).get(nodeId)?.status;
 
 /**
  * Record a mastery check once. `asked` names what the sitting asked
@@ -82,7 +82,7 @@ export function recordMasteryCheck({ nodeId, score, total, questions, asked, att
         // to the node's most recent quiz (the mastery check draws its questions
         // from there, or generated+saved one when none existed).
         try {
-            const quiz = db.prepare('SELECT id FROM quizzes WHERE node_id = ? ORDER BY id DESC LIMIT 1').get(nodeId);
+            const quiz = db.prepare('SELECT id FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id DESC LIMIT 1').get(nodeId);
             if (quiz) {
                 db.prepare('INSERT INTO quiz_attempts (quiz_id, score, total, answers) VALUES (?, ?, ?, ?)')
                     .run(quiz.id, score, total, JSON.stringify({ source: 'mastery_check' }));

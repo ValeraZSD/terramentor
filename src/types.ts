@@ -850,14 +850,6 @@ export interface QuizQuestion {
     ghostNodeTitle?: string;
 }
 
-// Per-decaying-node review result reported back when a quiz containing ghost
-// questions is submitted, so each ghost topic's mastery/decay timer is refreshed.
-export interface GhostResult {
-    nodeId: number;
-    score: number;
-    total: number;
-}
-
 // Learning feed (server/feed.js, GET /api/feed) — the home page card stream.
 // A discriminated union: `kind` selects the card component; `key` is the
 // stable identity used for exclude-list paging and consume calls.
@@ -1801,21 +1793,6 @@ export interface AskedQuestion {
     correct?: boolean;
 }
 
-export interface QuizAttempt {
-    id: number;
-    quiz_id: number;
-    score: number;
-    total: number;
-    answers: Record<number, string>;
-    created_at: string;
-    /**
-     * The learner's own pass mark (`mastery_check_pass`), returned by the submit
-     * route so the results screen praises on the same number the gate judges on.
-     * Absent on a row read back out of the table — only the submission carries it.
-     */
-    passThreshold?: number;
-}
-
 export interface Flashcard {
     id: number;
     node_id: number;
@@ -2238,13 +2215,6 @@ export interface ProjectFlashcard extends Flashcard {
     categoryId?: number | null;
 }
 
-export interface ProjectQuiz extends Quiz {
-    node_title?: string;
-    attempt_count?: number;
-    best_score?: number | null;
-    avg_score?: number | null;
-}
-
 //
 // Unified Search Types
 //
@@ -2660,6 +2630,21 @@ export interface ProjectCompletion {
         /** Something was done here before the clock started: the total is real but not the whole. */
         partial: boolean;
     } | null;
+}
+
+/** One row of Recently deleted (GET /api/deleted, server/softDelete.js `listDeleted`). */
+export interface DeletedItem {
+    table: 'projects' | 'nodes' | 'resources' | 'flashcards' | 'quizzes';
+    id: number;
+    uuid: string | null;
+    kind: 'course' | 'deck' | 'topic' | 'note' | 'link' | 'card' | 'quiz';
+    title: string;
+    deletedAt: string;
+    /** The course it was in; null for a course or deck itself. */
+    projectId: number | null;
+    projectName: string | null;
+    /** Rows that went with it and come back with it. */
+    took: number;
 }
 
 /** A device connected from Settings by scanning its QR code (server/devices.js). */

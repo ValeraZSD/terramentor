@@ -22,7 +22,7 @@ import { libraryCapacity } from '../capacity.js';
 
 let openTopic = null;
 const openTopicStmt = () => (openTopic ??= db.prepare(`
-    SELECT 1 FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF} LIMIT 1
+    SELECT 1 FROM live_nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF} LIMIT 1
 `));
 
 const app = routeTable('schedule');
@@ -51,7 +51,7 @@ app.get('/api/schedule/overview', (req, res) => {
         const projects = db.prepare(`
             SELECT id, uuid, name, color, icon, position, status,
                    start_date, deadline, deadline_fixed, study_days
-            FROM projects
+            FROM live_projects projects
             WHERE COALESCE(status, 'active') != 'archived'
             ORDER BY position ASC, id ASC
         `).all();
@@ -60,12 +60,12 @@ app.get('/api/schedule/overview', (req, res) => {
         // passes rather than a query per project.
         const openCounts = new Map(db.prepare(`
             SELECT n.project_id AS pid, COUNT(*) AS c
-            FROM nodes n WHERE ${OPEN_WORK_LEAF} GROUP BY n.project_id
+            FROM live_nodes n WHERE ${OPEN_WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
         const leafCounts = new Map(db.prepare(`
             SELECT n.project_id AS pid, COUNT(*) AS c
-            FROM nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
+            FROM live_nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
         refreshTopicDates();
@@ -90,8 +90,8 @@ app.get('/api/schedule/overview', (req, res) => {
                    COUNT(*) AS cards,
                    SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL
                             THEN 1 ELSE 0 END) AS seen
-            FROM flashcards f
-            JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f
+            JOIN live_nodes n ON n.id = f.node_id
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
 
@@ -187,7 +187,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
 
     try {
         const reply = (extra) => {
-            const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+            const updatedProject = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(id);
             refreshTopicDates();
             const nodes = db.prepare(`
                 SELECT id, project_id, parent_id, title, description, notes, status,
@@ -202,7 +202,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
         // alone. Laying the topics out again on the way had nothing to change,
         // and refused the mark outright when no study day was left before the
         // date (an exam tomorrow, a Saturday).
-        const stored = db.prepare('SELECT start_date, deadline, study_days, deadline_fixed FROM projects WHERE id = ?').get(id);
+        const stored = db.prepare('SELECT start_date, deadline, study_days, deadline_fixed FROM live_projects projects WHERE id = ?').get(id);
         if (deadlineFixed !== undefined && stored
             && stored.start_date === startDate && stored.deadline === deadline
             && readStudyDays(stored.study_days).join() === days.join()
@@ -313,10 +313,10 @@ app.put('/api/nodes/:id/weight', (req, res) => {
         return res.status(400).json(keyed('Weight must be a non-negative number.'));
     }
     try {
-        const node = db.prepare('SELECT id FROM nodes WHERE id = ?').get(id);
+        const node = db.prepare('SELECT id FROM live_nodes nodes WHERE id = ?').get(id);
         if (!node) return res.status(404).json(keyed('Node not found.'));
         db.prepare(`UPDATE nodes SET estimated_weight = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(estimated_weight, id);
-        const updated = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
+        const updated = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(id);
         res.json(updated);
     } catch (err) {
         res.status(500).json(errorBody(err));

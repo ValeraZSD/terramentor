@@ -74,7 +74,7 @@ let languageStmt = null;
 export function describeLanguageFor(hash, projectId = null) {
     // Prepared once: the sweep asks this for every picture.
     languageStmt ??= db.prepare(`SELECT p.content_language AS lang FROM media_files m
-        LEFT JOIN projects p ON p.id = m.project_id
+        LEFT JOIN live_projects p ON p.id = m.project_id
         WHERE m.hash = ? ORDER BY (m.project_id = ?) DESC, m.id LIMIT 1`);
     return descriptionLanguage(languageStmt.get(hash, projectId)?.lang);
 }
@@ -85,9 +85,11 @@ const MAX_DESCRIPTION = 600;
  * Pictures whose last model answer the gate refused, this process: the sweep
  * asks them after the rest. In memory on purpose: a restart (a new model, a
  * fixed language) gives each a fresh first place, and nothing is stored about
- * an answer that was never stored.
+ * an answer that was never stored. The value is when it was last refused (a
+ * counter, not a clock), so the sweep retries the one refused longest ago first.
  */
-const refusedBefore = new Set();
+const refusedBefore = new Map();
+let refusalSeq = 0;
 
 /** Who wrote a description: 'author' (the deck's alt), 'learner' (an edit here), 'vision' (a model). */
 const HUMAN_SOURCES = new Set(['author', 'learner']);
@@ -254,7 +256,7 @@ export async function describeMedia(hash, { force = false, model, signal, projec
     // or one in the wrong language is not stored, and the picture stays pending.
     const verdict = checkDescription(cleaned, { language });
     if (!verdict.ok) {
-        refusedBefore.add(hash);
+        refusedBefore.set(hash, ++refusalSeq);
         return { ok: false, reason: verdict.reason, messageKey: verdict.messageKey, refused: verdict.code };
     }
     refusedBefore.delete(hash);
@@ -303,13 +305,15 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 
 /**
  * The pictures a sweep asks for, in order. Those whose last answer the gate
- * refused go last: they stay pending, and in id order the same first three
- * would be asked again on every run and stop it (three failures in a row)
- * before any other picture was tried.
+ * refused go last, the one refused longest ago first: they stay pending, and
+ * in id order the same first three would be asked again on every run and stop
+ * it (three failures in a row) before any other picture was tried.
  */
 export function sweepOrder(projectId = null) {
     const all = pendingDescriptions(projectId);
-    return [...all.filter(p => !refusedBefore.has(p.hash)), ...all.filter(p => refusedBefore.has(p.hash))];
+    const refused = all.filter(p => refusedBefore.has(p.hash))
+        .sort((a, b) => refusedBefore.get(a.hash) - refusedBefore.get(b.hash));
+    return [...all.filter(p => !refusedBefore.has(p.hash)), ...refused];
 }
 
 export async function startDescribeSweep(projectId = null) {

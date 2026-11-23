@@ -5,7 +5,6 @@ import { useIconOnlyClose } from '../hooks/useIconOnlyClose';
 import { usePointerVerb } from '../utils/platform';
 import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus, isReadyToProve } from '../utils/tree';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
-import { api } from '../api';
 import Breadcrumbs from './Breadcrumbs';
 import Checkbox from './Checkbox';
 import ResourceList from './ResourceList';
@@ -15,13 +14,13 @@ import { TopicStudyTime } from './studyTime/StudyTime';
 import TopicEvidence from './evidence/TopicEvidence';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
-import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Play, PenLine, ShieldCheck } from 'lucide-react';
+import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, ListChecks, BookOpen, Layers, X, Calendar, AlertTriangle, Play, PenLine, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
 import { CREATION_NOTICE_TITLE, ContinueCreationNote } from './creation/ContinueCreationOffer';
 
-type Tab = 'details' | 'quizzes' | 'flashcards';
+type Tab = 'details' | 'questions';
 
 function formatDateShort(dateStr: string): string {
     const d = parseDate(dateStr);
@@ -60,10 +59,6 @@ export default function DetailPanel() {
     // would show the same string twice.
     const [editingTitle, setEditingTitle] = useState(false);
 
-    // Counts for tabs
-    const [quizCount, setQuizCount] = useState(0);
-    const [flashcardCount, setFlashcardCount] = useState(0);
-
     const node = selectedNodeId ? findNode(tree, selectedNodeId) : null;
 
     useEffect(() => {
@@ -83,30 +78,6 @@ export default function DetailPanel() {
             setStatus(node.status);
         }
     }, [node?.status]);
-
-    // Fetch counts for tabs
-    useEffect(() => {
-        if (selectedNodeId) {
-            loadCounts();
-        } else {
-            setQuizCount(0);
-            setFlashcardCount(0);
-        }
-    }, [selectedNodeId]);
-
-    const loadCounts = async () => {
-        if (!selectedNodeId) return;
-        try {
-            const [quizzes, flashcards] = await Promise.all([
-                api.getQuizzes(selectedNodeId),
-                api.getFlashcards(selectedNodeId)
-            ]);
-            setQuizCount(quizzes.length);
-            setFlashcardCount(flashcards.length);
-        } catch (error) {
-            console.error('Failed to load counts:', error);
-        }
-    };
 
     // Autosaves like every other field on this panel: Enter or blur commits,
     // Escape reverts. An empty title is a slip, not an intent — revert it.
@@ -174,12 +145,6 @@ export default function DetailPanel() {
         if (!selectedNodeId) return;
         setIsNote(checked);
         if (!await updateNode(selectedNodeId, { is_note: checked ? 1 : 0 })) setIsNote(!checked);
-    };
-
-    // Callback to update counts when StudyTools changes data
-    const handleCountsChange = (quizzes: number, flashcards: number) => {
-        setQuizCount(quizzes);
-        setFlashcardCount(flashcards);
     };
 
     // Schedule-derived values
@@ -357,25 +322,20 @@ export default function DetailPanel() {
                     <Layers className="w-4 h-4" />
                     {t("Details")}
                 </button>
-                <button data-tab="quizzes"
-                    onClick={() => setActiveTab('quizzes')}
-                    className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'quizzes'
+                {/* One tab for what the topic tests you with: see it, edit it, make
+                    more. No count on it: one number for two kinds of thing
+                    (question sets, cards) means neither, and inside each
+                    count stands where it means something (a set's questions,
+                    the card list). */}
+                <button data-tab="questions"
+                    onClick={() => setActiveTab('questions')}
+                    className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'questions'
                         ? 'border-accent text-accent-fg'
                         : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                 >
-                    <Brain className="w-4 h-4" />
-                    {t("Quizzes ({{quizCount}})", { quizCount })}
-                </button>
-                <button data-tab="flashcards"
-                    onClick={() => setActiveTab('flashcards')}
-                    className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'flashcards'
-                        ? 'border-accent text-accent-fg'
-                        : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                        }`}
-                >
-                    <BookOpen className="w-4 h-4" />
-                    {t("Flashcards ({{flashcardCount}})", { flashcardCount })}
+                    <ListChecks className="w-4 h-4" />
+                    {t("Questions and cards")}
                 </button>
             </div>
 
@@ -565,15 +525,9 @@ export default function DetailPanel() {
                     </div>
                 )}
 
-                {activeTab === 'quizzes' && (
+                {activeTab === 'questions' && (
                     <div className="flex-1 overflow-auto">
-                        <StudyTools key={selectedNodeId} nodeId={selectedNodeId!} mode="quiz" onCountsChange={handleCountsChange} />
-                    </div>
-                )}
-
-                {activeTab === 'flashcards' && (
-                    <div className="flex-1 overflow-auto">
-                        <StudyTools key={selectedNodeId} nodeId={selectedNodeId!} mode="flashcards" onCountsChange={handleCountsChange} />
+                        <StudyTools key={selectedNodeId} nodeId={selectedNodeId!} topicTitle={node.title} />
                     </div>
                 )}
             </div>

@@ -72,12 +72,14 @@ const WRAPPED = /^(?:"([^"]*)"|“([^”]*)”|«([^»]*)»|'([^']*)')[.!]?$/u;
 const LABEL = /^(?:description|alt(?:[\s-]?text)?|caption|beschrijving|beschreibung|descripción|descrizione|descrição|opis|beskrivelse|beskrivning|açıklama|описание|опис|説明|描述|설명|الوصف)\s*[:：]\s*/iu;
 
 /** "This image shows ...": the prompt forbids it; when a model writes it anyway, it goes. */
-const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\s*:?\s*/i;
+const PREAMBLE = /^(?:this|the)\s+(?:image|picture|photo(?:graph)?|illustration|drawing|figure)\s+(?:shows|depicts|contains|displays|is\s+of)\b\s*:?\s*/i;
 
 /** A model declining, or saying there is nothing to describe, in the languages models fall back to. */
 const REFUSAL = [
     /^(?:unreadable|n\/a|none|null|undefined)\.?$/i,
-    /\bI(?:'m| am)\s+(?:sorry|unable|not able)\b/i,
+    // "I am sorry" only as the reply's opening clause: a caption may quote it.
+    /^I(?:['’]m| am)\s+sorry(?:\s*[,.!]|\s+but\b)/i,
+    /\bI(?:['’]m| am)\s+(?:unable|not able)\b/i,
     /\bI\s+(?:can(?:'|’)?t|cannot|can not|do not|don(?:'|’)t)\s+(?:see|view|access|open|describe|process|analy[sz]e)\b/i,
     /\bas an (?:AI|language model)\b/i,
     /\bno (?:image|picture|photo) (?:was|is|has been) (?:provided|attached|included|shared)\b/i,
@@ -124,9 +126,10 @@ export function descriptionLanguage(code) {
  *
  *   * a language with its own script: refused when the text holds at least 8
  *     Latin letters and fewer than 3 of its own script;
- *   * any other language but English: refused when two or more of its words,
- *     and at least 15% of them, are words only English writes (`ENGLISH_ONLY`);
- *   * English: refused when the text is written mostly in another script.
+ *   * a language written in Latin letters (Serbian aside, which is written in
+ *     Cyrillic too): refused when the text is written mostly in another script;
+ *   * any of those but English: also refused when two or more of its words,
+ *     and at least 15% of them, are words only English writes (`ENGLISH_ONLY`).
  */
 export function wrongLanguage(text, wanted) {
     const code = descriptionLanguage(wanted);
@@ -146,7 +149,8 @@ export function wrongLanguage(text, wanted) {
         const floor = ['zh', 'ja', 'ko'].includes(code) ? 1 : 3;
         return own < floor && latin >= 8 ? 'Latin letters' : null;
     }
-    if (code === 'en') return latin < letters * 0.5 ? 'another script' : null;
+    if (code !== 'sr' && latin < letters * 0.5) return 'another script';
+    if (code === 'en') return null;
     // A capitalised word inside a sentence is a name or a title ("Hoes van The
     // White Album"), not the description's own language: it is not counted.
     const words = [...plain.matchAll(/\p{L}+/gu)];

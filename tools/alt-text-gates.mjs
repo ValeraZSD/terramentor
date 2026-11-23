@@ -245,7 +245,9 @@ for (const text of ['A cat', 'A die', 'Une montre', 'Eine Karte', 'A table', 'A 
 }
 for (const text of ["I'm sorry, but I can't see images.", 'As an AI, I cannot view pictures.',
     'No image was provided.', 'I cannot describe this image.', 'None', '"I\'m sorry, I can\'t see images."',
-    'Lo siento, no puedo ver imágenes.', 'Het spijt me, ik kan de afbeelding niet zien.', 'Извините, я не могу увидеть изображение.']) {
+    'Lo siento, no puedo ver imágenes.', 'Het spijt me, ik kan de afbeelding niet zien.', 'Извините, я не могу увидеть изображение.',
+    // A curly apostrophe, as many models write it.
+    'I’m sorry, but I’m unable to describe the picture.', 'I’m unable to view images.', 'I’m not able to see the image.']) {
     check(`a model declining is refused (${text})`, refusedAs('refusal', text), JSON.stringify(verdict(text)));
 }
 // Wrapped with a full stop after the quote, behind a label, or in another
@@ -276,9 +278,15 @@ check('a reply wrapped in quotes is checked as its words, and stored without the
 check('a curly apostrophe is not a quote: "’t Hoekje" leaves the rest of the sentence checked',
     refusedAs('language', 'A sign for ‘t Hoekje with the cat’s bowl beside the door', 'nl'));
 check('...but a sign in the picture that says sorry is content', verdict('A shop sign that reads "I\'m sorry, we are closed"').ok === true);
+check('...and so are the unquoted words "I am sorry" written on a card',
+    verdict('A flashcard with the words I am sorry written in blue.').ok === true,
+    JSON.stringify(verdict('A flashcard with the words I am sorry written in blue.')));
 check('nothing at all is refused as empty', refusedAs('empty', '   '));
 check('the preamble the prompt forbids is dropped, the rest kept',
     verdict('This image shows a red apple on a table.').text === 'A red apple on a table.', JSON.stringify(verdict('This image shows a red apple on a table.')));
+check('...but "is of" inside a longer word is not a preamble',
+    verdict('The picture is offset to the left inside a red border.').text === 'The picture is offset to the left inside a red border.',
+    JSON.stringify(verdict('The picture is offset to the left inside a red border.')));
 check('...and a sentence that only starts like one is left whole',
     verdict('In the photo booth, two friends pose').text === 'In the photo booth, two friends pose'
     && verdict('The picture frame holds a drawing of a horse').text === 'The picture frame holds a drawing of a horse');
@@ -311,6 +319,10 @@ check('...and Dutch text QUOTED in an English description does not make it Dutch
 check('...nor English quoted in a Dutch one make it English',
     verdict('Een bord met de tekst "The end of the road is here"', 'nl').ok === true, JSON.stringify(verdict('Een bord met de tekst "The end of the road is here"', 'nl')));
 check('an English course: a description in another script is refused', refusedAs('language', 'Собака спит на диване у окна', 'en'));
+check('...and so is it in a Dutch course', refusedAs('language', 'Собака спит на диване у окна', 'nl'),
+    JSON.stringify(verdict('Собака спит на диване у окна', 'nl')));
+check('...but a Serbian course takes Cyrillic and Latin alike',
+    verdict('Пас спава на каучу поред прозора', 'sr').ok === true && verdict('Pas spava na kauču pored prozora', 'sr').ok === true);
 check('...a Latin-script one is not second-guessed (Dutch and English share too many words to refuse on)',
     verdict('Een hond die op de bank slaapt', 'en').ok === true);
 check('too short to tell: kept, never guessed at', verdict('Een kat', 'en').ok === true && verdict('A cat', 'nl').ok === true);
@@ -413,6 +425,15 @@ const after4 = sweepOrder(dutchProject).map(p => p.hash);
 check('before: in id order', before4.indexOf(firstHashes[0]) < before4.indexOf(laterHash));
 check('after three refusals: the untried picture comes before them', after4.indexOf(laterHash) < Math.min(...firstHashes.map(h => after4.indexOf(h))), JSON.stringify(after4.map(h => h.slice(0, 6))));
 check('...and the refused ones are still pending, nothing stored', firstHashes.every(h => after4.includes(h) && row(h).description === null));
+// Among refused pictures, the one tried longest ago goes first. All four refused,
+// then a run that retries the first three and stops on them: the fourth must lead
+// the next run, or id order hands the same three the next run's three failures
+// and the fourth is never asked again.
+await describeMedia(laterHash, { projectId: dutchProject });
+for (const h of firstHashes) await describeMedia(h, { projectId: dutchProject });
+const rotated = sweepOrder(dutchProject).map(p => p.hash);
+check('refused pictures rotate: the one tried longest ago comes first',
+    rotated.indexOf(laterHash) < Math.min(...firstHashes.map(h => rotated.indexOf(h))), JSON.stringify(rotated.map(h => h.slice(0, 6))));
 await new Promise(ok => visionStub.close(ok));
 
 section('what the card says');

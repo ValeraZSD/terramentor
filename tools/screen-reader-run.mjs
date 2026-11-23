@@ -264,11 +264,11 @@ const TASKS = {
     'maths-card': {
         open: async (page, { ids }) => {
             await page.go(`/project/${ids.project}/tree/${ids.cards}`, 'Details');
-            await page.waitFor(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
-            await page.press(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
-            const review = byText('button', '/^Review these cards/');
-            await page.waitFor(review, 'Review these cards');
-            await page.press(review, 'Review these cards');
+            await page.waitFor(`document.querySelector('[data-tab="questions"]')`, 'the Questions and cards tab');
+            await page.press(`document.querySelector('[data-tab="questions"]')`, 'the Questions and cards tab');
+            const review = byText('button', '/^Practise all/');
+            await page.waitFor(review, 'Practise all');
+            await page.press(review, 'Practise all');
             // The topic's cards in the order they were written: the maths card first,
             // on a plate that flips when pressed.
             await page.waitFor(`document.querySelector('[role="button"][aria-pressed] .katex')`, 'the maths card in review');

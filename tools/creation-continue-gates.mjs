@@ -203,22 +203,22 @@ const create = (name, plan) => stream('/api/ai/create-project', { name, descript
 const resume = (projectId, plan) => stream('/api/ai/continue-creation', { projectId }, plan);
 
 const outline = (id) => db.prepare(`
-    SELECT id, parent_id, title, description, position, generated_by FROM nodes
+    SELECT id, parent_id, title, description, position, generated_by FROM live_nodes nodes
     WHERE project_id = ? AND is_note = 0 ORDER BY id
 `).all(id);
 const links = (id) => db.prepare(`
-    SELECT r.id, r.node_id, r.url FROM resources r JOIN nodes n ON n.id = r.node_id WHERE n.project_id = ? ORDER BY r.id
+    SELECT r.id, r.node_id, r.url FROM live_resources r JOIN live_nodes n ON n.id = r.node_id WHERE n.project_id = ? ORDER BY r.id
 `).all(id);
-const notice = (id) => db.prepare(`SELECT id, notes FROM nodes WHERE project_id = ? AND is_note = 1 AND title = 'AI generation failed'`).get(id);
-const projectRow = (id) => db.prepare('SELECT name, description, summary, ai_generating, updated_at FROM projects WHERE id = ?').get(id);
-const pendingOf = (id) => db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(id).p;
+const notice = (id) => db.prepare(`SELECT id, notes FROM live_nodes nodes WHERE project_id = ? AND is_note = 1 AND title = 'AI generation failed'`).get(id);
+const projectRow = (id) => db.prepare('SELECT name, description, summary, ai_generating, updated_at FROM live_projects projects WHERE id = ?').get(id);
+const pendingOf = (id) => db.prepare('SELECT creation_pending_links AS p FROM live_projects projects WHERE id = ?').get(id).p;
 const structureCalls = (c) => ['categories', 'elements', 'sub_batch', 'sub_one'].reduce((n, k) => n + (c[k] || 0), 0);
 const sameRows = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // Every node of `before` is still there, byte for byte.
 const untouched = (before, after) => before.every(row => sameRows(row, after.find(r => r.id === row.id)));
 const childrenTitles = (id, parentTitle) => {
-    const p = db.prepare('SELECT id FROM nodes WHERE project_id = ? AND title = ? AND is_note = 0').get(id, parentTitle);
-    return p ? db.prepare('SELECT title FROM nodes WHERE parent_id = ? AND is_note = 0 ORDER BY position').all(p.id).map(r => r.title) : null;
+    const p = db.prepare('SELECT id FROM live_nodes nodes WHERE project_id = ? AND title = ? AND is_note = 0').get(id, parentTitle);
+    return p ? db.prepare('SELECT title FROM live_nodes nodes WHERE parent_id = ? AND is_note = 0 ORDER BY position').all(p.id).map(r => r.title) : null;
 };
 
 // ---- 0. the door ------------------------------------------------------------------
@@ -381,7 +381,7 @@ setLinkSearchForTest(async (title, signal) => {
     if (/in practice/.test(title)) return [];
     return [{ title: `About ${title}`, url: `https://example.org/${encodeURIComponent(title)}`, type: 'article' }];
 });
-const titleOf = (id) => db.prepare('SELECT title FROM nodes WHERE id = ?').get(id).title;
+const titleOf = (id) => db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(id).title;
 
 searched = [];
 a = await create('Waves and Light 6', { elements: [2] });
@@ -403,7 +403,7 @@ const victim = 'Describing a wave: in practice';
 let projectOfRun = null;
 let midRun = null, atFirst = null;
 onSearch = async (title, signal) => {
-    const pid = projectOfRun ?? db.prepare('SELECT MAX(id) AS id FROM projects').get().id;
+    const pid = projectOfRun ?? db.prepare('SELECT MAX(id) AS id FROM live_projects projects').get().id;
     // What a crash at these moments would leave behind: no catch writes it.
     if (title === 'Describing a wave: the idea') atFirst = JSON.parse(pendingOf(pid) || '[]').map(titleOf);
     if (title !== victim) return;
@@ -468,13 +468,13 @@ const finished = await running;
 // The cancelled one wrote phase 2's sections and the first one's topics; the
 // batch's topics for the second were never written, so it gets its own call.
 const sectionsWithout = db.prepare(`
-    SELECT COUNT(*) AS n FROM nodes s JOIN nodes p ON p.id = s.parent_id
+    SELECT COUNT(*) AS n FROM live_nodes s JOIN live_nodes p ON p.id = s.parent_id
     WHERE s.project_id = ? AND s.is_note = 0 AND p.parent_id IS NULL
-      AND NOT EXISTS (SELECT 1 FROM nodes t WHERE t.parent_id = s.id AND t.is_note = 0)
+      AND NOT EXISTS (SELECT 1 FROM live_nodes t WHERE t.parent_id = s.id AND t.is_note = 0)
 `);
 ok('the running one finishes it: every section has topics, nothing is pending',
     !!finished.done && !notice(a.id) && sectionsWithout.get(a.id).n === 0 && finished.calls.sub_one === 1 && finished.done.stats.subElements === 1
-    && db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(a.id).p === null,
+    && db.prepare('SELECT creation_pending_links AS p FROM live_projects projects WHERE id = ?').get(a.id).p === null,
     JSON.stringify([finished.calls, finished.done?.stats]));
 ok('it searched the cut-off topic, the one after it and the new one, once each',
     sameRows(searched, ['Light as a wave: the idea', 'Light as a wave: in practice', 'Optics: one leaf']), JSON.stringify(searched));
@@ -574,7 +574,7 @@ const sectionsCall = r.bodies.find(b => b.stage === 'elements');
 const block = sectionsCall?.user.slice(sectionsCall.user.indexOf('SOURCE MATERIAL FOR THIS PHASE')) || '';
 ok('phase 2\'s sections were asked for with the file', sectionsCall?.system.includes('SOURCE MATERIAL') && block.length > 0, sectionsCall?.user.slice(-400));
 ok('from the parts phase 2 covers, not phase 1\'s', /Light as a wave/.test(block) && !/Describing a wave/.test(block), block.slice(0, 600));
-const lightSection = db.prepare(`SELECT id FROM nodes WHERE project_id = ? AND title = 'Light as a wave'`).get(F);
+const lightSection = db.prepare(`SELECT id FROM live_nodes nodes WHERE project_id = ? AND title = 'Light as a wave'`).get(F);
 const srcRows = lightSection ? db.prepare('SELECT * FROM node_sources WHERE node_id = ?').all(lightSection.id) : [];
 const docRow = db.prepare('SELECT id, content FROM documents WHERE project_id = ?').get(F);
 ok('a new section records the part of the file it covers', srcRows.length === 1 && srcRows[0].document_id === docRow.id
@@ -622,7 +622,7 @@ db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(crashed.id).id);
 db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(crashed.id);
 // `creation_finished` is 0 for a run that never completed; a course created
 // before that column has none, and is read from its outline alone.
-const finishedState = (id) => db.prepare('SELECT creation_finished f FROM projects WHERE id = ?').get(id).f;
+const finishedState = (id) => db.prepare('SELECT creation_finished f FROM live_projects projects WHERE id = ?').get(id).f;
 const setFinished = (id, v) => db.prepare('UPDATE projects SET creation_finished = ? WHERE id = ?').run(v, id);
 ok('a run that stops records the course as unfinished', finishedState(crashed.id) === 0, String(finishedState(crashed.id)));
 let o = await offer(crashed.id);
@@ -722,8 +722,8 @@ const child = execFileSync(process.execPath, ['--input-type=module', '-e', `
     const { pathToFileURL } = await import('node:url');
     await import(pathToFileURL(${JSON.stringify(join(process.cwd(), 'server/app.js'))}).href);
     const { default: db } = await import(pathToFileURL(${JSON.stringify(join(process.cwd(), 'server/database.js'))}).href);
-    const row = db.prepare("SELECT notes FROM nodes WHERE project_id = ? AND is_note = 1 AND title = 'AI generation failed'").get(${Number(startup.id)});
-    const flag = db.prepare('SELECT ai_generating FROM projects WHERE id = ?').get(${Number(startup.id)}).ai_generating;
+    const row = db.prepare("SELECT notes FROM live_nodes nodes WHERE project_id = ? AND is_note = 1 AND title = 'AI generation failed'").get(${Number(startup.id)});
+    const flag = db.prepare('SELECT ai_generating FROM live_projects projects WHERE id = ?').get(${Number(startup.id)}).ai_generating;
     console.log('RESULT ' + JSON.stringify({ notes: row?.notes ?? null, flag }));
     process.exit(0);
 `], { env: { ...process.env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

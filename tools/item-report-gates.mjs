@@ -554,10 +554,12 @@ const cardRow = () => evidenceOf(t2).filter(r => r.evidence_type === 'flashcard'
 const cardRowBefore = cardRow();
 ok('fixture: four ratings folded into one observation, 3/4', cardRowBefore?.score === 3 && cardRowBefore.total === 4, JSON.stringify(cardRowBefore));
 const rc5 = await report(`card:${C[4]}`, 'wrong', null, 'review');
-ok('a model-written card is deleted, its rating out of the observation (2/3)', rc5.status === 201 && !db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(C[4])
-    && cardRow()?.score === 2 && cardRow()?.total === 3 && rc5.json.report.canRewrite === true && rc5.json.report.editable === false);
+ok('a model-written card is deleted, its rating out of the observation (2/3)', rc5.status === 201 && !db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(C[4])
+    && db.prepare('SELECT deleted_by FROM flashcards WHERE id = ?').pluck().get(C[4]) === 'app'
+    && cardRow()?.score === 2 && cardRow()?.total === 3 && rc5.json.report.canRewrite === true && rc5.json.report.editable === false,
+    JSON.stringify({ s: rc5.status, row: db.prepare('SELECT deleted_at, deleted_by FROM flashcards WHERE id = ?').get(C[4]), obs: cardRow(), r: rc5.json?.report && { c: rc5.json.report.canRewrite, e: rc5.json.report.editable } }));
 await undo(rc5.json.report.id);
-ok('Undo restores the card, its review log and the observation', !!db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(C[4])
+ok('Undo restores the card, its review log and the observation', !!db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(C[4])
     && db.prepare('SELECT COUNT(*) AS n FROM review_log WHERE card_id = ?').get(C[4]).n === 1 && same(cardRow(), cardRowBefore));
 const rc3 = await report(`card:${C[2]}`, 'wrong', 'The back should say 6.', 'review');
 const c3 = () => db.prepare('SELECT * FROM flashcards WHERE id = ?').get(C[2]);
@@ -855,7 +857,7 @@ const feedFlags = ['QuestionCard', 'LessonCard', 'PracticeCard', 'FlashcardFeedC
     .filter(f => !/<ReportItem[\s\S]{0,400}?\binStream\b/.test(readFileSync(join(ROOT, `src/components/feed/${f}.tsx`), 'utf8')));
 ok('a feed card joins the list without claiming the screen until it is answered',
     feedFlags.length === 0 && /const current = !listed && \(!inStream \|\| !!answer \|\| typeof correct === 'boolean'\)/.test(storeSrc), feedFlags.join(', '));
-const resultLists = ['src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx', 'src/components/drills/DrillPlayer.tsx']
+const resultLists = ['src/components/MasteryGateModal.tsx', 'src/components/drills/DrillPlayer.tsx']
     .filter(f => !/<ReportItem[\s\S]{0,400}?\blisted\b/.test(readFileSync(join(ROOT, f), 'utf8')));
 ok('a results list names no item "on screen now", and sends the key only as shown (hideKey)',
     resultLists.length === 0 && /keyShown: !hideKey/.test(storeSrc), resultLists.join(', '));
@@ -921,7 +923,7 @@ ok('the drawer sends the items on screen with its context', /items:\s*screenItem
 // ---- 11. one control on every surface ------------------------------------------------------------------
 section('11. one shared control on every surface that tests the learner');
 const SURFACES = [
-    'src/components/feed/QuestionCard.tsx', 'src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx',
+    'src/components/feed/QuestionCard.tsx', 'src/components/MasteryGateModal.tsx',
     'src/components/PlacementModal.tsx', 'src/components/drills/DrillPlayer.tsx', 'src/components/feed/FlashcardFeedCard.tsx',
     'src/components/GlobalFlashcardReview.tsx', 'src/components/feed/LessonCard.tsx', 'src/components/feed/PracticeCard.tsx',
 ];

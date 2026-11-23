@@ -81,7 +81,7 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
     const remove = async () => {
         const ok = await showConfirm({
             title: t("Delete this card?"),
-            message: t("It is removed from this deck for good. Its review history goes with it."),
+            message: t("You can bring it back, with its review history, from Recently deleted in Settings."),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });
