@@ -150,6 +150,7 @@ function seed(conn, tag) {
     const part = one("INSERT INTO exam_paper_parts (paper_id, position, question, part, points, node_id) VALUES (?, 0, '1', 'a', 8, ?)", ep, n);
     const ms = one("INSERT INTO mock_sittings (paper_id, time_allowed, status, started_at) VALUES (?, 10800, 'marking', '2026-11-01T10:00:00.000Z')", ep);
     one('INSERT INTO mock_part_scores (sitting_id, part_id, points) VALUES (?, ?, 6)', ms, part);
+    one("INSERT INTO node_photos (node_id, position, subject, status, created_at) VALUES (?, 0, 'Example', 'none', '2026-11-01T10:00:00.000Z')", n);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T10', 'reading', 600000)", n);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T11', 'cards', 120000)", n);
     const conn2 = one("INSERT INTO ai_connections (kind, created_at) VALUES ('openai', '2026-11-01T10:00:00.000Z')");

@@ -192,6 +192,8 @@ export const SETTINGS = {
     feed_prepare_check: client('learning', bool),
     feed_prepare_cards: client('learning', bool),
     creation_find_resources: client('learning', bool),
+    // A course learned by sight gets photos from Wikimedia Commons (server/topicPhotos.js).
+    creation_find_photos: client('learning', bool),
     // A lesson reads its topic's first two links (server/lessonSources.js).
     lesson_reads_links: client('learning', bool),
     // A practice drill's time per item: as written, double, triple or no clock
@@ -313,7 +315,7 @@ export const SETTING_SCOPES = Object.freeze({
         'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'larger_ui',
         'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
         'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
-        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'forgive_spelling',
+        'feed_prepare_cards', 'creation_find_resources', 'creation_find_photos', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'forgive_spelling',
         'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision', 'paper_vision', 'deck_new_per_day',
         'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
         'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',

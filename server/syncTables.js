@@ -56,6 +56,8 @@ const TABLE_LIST = [
     // A past paper the learner added, and its points table (server/mockExams.js).
     ['exam_papers', { class: 'content', uuid: true, derive: D([['project_id', 'projects']], 'created_at') }],
     ['exam_paper_parts', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], null, ['question', 'part']) }],
+    // A topic's photos and their credit (server/topicPhotos.js).
+    ['node_photos', { class: 'content', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['position']) }],
 
     // ---- history ---------------------------------------------------------------------
     ['review_log', { class: 'history', uuid: true, derive: D([['card_id', 'flashcards']], 'reviewed_at', ['rating', 'source', 'external_id']) }],
