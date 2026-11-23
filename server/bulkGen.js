@@ -135,7 +135,7 @@ export function bulkCandidates(projectId) {
     `).all(projectId).map(r => [r.id, r.c]));
     const cardCounts = new Map(db.prepare(`
         SELECT f.node_id AS id, COUNT(*) AS c FROM live_flashcards f
-        JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? GROUP BY f.node_id
+        JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? AND f.photo_uuid IS NULL /* photo cards teach nothing of the topic */ GROUP BY f.node_id
     `).all(projectId).map(r => [r.id, r.c]));
 
     // The path a learner recognises ("Phase 2 › Recursion"), built from the

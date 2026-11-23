@@ -956,7 +956,9 @@ export function pendingMaterial(nodeId) {
     }
 
     if (fs.prepareCards && !meta.skippedCards) {
-        const has = db.prepare(`SELECT 1 FROM live_flashcards flashcards WHERE node_id = ? LIMIT 1`).get(nodeId);
+        // A card made from a photo (server/photoCards.js) asks only which topic
+        // it shows; the topic still needs cards for what it teaches.
+        const has = db.prepare(`SELECT 1 FROM live_flashcards flashcards WHERE node_id = ? AND photo_uuid IS NULL LIMIT 1`).get(nodeId);
         if (!has) return { type: 'material', kind: 'flashcards', plan };
     }
     return null;

@@ -239,7 +239,8 @@ export function listDeleted() {
                 kind: table === 'projects' ? (row.kind === 'deck' ? 'deck' : 'course')
                     : table === 'nodes' ? (row.is_note ? 'note' : 'topic')
                         : { resources: 'link', flashcards: 'card', quizzes: 'quiz' }[table],
-                title: String(row[TITLE[table]] ?? '').slice(0, 200),
+                // A card made from a photo has no front words; its back names it.
+                title: String((table === 'flashcards' && !String(row.front ?? '').trim() ? row.back : row[TITLE[table]]) ?? '').slice(0, 200),
                 deletedAt: row.deleted_at,
                 projectId: table === 'projects' ? null : projectId,
                 projectName: table === 'projects' ? null : prep('SELECT name FROM projects WHERE id = ?').pluck().get(projectId) ?? null,

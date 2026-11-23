@@ -491,9 +491,11 @@ export function buildTodayActivity(date) {
     const day = dayBounds(date || studyToday());
     const today = day.date;
 
+    // A card with no words on its front (a photo's, a picture-only import) is
+    // named by its answer: the review is over.
     const cardRows = db.prepare(`
         SELECT ${AS_ISO('rl.reviewed_at')} AS at, rl.rating, rl.card_id,
-               f.front, n.id AS node_id, n.title AS node_title,
+               CASE WHEN length(trim(f.front)) > 0 THEN f.front ELSE f.back END AS front, n.id AS node_id, n.title AS node_title,
                p.id AS project_id, p.name AS project_name, p.color AS project_color
         FROM review_log rl
         JOIN live_flashcards f ON f.id = rl.card_id

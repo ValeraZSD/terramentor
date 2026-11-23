@@ -286,7 +286,7 @@ try {
         CREATE TABLE flashcards (
             id INTEGER PRIMARY KEY, node_id INTEGER, front TEXT, back TEXT, extra TEXT,
             media TEXT, ease_factor REAL, last_interval INTEGER, last_reviewed TEXT,
-            next_review TEXT, review_count INTEGER, lapses INTEGER
+            next_review TEXT, review_count INTEGER, lapses INTEGER, photo_uuid TEXT
         );
         ${LIVE}
         INSERT INTO projects (id, name) VALUES (1, 'Round Trip');
@@ -308,11 +308,17 @@ try {
         (id, node_id, front, back, extra, media, ease_factor, last_interval, last_reviewed, next_review, review_count, lapses)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         3, 10, 'a < b & "c"', 'スポーツは**あまり**好き', '', null, 2.5, 0, null, null, 0, 0);
+    // A card the app makes from a topic's photo (server/photoCards.js) is
+    // remade from the photo, never exported: it is not one of the three.
+    scratch.prepare(`INSERT INTO flashcards
+        (id, node_id, front, back, extra, media, ease_factor, last_interval, last_reviewed, next_review, review_count, lapses, photo_uuid)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        4, 10, '', 'Stage 1', 'Himeji Castle', null, 2.5, 0, null, null, 0, 0, 'photo-1');
 
     const fakeStorage = { pathFor: () => { throw new Error('no media in this fixture'); } };
     const { buffer, stats } = await exportProjectApkg({ db: scratch, mediaStorage: fakeStorage }, 1);
 
-    eq(stats.notes, 3, 'all three cards exported');
+    eq(stats.notes, 3, 'all three cards exported, the photo card left out');
     eq(stats.skipped, 0, 'nothing was silently dropped');
     ok(stats.decks >= 1, 'at least one deck was written');
     ok(Buffer.isBuffer(buffer) && buffer.length > 0, 'the export produced bytes');
@@ -380,7 +386,7 @@ try {
     empty.exec(`
         CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT);
         CREATE TABLE nodes (id INTEGER PRIMARY KEY, project_id INTEGER, parent_id INTEGER, title TEXT, is_note INTEGER DEFAULT 0);
-        CREATE TABLE flashcards (id INTEGER PRIMARY KEY, node_id INTEGER, front TEXT, back TEXT, extra TEXT, media TEXT, ease_factor REAL, last_interval INTEGER, last_reviewed TEXT, next_review TEXT, review_count INTEGER, lapses INTEGER);
+        CREATE TABLE flashcards (id INTEGER PRIMARY KEY, node_id INTEGER, front TEXT, back TEXT, extra TEXT, media TEXT, ease_factor REAL, last_interval INTEGER, last_reviewed TEXT, next_review TEXT, review_count INTEGER, lapses INTEGER, photo_uuid TEXT);
         ${LIVE}
         INSERT INTO projects (id, name) VALUES (2, 'Nothing Here');
     `);

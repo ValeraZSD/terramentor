@@ -103,7 +103,9 @@ export function readInstalledCourse(projectId) {
             }
         }
         const reviewed = new Set(prep(`SELECT DISTINCT card_id AS id FROM review_log WHERE card_id IN (SELECT f.id FROM live_flashcards f WHERE f.node_id IN (${inProject}))`).all(projectId).map(r => r.id));
-        for (const c of prep(`SELECT * FROM live_flashcards flashcards WHERE node_id IN (${inProject}) ORDER BY id`).all(projectId)) {
+        // A card made from a photo is the library's, never the file's
+        // (server/photoCards.js): an edition without it does not remove it.
+        for (const c of prep(`SELECT * FROM live_flashcards flashcards WHERE node_id IN (${inProject}) AND photo_uuid IS NULL ORDER BY id`).all(projectId)) {
             const node = byId.get(c.node_id);
             entities.push({
                 kind: 'card', uuid: c.uuid, id: c.id, parentUuid: node.uuid,
@@ -237,7 +239,9 @@ const RESTORE = {
 const scopeSql = {
     nodes: 'SELECT * FROM live_nodes nodes WHERE project_id = ?',
     resources: 'SELECT * FROM live_resources resources WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
-    flashcards: 'SELECT * FROM live_flashcards flashcards WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
+    // Not a card made from a photo: an update never writes one, and one made
+    // after it (a photo run ending) would block its undo, or go with it.
+    flashcards: 'SELECT * FROM live_flashcards flashcards WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?) AND photo_uuid IS NULL',
     quizzes: 'SELECT * FROM live_quizzes quizzes WHERE node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)',
 };
 

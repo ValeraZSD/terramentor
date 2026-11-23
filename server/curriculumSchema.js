@@ -742,7 +742,8 @@ function normalizeImportPhotos(photos, at, warnings) {
         const words = (v, n) => line(typeof v === 'string' ? v.replace(/\b(?:https?|ftp|data|file):\S*/gi, ' ').replace(/\bwww\.\S+/gi, ' ') : v, n);
         const subject = words(p.subject, 160);
         if (!subject) continue;
-        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), media: null, credit: null };
+        // The file's claim of which model wrote the example's words, kept as a claim (courseFiles.js).
+        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), generated_by: line(p.generated_by, 200) || null, media: null, credit: null };
         const media = line(p.media, 180);
         if (media) {
             const licence = line(p.licence, 80);

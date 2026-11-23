@@ -17,6 +17,7 @@ import { scheduleTransferSweep } from './masteryTransfer.js';
 import { sweepOrphanMedia } from './ankiImport.js';
 import { buildAtlas } from './atlas.js';
 import { backfillNodeRoles } from './nodeRole.js';
+import { syncAllPhotoCards } from './photoCards.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -262,6 +263,16 @@ try {
     if (!skipped && updated) console.log(`[Migration] marked ${updated} imported stage node(s) as pagination`);
 } catch (e) {
     console.error('[Migration] node role backfill failed (non-fatal):', e.message);
+}
+
+// A card for each topic photo that has none (server/photoCards.js): a library
+// from before photo cards, or a run that stopped before it made them. Indexed
+// SQL only, and a no-op when every photo has its card.
+try {
+    const { added } = syncAllPhotoCards();
+    if (added) console.log(`[Photos] made ${added} photo card(s)`);
+} catch (e) {
+    console.error('[Photos] photo cards could not be made (non-fatal):', e.message);
 }
 
 // The opt-in update poll. A no-op unless the learner turned it on, which is what

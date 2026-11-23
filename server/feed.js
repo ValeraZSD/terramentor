@@ -4,6 +4,14 @@ import { libraryCapacity, paceStatusOf, severityOf } from './capacity.js';
 
 /** Capacity statuses that get no new work this week (server/capacity.js). */
 const HELD = new Set(['paused', 'waiting']);
+/**
+ * A card made from a topic's photo (server/photoCards.js) asks which topic the
+ * photo shows, and the feed sets every card under its topic's heading: there
+ * it would answer itself. Those cards are reviewed in the review session, which
+ * names no topic until the card is turned. Nor do they make a course one "with
+ * cards" here: a slot kept for cards the feed never serves would stay empty.
+ */
+const NOT_PHOTO_CARD = 'f.photo_uuid IS NULL';
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
 import { OPEN_LEAF, OPEN_WORK_LEAF, WORK_LEAF, LEAF_NODE, ACTIVE_PROJECT_JOIN } from './today.js';
@@ -277,7 +285,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
                    SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
-                   WHERE n.project_id = p.id
+                   WHERE n.project_id = p.id AND ${NOT_PHOTO_CARD}
                ) AS has_cards
         FROM live_projects p
         WHERE COALESCE(p.status, 'active') = 'active'
@@ -608,11 +616,11 @@ function explainEmpty(projectIds) {
     const open = count(openSql);
     const openTaught = count(openSql, projectIds.filter((id) => projectTeaches(id)));
     const cards = db.prepare(
-        `SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks})`,
+        `SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks}) AND ${NOT_PHOTO_CARD}`,
     ).get(...projectIds).c;
     const cardsLeft = cards ? db.prepare(`
         SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
-        WHERE n.project_id IN (${marks}) AND (f.next_review IS NULL OR f.next_review <= ${NOW_ISO})
+        WHERE n.project_id IN (${marks}) AND (f.next_review IS NULL OR f.next_review <= ${NOW_ISO}) AND ${NOT_PHOTO_CARD}
     `).get(...projectIds).c : 0;
     return { topics, cards, open, openTaught, cardsLeft };
 }
@@ -1008,7 +1016,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                p.name AS project_name, p.color AS project_color
         FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE f.next_review IS NOT NULL AND f.next_review <= ${NOW_ISO}
+        WHERE f.next_review IS NOT NULL AND f.next_review <= ${NOW_ISO} AND ${NOT_PHOTO_CARD}
         ${dueWhere}
         ORDER BY f.next_review ASC, f.difficulty DESC
         LIMIT ?
@@ -1051,7 +1059,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                    p.name AS project_name, p.color AS project_color
             FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             ${ACTIVE_PROJECT_JOIN}
-            WHERE f.next_review IS NULL AND f.node_id IN (${focusIds.map(() => '?').join(',')})
+            WHERE f.next_review IS NULL AND ${NOT_PHOTO_CARD} AND f.node_id IN (${focusIds.map(() => '?').join(',')})
             ORDER BY n.project_id ASC, f.id ASC
         `).all(...focusIds);
         const used = new Map();

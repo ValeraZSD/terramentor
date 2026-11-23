@@ -648,9 +648,11 @@ export async function buildProjectApkg(deps, projectId) {
     const cards = db.prepare(`
         SELECT f.*, f.node_id AS node_id
         FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
-        WHERE n.project_id = ?
+        WHERE n.project_id = ? AND f.photo_uuid IS NULL
         ORDER BY f.node_id, f.id
     `).all(projectId);
+    // Not the cards made from a course's photos (server/photoCards.js): their
+    // front is the photo alone, and a deck named after the topic answers them.
 
     // Deck ids: Anki wants an integer per deck, and every ANCESTOR of a deck
     // path must exist as its own deck or the tree renders with gaps.

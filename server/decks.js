@@ -511,7 +511,10 @@ export function buildDeckData(projectId, { forecastDays = 14, now = new Date() }
  * card pool. It was `deckQueue` and served imports alone, which is how the same
  * card came to be rationed on one screen and dumped in a pile on another.
  */
-export function studyQueue(projectId, { now = new Date(), newLimit = null, stageId = null, aheadDays = 0 } = {}) {
+// `photoCards: false` leaves out the cards made from a topic's photos
+// (server/photoCards.js) BEFORE the new-card allowance is taken, for a
+// surface that names each card's topic beside it.
+export function studyQueue(projectId, { now = new Date(), newLimit = null, stageId = null, aheadDays = 0, photoCards = true } = {}) {
     const nowIso = now.toISOString();
     const counts = deckCounts(projectId, { now });
 
@@ -565,6 +568,7 @@ export function studyQueue(projectId, { now = new Date(), newLimit = null, stage
     const reviews = [];
     const fresh = [];
     for (const r of rows) {
+        if (!photoCards && r.photo_uuid) continue;
         if (cardState(r) === 'new') fresh.push(r);
         else if (isDueNow(r, horizonIso)) reviews.push(r);
     }
@@ -589,7 +593,7 @@ export function studyQueue(projectId, { now = new Date(), newLimit = null, stage
  * of it before a course introduced its first card. Counting every never-seen
  * card as due would open a session of hundreds of new cards from one project.
  */
-export function globalStudyQueue({ now = new Date(), aheadDays = 0 } = {}) {
+export function globalStudyQueue({ now = new Date(), aheadDays = 0, photoCards = true } = {}) {
     const projects = db.prepare(`
         SELECT p.id
         FROM live_projects p
@@ -604,7 +608,7 @@ export function globalStudyQueue({ now = new Date(), aheadDays = 0 } = {}) {
     const reviews = [];
     const fresh = [];
     for (const p of projects) {
-        const q = studyQueue(p.id, { now, aheadDays });
+        const q = studyQueue(p.id, { now, aheadDays, photoCards });
         reviews.push(...q.reviews);
         fresh.push(...q.fresh);
     }

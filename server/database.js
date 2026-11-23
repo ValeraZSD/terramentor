@@ -2416,6 +2416,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_node_photos_node ON node_photos(node_id, position);
 `);
+// A card made from one of those photos (server/photoCards.js) names it by the
+// photo's uuid: the card is made once per photo, and a course file leaves it
+// out because the importing library makes it again from the photo. One card
+// per photo, deleted ones included, is held by the index, not only by the code
+// that reads before it writes.
+addColumnIfMissing('flashcards', 'photo_uuid', 'TEXT DEFAULT NULL');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_photo_once ON flashcards(photo_uuid) WHERE photo_uuid IS NOT NULL');
+// When the photo's card was made. The photo keeps it, so a card the learner
+// deleted and then removed for good from Recently deleted is not made again.
+addColumnIfMissing('node_photos', 'card_made_at', 'TEXT DEFAULT NULL');
 
 // Every change to a card's schedule that is not a review: a report parking the
 // card, the edit that unparks it, a schedule written directly, a rating taken
