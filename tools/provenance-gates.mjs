@@ -246,6 +246,10 @@ ok(!bankUuids().includes(reportedQ), 'the report took the model\'s question out 
 ok(!db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(reportedCard), 'the report deleted the model\'s card');
 eq(who(`q:${reportedQ}`), BY_GATE, 'a reported question out of its bank is still marked as the model\'s');
 eq(who(`card:${reportedCard}`), BY_GATE, 'a reported model card, deleted, is still marked as the model\'s');
+// The bank the reported question came from is deleted later: the report kept its stamp.
+const { softDelete } = await import('../server/softDelete.js');
+softDelete('quizzes', reportQuiz);
+eq(who(`q:${reportedQ}`), BY_GATE, 'a reported question whose bank was deleted since is still marked as the model\'s');
 
 // Two files claimed one question uuid in two topics: a typed copy in the
 // first bank, a model's in the second. The shared ref keeps the model's mark.

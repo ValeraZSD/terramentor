@@ -233,7 +233,8 @@ function reportedHolders(p) {
     return (undo?.banks || []).flatMap(b => (b?.taken || [])
         .filter(t => t?.question?.uuid === p.uuid)
         .map(t => ({ quizId: b.quizId, index: t.index, question: t.question,
-            stamp: stmt('SELECT generated_by FROM live_quizzes quizzes WHERE id = ?').get(b.quizId)?.generated_by ?? null })));
+            // The stamp the report kept; a report filed before it kept one reads the bank.
+            stamp: 'stamp' in b ? b.stamp : (stmt('SELECT generated_by FROM live_quizzes quizzes WHERE id = ?').get(b.quizId)?.generated_by ?? null) })));
 }
 
 /**
@@ -542,7 +543,8 @@ function reportBankQuestion(undo, target) {
         }
         if (!taken.length) continue;
         stmt('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
-        undo.banks.push({ quizId, taken: taken.reverse() });
+        // The bank's stamp goes with it: a bank deleted later would take its writer along.
+        undo.banks.push({ quizId, stamp: row.generated_by ?? null, taken: taken.reverse() });
     }
 }
 
