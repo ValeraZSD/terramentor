@@ -365,7 +365,8 @@ async function runIndex(documentId) {
     if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); healWanted = true; return; }
     // A file of a deleted course or topic is sent nowhere: it waits, pending,
     // and its Restore queues it again (routes/deleted.js).
-    if (!isLiveDocument(documentId)) { markDoc(documentId, 'pending'); return; }
+    // Not a failure, so a heal's try is handed back.
+    if (!isLiveDocument(documentId)) { markDoc(documentId, 'pending'); healAttempts.delete(documentId); return; }
 
     const chunks = db.prepare('SELECT id, content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }

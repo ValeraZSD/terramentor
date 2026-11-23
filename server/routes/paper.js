@@ -149,7 +149,8 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
-        if (result.status === 'duplicate' && !isLiveTopic(item.row.node_id)) {
+        // Its topic deleted during marking: nothing was written, whatever the model said.
+        if (!isLiveTopic(item.row.node_id)) {
             return res.status(404).json(keyed('Practice item not found'));
         }
         // A photo that could not be marked asks for a retake, unless the
