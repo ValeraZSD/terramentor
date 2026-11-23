@@ -53,6 +53,21 @@ const MAX_MINUTES = 24 * 60;
 const MAX_POINTS = 1000;
 const iso = (ms) => new Date(ms).toISOString();
 
+/**
+ * The clock a mock gets: its own time stretched by the learner's Time limits
+ * setting (`drill_time_scale`: twice, three times, or 'off' for no clock; 0 is
+ * no clock), the same setting every timed drill follows. Read when the mock
+ * starts and kept in its time allowed, so a change mid-exam never moves a
+ * running clock. A value this build does not know is the normal time
+ * (src/components/drills/parseDrill.ts normalizeDrillTimeScale;
+ * src/components/mockExam/mockClock.ts mockClockSeconds shows the same).
+ */
+function clockSeconds(seconds) {
+    const scale = stmt("SELECT value FROM settings WHERE key = 'drill_time_scale'").get()?.value;
+    if (scale === 'off') return 0;
+    return scale === '2' || scale === '3' ? seconds * Number(scale) : seconds;
+}
+
 // ---- grading ---------------------------------------------------------------
 
 /** One decimal, as a grade is printed. */
@@ -182,6 +197,14 @@ function readPaperInput(projectId, input) {
         }
         return { question, part, points: p.points, nodeId };
     });
+    // The total printed on the paper's cover, when given, catches a mistyped
+    // row: the parts must add up to it. It is a check, not stored.
+    if (input.printedTotal != null) {
+        const printed = input.printedTotal;
+        if (!Number.isInteger(printed) || printed < 1 || printed > MAX_POINTS * MAX_PARTS) throw bad('The total printed on the paper must be a whole number of points');
+        const sum = parts.reduce((a, p) => a + p.points, 0);
+        if (sum !== printed) throw bad('The parts add up to {{sum}} points, but the paper prints {{printed}}', { sum, printed });
+    }
     return { title, minutes, gradeMin, gradeMax, passGrade, paperDocumentId, solutionDocumentId, parts };
 }
 
@@ -289,7 +312,7 @@ export function startSitting(paperId, { question = null, now = Date.now() } = {}
     const id = Number(stmt(`
         INSERT INTO mock_sittings (paper_id, question, time_allowed, elapsed, running_since, status, started_at)
         VALUES (?, ?, ?, 0, ?, 'writing', ?)
-    `).run(paperId, question == null ? null : String(question), timeAllowed, iso(now), iso(now)).lastInsertRowid);
+    `).run(paperId, question == null ? null : String(question), clockSeconds(timeAllowed), iso(now), iso(now)).lastInsertRowid);
     return getSitting(id, { now });
 }
 
@@ -313,6 +336,28 @@ export function resumeSitting(id, { now = Date.now() } = {}) {
     if (s.status === 'writing' && !s.running_since) {
         stmt('UPDATE mock_sittings SET running_since = ? WHERE id = ?').run(iso(now), id);
     }
+    return getSitting(id, { now });
+}
+
+/**
+ * Take time spent away off a running clock (a phone call, the screen put
+ * away): the clock counts as if paused `seconds` ago and resumed now, in one
+ * write. Never further back than the clock's last start, so time banked
+ * before a pause is never taken off.
+ */
+export function takeAwayTimeOff(id, seconds, { now = Date.now() } = {}) {
+    const s = requireSitting(id);
+    // Only a paper written at the desk: on a course mock the screen is the
+    // exam, so time away from it is not time the learner can vouch for.
+    if (isCourse(s)) throw bad('Time away is taken off a past paper only');
+    // Started with Time limits Off: no clock, and the time written it reports stays as written.
+    if (!s.time_allowed) throw bad('This paper has no clock to take time off');
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400) throw bad('The time away must be a whole number of seconds, from 1 to a day');
+    // Paused (in another tab, say) since the offer was made: nothing is taken
+    // off, and the screen must hear that rather than a sitting that looks done.
+    if (s.status !== 'writing' || !s.running_since) throw new MockExamError(409, 'The clock is paused, so no time was taken off');
+    const from = Math.max(Date.parse(s.running_since), now - seconds * 1000);
+    stmt('UPDATE mock_sittings SET elapsed = ?, running_since = ? WHERE id = ?').run(elapsedOf(s, from), iso(now), id);
     return getSitting(id, { now });
 }
 
@@ -382,11 +427,26 @@ function resultOf(s, paper) {
         const q = byQ.get(p.question) ?? { question: p.question, points: 0, earned: 0, lost: 0, topics: [] };
         q.points += p.points;
         q.earned += p.earned ?? 0;
-        if (p.nodeId != null && !q.topics.some(t => t.id === p.nodeId)) q.topics.push({ id: p.nodeId, title: p.topic });
+        // A deleted topic keeps its part's points but is never named or offered.
+        if (p.nodeId != null && p.topic != null && !q.topics.some(t => t.id === p.nodeId)) q.topics.push({ id: p.nodeId, title: p.topic });
         byQ.set(p.question, q);
     }
     const questions = [...byQ.values()].map(q => ({ ...q, lost: q.points - q.earned }));
     questions.sort((a, b) => b.lost - a.lost);
+
+    // The topic that lost the most points (an unmarked part lost all of
+    // its), the one the result offers to practise; ties go to the smaller
+    // share kept, then the paper's order. Parts with no topic are never offered.
+    const byTopic = new Map();
+    for (const p of parts) {
+        if (p.nodeId == null || p.topic == null) continue;
+        const t = byTopic.get(p.nodeId) ?? { id: p.nodeId, title: p.topic, points: 0, lost: 0 };
+        t.points += p.points;
+        t.lost += p.points - (p.earned ?? 0);
+        byTopic.set(p.nodeId, t);
+    }
+    const weakest = [...byTopic.values()].filter(t => t.lost > 0)
+        .sort((a, b) => b.lost - a.lost || b.lost / b.points - a.lost / a.points)[0] ?? null;
 
     return {
         earned,
@@ -397,6 +457,7 @@ function resultOf(s, paper) {
         passed: passPoints == null ? null : earned >= passPoints,
         parts,
         questions,
+        weakest,
     };
 }
 
@@ -676,7 +737,7 @@ export function drawCourseMock(projectId, { size, minutes = null, now = Date.now
         return Number(stmt(`
             INSERT INTO mock_sittings (paper_id, question, time_allowed, elapsed, running_since, status, started_at)
             VALUES (?, NULL, ?, 0, ?, 'writing', ?)
-        `).run(paperId, minutes ? minutes * 60 : 0, iso(now), iso(now)).lastInsertRowid);
+        `).run(paperId, minutes ? clockSeconds(minutes * 60) : 0, iso(now), iso(now)).lastInsertRowid);
     })();
     return { sitting: getSitting(id, { now }), asked: size, drawn: picked.length, short: picked.length < size };
 }

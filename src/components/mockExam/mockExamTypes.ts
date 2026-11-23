@@ -14,6 +14,7 @@ export interface ExamPart {
 
 export interface ExamPaper {
     id: number;
+    projectId: number;
     title: string;
     minutes: number;
     gradeMin: number | null;
@@ -67,6 +68,8 @@ export interface MockResult {
     passed: boolean | null;
     parts: (ExamPart & { earned: number | null })[];
     questions: MockQuestionResult[];
+    /** The topic that lost the most points, null when no topic lost any. */
+    weakest: { id: number; title: string; points: number; lost: number } | null;
 }
 
 export interface MockDetail {
@@ -91,6 +94,8 @@ export interface ExamPaperInput {
     passGrade: number | null;
     paperDocumentId: number | null;
     solutionDocumentId: number | null;
+    /** The total printed on the paper: the parts must add up to it. */
+    printedTotal?: number | null;
     parts: { question: string; part: string; points: number; nodeId: number | null }[];
 }
 

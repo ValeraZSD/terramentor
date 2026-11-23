@@ -3,7 +3,7 @@
 // course's own questions and answered on screen (server/mockExams.js).
 import {
     MockExamError, listForProject, createPaper, deletePaper, startSitting, sittingDetail,
-    pauseSitting, resumeSitting, stopWriting, discardSitting, setPartScore, finishSitting,
+    pauseSitting, resumeSitting, takeAwayTimeOff, stopWriting, discardSitting, setPartScore, finishSitting,
     setExam, drawCourseMock, saveAnswer,
 } from '../mockExams.js';
 import { getLookBack, startLookBack, skipLookBack } from '../lookBack.js';
@@ -46,6 +46,8 @@ app.get('/api/mock-sittings/:id', handle(req => sittingDetail(idOf(req.params.id
 
 app.post('/api/mock-sittings/:id/pause', handle(req => ({ sitting: pauseSitting(idOf(req.params.id)) })));
 app.post('/api/mock-sittings/:id/resume', handle(req => ({ sitting: resumeSitting(idOf(req.params.id)) })));
+// Time spent away (a call, the screen put away) taken off a running clock.
+app.post('/api/mock-sittings/:id/away', handle(req => ({ sitting: takeAwayTimeOff(idOf(req.params.id), req.body?.seconds) })));
 app.post('/api/mock-sittings/:id/stop', handle(req => ({ sitting: stopWriting(idOf(req.params.id)) })));
 
 app.put('/api/mock-sittings/:id/scores', handle(req => {
