@@ -479,6 +479,7 @@ export default function ColorField({
     const field = (
         <input
             type="text"
+            dir="ltr"
             value={typed}
             onChange={e => { setTyped(e.target.value); commit(e.target.value); }}
             onBlur={() => { if (!parseCssColor(typed)) setTyped(value); }}
