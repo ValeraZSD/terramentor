@@ -68,7 +68,7 @@ your data at all." Those are different claims and we only make the second one.
   default**; and (f) only on a server running the site front desk (`server/site/`, never in
   the app on your own machine), the breached-password check when someone sets a password there,
   described under "Accounts on a site"; and (g) photos for a topic learned by sight, from
-  Wikimedia Commons, while a course is created with the "Photos" job on and when you press
+  Wikimedia Commons, while a course is created with the "Photos" job on (**on by default**) and when you press
   **Look again** on such a topic, described under "Photos for topics learned by sight". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
   see "Verifying the no-telemetry claim" below, because you should not take our word for it.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
@@ -802,16 +802,19 @@ artworks) is taught with real photos of named examples, found in Wikimedia Commo
   Nothing else: the app downloads only the addresses the archive's own search answered with,
   never an address a model wrote, and a redirect to any other host is refused. Both go
   through `server/netSafety.js` like every other fetch.
-- **What it sends.** The example's name as search words (written by the course's model from
-  the course name, its description and the topic titles; your notes and documents are not in
-  front of it), a User-Agent naming the app, its version, its project page and the Node.js
-  version it runs on, because Wikimedia refuses anonymous clients, and your IP, as a browser
+- **What it sends.** Search words for each example (written by the course's model from the
+  course name, its description and the topic titles, or carried by a course file you imported;
+  your notes and documents are not in front of it), with a filter for bitmap files; a
+  User-Agent naming the app, its version, its project page (or the update repository the
+  server was started with, `UPDATE_REPO_URL`) and the Node.js version it runs on, because Wikimedia refuses anonymous clients, and your IP, as a browser
   would. No key, no account.
 - **How often, and how much.** One request at a time, at least a second apart, each given up
   after 30 seconds. A "slow down" answer (429, 503 or a lag notice) is waited out once, for as
-  long as its `Retry-After` asks between 1 and 120 seconds (5 when it names none); a second one
-  stops the run. A search answer is read up to 2 MB and a photo up to 4 MB, and a larger one is
+  long as its `Retry-After` asks between 1 and 120 seconds (5 when it names none); the same
+  request answered so a second time stops the run. A search answer is read up to 2 MB and a photo up to 4 MB, and a larger one is
   dropped. At most 12 topics a course and 4 examples a topic are searched.
+- **Which topics.** The course's model is shown at most its first 60 topics and picks at most
+  12 of them; a larger course gets photos only among those.
 - **What is kept.** Only photos under CC0, public domain, CC BY or CC BY-SA, of a sensible size
   and shape, that the archive does not mark non-free or restricted. Each is stored in the
   library's media folder, so the course works offline, with the author, licence and source page

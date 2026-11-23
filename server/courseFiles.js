@@ -8,6 +8,7 @@ import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { setNewPerDay } from './decks.js';
 import { mediaStorage } from './vaultStorage.js';
 import { releaseUuid } from './softDelete.js';
+import { PHOTO_BYTES, PHOTO_MIMES } from './topicPhotos.js';
 
 // IMPORT / EXPORT
 
@@ -304,7 +305,11 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             cardCount++;
         }
         (node.photos || []).forEach((p, idx) => {
-            const found = p.media && p.credit ? mediaByName?.get(p.media) : null;
+            // Only a file of a kind the app keeps a photo as: a course file
+            // could name its audio or a huge picture as a "photo".
+            const file = p.media && p.credit ? mediaByName?.get(p.media) : null;
+            const found = file && file.kind === 'image' && PHOTO_MIMES.has(file.mime)
+                && !(file.size > PHOTO_BYTES) ? file : null;
             const c = found ? p.credit : {};
             insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', found ? 'found' : 'none',
                 found?.hash ?? null, c.width ?? null, c.height ?? null, c.file_title ?? null, c.author ?? null,

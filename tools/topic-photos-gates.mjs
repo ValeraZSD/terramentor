@@ -42,7 +42,11 @@
 //      into course creation, and leaves nothing pending or marked running;
 //  15. a course file's licence link must be a creativecommons.org deed and
 //      its source a Commons file page (no other host, port, path, user name
-//      or a link over 600 characters).
+//      or a link over 600 characters);
+//  16. Look again on a topic while the course's run goes on is answered
+//      "pending" and searched by a run of its own right after;
+//  17. an imported photo naming a sound, a GIF or a file over 4 MB is not
+//      kept as a photo and carries no credit.
 // Along the way: a model the catalogue only LISTS as seeing images is never
 // sent a photo by an unattended run; a busy run's task reads failed; a kept
 // or imported photo's file carries the course's words as its description.
@@ -215,7 +219,7 @@ const ARCHIVE = {
     ],
 };
 const jpeg = (seed) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(`JFIF stub photo ${seed} `.repeat(20))]);
-const archive = { requests: [], inflight: 0, maxInflight: 0, foreign: [], busy: 0, oversize: false, streamed: 0 };
+const archive = { requests: [], inflight: 0, maxInflight: 0, foreign: [], busy: 0, oversize: false, streamed: 0, hold: null, later: {} };
 const OVERSIZE = 32 * 1024 * 1024;
 async function fakeArchive(url, init = {}) {
     const u = new URL(url);
@@ -231,7 +235,11 @@ async function fakeArchive(url, init = {}) {
         }
         if (u.hostname === 'commons.wikimedia.org' && u.pathname === '/w/api.php') {
             const q = (u.searchParams.get('gsrsearch') || '').replace(/ filetype:bitmap$/, '');
-            const pages = ARCHIVE[q] || [];
+            // `hold` keeps a search waiting, so a run is still going while the
+            // gate asks for more; `later` answers a search asked a second time.
+            if (archive.hold) await archive.hold;
+            const askedBefore = archive.requests.filter(r => r.url.searchParams.get('gsrsearch')?.startsWith(q)).length > 1;
+            const pages = (askedBefore && archive.later[q]) || ARCHIVE[q] || [];
             return new Response(JSON.stringify({ batchcomplete: true, query: { pages } }), { status: 200, headers: { 'content-type': 'application/json' } });
         }
         if ((u.hostname === 'upload.wikimedia.org' || u.hostname === 'thumb.wikimedia.org') && archive.oversize) {
@@ -610,6 +618,77 @@ for (const [label, url] of [
     const p = importOne({ ...goodPhoto, licence_url: url });
     ok(`a licence link ${label} is dropped, the photo kept`, p?.media === 'hall.jpg' && p.credit?.licence_url === null, JSON.stringify(p?.credit));
 }
+
+// ---- 16. Look again while the course's run goes on ------------------------------
+section('16. Look again while the course\'s run goes on is searched right after it');
+const until = async (check, ms = 15_000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { const v = check(); if (v) return v; await sleep(25); }
+    return check();
+};
+let release = () => { };
+archive.requests = [];
+// The temple's search finds nothing while the course is created, and a free
+// photo when it is asked again.
+archive.later['Bulguksa temple'] = [page(9, 'Bulguksa free.jpg', { lic: 'CC0', code: 'cc0', artist: 'Kim Min' })];
+const busyCourse = await create('Telling East Asian buildings apart, busy');
+await settle();
+const [busyHalls, busyRoofs] = topicsOf(busyCourse.id);
+ok('the temple topic starts with no photo', !!busyRoofs && photoRows(busyRoofs.id).every(r => r.status === 'none'));
+// A run for the halls that waits at its first search...
+if (busyHalls) db.prepare(`UPDATE node_photos SET status = 'none', hash = NULL WHERE node_id = ?`).run(busyHalls.id);
+const templeAsks = () => archive.requests.filter(r => r.url.searchParams.get('gsrsearch')?.startsWith('Bulguksa temple')).length;
+const templeAtCreation = templeAsks();
+const askedSoFar = archive.requests.length;
+archive.hold = new Promise(r => { release = r; });
+const hallsRun = busyHalls ? await (await fetch(`${base}/api/nodes/${busyHalls.id}/photos/find`, { method: 'POST' })).json() : null;
+await until(() => archive.requests.length > askedSoFar);
+// ...and Look again on the temple while it waits.
+const asked = busyRoofs ? await fetch(`${base}/api/nodes/${busyRoofs.id}/photos/find`, { method: 'POST' }) : null;
+const askedBody = asked?.ok ? await asked.json() : null;
+ok('the topic is taken while the run goes on, and its answer says pending', hallsRun?.started === true
+    && askedBody?.started === true && askedBody?.state === 'pending', JSON.stringify({ hallsRun, askedBody }));
+const tasksAtAsk = tasks.listTasks().filter(x => x.kind === 'find_photos').length;
+release();
+archive.hold = null;
+const foundAfter = await until(() => busyRoofs && photoRows(busyRoofs.id).some(r => r.status === 'found') && photoRows(busyRoofs.id));
+const templeSearches = templeAsks();
+ok('the topic is searched again after the run, and its photo found', !!foundAfter && templeAtCreation === 1 && templeSearches === 2
+    && foundAfter[0].status === 'found' && foundAfter[0].author === 'Kim Min', JSON.stringify({ templeSearches, rows: busyRoofs && photoRows(busyRoofs.id).map(r => r.status) }));
+const followUp = tasks.listTasks().filter(x => x.kind === 'find_photos').at(-1);
+ok('...by a run of its own, started from the topic', tasks.listTasks().filter(x => x.kind === 'find_photos').length === tasksAtAsk + 1
+    && followUp?.origin?.surface === 'topic' && followUp.origin.nodeId === busyRoofs?.id, JSON.stringify(followUp?.origin));
+await settle();
+ok('nothing is left waiting in the course', topicsOf(busyCourse.id).every(n => photoRows(n.id).every(r => r.status !== 'pending')));
+archive.later = {};
+
+// ---- 17. a course file naming a file the app does not keep as a photo ------------
+section('17. an imported photo naming a sound, a GIF or an oversize file loses the photo');
+let oddImport = null;
+if (zip && bHall?.photos?.length === 2) {
+    const odd = await JSZip.loadAsync(bundleBuf);
+    const m = JSON.parse(await odd.file('manifest.json').async('string'));
+    const hallNode = (m.nodes || []).find(n => n.title === TOPICS[0].title);
+    const credit = { ...hallNode.photos[0] };
+    hallNode.photos = [
+        { ...credit, media: 'clip.mp3' },
+        { ...credit, media: 'moving.gif' },
+        { ...credit, media: 'huge.jpg' },
+    ];
+    odd.file('manifest.json', JSON.stringify(m));
+    odd.file('media/clip.mp3', Buffer.concat([Buffer.from('ID3'), Buffer.alloc(2000, 1)]));
+    odd.file('media/moving.gif', Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(2000, 2)]));
+    odd.file('media/huge.jpg', Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(5 * 1024 * 1024, 3)]));
+    const form = new FormData();
+    form.append('bundle', new Blob([await odd.generateAsync({ type: 'nodebuffer' })]), 'odd.studyvault');
+    const r = await fetch(`${base}/api/import/bundle`, { method: 'POST', body: form });
+    oddImport = r.ok ? await r.json() : { status: r.status, body: await r.text() };
+}
+const oddProject = db.prepare('SELECT id FROM projects ORDER BY id DESC LIMIT 1').get();
+const oddRows = oddProject ? photoRows(topicsOf(oddProject.id)[0]?.id ?? -1) : [];
+ok('the course is imported with its three examples', oddRows.length === 3, JSON.stringify({ oddImport, rows: oddRows.length }));
+ok('...none of them kept as a photo, and no credit carried', oddRows.length === 3 && oddRows.every(r => r.status === 'none' && !r.hash && !r.author),
+    JSON.stringify(oddRows.map(r => ({ s: r.status, h: !!r.hash }))));
 
 await new Promise(r => server.close(r));
 await new Promise(r => stub.close(r));

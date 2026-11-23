@@ -74,7 +74,7 @@ const PICKS_PER_EXAMPLE = 2;
 /** Photos a model looks at in one run, when the connection sees images. */
 const MAX_VISION_CHECKS = 24;
 const API_BODY_BYTES = 2 * 1024 * 1024;
-const PHOTO_BYTES = 4 * 1024 * 1024;
+export const PHOTO_BYTES = 4 * 1024 * 1024;
 const REQUEST_GAP_MS = 1000;
 /** One request to the archive, answer included; a stalled socket would hold
  *  every course's photo run behind it. */
@@ -86,7 +86,7 @@ const MIN_HEIGHT = 400;
  *  to learn from at the size a lesson draws it. */
 const MIN_RATIO = 0.6;
 const MAX_RATIO = 2.0;
-const PHOTO_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+export const PHOTO_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 // ---------------------------------------------------------------------------
 // Licences and credit
@@ -231,8 +231,11 @@ export function commonsUserAgent() {
 let fetchImpl = safeFetch;
 let queue = makeThrottledQueue(REQUEST_GAP_MS);
 let waitFor = (ms, signal) => new Promise((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason || new Error('Cancelled')); }, { once: true });
+    const stop = () => reject(signal.reason || Object.assign(new Error('Cancelled'), { name: 'AbortError' }));
+    if (signal?.aborted) return stop();
+    const onAbort = () => { clearTimeout(t); stop(); };
+    const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
 });
 
 /** For the gate: answer the archive's requests from a stub, with no gap. */
@@ -246,7 +249,8 @@ class ArchiveBusy extends Error {
     constructor(msg) { super(msg); this.name = 'ArchiveBusy'; }
 }
 
-const onArchive = (next) => next.protocol === 'https:' && (next.host === API_HOST || FILE_HOSTS.has(next.host));
+const onArchive = (next) => next.protocol === 'https:' && !next.username && !next.password
+    && (next.host === API_HOST || FILE_HOSTS.has(next.host));
 
 /**
  * One request, in the queue. A 429, a 503 or a lag answer is waited out once
@@ -540,6 +544,7 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
     let topics = 0;
     let outcome = 'done';
     let reason = null;
+    let facts = null;
     try {
         if (!project) return run.stats;
         run.vision = await visionReady();
@@ -590,18 +595,23 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
         outcome = err?.name === 'AbortError' || run.signal.aborted ? 'cancelled' : 'failed';
         if (outcome === 'failed') {
             reason = err?.message || 'Finding photos failed';
-            logActivity({ area: 'project', event: 'photos.failed', level: 'warn', detail: failureFacts(err), projectId });
+            facts = failureFacts(err);
         }
     } finally {
         // Nothing is left waiting: what a stopped run did not reach is "none",
         // and the topic page offers to look again.
-        stmt(`UPDATE node_photos SET status = 'none'
-            WHERE status = 'pending' AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`).run(projectId);
+        // A topic asked for again while this run went on stays pending: the
+        // run after this one searches it.
+        const next = state?.followUp?.ids || new Set();
+        for (const { node_id: id } of stmt(`SELECT DISTINCT node_id FROM node_photos WHERE status = 'pending'
+            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`).all(projectId)) {
+            if (!next.has(id)) stmt(`UPDATE node_photos SET status = 'none' WHERE node_id = ? AND status = 'pending'`).run(id);
+        }
     }
     const s = run.stats;
     logActivity({
         area: 'project', event: `photos.${outcome}`, level: outcome === 'done' || outcome === 'cancelled' ? 'info' : 'warn',
-        detail: `${topics} topics · ${s.found} found · ${s.none} none · ${s.requests} requests${s.waited ? ` · ${s.waited} waits` : ''}${s.looked ? ` · ${s.looked} looked at` : ''}`,
+        detail: `${topics} topics · ${s.found} found · ${s.none} none · ${s.requests} requests${s.failed ? ` · ${s.failed} topics failed` : ''}${s.waited ? ` · ${s.waited} waits` : ''}${s.looked ? ` · ${s.looked} looked at` : ''}${facts ? ` · ${facts}` : ''}`,
         ms: performance.now() - started, projectId,
     });
     return { outcome, reason, topics, ...s };
@@ -615,8 +625,18 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
  */
 export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
     projectId = Number(projectId);
-    if (running.has(projectId)) return { started: false, reason: 'running' };
     if (!getAISettings().enabled) return { started: false, reason: 'ai_off' };
+    const current = running.get(projectId);
+    if (current) {
+        if (!nodeIds?.length) return { started: false, reason: 'running' };
+        // Look again while the course's run goes on: the topic is marked now
+        // and searched by a run that starts when this one ends.
+        current.followUp ??= { ids: new Set(), origin };
+        const mark = stmt(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
+            AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`);
+        for (const id of nodeIds) { current.followUp.ids.add(Number(id)); mark.run(id, projectId); }
+        return { started: true, queued: true };
+    }
     const controller = new AbortController();
     const state = { controller, nodes: new Set(nodeIds || []), planned: !!nodeIds, done: null };
     // Registered first: if that throws, nothing is left marked as running, and
@@ -653,7 +673,11 @@ export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
             return result;
         })
         .catch((err) => { try { handle.fail(err.message); } catch { } })
-        .finally(() => { running.delete(projectId); });
+        .finally(() => {
+            running.delete(projectId);
+            const next = state.followUp;
+            if (next?.ids.size) startPhotos(projectId, { nodeIds: [...next.ids], origin: next.origin });
+        });
     state.done = p;
     chain = p.catch(() => { });
     return { started: true, done: p };

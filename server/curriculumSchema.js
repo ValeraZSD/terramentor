@@ -737,9 +737,12 @@ function normalizeImportPhotos(photos, at, warnings) {
     const line = (v, n) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
     for (const p of photos.slice(0, MAX_PHOTOS_PER_NODE)) {
         if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
-        const subject = line(p.subject, 160);
+        // The words reach the course's model and the archive's search, so an
+        // address in them goes, as it does from a model's own answer.
+        const words = (v, n) => line(typeof v === 'string' ? v.replace(/\b(?:https?|ftp|data|file):\S*/gi, ' ').replace(/\bwww\.\S+/gi, ' ') : v, n);
+        const subject = words(p.subject, 160);
         if (!subject) continue;
-        const photo = { subject, search: line(p.search, 160), shows: line(p.shows, 300), media: null, credit: null };
+        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), media: null, credit: null };
         const media = line(p.media, 180);
         if (media) {
             const licence = line(p.licence, 80);

@@ -2389,8 +2389,8 @@ try {
 // picture is `hash` in the media store, a `media_files` row of the course) or
 // 'none'. The credit is the archive's own: `author`, `licence`, `licence_url`
 // and `source_url` (the file's page) come from its answer, never from a model.
-// `checked_by` is 'vision' when a model that sees pictures confirmed it shows
-// the example. Created before the uuid loop below, which gives it its uuid
+// `checked_by` names the model that looked at the photo and confirmed it shows
+// the example (provenance JSON), NULL when none looked. Created before the uuid loop below, which gives it its uuid
 // trigger and index.
 db.exec(`
   CREATE TABLE IF NOT EXISTS node_photos (

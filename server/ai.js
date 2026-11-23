@@ -3639,17 +3639,6 @@ const QUESTION_QUALITY_RULES = `\n${OPTION_RULES}\n${EXPLANATION_RULE}\n${NOT_TH
  */
 const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION. Use the symbols, indexing, units, ordering and names that this subject and this topic's Overview already use — a learner meeting your notation again in an exam, a textbook or a colleague's work must recognise it. Never define a private index, a renamed variable or a re-based scale to make a formula come out tidy. The test: if you find yourself explaining how YOUR notation relates to the standard one ("here n is the index, but the actual number is…"), you have invented one — delete it and use the standard directly. A running translation between two conventions is where mistakes are made, and the learner inherits both.`;
 
-/**
- * Maths in the descriptions the creation run writes.
- *
- * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
- * calculus course came back with maths in most of its 908 Overviews and
- * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
- * The examples are written as they appear INSIDE the JSON string, backslashes
- * doubled, because an example is copied harder than a rule;
- * `parseCreationJson` still reads a single backslash correctly.
- * Titles stay plain: the sidebar, outline and search draw them as text.
- */
 // A description is written before anything is taught, so it cannot know what
 // the app will show: a topic promised "a picture quiz" had none to give.
 export const DESCRIPTION_PROMISE_RULE = `WHAT A DESCRIPTION SAYS: what the topic teaches and why it matters. It never promises how it will be taught or tested: no "picture quiz", "photos", "images", "video", "interactive exercise" or "game"; the app decides that, and a promise it cannot keep misleads the learner.\n`;
@@ -3671,6 +3660,17 @@ export function lessonPhotoBlock(photos) {
     return `\n\nPHOTOS: the learner sees the real photos listed below with this topic. Where one shows what you are explaining, put its marker on a line of its own, right after the paragraph that talks about it: [[photo:1]] for photo 1 and so on, only these numbers, each at most once, and only the photos this part needs. Then tell the learner what to notice in it. Never write an image link, an image address or a Markdown image, and never describe a photo that is not listed.\n${list}`;
 }
 
+/**
+ * Maths in the descriptions the creation run writes.
+ *
+ * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
+ * calculus course came back with maths in most of its 908 Overviews and
+ * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
+ * The examples are written as they appear INSIDE the JSON string, backslashes
+ * doubled, because an example is copied harder than a rule;
+ * `parseCreationJson` still reads a single backslash correctly.
+ * Titles stay plain: the sidebar, outline and search draw them as text.
+ */
 const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a subject with no maths has none to write, so add none): a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use single $…$ only: no $$ and no backslash-parenthesis delimiters. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign, and a $ that belongs to code ($HOME, $"{name}") goes inside backticks.`;
 
 /**

@@ -7,10 +7,12 @@ import { keyed } from '../clientError.js';
 
 const app = routeTable('photos');
 
+let topicStmt = null;
 const topicOf = (raw) => {
     const id = Number(raw);
     if (!Number.isSafeInteger(id) || id <= 0) return null;
-    return db.prepare('SELECT id, project_id FROM live_nodes nodes WHERE id = ?').get(id) || null;
+    topicStmt ??= db.prepare('SELECT id, project_id FROM live_nodes nodes WHERE id = ?');
+    return topicStmt.get(id) || null;
 };
 
 app.get('/api/nodes/:id/photos', (req, res) => {
@@ -19,8 +21,8 @@ app.get('/api/nodes/:id/photos', (req, res) => {
     res.json(topicPhotos(node.id));
 });
 
-// Only a topic that is learned by sight has examples to look for; a run
-// already going for the course is joined, not doubled.
+// Only a topic that is learned by sight has examples to look for; while a
+// run goes on for the course, the topic is searched by a run right after it.
 app.post('/api/nodes/:id/photos/find', (req, res) => {
     const node = topicOf(req.params.id);
     if (!node) return res.status(404).json(keyed('Topic not found'));

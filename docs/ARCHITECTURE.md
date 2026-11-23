@@ -365,7 +365,9 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   project or when you press Find resources on a topic, the pages a lesson reads
   from its topic's links (setting `lesson_reads_links`), the web lookups an answer
   makes when that switch is on (plus any hosted search engine you saved a key
-  for), the update check when you ask for one or turn the automatic check on, and on
+  for), Wikimedia Commons for photos of a topic learned by sight (while a course is
+  created, setting `creation_find_photos`, and when you press Look again), the update
+  check when you ask for one or turn the automatic check on, and on
   the desktop app the update download when you press the update button. All
   of it is visible in a packet capture; SECURITY.md enumerates it.
 - **The server never installs anything.** A desktop update is staged by the
