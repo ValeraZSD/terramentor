@@ -229,6 +229,33 @@ const listed = await (await fetch(`${base}/api/item-reports?refs=${[`fi:${lesson
 eq(listed.written ?? null, { [`fi:${lessonRow}`]: BY_GATE, [`q:${importedQs[1].uuid}`]: BY_OTHER },
     'GET /api/item-reports?refs= says which of its refs a model wrote, and leaves the rest out');
 
+// A standing report takes a model's question out of its bank and deletes a
+// model's card, but the flag still shows them until the learner moves on: the
+// mark stays, read from the copy the report kept.
+const reportNode = mkNode('Reported things', null, 'Reported.');
+const tf = (question, extra = {}) => ({ question, type: 'true_false', options: ['True', 'False'], correct_answer: 'True', ...extra });
+const reportQuiz = Number(db.prepare(`INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, 'Model quiz', ?, ?)`)
+    .run(reportNode, JSON.stringify([tf('Reported: is fire hot?'), tf('Kept: is snow white?')]), STAMP).lastInsertRowid);
+const bankUuids = () => JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(reportQuiz).questions).map(q => q.uuid);
+const reportedQ = bankUuids()[0];
+const reportedCard = Number(db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by) VALUES (?, ?, ?, ?)')
+    .run(reportNode, 'reported front', 'reported back', STAMP).lastInsertRowid);
+IR.fileReport({ ref: `q:${reportedQ}`, reason: 'wrong' });
+IR.fileReport({ ref: `card:${reportedCard}`, reason: 'wrong' });
+ok(!bankUuids().includes(reportedQ), 'the report took the model\'s question out of its bank');
+ok(!db.prepare('SELECT 1 FROM live_flashcards WHERE id = ?').get(reportedCard), 'the report deleted the model\'s card');
+eq(who(`q:${reportedQ}`), BY_GATE, 'a reported question out of its bank is still marked as the model\'s');
+eq(who(`card:${reportedCard}`), BY_GATE, 'a reported model card, deleted, is still marked as the model\'s');
+
+// Two files claimed one question uuid in two topics: a typed copy in the
+// first bank, a model's in the second. The shared ref keeps the model's mark.
+const sharedUuid = '0f0e0d0c-1111-4222-8333-444455556666';
+const bankWith = (title, q) => db.prepare(`INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, NULL)`)
+    .run(mkNode(title, null, 'x'), title, JSON.stringify([q]));
+bankWith('Twin typed', tf('Shared: typed copy?', { uuid: sharedUuid }));
+bankWith('Twin claimed', tf('Shared: claimed copy?', { uuid: sharedUuid, generated_by: 'other:70b' }));
+eq(who(`q:${sharedUuid}`), BY_OTHER, 'one uuid held by two topics: the model\'s copy keeps its mark though the typed bank comes first');
+
 // --- 5. exports say which model wrote what ---------------------------------
 //
 // Text inside a file is "containerised" (Code of Practice on AI-generated

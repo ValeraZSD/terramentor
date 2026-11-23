@@ -116,7 +116,7 @@ const projectOf = (nodeId) => stmt('SELECT project_id FROM live_nodes nodes WHER
 
 /** Every bank row holding this question: its own copy and review copies elsewhere. */
 function banksHolding(uuid) {
-    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE instr(questions, ?) > 0`).all(uuid);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE instr(questions, ?) > 0 ORDER BY id`).all(uuid);
     const out = [];
     for (const r of rows) {
         const qs = safeParse(r.questions);
@@ -215,7 +215,7 @@ function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
 function banksHoldingAll(uuids) {
     const out = new Map(uuids.map(u => [u, []]));
     if (!uuids.length) return out;
-    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')}`).all(...uuids);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')} ORDER BY id`).all(...uuids);
     for (const r of rows) {
         const qs = safeParse(r.questions);
         if (!Array.isArray(qs)) continue;
@@ -225,6 +225,15 @@ function banksHoldingAll(uuids) {
         });
     }
     return out;
+}
+
+/** The bank copies a standing report took out of their banks (its `undo`), named as `banksHolding` names them. */
+function reportedHolders(p) {
+    const undo = safeParse(activeFor(refOf(p))?.undo, {});
+    return (undo?.banks || []).flatMap(b => (b?.taken || [])
+        .filter(t => t?.question?.uuid === p.uuid)
+        .map(t => ({ quizId: b.quizId, index: t.index, question: t.question,
+            stamp: stmt('SELECT generated_by FROM live_quizzes quizzes WHERE id = ?').get(b.quizId)?.generated_by ?? null })));
 }
 
 /**
@@ -251,15 +260,23 @@ export function writtenBy(ref, memo = null) {
         return row && ['lesson', 'question', 'practice'].includes(row.kind) ? { model: stampModel(safeParse(row.meta, {})) } : null;
     }
     if (p.type === 'q') {
-        const holders = memo?.banks.get(p.uuid) ?? banksHolding(p.uuid);
-        const own = holders.find(h => !h.question.isGhost);
+        let holders = memo?.banks.get(p.uuid) ?? banksHolding(p.uuid);
+        // A standing report took it out of its banks: the copies it kept speak for it.
+        if (!holders.length) holders = reportedHolders(p);
+        const own = holders.filter(h => !h.question.isGhost);
         // The question's own claim (a course file's), else its bank's stamp. A
         // review copy's bank is the practice quiz that borrowed it, so a copy
-        // on its own speaks only through its own claim.
-        if (own) return stampWriter(own.question.generated_by) ?? stampWriter(own.stamp);
+        // on its own speaks only through its own claim. One uuid held as its
+        // own by two topics (two files claimed it) shares one ref: a model's
+        // claim on either copy marks it, so model text is never left unmarked.
+        if (own.length) return own.map(h => stampWriter(h.question.generated_by) ?? stampWriter(h.stamp)).find(Boolean) ?? null;
         return holders.map(h => stampWriter(h.question.generated_by)).find(Boolean) ?? null;
     }
-    if (p.type === 'card') return stampWriter(stmt('SELECT generated_by FROM live_flashcards flashcards WHERE id = ?').get(p.cardId)?.generated_by);
+    if (p.type === 'card') {
+        const card = stmt('SELECT generated_by FROM live_flashcards flashcards WHERE id = ?').get(p.cardId)
+            ?? safeParse(activeFor(refOf(p))?.undo, {})?.card;
+        return stampWriter(card?.generated_by);
+    }
     if (p.type === 'probe') {
         // Only placement.js writes these, each a model's.
         const probes = memo?.probes;
