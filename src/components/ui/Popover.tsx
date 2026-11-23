@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
+import { useBackClose } from '../../hooks/dialogHistory';
 import { FOCUS_RING, cx } from './vocabulary';
 import { isRtl } from '../../utils/direction';
 
@@ -361,6 +362,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
         if (open && placed) focusItem(menuRef.current, 'first');
     }, [open, placed]);
     useFocusBackOnClose(open, anchorRef);
+    useBackClose(open, () => { closeRef.current(); anchorRef.current?.focus(); });
 
     useEffect(() => {
         if (!open) return;

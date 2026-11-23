@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate, matchPath } from 'react-router-dom';
 import { useStore, RouteState, WorkspaceView } from '../store';
+import { dialogHistoryRouteChanged } from './dialogHistory';
 
 /** Decode the current pathname into the navigation state the store mirrors.
  *  Unknown paths fall back to the Today hub (the home page). */
@@ -39,7 +40,7 @@ function decodeRoute(pathname: string): RouteState {
  *  location change. Mount once, high in the tree (inside the Router). */
 export function useRouterStoreSync() {
     const navigate = useNavigate();
-    const { pathname } = useLocation();
+    const { pathname, key } = useLocation();
     const setNavigate = useStore(s => s.setNavigate);
     const applyRoute = useStore(s => s.applyRoute);
     // The same test App.tsx uses to decide between the lock screen and the app.
@@ -57,4 +58,8 @@ export function useRouterStoreSync() {
     useEffect(() => {
         if (throughGate) applyRoute(decodeRoute(pathname));
     }, [pathname, applyRoute, throughGate]);
+
+    // Every move, the same address included: an open dialog's Back entry
+    // belongs on top of whatever page is current (`dialogHistory.ts`).
+    useEffect(() => { dialogHistoryRouteChanged(); }, [key]);
 }

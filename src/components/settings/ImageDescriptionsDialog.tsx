@@ -4,7 +4,7 @@ import Modal from '../Modal';
 import { Button } from '../ui/Button';
 import { TextArea } from '../ui/Field';
 import { api } from '../../api';
-import { useStore } from '../../store';
+import { useConfirmDiscard } from '../../hooks/useConfirmDiscard';
 import { forgetMediaInfo } from '../CardMedia';
 import { useAutoGrow } from '../../hooks/useAutoGrow';
 import type { MediaDescriptionRow } from '../../types';
@@ -21,13 +21,12 @@ const PAGE = 50;
  */
 export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
     const { t } = useTranslation();
-    const showConfirm = useStore(s => s.showConfirm);
+    const confirmDiscard = useConfirmDiscard();
     const [rows, setRows] = useState<MediaDescriptionRow[] | null>(null);
     const [failed, setFailed] = useState(false);
     const [more, setMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const [drafts, setDrafts] = useState<Record<string, string>>({});
-    const askingRef = useRef(false);
     // Where the last page read ended, as the server ordered it then. A save
     // moves a row in the server's order, so the next page is asked for by
     // place, never by how many rows are shown.
@@ -68,21 +67,9 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
     const dirty = rows?.some(r => r.hash in drafts && drafts[r.hash] !== (r.description ?? '')) ?? false;
 
     const close = useCallback(async () => {
-        if (askingRef.current) return;
-        if (dirty) {
-            askingRef.current = true;
-            const discard = await showConfirm({
-                title: t("Discard your changes?"),
-                message: t("A description you changed has not been saved."),
-                confirmLabel: t("Discard"),
-                cancelLabel: t("Keep editing"),
-                variant: 'warning',
-            });
-            askingRef.current = false;
-            if (!discard) return;
-        }
+        if (dirty && !(await confirmDiscard(t("A description you changed has not been saved.")))) return;
         onClose();
-    }, [dirty, onClose, showConfirm, t]);
+    }, [dirty, onClose, confirmDiscard, t]);
 
     const saved = (hash: string, row: Pick<MediaDescriptionRow, 'description' | 'described_by'>) => {
         forgetMediaInfo(hash);

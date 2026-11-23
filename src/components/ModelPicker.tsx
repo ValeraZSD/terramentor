@@ -13,6 +13,7 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
+import { useBackClose } from '../hooks/dialogHistory';
 import { followVisualViewport, popoverBounds, FLOAT_LAYER } from './ui/Popover';
 import { isRtl } from '../utils/direction';
 
@@ -118,6 +119,7 @@ export default function ModelPicker({
         setQuery('');
         if (refocus) triggerRef.current?.focus();
     }, []);
+    useBackClose(open, close);
 
     const commit = (model: string) => {
         onChange(model);
