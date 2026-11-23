@@ -664,6 +664,34 @@ function coarse(value: number, unit: (n: string) => string): string {
 }
 
 /**
+ * Whether a rating in a run through ALL of a topic's cards (the topic panel's
+ * Practise all) leaves the card's schedule as it is.
+ *
+ * A graduated card that is not due yet and that you know keeps its date: an
+ * early "Good" would otherwise count as a full review (with this scheduler a
+ * card due in 17 days went to 58, on "Easy" to 100), so a run the night before
+ * a test would send the cards just recalled months away. A card you miss is
+ * news whenever it happens, a due card is reviewed as Study would review it,
+ * and a new or (re)learning card always moves on its ladder: after an early
+ * miss the card is minutes away, and its relearning step must still run.
+ */
+export function keepsItsDate(card: { next_review?: string | null; state?: number | null }, rating: ReviewRating, now: number = Date.now()): boolean {
+    if (rating === 'again' || !card.next_review) return false;
+    if ((card.state ?? State.Review) !== State.Review) return false;
+    const due = Date.parse(card.next_review);
+    return Number.isFinite(due) && due > now;
+}
+
+/**
+ * A reported card is parked: `server/itemReports.js` moves its due date to
+ * `PARKED_UNTIL` (year 9999) until the report is settled, and a rating on it
+ * is refused.
+ */
+export function isReportedCard(card: { next_review?: string | null }): boolean {
+    return !!card.next_review && card.next_review.startsWith('9999-');
+}
+
+/**
  * The ladder starts at minutes because (re)learning steps are 1, 6 or 10 minutes out.
  *
  * A sub-day interval is written `<10m` (Anki's notation): a ladder step is the
