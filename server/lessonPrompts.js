@@ -48,17 +48,17 @@ const memo = (sql) => { let s = null; return () => (s ??= db.prepare(sql)); };
 const askedStmt = memo('SELECT 1 FROM pre_questions WHERE node_id = ? LIMIT 1');
 const feedRefStmt = memo("SELECT 1 FROM feed_items WHERE id = ? AND node_id = ? AND kind = 'question'");
 const bankRefStmt = memo(`
-    SELECT 1 FROM quizzes q JOIN json_each(q.questions) je
+    SELECT 1 FROM live_quizzes q JOIN json_each(q.questions) je
     WHERE q.node_id = ? AND json_extract(je.value, '$.uuid') = ? LIMIT 1
 `);
-const nodeStmt = memo('SELECT 1 FROM nodes WHERE id = ?');
+const nodeStmt = memo('SELECT 1 FROM live_nodes nodes WHERE id = ?');
 const insertPreStmt = memo(`
     INSERT INTO pre_questions (node_id, outcome, asked, answered, correct, items, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ${NOW_ISO})
 `);
 const lessonRowStmt = memo(`
     SELECT fi.id, fi.node_id, fi.content, fi.meta, n.title
-    FROM feed_items fi JOIN nodes n ON n.id = fi.node_id
+    FROM feed_items fi JOIN live_nodes n ON n.id = fi.node_id
     WHERE fi.id = ? AND fi.kind = 'lesson'
 `);
 const insertExplainStmt = memo(`

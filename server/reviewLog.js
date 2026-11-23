@@ -44,6 +44,17 @@ const insertStmt = db.prepare(`
                             source, external_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+// A review an earlier import brought in for a card whose whole deck is now
+// deleted: the deck was deleted and imported again, so the review follows the
+// new card (as the deck's uuids do, softDelete.js releaseUuid). A card deleted
+// inside a live deck keeps its reviews for its own restore.
+const reclaimStmt = db.prepare(`
+    UPDATE review_log SET card_id = ? WHERE source = 'anki' AND external_id = ?
+      AND card_id IN (SELECT f.id FROM flashcards f /* with deleted */
+                      JOIN nodes n /* with deleted */ ON n.id = f.node_id
+                      JOIN projects p /* with deleted */ ON p.id = n.project_id
+                      WHERE p.deleted_at IS NOT NULL)
+`);
 
 /**
  * Record one review performed in this app.
@@ -88,26 +99,33 @@ export function hasAppReview(cardId, stamp) {
     return !!db.prepare(`SELECT 1 FROM review_log WHERE card_id = ? AND source = 'app' AND reviewed_at = ?`).get(cardId, at);
 }
 
-/** Take back the in-app review a rating stamped `stamp`. Returns rows removed (0 or 1). */
-export function undoReview(cardId, stamp) {
+/**
+ * Take back the in-app review a rating stamped `stamp`. Returns rows removed
+ * (0 or 1); the uuid of the review removed is pushed onto `taken`, if given.
+ */
+export function undoReview(cardId, stamp, taken = null) {
     const at = reviewedAtOf(stamp);
     if (!at) return 0;
-    return db.prepare(`
+    const rows = db.prepare(`
         DELETE FROM review_log WHERE id = (
             SELECT id FROM review_log WHERE card_id = ? AND source = 'app' AND reviewed_at = ?
             ORDER BY id DESC LIMIT 1
-        )
-    `).run(cardId, at).changes;
+        ) RETURNING uuid
+    `).pluck().all(cardId, at);
+    taken?.push(...rows);
+    return rows.length;
 }
 
-/** Take back the newest in-app review of a card. Returns rows removed (0 or 1). */
-export function undoLastReview(cardId) {
-    return db.prepare(`
+/** Take back the newest in-app review of a card. Returns rows removed (0 or 1); `taken` as above. */
+export function undoLastReview(cardId, taken = null) {
+    const rows = db.prepare(`
         DELETE FROM review_log WHERE id = (
             SELECT id FROM review_log WHERE card_id = ? AND source = 'app'
             ORDER BY reviewed_at DESC, id DESC LIMIT 1
-        )
-    `).run(cardId).changes;
+        ) RETURNING uuid
+    `).pluck().all(cardId);
+    taken?.push(...rows);
+    return rows.length;
 }
 
 /**
@@ -146,8 +164,9 @@ export function importAnkiRevlog(rows, cardIdOf) {
                         null, null, null, null, 'anki', String(r.id));
                     imported++;
                 } catch (err) {
-                    if (/UNIQUE/i.test(err.message)) { skipped++; continue; }
-                    throw err;
+                    if (!/UNIQUE/i.test(err.message)) throw err;
+                    if (!reclaimStmt.run(cardId, String(r.id)).changes) { skipped++; continue; }
+                    imported++;
                 }
                 prevAt = at;
             }

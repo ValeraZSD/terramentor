@@ -7,7 +7,8 @@ import db from './database.js';
 
 let stmts = null;
 const s = () => (stmts ??= {
-    uuid: db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck(),
+    // A deleted project's dials are cleared when it is removed for good.
+    uuid: db.prepare('SELECT uuid FROM projects WHERE id = ? /* with deleted */').pluck(),
     read: db.prepare('SELECT value FROM settings WHERE key = ?').pluck(),
     write: db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
     clear: db.prepare('DELETE FROM settings WHERE key = ?'),

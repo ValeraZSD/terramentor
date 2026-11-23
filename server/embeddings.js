@@ -364,7 +364,7 @@ async function runIndex(documentId) {
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }
 
     markDoc(documentId, 'pending');
-    const doc = db.prepare('SELECT title, project_id, node_id FROM documents WHERE id = ?').get(documentId);
+    const doc = db.prepare('SELECT title, project_id, node_id FROM documents /* with deleted */ WHERE id = ?').get(documentId);
     const label = (doc?.title || 'document').slice(0, 40);
     // Nobody pressed anything: a document was added and the app indexes it.
     // The ids say where it was added, so the record can go back there.
@@ -458,7 +458,7 @@ export function healDocuments() {
     if (!embeddingReady()) return { queued: 0 };
     healWanted = false;
     const ids = db.prepare(
-        `SELECT id FROM documents WHERE status = 'ready'
+        `SELECT id FROM documents /* with deleted */ WHERE status = 'ready'
            AND (embedding_status IS NULL OR embedding_status IN ('unavailable', 'pending'))`
     ).all().map(r => r.id)
         .filter(id => !onChain.has(id) && (healAttempts.get(id) || 0) < MAX_HEAL_ATTEMPTS);
@@ -523,7 +523,7 @@ export async function semanticSearch(query, { nodeId = null, projectId = null, p
     let scope = '';
     const scopeParams = [];
     if (projectWide && projectId) {
-        scope = ' AND (d.project_id = ? OR d.node_id IN (SELECT id FROM nodes WHERE project_id = ?))';
+        scope = ' AND (d.project_id = ? OR d.node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))';
         scopeParams.push(projectId, projectId);
     }
     else if (nodeId && projectId) { scope = ' AND (d.node_id = ? OR d.project_id = ?)'; scopeParams.push(nodeId, projectId); }
@@ -532,7 +532,7 @@ export async function semanticSearch(query, { nodeId = null, projectId = null, p
 
     const rows = db.prepare(
         `SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, dc.document_id, d.title AS doc_title
-         FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
+         FROM document_chunks dc JOIN live_documents d ON d.id = dc.document_id
          WHERE dc.id IN (${placeholders})${scope}`
     ).all(...hits.map(h => h.chunk_id), ...scopeParams);
 
@@ -621,7 +621,7 @@ export async function listEmbeddingModels() {
 export function embeddingStats() {
     const byStatus = db.prepare(
         `SELECT COALESCE(embedding_status, 'pending') AS s, COUNT(*) AS c
-         FROM documents WHERE status = 'ready' GROUP BY s`
+         FROM live_documents documents WHERE status = 'ready' GROUP BY s`
     ).all();
     const counts = Object.fromEntries(byStatus.map(r => [r.s, r.c]));
     let vectors = 0;
@@ -645,7 +645,7 @@ export function setEmbeddingSettings({ enabled, model, provider }) {
     // ensureVecTable), so the documents are queued again now rather than left
     // for the learner to find "Re-index all".
     if (storedSpaceIsStale() && getEmbeddingConfig().enabled) {
-        const indexed = db.prepare(`SELECT COUNT(*) AS c FROM documents WHERE status = 'ready' AND embedding_status = 'indexed'`).get().c;
+        const indexed = db.prepare(`SELECT COUNT(*) AS c FROM documents /* with deleted */ WHERE status = 'ready' AND embedding_status = 'indexed'`).get().c;
         if (indexed > 0) return { reindexQueued: reindexAll().queued };
     }
     return {};
@@ -655,7 +655,7 @@ export function setEmbeddingSettings({ enabled, model, provider }) {
 // model). Clears prior index state so the badges reflect the fresh run.
 export function reindexAll() {
     healAttempts.clear();
-    const docs = db.prepare(`SELECT id FROM documents WHERE status = 'ready'`).all();
+    const docs = db.prepare(`SELECT id FROM documents /* with deleted */ WHERE status = 'ready'`).all();
     db.prepare(`UPDATE documents SET embedding_status = NULL WHERE status = 'ready'`).run();
     docs.forEach(d => indexDocument(d.id));
     return { queued: docs.length };

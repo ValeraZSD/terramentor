@@ -64,7 +64,7 @@ function attachTaskStream(req, res, taskId) {
 function nodeTaskInfo(nodeId) {
     return db.prepare(`
         SELECT n.id, n.title, n.project_id as projectId, p.name as projectName, p.color as projectColor
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id = ?
     `).get(nodeId);
 }

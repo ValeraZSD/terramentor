@@ -114,7 +114,7 @@ export function getSittingReview(evidenceId) {
                n.id AS node_id, n.title AS node_title, n.project_id
         FROM sitting_reviews sr
         JOIN mastery_evidence me ON me.id = sr.evidence_id
-        JOIN nodes n ON n.id = me.node_id
+        JOIN live_nodes n ON n.id = me.node_id
         WHERE sr.evidence_id = ?
     `).get(evidenceId);
     if (!row) return null;

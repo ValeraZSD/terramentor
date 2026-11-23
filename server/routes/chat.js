@@ -109,7 +109,7 @@ app.get('/api/ai/conversations', (req, res) => {
                c.created_at AS createdAt, c.updated_at AS updatedAt,
                (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS messageCount
         FROM chat_conversations c
-        LEFT JOIN nodes n ON n.id = c.node_id
+        LEFT JOIN live_nodes n ON n.id = c.node_id
         ORDER BY c.updated_at DESC, c.id DESC
     `).all();
     res.json(rows);

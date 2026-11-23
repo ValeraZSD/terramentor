@@ -142,7 +142,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const handleDelete = async () => {
     const confirmed = await showConfirm({
       title: t("Delete Category"),
-      message: t("Delete \"{{title}}\" and all its contents? This action cannot be undone.", { title: node.title }),
+      message: t("Delete \"{{title}}\" and all its contents? You can bring it back from Recently deleted in Settings.", { title: node.title }),
       confirmLabel: t("Delete"),
       variant: 'danger',
     });
