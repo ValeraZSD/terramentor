@@ -5016,6 +5016,8 @@
   "Writing topics section by section…": "جار كتابة المواضيع قسما بعد قسم…",
   "Writing topics…": "جار كتابة المواضيع…",
   "Written": "المكتوب",
+  "Written by AI": "كتبه الذكاء الاصطناعي",
+  "Written by AI ({{model}})": "كتبه الذكاء الاصطناعي ({{model}})",
   "Written by AI ({{model}}). Check it.": "كتبه الذكاء الاصطناعي ({{model}}). يستحسن التحقق منه.",
   "Written by AI. Check it.": "كتبه الذكاء الاصطناعي. يستحسن التحقق منه.",
   "Written by the deck's author": "كتبه مؤلف الرزمة",
