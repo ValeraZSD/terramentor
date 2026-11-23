@@ -97,7 +97,9 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
     // Undo takes it. A report that arrives any other way takes nothing.
     const [filedHere, setFiledHere] = useState(false);
     useScreenItem(itemRef, shown, { inStream, listed, hideKey, surface });
-    useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef]);
+    // Asked again when the store forgets who wrote it (a course update rewrote the item).
+    const writerKnown = useItemReports(s => !itemRef || itemRef in s.written);
+    useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef, writerKnown]);
     // The line under the verdict opens THIS dialog, through the same setter
     // as the flag, so `onOpenChange` hears it (a timed drill holds its clock).
     const register = useContext(ScopeRegister);

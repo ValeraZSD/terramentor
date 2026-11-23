@@ -307,6 +307,8 @@ const { aiWrittenTag } = await import('../server/ankiAiTag.js');
 const longName = 'm'.repeat(250);
 eq(splitAiWrittenTag([aiWrittenTag(JSON.stringify({ model: longName }))]).model, 'm'.repeat(200),
     'a model name longer than the importer reads is cut on export, so the card keeps its mark');
+eq(aiWrittenTag(JSON.stringify({ model: `${'m'.repeat(199)}:${'x'.repeat(50)}` })), `ai-written::${'m'.repeat(199)}`,
+    'a cut that ends on a colon drops it, so the tag adds no empty level');
 
 await new Promise(r => server.close(r));
 
@@ -341,6 +343,14 @@ await build({
             // Every ref already known, so mounting asks the server nothing.
             export const setWritten = (written, refs) => useItemReports.setState({ written, byRef: Object.fromEntries(refs.map(r => [r, null])) });
             export const reports = useItemReports;
+            export const act = React.act;
+            // Kept on screen, as a lesson stays open under the course update dialog.
+            export function mount(itemRef) {
+                const el = document.createElement('div');
+                const root = createRoot(el);
+                React.act(() => root.render(React.createElement(ReportItem, { itemRef, surface: 'feed' })));
+                return { html: () => el.innerHTML, unmount: () => React.act(() => root.unmount()) };
+            }
             // Mounted, not rendered to a string: a store renders its INITIAL
             // state on the server (zustand's server snapshot).
             export function flag(itemRef) {
@@ -408,12 +418,25 @@ ok(/This is wrong/.test(noneHtml), 'and still carries its flag');
     for (let i = 0; i < 20 && !release; i++) await new Promise(r => setTimeout(r, 0));
     store.getState().forgetWriters();
     eq(store.getState().written, {}, 'a course update forgets who wrote every item it may have rewritten');
+    const tick = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0)); };
+    await tick();
     release?.();
     await first;
-    ok(!('fi:7' in store.getState().written), 'an answer asked before the update does not set who wrote the item');
-    await store.getState().load(['fi:7', 'fi:8']);
-    eq([store.getState().written['fi:7']?.model, store.getState().written['fi:8']?.model, asked.length],
-        ['after-update', 'after-update', 2], 'the next load asks again and shows the writer after the update');
+    await tick();
+    eq([store.getState().written['fi:7']?.model, asked.length], ['after-update', 2],
+        'an item asked about when the update lands is asked again, and the answer from before it does not win');
+    await store.getState().load(['fi:8']);
+    eq([store.getState().written['fi:8']?.model, asked.length], ['after-update', 3],
+        'an item known before the update is asked again on its next load');
+    // A flag already on screen asks again by itself, so its "Written by AI" stays.
+    R.setWritten({ 'fi:9': { model: 'before-update' } }, ['fi:9']);
+    const shown = R.mount('fi:9');
+    R.act(() => store.getState().forgetWriters());
+    await tick();
+    R.act(() => { });
+    ok(asked.some(u => /refs=fi%3A9/.test(u)) && readMark(shown.html())?.hover === 'Written by AI (after-update)',
+        'a mounted flag asks who wrote its item again after a course update and keeps its mark', asked);
+    shown.unmount();
     globalThis.fetch = realFetch;
 }
 

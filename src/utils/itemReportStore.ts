@@ -132,8 +132,11 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         // An ask out now predates the rewrite: mark its refs as answered by a
         // newer ask, so its answer does not set who wrote them.
         const now = ++asks;
-        for (const r of new Set([...writerAsk.keys(), ...asking])) writerAsk.set(r, now);
+        const out = [...asking];
+        for (const r of new Set([...writerAsk.keys(), ...out])) writerAsk.set(r, now);
         set({ written: {} });
+        // Those refs are not asked again by `load` while their old ask is out: ask now.
+        if (out.length) void ask(out);
     },
     showItem: (item, current = true) => set(s => {
         const rest = s.screen.filter(e => e.ref !== item.ref);
