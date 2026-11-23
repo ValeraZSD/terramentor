@@ -88,13 +88,13 @@ pre {
   text-align: left;
 }
 
-/* Interface text set in the monospace face (a visual's toolbar, a key hint).
-   Monospace fonts have no Arabic, and the first fallback that does (Courier
-   New) spreads each letter over a fixed cell, so Arabic reads letter-spaced.
-   A proportional face sits before it here; Latin text never reaches it while
-   one of the monospace faces before it is installed. */
-html[dir="rtl"] .font-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Segoe UI", "Noto Sans Arabic", system-ui, "Courier New", monospace;
+/* Interface text set in the monospace face (a visual's toolbar, a key hint)
+   takes the interface's face in right to left. Monospace fonts have no
+   Arabic: the first fallback that does (Courier New) spread each letter over
+   a fixed cell, and with a proportional fallback the monospace space still
+   left wide gaps between words. Code, keys and left-to-right fields stay. */
+html[dir="rtl"] .font-mono:not(pre, code, kbd, [dir="ltr"], pre *, code *, .cm-editor *) {
+  font-family: inherit;
 }
 
 /* Course text reads in its own direction, not the interface's: an English
