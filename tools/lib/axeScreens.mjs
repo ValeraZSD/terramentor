@@ -17,9 +17,9 @@ export const READY = {
     'course-dashboard': `document.querySelector('main [data-band]')`,
     outline: `document.querySelector('main [data-category-id]')`,
     topic: `document.querySelector('[aria-label="Close detail panel"]')`,
-    // The pressed tab wears the accent underline.
-    'topic-quizzes': `document.querySelector('[data-tab="quizzes"].border-accent')`,
-    'topic-cards': `document.querySelector('[data-tab="flashcards"].border-accent')`,
+    // The pressed tab wears the accent underline at once; its two lists stand
+    // in their sections only once both have been read (a spinner until then).
+    'topic-questions': `document.querySelector('[data-tab="questions"].border-accent') && document.querySelector('[data-section="questions"]') && document.querySelector('[data-section="cards"]')`,
     lesson: `document.querySelector('main h1') && document.querySelector('main .prose :is(h2, h3, p)')`,
     vault: `document.body.innerText.includes('Drop files or click to upload')`,
     // A phone keeps the region list in a closed sheet: the count line is drawn

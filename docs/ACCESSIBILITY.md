@@ -11,15 +11,15 @@ Last reviewed: 18 November 2026. This page describes the code on `main` on that 
   line (a band under the line you point at, like a ruler). Read aloud speaks cards, questions,
   lessons, notes and assistant answers with your computer's own voices, at 50 to 200% speed.
   No screen has been checked for cut-off text at the widest spacing.
-- **Keyboard only.** Studying, card review and quizzes work from the keyboard, and lists and
+- **Keyboard only.** Studying, card review and answering questions work from the keyboard, and lists and
   cards move without a drag. Resizing the sidebar and the detail panel still needs a mouse. In
   a card review a digit key rates the card even when a button has focus; Confirm before
   grading makes every answer and rating take two presses.
-- **Screen reader.** Card review, quiz answers and maths are read out; this is checked with
-  NVDA, and no other screen reader has been tried. Results of drills and quizzes are shown but
-  not read out yet.
-- **Time and attention.** Motion → Reduced stops movement. Timed drills can have two or three
-  times as long, or no clock; quizzes have no clock; a mock exam's clock is optional and can
+- **Screen reader.** Card review, answers and maths are read out; this is checked with
+  NVDA, and no other screen reader has been tried. Results of drills are shown but not read
+  out yet.
+- **Time and attention.** Motion → Reduced stops movement. Timed drills and mock exams can
+  have two or three times as long, or no clock; the mastery check has no clock; a mock exam's clock can
   be paused. In a drill, a right answer moves on by itself after a short pause. The app sends
   no reminders or notifications. Notices on screen close by themselves after 4 seconds (8 for
   an error) unless the pointer or focus is on them. Animations a model writes are not checked
@@ -39,8 +39,7 @@ The main reasons, each described under [Known gaps](#known-gaps):
 
 - Some structures are drawn for the eye and not described to assistive technology: the outline
   tree and the status icons on topics.
-- Some results are shown but not announced: drill verdicts, quiz results and the result of a
-  mastery check.
+- Some results are shown but not announced: drill verdicts and the result of a mastery check.
 - Much of what you study is written by a model (lessons, diagrams, charts, animations,
   assistant answers), and the app cannot promise that every piece of it is accessible.
 
@@ -59,8 +58,8 @@ The [conformance report](#conformance-report-wcag-22) at the end goes through ev
 - Listening: Read aloud adds a speaker button to cards, questions, lessons, notes and
   assistant answers, using the voices installed on the computer; nothing is sent anywhere.
   Reading speed goes from 50 to 200%. Play card recordings by themselves can be switched off.
-- Time and answers: Time limits gives timed drills normal time, twice or three times as long,
-  or no clock. Confirm before grading makes the first press on an answer or a rating select
+- Time and answers: Time limits gives timed drills and mock exams normal time, twice or three
+  times as long, or no clock. Confirm before grading makes the first press on an answer or a rating select
   it and the second grade it.
 
 On a device with a keyboard, the same section lists every keyboard shortcut and has a
@@ -99,9 +98,11 @@ Elsewhere in the app:
   lists the same regions, courses and topics as text.
 - In Windows High Contrast and other forced-colour modes, the current page, the chosen option
   and a switch that is on are marked with an outline in a system colour.
-- Quizzes and the mastery check have no clock. A mock exam drawn from a course's own
+- The mastery check has no clock. A mock exam drawn from a course's own
   questions has an optional clock of 1 to 600 minutes, and every mock exam clock can be
-  paused.
+  paused. Time limits stretches a mock exam's clock as it starts: a past paper's printed time
+  or the minutes chosen for a course mock, twice or three times as long; Off starts it with
+  no clock. A mock already running keeps the clock it started with.
 
 ## Known gaps
 
@@ -110,8 +111,7 @@ Each of these is in the code on the date above.
 - The outline tree has arrow keys but is not marked up as a tree. A topic's status (done, in
   progress, overdue, skipped) is an icon with no text, and the status button does not say the
   current status.
-- Drill verdicts, a quiz's "Question N of M", quiz results and the mastery check's result are
-  shown but not announced.
+- Drill verdicts and the mastery check's result are shown but not announced.
 - During a card review, keyboard focus stays in the session, but a screen reader's browse mode
   can still move into the page behind it.
 - In a topic's own card list, turning a card over is read only as "pressed"; the answer has to
@@ -169,11 +169,11 @@ a page that did not do the thing fails it.
 
 **axe in a real browser.** `tools/axe-gates.mjs` builds the app, opens it in headless Edge or
 Chrome on an invented course, and runs [axe-core](https://github.com/dequelabs/axe-core) with
-the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 19 screens:
-Today, Projects, a new course, a course's dashboard, its outline, a topic with its quizzes and
-cards tabs, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
+the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 18 screens:
+Today, Projects, a new course, a course's dashboard, its outline, a topic with its questions and
+cards tab, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
 General, Accessibility, Learning, AI & Models and Web & research sections of Settings. Each is
-scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 76 scans. The
+scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 72 scans. The
 allowed failures are listed in `tools/axe-allowlist.json`, which may only shrink; it is empty,
 so one failure on any screen fails the gate. Before trusting a scan, the gate shows axe a
 broken button and checks that axe reports it. It runs in `npm test` and on the Windows leg of
@@ -237,8 +237,8 @@ Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
 - `control-gates.mjs`: buttons and fields take their size and shape from the shared controls,
   so the same action looks the same everywhere.
 
-**What these do not cover.** The axe gate does not open the mastery check, a quiz in
-progress, drills, mock exams, paper practice, the search dialog, the welcome steps of a new
+**What these do not cover.** The axe gate does not open the mastery check,
+drills, mock exams, paper practice, the search dialog, the welcome steps of a new
 library, the sign-in screen, or the Devices & security and Library & about sections of
 Settings. No check runs the app at 200% zoom, at 320 px wide, or with the widest text spacing
 on. The gates that mount components (`a11y-behaviour-gates.mjs`, `keyboard-gates.mjs`,
@@ -281,7 +281,7 @@ has nothing the criterion is about.
 | 2.1.1 Keyboard | Partially supports | Resizing the sidebar and the detail panel needs a mouse; reordering and dialogs use the keyboard; the atlas map moves and zooms by keyboard, and its topics are picked from its index. |
 | 2.1.2 No Keyboard Trap | Supports | Dialogs keep and return focus; Escape then Tab leaves the code editor. |
 | 2.1.4 Character Key Shortcuts | Supports | Single-key shortcuts can be switched off in Settings → Accessibility. |
-| 2.2.1 Timing Adjustable | Partially supports | Drill clocks scale or switch off; notices close after 4 to 8 seconds unless hovered or focused. |
+| 2.2.1 Timing Adjustable | Partially supports | Drill and mock exam clocks scale or switch off; notices close after 4 to 8 seconds unless hovered or focused. |
 | 2.2.2 Pause, Stop, Hide | Supports | Animations have a pause button and stop when Motion is Reduced. |
 | 2.3.1 Three Flashes or Below Threshold | Supports | Nothing the app itself draws flashes more than three times a second. Animations a model writes are outside this report and are not checked (see Known gaps). |
 | 2.4.1 Bypass Blocks | Supports | A Skip to content link and landmarks on every screen. |

@@ -131,7 +131,7 @@ app.post('/api/media/:hash/describe', wrap(async (req, res) => {
         return res.status(503).json(keyed('No verified vision model is available — set one in Settings → AI & Models.'));
     }
     const result = await describeMedia(hash, { force: !!req.body?.force, model });
-    if (!result.ok) return res.status(422).json(keyed(result.reason));
+    if (!result.ok) return res.status(422).json(keyed(result.messageKey ?? result.reason));
     res.json(result);
 }));
 
