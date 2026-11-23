@@ -99,8 +99,8 @@ export default function MarkedImage({ src, width, height, box, label, maxWidth =
                     {label && (
                         <span
                             dir="auto"
-                            className={`absolute ${labelRight ? 'end-[-3px]' : 'start-[-3px]'} truncate rounded-md bg-accent px-1.5 py-0.5 text-xs font-medium text-white ${labelInside ? 'top-0' : 'bottom-full mb-1'}`}
-                            style={{ maxWidth: labelMax }}
+                            className={`absolute truncate rounded-md bg-accent px-1.5 py-0.5 text-xs font-medium text-white ${labelInside ? 'top-0' : 'bottom-full mb-1'}`}
+                            style={{ maxWidth: labelMax, ...(labelRight ? { right: -3 } : { left: -3 }) }}
                         >
                             {label}
                         </span>
