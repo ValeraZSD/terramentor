@@ -154,13 +154,18 @@ export interface LinkFixes {
     onUseTitle: (key: string) => void;
 }
 
-export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: {
+export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes, draft = '', onDraft }: {
     files: SourceFile[];
     onAdd: (files: File[]) => void;
     onRemove: (key: string) => void;
     /** Links pasted, typed or dropped: each is read and listed. */
     onLinks: (urls: string[]) => void;
     fixes: LinkFixes;
+    /** The link box's text when it shows again: the window keeps it across a step. */
+    draft?: string;
+    /** The link box's text not yet added, as it changes: the window counts it
+     *  as typed work before it closes. */
+    onDraft?: (text: string) => void;
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
@@ -169,7 +174,12 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     const addRef = useRef<HTMLButtonElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [dragOver, setDragOver] = useState(false);
-    const [text, setText] = useState('');
+    // Seeded from the window: ← to the first choice and back again keeps a typed
+    // link, as it keeps the name and the goal, so it stays work to lose.
+    const [text, setText] = useState(draft);
+    const onDraftRef = useRef(onDraft);
+    onDraftRef.current = onDraft;
+    useEffect(() => { onDraftRef.current?.(text); }, [text]);
     // A failed link whose "Choose a file" opened the picker: the files picked
     // take its place in the list.
     const replacing = useRef<string | null>(null);

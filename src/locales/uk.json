@@ -4245,6 +4245,7 @@
   "What you already know (sets the floor)": "Що ви вже знаєте (встановлює мінімальний рівень)",
   "What you delete stays here, with everything in it, until you empty this list.": "Видалене залишається тут разом з усім вмістом, доки ви не очистите цей список.",
   "What you can do": "Що можна зробити",
+  "What you typed and the material you added will not be kept.": "Введений текст і додані матеріали не збережуться.",
   "What you typed in {{lowerLabel}} since the last save will be lost.": "Усе, що ви ввели в розділі «{{lowerLabel}}» після останнього збереження, буде втрачено.",
   "What you were doing, and what the app did instead of what you expected.": "Що ви робили і що застосунок зробив замість того, на що ви очікували.",
   "What you'll be marked on": "За що вас оцінюватимуть",
