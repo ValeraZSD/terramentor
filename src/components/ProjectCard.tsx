@@ -276,7 +276,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 // Exam" off names that fitted below it.
                                 className={`-mx-1 px-1 line-clamp-3 text-start rounded ${FOCUS_RING}`}
                             >
-                                {project.name}
+                                {/* The name keeps its own direction (punctuation at its end) while the line stays on the card's start edge. */}
+                                <bdi>{project.name}</bdi>
                             </button>
                         </h3>
 
@@ -368,7 +369,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                     </div>
 
                     {project.description && (
-                        <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3">{project.description}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3"><bdi>{project.description}</bdi></p>
                     )}
 
                     {/* When it runs and whether it is on pace, and the control
