@@ -248,6 +248,13 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             file_title, author, licence, licence_url, source_url)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    // The photo's file carries the course's words for it, so it reads aloud
+    // and is not queued as an undescribed card picture.
+    const describePhoto = db.prepare(`
+        UPDATE media_files SET description = ?, described_by = 'author'
+        WHERE project_id = ? AND hash = ? AND (description IS NULL OR description = '')
+    `);
+    const photoAlt = (subject, shows) => (shows ? `${subject}. ${shows}` : subject).slice(0, 1000);
     let cardCount = 0;
     let unresolvedMedia = 0;
     const resolveMedia = (media) => {
@@ -302,6 +309,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', found ? 'found' : 'none',
                 found?.hash ?? null, c.width ?? null, c.height ?? null, c.file_title ?? null, c.author ?? null,
                 c.licence ?? null, c.licence_url ?? null, c.source_url ?? null);
+            if (found) describePhoto.run(photoAlt(p.subject, p.shows), newProjectId, found.hash);
         });
         node.children.forEach((child, idx) => walk(child, newNodeId, idx, path));
     };

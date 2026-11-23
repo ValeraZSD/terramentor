@@ -709,13 +709,15 @@ const FREE_PHOTO_LICENCE = /^(cc0\b|public domain\b|cc by(-sa)? \d(\.\d)?\b)/i;
 const NOT_FREE = /\b(nc|nd)\b/i;
 const MAX_PHOTOS_PER_NODE = 8;
 
-/** An https address on one of `hosts` (any host when null), or ''. */
-function httpsUrl(value, hosts = null) {
+/** An https address on one of `hosts` (compared with any port), whose path
+ *  starts with `path` when given, or ''. Too long is refused, never cut. */
+function httpsUrl(value, hosts, path = '') {
     try {
         const u = new URL(String(value ?? ''));
         if (u.protocol !== 'https:' || u.username || u.password) return '';
-        if (hosts && !hosts.includes(u.hostname)) return '';
-        return u.toString().slice(0, 600);
+        if (!hosts.includes(u.host) || !u.pathname.startsWith(path)) return '';
+        const out = u.toString();
+        return out.length <= 600 ? out : '';
     } catch { return ''; }
 }
 
@@ -745,8 +747,10 @@ function normalizeImportPhotos(photos, at, warnings) {
                 file_title: line(p.file_title, 300) || null,
                 author: line(p.author, 200) || null,
                 licence,
-                licence_url: httpsUrl(p.licence_url) || null,
-                source_url: httpsUrl(p.source_url, ['commons.wikimedia.org']),
+                // A link labelled with a licence opens that licence's deed;
+                // the source is the file's own page on the archive.
+                licence_url: httpsUrl(p.licence_url, ['creativecommons.org']) || null,
+                source_url: httpsUrl(p.source_url, ['commons.wikimedia.org'], '/wiki/File:'),
                 width: Number.isSafeInteger(p.width) && p.width > 0 ? p.width : null,
                 height: Number.isSafeInteger(p.height) && p.height > 0 ? p.height : null,
             };

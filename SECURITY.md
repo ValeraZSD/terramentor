@@ -67,7 +67,9 @@ your data at all." Those are different claims and we only make the second one.
   and (e) web search for an ANSWER, described next, which is also **off by
   default**; and (f) only on a server running the site front desk (`server/site/`, never in
   the app on your own machine), the breached-password check when someone sets a password there,
-  described under "Accounts on a site". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
+  described under "Accounts on a site"; and (g) photos for a topic learned by sight, from
+  Wikimedia Commons, while a course is created with the "Photos" job on and when you press
+  **Look again** on such a topic, described under "Photos for topics learned by sight". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
   see "Verifying the no-telemetry claim" below, because you should not take our word for it.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
   falls back to OCR, and tesseract.js downloads its language model from a CDN unless it is told
@@ -791,7 +793,8 @@ artworks) is taught with real photos of named examples, found in Wikimedia Commo
   "Photos" sits beside "Resource hunting". With it on, a course you create with AI looks for photos once
   its outline is written, as a task in the task list that you can stop. With it off, creating a
   course opens no connection for photos. On a topic that has examples, **Look again** runs the
-  same search for that topic only, when you press it. Nothing about photos starts when the app
+  same search for that topic only, when you press it, with the switch on or off (like **Find
+  resources**: a press is the request). Nothing about photos starts when the app
   starts.
 - **Where it connects.** `commons.wikimedia.org` (the archive's search) and the archive's file
   hosts `thumb.wikimedia.org` and `upload.wikimedia.org` (the chosen photo, at the 960 px width
@@ -801,11 +804,14 @@ artworks) is taught with real photos of named examples, found in Wikimedia Commo
   through `server/netSafety.js` like every other fetch.
 - **What it sends.** The example's name as search words (written by the course's model from
   the course name, its description and the topic titles; your notes and documents are not in
-  front of it), a User-Agent naming the app, its version and its project page, because
-  Wikimedia refuses anonymous clients, and your IP, as a browser would. No key, no account.
-- **How often.** One request at a time, at least a second apart. A "slow down" answer (429,
-  503 or a lag notice) is waited out once, for as long as it asks; a second one stops the run.
-  At most 12 topics a course and 4 examples a topic are searched.
+  front of it), a User-Agent naming the app, its version, its project page and the Node.js
+  version it runs on, because Wikimedia refuses anonymous clients, and your IP, as a browser
+  would. No key, no account.
+- **How often, and how much.** One request at a time, at least a second apart, each given up
+  after 30 seconds. A "slow down" answer (429, 503 or a lag notice) is waited out once, for as
+  long as its `Retry-After` asks between 1 and 120 seconds (5 when it names none); a second one
+  stops the run. A search answer is read up to 2 MB and a photo up to 4 MB, and a larger one is
+  dropped. At most 12 topics a course and 4 examples a topic are searched.
 - **What is kept.** Only photos under CC0, public domain, CC BY or CC BY-SA, of a sensible size
   and shape, that the archive does not mark non-free or restricted. Each is stored in the
   library's media folder, so the course works offline, with the author, licence and source page
@@ -972,13 +978,13 @@ about ten minutes:
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
    (and to the connections you gave a job or chose as backups, if you did)
-   and to nothing else, with one exception you can switch off: creating a project with
+   and to nothing else, except for the following, each started by a setting you can turn off or a button you press: creating a project with
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
    With the "Photos" model job on, a creation also reaches `commons.wikimedia.org`, `thumb.wikimedia.org`
-   and `upload.wikimedia.org` while it finds photos for topics learned by sight, and **Look again**
-   on one topic reaches them for that topic only.
+   and `upload.wikimedia.org` while it finds photos for topics learned by sight. Pressing **Look again**
+   on one topic reaches them for that topic only, with the job on or off, like **Find resources**.
    Reading a link added as course material reaches that link's host (and `www.youtube.com` for
    a video, up to six requests), once per link pasted, dropped or added in the New course
    window, or per press of Create on the assistant's card. Any of

@@ -37,7 +37,7 @@ import { firstChoice } from './aiJobs.js';
 import { parseCreationJson } from './agentic.js';
 import { structureCall } from './creationCalls.js';
 import { safeFetch } from './netSafety.js';
-import { readCappedJson } from './httpBody.js';
+import { boundedResponse, readCappedJson } from './httpBody.js';
 import { makeThrottledQueue } from './searchBackends.js';
 import { mediaStorage, sha256 } from './vaultStorage.js';
 import { sniffMediaType } from './ankiMedia.js';
@@ -47,6 +47,13 @@ import * as tasks from './tasks.js';
 import { getSetting } from './settingsStore.js';
 import { getProjectLanguage } from './language.js';
 import { WORK_LEAF } from './today.js';
+
+// Every statement compiled once: some run per topic, per photo and per lesson.
+const statements = new Map();
+const stmt = (sql) => {
+    if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
+    return statements.get(sql);
+};
 
 export const PHOTO_SETTING = 'creation_find_photos';
 export const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
@@ -69,6 +76,9 @@ const MAX_VISION_CHECKS = 24;
 const API_BODY_BYTES = 2 * 1024 * 1024;
 const PHOTO_BYTES = 4 * 1024 * 1024;
 const REQUEST_GAP_MS = 1000;
+/** One request to the archive, answer included; a stalled socket would hold
+ *  every course's photo run behind it. */
+const REQUEST_TIMEOUT_MS = 30_000;
 const RETRY_AFTER_CAP_S = 120;
 const MIN_WIDTH = 640;
 const MIN_HEIGHT = 400;
@@ -98,6 +108,16 @@ export function plainText(html, max = 300) {
 
 const metaValue = (meta, key) => plainText(meta?.[key]?.value, 400);
 
+/** A licence's deed, kept only on creativecommons.org: a credit link labelled
+ *  with a licence opens that licence, never another site. */
+export function licenceLink(raw) {
+    try {
+        const u = new URL(String(raw ?? '').trim().replace(/^http:/, 'https:'));
+        if (u.protocol !== 'https:' || u.username || u.password || u.host !== 'creativecommons.org') return null;
+        return u.toString().slice(0, 300);
+    } catch { return null; }
+}
+
 /**
  * The licence a file may be used under here, or null. Kept: CC0, public
  * domain, CC BY and CC BY-SA (any version, ported or not). Dropped: anything
@@ -119,11 +139,13 @@ export function licenceOf(meta) {
     else if (/^cc-by-sa-\d(\.\d)?(-[a-z]{2,3})?$/.test(code) || /^cc by-sa \d(\.\d)?\b/i.test(short)) kind = 'by-sa';
     else if (/^cc-by-\d(\.\d)?(-[a-z]{2,3})?$/.test(code) || /^cc by \d(\.\d)?\b/i.test(short)) kind = 'by';
     if (!kind) return null;
-    const url = metaValue(meta, 'LicenseUrl');
+    // With no short name, one is built from the code in the form the course
+    // file importer accepts ("CC BY-SA 4.0"), so the photo survives a round trip.
+    const fromCode = () => code.replace(/-[a-z]{2,3}$/, '').replace(/^cc-by-sa-/, 'CC BY-SA ').replace(/^cc-by-/, 'CC BY ');
     return {
         kind,
-        name: short || (kind === 'cc0' ? 'CC0' : kind === 'pd' ? 'Public domain' : code.toUpperCase()),
-        url: /^https?:\/\/[^\s]+$/.test(url) ? url.replace(/^http:/, 'https:') : null,
+        name: short || (kind === 'cc0' ? 'CC0' : kind === 'pd' ? 'Public domain' : fromCode()),
+        url: licenceLink(metaValue(meta, 'LicenseUrl')),
     };
 }
 
@@ -136,7 +158,10 @@ export function authorOf(meta) {
 const httpsOn = (raw, hosts) => {
     try {
         const u = new URL(String(raw).replace(/^\/\//, 'https://'));
-        if (u.protocol !== 'https:' || !(typeof hosts === 'string' ? u.hostname === hosts : hosts.has(u.hostname))) return null;
+        // `host`, not `hostname`: an address with a port of its own is not
+        // the archive's.
+        if (u.protocol !== 'https:' || u.username || u.password
+            || !(typeof hosts === 'string' ? u.host === hosts : hosts.has(u.host))) return null;
         // The archive tags its addresses with campaign parameters; the file
         // is the same without them, and the request carries less.
         for (const k of [...u.searchParams.keys()]) if (/^utm_/i.test(k)) u.searchParams.delete(k);
@@ -166,7 +191,7 @@ export function candidateOf(page) {
     const thumb = httpsOn(ii.thumburl || ii.url, FILE_HOSTS);
     if (!thumb) return null;
     const source = httpsOn(ii.descriptionurl, API_HOST)
-        || `https://${API_HOST}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+        || `https://${API_HOST}/wiki/${encodeURIComponent(title.replace(/ /g, '_')).replace(/^File%3A/i, 'File:')}`;
     return {
         title: title.slice(0, 300),
         thumb,
@@ -221,7 +246,7 @@ class ArchiveBusy extends Error {
     constructor(msg) { super(msg); this.name = 'ArchiveBusy'; }
 }
 
-const onArchive = (next) => next.protocol === 'https:' && (next.hostname === API_HOST || FILE_HOSTS.has(next.hostname));
+const onArchive = (next) => next.protocol === 'https:' && (next.host === API_HOST || FILE_HOSTS.has(next.host));
 
 /**
  * One request, in the queue. A 429, a 503 or a lag answer is waited out once
@@ -233,10 +258,11 @@ async function archiveRequest(url, { signal, read, stats }) {
         const out = await queue(async () => {
             if (signal?.aborted) throw signal.reason || Object.assign(new Error('Cancelled'), { name: 'AbortError' });
             stats.requests++;
+            const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
             const res = await fetchImpl(url, {
                 headers: { 'User-Agent': commonsUserAgent(), 'Api-User-Agent': commonsUserAgent(), Accept: read === 'json' ? 'application/json' : 'image/*' },
                 allowRedirect: onArchive,
-                signal,
+                signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
             });
             const retryAfter = Math.min(Math.max(Number(res.headers.get('retry-after')) || 5, 1), RETRY_AFTER_CAP_S);
             if (res.status === 429 || res.status === 503) {
@@ -258,7 +284,9 @@ async function archiveRequest(url, { signal, read, stats }) {
                 await res.body?.cancel?.().catch(() => { });
                 throw new Error('the photo is larger than the app keeps');
             }
-            const buf = Buffer.from(await res.arrayBuffer());
+            // Bounded while it streams: a body with no length is cut off at
+            // the cap instead of being read whole first.
+            const buf = Buffer.from(await boundedResponse(res, { bodyBytes: PHOTO_BYTES }).arrayBuffer());
             if (buf.length > PHOTO_BYTES) throw new Error('the photo is larger than the app keeps');
             return { buf };
         });
@@ -358,14 +386,16 @@ export async function choosePhotos(topicTitle, examples, { signal, answered } = 
     return picks;
 }
 
-/** 'yes' when the vision job's model is known to see images. A model that
- *  only might would invent what it was shown, which is worse than no check. */
+/** True only when the vision job's model is known to see images ('yes').
+ *  'listed' is for work the learner starts (ai.js): this run is unattended, so
+ *  a catalogue entry alone never sends photos to a billed model. A model that
+ *  only might see would also invent what it was shown. */
 async function visionReady() {
     try {
         const head = firstChoice('vision');
         if (!head?.enabled || !head.model) return false;
         const cap = await visionAvailability(head.model, head);
-        return cap === 'yes' || cap === 'listed';
+        return cap === 'yes';
     } catch { return false; }
 }
 
@@ -399,15 +429,22 @@ const fileNameFor = (candidate, ext) => {
 
 function keepPhoto(projectId, row, candidate, buf, type, checkedBy) {
     const { hash, size } = mediaStorage.put(buf);
-    db.prepare(`INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size)
+    stmt(`INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size)
         VALUES (?, ?, ?, ?, 'image', ?)`).run(projectId, hash, fileNameFor(candidate, type.ext), type.mime, size);
-    db.prepare(`UPDATE node_photos SET status = 'found', hash = ?, width = ?, height = ?, file_title = ?,
+    stmt(`UPDATE node_photos SET status = 'found', hash = ?, width = ?, height = ?, file_title = ?,
             author = ?, licence = ?, licence_url = ?, source_url = ?, checked_by = ?
         WHERE id = ?`).run(hash, candidate.width, candidate.height, candidate.title, candidate.author,
         candidate.licence.name, candidate.licence.url, candidate.source, checkedBy, row.id);
+    // The file carries the course's words for it (the same text the screen
+    // uses as its alt), so a screen reader has it and the describe-pictures
+    // sweep does not send the photo to a model as an undescribed card picture.
+    const alt = (row.shows ? `${row.subject}. ${row.shows}` : row.subject).slice(0, 1000);
+    // The model that wrote it is named, as on every AI-written row.
+    stmt(`UPDATE media_files SET description = ?, described_by = 'author', generated_by = ?
+        WHERE project_id = ? AND hash = ? AND (description IS NULL OR description = '')`).run(alt, row.generated_by ?? null, projectId, hash);
 }
 
-const rowsOf = (nodeId) => db.prepare('SELECT * FROM node_photos WHERE node_id = ? ORDER BY position, id').all(nodeId);
+const rowsOf = (nodeId) => stmt('SELECT * FROM node_photos WHERE node_id = ? ORDER BY position, id').all(nodeId);
 
 // ---------------------------------------------------------------------------
 // A run: one course, or one topic again
@@ -422,7 +459,7 @@ const nodeRunning = (nodeId, projectId) => !!running.get(Number(projectId))?.nod
 
 /** The course's topics, in the order it is studied. */
 function topicsInOrder(projectId) {
-    return db.prepare(`
+    return stmt(`
         WITH RECURSIVE ordered AS (
             SELECT id, printf('%08d-%010d', COALESCE(position, 0), id) AS path
             FROM live_nodes nodes WHERE project_id = ? AND parent_id IS NULL
@@ -455,7 +492,7 @@ async function findForTopic(projectId, node, run) {
         const chosen = await choosePhotos(node.title, withCandidates, { signal: run.signal });
         withCandidates.forEach((e, i) => { picks[examples.indexOf(e)] = chosen[i]; });
     }
-    const usedHashes = new Set(db.prepare(`SELECT hash FROM node_photos WHERE node_id = ? AND hash IS NOT NULL`).all(node.id).map(r => r.hash));
+    const usedHashes = new Set(stmt(`SELECT hash FROM node_photos WHERE node_id = ? AND hash IS NOT NULL`).all(node.id).map(r => r.hash));
     for (let i = 0; i < examples.length; i++) {
         const { row, candidates } = examples[i];
         let kept = false;
@@ -479,7 +516,7 @@ async function findForTopic(projectId, node, run) {
             break;
         }
         if (!kept) {
-            db.prepare(`UPDATE node_photos SET status = 'none' WHERE id = ? AND status = 'pending'`).run(row.id);
+            stmt(`UPDATE node_photos SET status = 'none' WHERE id = ? AND status = 'pending'`).run(row.id);
             run.stats.none++;
         }
     }
@@ -493,7 +530,7 @@ async function findForTopic(projectId, node, run) {
  */
 async function runPhotos(projectId, { nodeIds = null, controller, handle } = {}) {
     const started = performance.now();
-    const project = db.prepare('SELECT id, name, description FROM live_projects projects WHERE id = ?').get(projectId);
+    const project = stmt('SELECT id, name, description FROM live_projects projects WHERE id = ?').get(projectId);
     const run = {
         signal: controller.signal,
         stats: { requests: 0, waited: 0, failed: 0, found: 0, none: 0, looked: 0, refusedByLook: 0 },
@@ -502,22 +539,23 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
     const state = running.get(projectId);
     let topics = 0;
     let outcome = 'done';
+    let reason = null;
     try {
         if (!project) return run.stats;
         run.vision = await visionReady();
         let nodes;
         if (nodeIds) {
             // startPhotos already marked these topics pending.
-            nodes = nodeIds.map(id => db.prepare('SELECT id, title, description FROM live_nodes nodes WHERE id = ? AND project_id = ?').get(id, projectId)).filter(Boolean);
+            nodes = nodeIds.map(id => stmt('SELECT id, title, description FROM live_nodes nodes WHERE id = ? AND project_id = ?').get(id, projectId)).filter(Boolean);
         } else {
             // Topics that already have examples keep them (a course continued
             // after a stop); the rest are asked about.
             const all = topicsInOrder(projectId)
-                .filter(n => !db.prepare('SELECT 1 FROM node_photos WHERE node_id = ? LIMIT 1').get(n.id));
+                .filter(n => !stmt('SELECT 1 FROM node_photos WHERE node_id = ? LIMIT 1').get(n.id));
             const answered = {};
             const plan = all.length ? await planPhotos(project, all, { signal: run.signal, answered }) : [];
             const by = aiProvenance({ job: 'courses', answered });
-            const insert = db.prepare(`INSERT INTO node_photos (node_id, position, subject, search, shows, status, generated_by)
+            const insert = stmt(`INSERT INTO node_photos (node_id, position, subject, search, shows, status, generated_by)
                 VALUES (?, ?, ?, ?, ?, 'pending', ?)`);
             db.transaction(() => {
                 for (const p of plan) {
@@ -536,7 +574,7 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
             try {
                 await findForTopic(projectId, n, run);
             } catch (err) {
-                if (err instanceof ArchiveBusy) { outcome = 'busy'; break; }
+                if (err instanceof ArchiveBusy) { outcome = 'busy'; reason = err.message; break; }
                 if (err?.name === 'AbortError' || run.signal.aborted) break;
                 run.stats.failed++;
             } finally {
@@ -551,12 +589,13 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
     } catch (err) {
         outcome = err?.name === 'AbortError' || run.signal.aborted ? 'cancelled' : 'failed';
         if (outcome === 'failed') {
+            reason = err?.message || 'Finding photos failed';
             logActivity({ area: 'project', event: 'photos.failed', level: 'warn', detail: failureFacts(err), projectId });
         }
     } finally {
         // Nothing is left waiting: what a stopped run did not reach is "none",
         // and the topic page offers to look again.
-        db.prepare(`UPDATE node_photos SET status = 'none'
+        stmt(`UPDATE node_photos SET status = 'none'
             WHERE status = 'pending' AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`).run(projectId);
     }
     const s = run.stats;
@@ -565,7 +604,7 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
         detail: `${topics} topics · ${s.found} found · ${s.none} none · ${s.requests} requests${s.waited ? ` · ${s.waited} waits` : ''}${s.looked ? ` · ${s.looked} looked at` : ''}`,
         ms: performance.now() - started, projectId,
     });
-    return { outcome, topics, ...s };
+    return { outcome, reason, topics, ...s };
 }
 
 /**
@@ -580,25 +619,36 @@ export function startPhotos(projectId, { nodeIds = null, origin } = {}) {
     if (!getAISettings().enabled) return { started: false, reason: 'ai_off' };
     const controller = new AbortController();
     const state = { controller, nodes: new Set(nodeIds || []), planned: !!nodeIds, done: null };
+    // Registered first: if that throws, nothing is left marked as running, and
+    // the course creation that called this still finishes.
+    let handle;
+    try {
+        handle = tasks.registerExternal({
+            kind: 'find_photos',
+            label: 'Finding photos',
+            labelKey: 'Finding photos',
+            origin: origin || { surface: 'app', job: 'find_photos', projectId },
+            projectId,
+            cancel: () => controller.abort(Object.assign(new Error('Cancelled'), { name: 'AbortError' })),
+        });
+    } catch (err) {
+        logActivity({ area: 'project', event: 'photos.failed', level: 'warn', detail: failureFacts(err), projectId });
+        return { started: false, reason: 'failed' };
+    }
     running.set(projectId, state);
     // Marked before the run starts, so the answer to "look again" already
     // says pending and the screen keeps checking until the run is over.
     if (nodeIds) {
-        const mark = db.prepare(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
+        const mark = stmt(`UPDATE node_photos SET status = 'pending' WHERE node_id = ? AND status = 'none'
             AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)`);
         for (const id of nodeIds) mark.run(id, projectId);
     }
-    const handle = tasks.registerExternal({
-        kind: 'find_photos',
-        label: 'Finding photos',
-        labelKey: 'Finding photos',
-        origin: origin || { surface: 'app', job: 'find_photos', projectId },
-        projectId,
-        cancel: () => controller.abort(Object.assign(new Error('Cancelled'), { name: 'AbortError' })),
-    });
     const p = chain.then(() => runPhotos(projectId, { nodeIds, controller, handle }))
         .then((result) => {
+            // A run the archive stopped, or one that failed, says so in the
+            // task list instead of reading as finished.
             if (result?.outcome === 'cancelled') { try { handle.cancelled?.(); } catch { } }
+            else if (result?.outcome === 'failed' || result?.outcome === 'busy') { try { handle.fail(result.reason); } catch { } }
             else try { handle.finish(); } catch { }
             return result;
         })
@@ -631,7 +681,7 @@ export function photoState(nodeId, rows = null) {
 }
 
 const runningFor = (nodeId) => {
-    const row = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+    const row = stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
     return !!row && running.has(row.project_id);
 };
 
@@ -674,7 +724,7 @@ export function lessonPhotos(nodeId) {
  * what `lessonPhotos` returns once it is settled or the wait is over.
  */
 export async function awaitTopicPhotos(nodeId, { timeoutMs = 45_000, signal } = {}) {
-    const row = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+    const row = stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
     const until = Date.now() + timeoutMs;
     while (row && Date.now() < until && !signal?.aborted) {
         const state = running.get(row.project_id);
@@ -706,13 +756,13 @@ const HTML_IMAGE = /<img\b[^>\n]*>/gi;
  * any image the model wrote itself is dropped too: what it shows is a photo
  * from the archive, or nothing. Returns `{ text, placed: Set<uuid> }`.
  */
-export function placePhotoMarkers(text, photos, { usedBefore = new Set() } = {}) {
+export function placePhotoMarkers(text, photos) {
     const placed = new Set();
     let out = String(text ?? '');
     if (Array.isArray(photos)) out = out.replace(MARKDOWN_IMAGE, '').replace(HTML_IMAGE, '');
     out = out.replace(PHOTO_REF, (_, n) => {
         const p = Array.isArray(photos) ? photos[Number(n) - 1] : null;
-        if (!p?.uuid || placed.has(p.uuid) || usedBefore.has(p.uuid)) return '';
+        if (!p?.uuid || placed.has(p.uuid)) return '';
         placed.add(p.uuid);
         return `\n\n[[photo:${p.uuid}]]\n\n`;
     });
@@ -736,7 +786,7 @@ export function lessonPhotoFields(nodeId, content, { partIndex = 1, partCount = 
     if (!rows.length) return {};
     const views = new Map(rows.map(r => [r.uuid, photoView(r)]));
     const here = [...new Set(placedPhotoIds(content))].filter(u => views.has(u));
-    const placedAnywhere = new Set(db.prepare(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`)
+    const placedAnywhere = new Set(stmt(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`)
         .all(nodeId).flatMap(r => placedPhotoIds(r.content)));
     const unplaced = rows.filter(r => !placedAnywhere.has(r.uuid)).map(r => views.get(r.uuid));
     const stripHere = placedAnywhere.size === 0 ? partIndex === 1 : partIndex === partCount;

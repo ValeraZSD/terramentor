@@ -35,7 +35,17 @@
 //   8. a 429 is retried once and then the run stops, logged;
 //   9. with the setting off, creation asks the archive nothing and the model
 //      no photo question; the setting is in the client's registry;
-//  10. SECURITY.md names both hosts.
+//  10. SECURITY.md names both hosts;
+//  13. a photo past the 4 MB cap is dropped and its stream is not read past
+//      the cap, with or without an announced length;
+//  14. a run whose task cannot be registered returns instead of throwing
+//      into course creation, and leaves nothing pending or marked running;
+//  15. a course file's licence link must be a creativecommons.org deed and
+//      its source a Commons file page (no other host, port, path, user name
+//      or a link over 600 characters).
+// Along the way: a model the catalogue only LISTS as seeing images is never
+// sent a photo by an unattended run; a busy run's task reads failed; a kept
+// or imported photo's file carries the course's words as its description.
 //
 // `--server <dir>` runs the same cases against another copy of server/ (the
 // pre-change code, e.g. `git archive origin/main server | tar -x -C temp/head`);
@@ -99,12 +109,18 @@ const stub = createServer((req, res) => {
             res.writeHead(200, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ data: [{ id: 'stub-model' }] }));
         }
+        // The catalogue says the model takes images ('listed'), as OpenRouter's
+        // does: enough for a photo the learner sends, not for an unattended run.
+        if (/\/models\/.+\/endpoints$/.test(req.url)) {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            return res.end(JSON.stringify({ data: { architecture: { input_modalities: ['text', 'image'] } } }));
+        }
         const body = JSON.parse(raw || '{}');
         const msgs = body.messages || [];
         const system = msgs.find(m => m.role === 'system')?.content || '';
         const user = msgs.filter(m => m.role === 'user').map(m => m.content).join('\n');
         const kind = kindOf(system);
-        calls.push({ kind, system, user });
+        calls.push({ kind, system, user, image: JSON.stringify(msgs).includes('image_url') });
         let content = null;
         if (kind === 'shape') content = '{"shape": "short"}';
         else if (kind === 'short') {
@@ -199,7 +215,8 @@ const ARCHIVE = {
     ],
 };
 const jpeg = (seed) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(`JFIF stub photo ${seed} `.repeat(20))]);
-const archive = { requests: [], inflight: 0, maxInflight: 0, foreign: [], busy: 0 };
+const archive = { requests: [], inflight: 0, maxInflight: 0, foreign: [], busy: 0, oversize: false, streamed: 0 };
+const OVERSIZE = 32 * 1024 * 1024;
 async function fakeArchive(url, init = {}) {
     const u = new URL(url);
     archive.inflight++;
@@ -216,6 +233,24 @@ async function fakeArchive(url, init = {}) {
             const q = (u.searchParams.get('gsrsearch') || '').replace(/ filetype:bitmap$/, '');
             const pages = ARCHIVE[q] || [];
             return new Response(JSON.stringify({ batchcomplete: true, query: { pages } }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if ((u.hostname === 'upload.wikimedia.org' || u.hostname === 'thumb.wikimedia.org') && archive.oversize) {
+            // A photo far past the cap, streamed in 256 KB pieces: on the
+            // thumbnail host with its length announced, on the upload host
+            // without one. `streamed` counts what the app pulled.
+            const piece = Buffer.alloc(256 * 1024, 7);
+            let sent = 0;
+            const body = new ReadableStream({
+                pull(c) {
+                    if (sent >= OVERSIZE) return c.close();
+                    sent += piece.length;
+                    archive.streamed += piece.length;
+                    c.enqueue(new Uint8Array(piece));
+                },
+            });
+            const headers = { 'content-type': 'image/jpeg' };
+            if (u.hostname === 'thumb.wikimedia.org') headers['content-length'] = String(OVERSIZE);
+            return new Response(body, { status: 200, headers });
         }
         if (u.hostname === 'upload.wikimedia.org' || u.hostname === 'thumb.wikimedia.org') {
             return new Response(jpeg(u.pathname), { status: 200, headers: { 'content-type': 'image/jpeg' } });
@@ -321,6 +356,8 @@ ok('a "find_photos" task ran and finished', t?.status === 'done', JSON.stringify
 const [hallsTopic, roofsTopic, historyTopic] = topicsOf(made.id);
 ok('the model was asked once which topics are learned by sight', calls.filter(c => c.kind === 'photo_plan').length === 1, JSON.stringify(calls.map(c => c.kind)));
 ok('...and once to pick, for the one topic with candidates left', calls.filter(c => c.kind === 'photo_choice').length === 1);
+ok('no photo is sent to a model the catalogue only lists as seeing images (an unattended run)', calls.length > 0 && !calls.some(c => c.image),
+    JSON.stringify(calls.filter(c => c.image).map(c => c.kind)));
 const choice = calls.find(c => c.kind === 'photo_choice');
 ok('the picker sees only the candidates that passed the filter', !!choice && choice.user.includes('Hall of Supreme Harmony 2019') && !/Taihedian (NC|plan|no author|elsewhere|GFDL|small)/.test(choice.user), choice?.user);
 ok('...by number, with no address in its prompt', !!choice && !/https?:\/\//.test(choice.user));
@@ -359,6 +396,8 @@ ok('an address inside a name the model wrote is dropped, never fetched', hallRow
 ok('the model that named the examples is recorded', hallRows.length > 0 && hallRows.every(r => /stub-model/.test(r.generated_by || '')));
 const media = hall.hash ? db.prepare('SELECT * FROM media_files WHERE hash = ? AND project_id = ?').get(hall.hash, made.id) : null;
 ok('the file is in the library\'s media store, for this course', !!media && media.mime === 'image/jpeg' && media.kind === 'image');
+ok('...described in the course\'s words, so it reads aloud and is not queued as undescribed',
+    media?.description === 'Hall of Supreme Harmony. The double-eaved hip roof and the marble terrace.' && media?.described_by === 'author', media && `${media.description} / ${media.described_by}`);
 const served = hall.hash ? await fetch(`${base}/api/media/${hall.hash}`) : null;
 const servedBytes = served ? Buffer.from(await served.arrayBuffer()) : Buffer.alloc(0);
 ok('the app serves it', served?.status === 200 && servedBytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])), served?.status);
@@ -435,6 +474,9 @@ const backRows = newTopics[0] ? photoRows(newTopics[0].id) : [];
 ok('the imported course has its photos back, with their credit', backRows.length === 2 && backRows.every(r => r.status === 'found')
     && backRows[0].hash === hall.hash && backRows[0].author === 'Ann Lee' && backRows[0].licence === 'CC BY-SA 4.0', JSON.stringify({ imported: !!imported, rows: backRows.map(r => r.status) }));
 ok('...the file in the new course\'s media store', !!newProject && !!db.prepare('SELECT 1 FROM media_files WHERE project_id = ? AND hash = ?').get(newProject.id, hall.hash));
+const backMedia = newProject ? db.prepare('SELECT description, described_by FROM media_files WHERE project_id = ? AND hash = ?').get(newProject.id, hall.hash) : null;
+ok('...described in the course\'s words there too', backMedia?.description === 'Hall of Supreme Harmony. The double-eaved hip roof and the marble terrace.'
+    && backMedia?.described_by === 'author', JSON.stringify(backMedia));
 ok('...and the example with no photo keeps its example', newTopics[1] && photoRows(newTopics[1].id).length === 1 && photoRows(newTopics[1].id)[0].status === 'none');
 
 // ---- 8. a busy archive -----------------------------------------------------------
@@ -449,6 +491,9 @@ await settle();
 ok('the search was asked twice and no more', archive.requests.length === 2, archive.requests.length);
 const busyLog = db.prepare(`SELECT event FROM activity_log WHERE event LIKE 'photos.%' ORDER BY id DESC LIMIT 1`).get();
 ok('the run is logged as stopped by the archive', busyLog?.event === 'photos.busy', busyLog?.event);
+const busyTask = photoTask();
+ok('...and its task says it failed, not finished', busyTask?.status === 'error' && /slow down/.test(busyTask?.error || ''),
+    JSON.stringify(busyTask && { status: busyTask.status, error: busyTask.error }));
 ok('nothing is left waiting', roofsTopic && photoRows(roofsTopic.id).every(r => r.status !== 'pending'));
 
 // ---- 9. the setting off ----------------------------------------------------------
@@ -501,6 +546,70 @@ section('12. the photo task names its course');
 const appRun = tasks.listTasks().find(x => x.kind === 'find_photos' && x.origin?.surface === 'app');
 ok('a run started by course creation carries the course in its origin', !!appRun && appRun.origin?.job === 'find_photos'
     && Number.isInteger(appRun.origin?.projectId), JSON.stringify(appRun?.origin));
+
+// ---- 13. a photo past the size cap ----------------------------------------------
+section('13. a photo past the size cap is dropped, and never read whole');
+setSetting.run('creation_find_photos', 'true');
+archive.requests = [];
+archive.oversize = true;
+archive.streamed = 0;
+const big = await create('Telling East Asian buildings apart, big');
+const bigTask = await settle();
+archive.oversize = false;
+const [bigHalls] = topicsOf(big.id);
+const bigDownloads = archive.requests.filter(r => r.url.hostname === 'upload.wikimedia.org' || r.url.hostname === 'thumb.wikimedia.org');
+ok('the run went on to download both photos', bigTask?.status === 'done' && bigDownloads.length === 2, JSON.stringify({ status: bigTask?.status, downloads: bigDownloads.length }));
+ok('neither is kept: the topic has no photo and the course no file', !!bigHalls && photoRows(bigHalls.id).length === 2
+    && photoRows(bigHalls.id).every(r => r.status === 'none' && !r.hash)
+    && !db.prepare('SELECT 1 FROM media_files WHERE project_id = ?').get(big.id ?? -1), JSON.stringify(bigHalls && photoRows(bigHalls.id).map(r => r.status)));
+ok(`the app stopped reading at the cap (pulled ${(archive.streamed / 1048576).toFixed(1)} MB of two ${OVERSIZE / 1048576} MB photos)`,
+    archive.streamed > 0 && archive.streamed <= 6 * 1024 * 1024, archive.streamed);
+
+// ---- 14. starting a run never throws into its caller ----------------------------
+section('14. a run that cannot be registered fails quietly and leaves nothing stuck');
+let threw = null, refused = null;
+try {
+    refused = photos?.startPhotos(big.id, { nodeIds: bigHalls ? [bigHalls.id] : [], origin: { get surface() { throw new Error('the task list broke'); } } });
+} catch (err) { threw = err; }
+ok('startPhotos returns instead of throwing (course creation calls it)', !threw && refused?.started === false && refused?.reason === 'failed',
+    threw ? threw.message : JSON.stringify(refused));
+ok('...and logs the failure as facts, not text', db.prepare(`SELECT detail FROM activity_log WHERE event = 'photos.failed' ORDER BY id DESC LIMIT 1`).get()?.detail?.includes('the task list broke') === false);
+ok('...and no topic was left pending', !!bigHalls && photoRows(bigHalls.id).every(r => r.status === 'none'));
+const retry = bigHalls ? await fetch(`${base}/api/nodes/${bigHalls.id}/photos/find`, { method: 'POST' }) : null;
+const retryBody = retry?.ok ? await retry.json() : null;
+ok('the course is not left marked as running: Look again starts a run', retryBody?.started === true, JSON.stringify(retryBody));
+await settle();
+
+// ---- 15. a course file's links ---------------------------------------------------
+section('15. an imported photo keeps only a licence deed and an archive file page');
+const schema = await import(`${B}curriculumSchema.js`);
+const goodPhoto = {
+    subject: 'Hall', media: 'hall.jpg', licence: 'CC BY-SA 4.0', author: 'Ann Lee',
+    licence_url: 'https://creativecommons.org/licenses/by-sa/4.0', source_url: 'https://commons.wikimedia.org/wiki/File:Hall.jpg',
+};
+const importOne = (p) => {
+    try { return schema.normalizeImportTree([{ title: 'T', photos: [p] }]).nodes[0].photos[0]; } catch (err) { return { error: err.message }; }
+};
+const keptImport = importOne(goodPhoto);
+ok('a photo with both links on their hosts is kept, links as written', keptImport?.media === 'hall.jpg'
+    && keptImport.credit?.licence_url === goodPhoto.licence_url && keptImport.credit?.source_url === goodPhoto.source_url, JSON.stringify(keptImport));
+for (const [label, url] of [
+    ['on another host', 'https://evil.example/wiki/File:Hall.jpg'],
+    ['on the archive outside its file pages', 'https://commons.wikimedia.org/w/index.php?title=Special:Upload'],
+    ['on another port', 'https://commons.wikimedia.org:8443/wiki/File:Hall.jpg'],
+    ['carrying a user name', 'https://u:p@commons.wikimedia.org/wiki/File:Hall.jpg'],
+    ['over 600 characters', `https://commons.wikimedia.org/wiki/File:${'a'.repeat(700)}.jpg`],
+]) {
+    const p = importOne({ ...goodPhoto, source_url: url });
+    ok(`a source page ${label} loses the photo, keeps the example`, p?.subject === 'Hall' && p.media === null && p.credit === null, JSON.stringify(p));
+}
+for (const [label, url] of [
+    ['on another host', 'https://evil.example/licenses/by-sa/4.0'],
+    ['on another port', 'https://creativecommons.org:8443/licenses/by-sa/4.0'],
+]) {
+    const p = importOne({ ...goodPhoto, licence_url: url });
+    ok(`a licence link ${label} is dropped, the photo kept`, p?.media === 'hall.jpg' && p.credit?.licence_url === null, JSON.stringify(p?.credit));
+}
 
 await new Promise(r => server.close(r));
 await new Promise(r => stub.close(r));
