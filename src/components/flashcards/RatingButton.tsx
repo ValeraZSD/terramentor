@@ -15,6 +15,9 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'
      *  `false` (not undefined) whenever confirm is on, so the button is a
      *  toggle from the start and arming it reads as a state change. */
     armed?: boolean;
+    /** A word in place of the rating's own, for a tile that stands for more
+     *  than one rating (a card not due yet in Practise all: "Knew it"). */
+    label?: string;
     className?: string;
 }
 
@@ -26,7 +29,7 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'
  * the next; an icon on two of them; 44, 48 and 56px tall. The tile is one
  * shape now: icon, word, when it comes back, and the keycap where there are keys.
  */
-export function RatingButton({ rating, when, keycap, armed, className, type = 'button', ...rest }: Props) {
+export function RatingButton({ rating, when, keycap, armed, label, className, type = 'button', ...rest }: Props) {
     const { t } = useTranslation();
     const pointerVerb = usePointerVerb();
     const style = RATING_STYLES[rating];
@@ -52,7 +55,7 @@ export function RatingButton({ rating, when, keycap, armed, className, type = 'b
         >
             {keycap && <span className="text-xs text-slate-500 dark:text-slate-400 font-mono" aria-hidden="true">{keycap}</span>}
             <Icon className="w-4 h-4" aria-hidden="true" />
-            <span className="text-sm font-semibold">{t(style.label)}</span>
+            <span className="text-sm font-semibold">{label ?? t(style.label)}</span>
             <span className="text-xs">{armed ? t("{{pointerVerb}} again", { pointerVerb }) : when}</span>
         </button>
     );

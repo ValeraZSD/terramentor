@@ -561,7 +561,6 @@ for (const [file, why] of [
     ['src/components/feed/FeedView.tsx', 'the feed'],
     ['src/components/GlobalFlashcardReview.tsx', 'the review session'],
     ['src/components/FlashcardView.tsx', 'a topic\'s own cards'],
-    ['src/components/QuizView.tsx', 'a practice quiz'],
     ['src/components/MasteryGateModal.tsx', 'the mastery check'],
     ['src/components/PlacementModal.tsx', 'placement'],
     ['src/components/mockExam/CourseMock.tsx', 'a mock or look back from the course'],

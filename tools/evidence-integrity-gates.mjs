@@ -413,7 +413,7 @@ const headClient = {
     name: 'head-client',
     setup(build) {
         if (!HEAD) return;
-        build.onLoad({ filter: /[\\/]src[\\/](store\.ts|api\.ts|components[\\/](QuizView|feed[\\/](LessonCard|QuestionCard))\.tsx)$/ }, (args) => {
+        build.onLoad({ filter: /[\\/]src[\\/](store\.ts|api\.ts|components[\\/]feed[\\/](LessonCard|QuestionCard)\.tsx)$/ }, (args) => {
             const rel = args.path.slice(repo.length + 1).replace(/\\/g, '/');
             return {
                 contents: require('node:child_process').execFileSync('git', ['show', `HEAD:${rel}`], { cwd: repo, encoding: 'utf8' }),
@@ -435,15 +435,7 @@ await require('esbuild').build({
             import { api } from '../src/api';
             import LessonCard from '../src/components/feed/LessonCard';
             import QuestionCard from '../src/components/feed/QuestionCard';
-            import QuizView from '../src/components/QuizView';
             const act = React.act;
-            globalThis.__mountQuiz = (quiz) => {
-                const el = document.createElement('div');
-                document.body.appendChild(el);
-                const root = createRoot(el);
-                act(() => { root.render(React.createElement(QuizView, { quiz, onClose: () => { } })); });
-                return { el, unmount: () => { act(() => root.unmount()); el.remove(); } };
-            };
             globalThis.__gate = { useStore, api, act };
             globalThis.__mount = (kind, card, onDone) => {
                 const Host = () => {
@@ -548,32 +540,6 @@ section('an answered question whose save failed keeps the answer and sends it ag
         && sent[1].result?.answer === sent[0].result?.answer, JSON.stringify(sent));
     check('…and only then is the card done and the reader moved on', useStore.getState().feedDone[card.key] === true && dones.length === 1,
         `done ${useStore.getState().feedDone[card.key]}, advances ${dones.length}`);
-    m.unmount();
-}
-
-section('a practice quiz: Submit again after a failed send is the same sitting, Retry is a new one');
-{
-    reset();
-    const ids = [];
-    let respondQuiz = offline;
-    api.submitQuizAttempt = (...args) => { ids.push(args[6]); return respondQuiz(); };
-    const q = (i) => ({ question: `Article ${i}?`, type: 'multiple_choice', options: ['de', 'het'], correct_answer: 'de', explanation: 'x' });
-    const m = globalThis.__mountQuiz({ id: 9, node_id: 7, title: 'Bank', questions: [q(1), q(2)], created_at: '2026-09-30' });
-    const pick = async () => click([...m.el.querySelectorAll('button')].find(b => (b.textContent || '').trim().endsWith('de')));
-    const sitting = async () => { await pick(); await click(button(m.el, 'Next')); await pick(); await click(button(m.el, 'Submit Quiz')); };
-    await sitting();
-    check('the failed send is still on the last question with Submit available', !!button(m.el, 'Submit Quiz'), m.el.textContent.slice(0, 160));
-    await click(button(m.el, 'Submit Quiz'));
-    check('Submit pressed again sends the SAME attempt id', ids.length === 2 && !!ids[0] && ids[0] === ids[1], JSON.stringify(ids));
-    // An answer changed after the failed send is not the sitting the server may
-    // already hold: a replayed id would be answered with that sitting's score.
-    await click([...m.el.querySelectorAll('button')].find(b => (b.textContent || '').trim().endsWith('het')));
-    respondQuiz = () => Promise.resolve({ id: 1, score: 1, total: 2, passThreshold: 0.8 });
-    await click(button(m.el, 'Submit Quiz'));
-    check('…but a changed answer goes as a NEW attempt id', ids.length === 3 && !!ids[2] && ids[2] !== ids[0], JSON.stringify(ids));
-    await click(button(m.el, 'Retry Quiz'));
-    await sitting();
-    check('a retried quiz is a new sitting with a NEW attempt id', ids.length === 4 && !!ids[3] && ids[3] !== ids[0] && ids[3] !== ids[2], JSON.stringify(ids));
     m.unmount();
 }
 

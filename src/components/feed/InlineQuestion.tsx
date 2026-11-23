@@ -40,9 +40,9 @@ interface Props {
 }
 
 /**
- * One self-grading question, embedded in a feed card. Sibling of QuizView's
- * per-question UI (kept separate on purpose — QuizView stays a multi-question
- * assessment surface): a closed format grades the moment it is chosen; an
+ * One self-grading question, embedded in a feed card. Sibling of the mastery
+ * check's per-question UI (kept separate on purpose — the check stays a
+ * multi-question assessment surface): a closed format grades the moment it is chosen; an
  * open one (prose, code, an ordering) is submitted with the Check button.
  * Both go through `gradeAnswer`, which knows which formats grade locally and
  * which through the checker, so this component knows no format by name.

@@ -1033,9 +1033,6 @@ check('what is served keeps its STORAGE index, so the ask-record names the right
     nodeDraw.questions.map(q => q.index).sort().join(',') === '0,2', nodeDraw.questions.map(q => q.index).join(','));
 const quizDraw = drawFromQuiz(Number(brokenQuiz), 10);
 check('the quiz sitting draw skips it too', quizDraw.bankSize === 2 && quizDraw.questions.length === 2);
-const quizViewSrc = readFileSync(join(repoRoot, 'src/components/QuizView.tsx'), 'utf8');
-check('a whole-row quiz sitting on the client filters by the same predicate, after taking the index',
-    /\.map\(\(q, index\) => \(\{ \.\.\.q, index \}\)\)\.filter\(hasUsableKey\)/.test(quizViewSrc));
 
 // ---------------------------------------------------------------------------
 section('assemble: a half-built answer still reads as the sentence it builds');

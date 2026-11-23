@@ -154,7 +154,6 @@ console.log('\n--- the screens send it ---');
 {
     const src = (f) => readFileSync(new URL(`../src/components/${f}`, import.meta.url), 'utf8');
     check('the mastery check sends its review', /submitMasteryCheck\([^)]*review\)/.test(src('MasteryGateModal.tsx')));
-    check('the quiz sends its review', /submitQuizAttempt\([^)]*review\)/.test(src('QuizView.tsx')));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

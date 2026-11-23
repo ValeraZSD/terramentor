@@ -71,7 +71,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `vec_chunks` | sqlite-vec KNN over chunks. Lazily created; rowid = chunk id; **not a real FK**. |
 | `node_embeddings`, `vec_nodes` | Topic vectors + their freshness sidecar. See §7. |
 | `quizzes`, `quiz_attempts` | Saved assessments and results. |
-| `question_log` | One row per question asked, behind the feed, the mastery check and the practice quiz: never-asked first, then least recently asked. |
+| `question_log` | One row per question asked, behind the feed and the mastery check: never-asked first, then least recently asked. |
 | `answer_attempts` | One row per submitted answer set, keyed `(surface, attempt_id)`: the client makes one id per presentation and resends it on a retry, so a replay gets the stored outcome and writes nothing (`recordOnce`, `server/mastery.js`). |
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
@@ -304,9 +304,8 @@ setting. Mastery transfer (§7.3) reads it, so a twin's head start fades with it
 A **ghost question** is what the interface calls a *recall question*: a saved
 question from a topic the learner has answered well (an estimate above one half,
 from answers of their own) and not been measured on for `decay_days`. It is served
-as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or added
-to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
-is never part of a mastery check.
+as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`). It is never
+part of a mastery check.
 
 Which question is asked is picked by difficulty, the same on every read
 (`recallOrder` in `server/questionLog.js`), from the question log every surface
@@ -314,7 +313,7 @@ writes: the questions the learner has got right before, the largest share of
 misses first; then those with no graded answer, the format with the lowest guess
 floor first; then those only ever missed; ties within a tier go to the lower
 guess floor, then the least recently asked. An answer to a copy of the question
-inside another topic's practice quiz counts (matched by its uuid). The question
+saved in another topic's question set counts (matched by its uuid). The question
 the topic's previous recall asked goes last. Only usable keys a verifier has
 confirmed are candidates, and a recall answer is logged as `recall`.
 In the feed they arrive as a review round: one question from each fading topic,
