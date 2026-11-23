@@ -437,6 +437,27 @@ ok(/This is wrong/.test(noneHtml), 'and still carries its flag');
     ok(asked.some(u => /refs=fi%3A9/.test(u)) && readMark(shown.html())?.hover === 'Written by AI (after-update)',
         'a mounted flag asks who wrote its item again after a course update and keeps its mark', asked);
     shown.unmount();
+    // Two asks about one item overlap and the first fails: the second is still
+    // out, so an update that lands then still drops its answer and asks again.
+    let holdSecond = null;
+    let call = 0;
+    globalThis.fetch = async (url) => {
+        call += 1;
+        if (call === 1) return new Response('{}', { status: 500, headers: { 'Content-Type': 'application/json' } });
+        if (call === 2) { await new Promise(r => { holdSecond = r; }); return answer(String(url), 'before-update'); }
+        return answer(String(url), 'after-update');
+    };
+    const failed = store.getState().refresh(['fi:10']);
+    const held = store.getState().refresh(['fi:10']);
+    await failed;
+    for (let i = 0; i < 20 && !holdSecond; i++) await new Promise(r => setTimeout(r, 0));
+    store.getState().forgetWriters();
+    await tick();
+    holdSecond?.();
+    await held;
+    await tick();
+    eq([store.getState().written['fi:10']?.model, call], ['after-update', 3],
+        'when one of two overlapping asks fails, the other\'s answer from before an update still does not win');
     globalThis.fetch = realFetch;
 }
 

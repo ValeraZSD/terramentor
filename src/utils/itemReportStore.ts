@@ -47,8 +47,12 @@ interface ItemReportState {
 // refs asked for in one tick go to the server as one request.
 let queued = new Set<string>();
 let flush: Promise<void> | null = null;
-/** Asked and not answered yet: a second mount meanwhile does not ask again. */
-const asking = new Set<string>();
+/** Asked and not answered yet, by how many asks are out: a second mount
+ *  meanwhile does not ask again, and the first of two overlapping asks to end
+ *  does not hide the other. */
+const asking = new Map<string, number>();
+const askingStart = (r: string) => asking.set(r, (asking.get(r) ?? 0) + 1);
+const askingEnd = (r: string) => { const n = (asking.get(r) ?? 1) - 1; if (n > 0) asking.set(r, n); else asking.delete(r); };
 /** When each ref was last written by `setReport` (a press, an Undo, a preview), by a running count. */
 let writes = 0;
 const writtenAt = new Map<string, number>();
@@ -69,7 +73,7 @@ const writerAsk = new Map<string, number>();
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
         const part = refs.slice(i, i + REFS_PER_REQUEST);
-        for (const r of part) asking.add(r);
+        for (const r of part) askingStart(r);
         const askedAt = writes;
         const asked = ++asks;
         try {
@@ -90,7 +94,7 @@ async function ask(refs: string[]): Promise<void> {
             for (const r of answer.keys()) appliedAsk.set(r, asked);
             useItemReports.setState(s => ({ byRef: { ...s.byRef, ...Object.fromEntries(answer) } }));
         } catch { /* the flag works without knowing: a second report returns the standing one */ }
-        finally { for (const r of part) asking.delete(r); }
+        finally { for (const r of part) askingEnd(r); }
     }
 }
 
@@ -132,7 +136,7 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         // An ask out now predates the rewrite: mark its refs as answered by a
         // newer ask, so its answer does not set who wrote them.
         const now = ++asks;
-        const out = [...asking];
+        const out = [...asking.keys()];
         for (const r of new Set([...writerAsk.keys(), ...out])) writerAsk.set(r, now);
         set({ written: {} });
         // Those refs are not asked again by `load` while their old ask is out: ask now.
