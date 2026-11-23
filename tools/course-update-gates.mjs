@@ -350,6 +350,31 @@ console.log('\n--- case 1, fast-forward: what the author changed arrives, the le
     }
 }
 
+console.log('\n--- case 1b, fast-forward: text the update kept keeps its mark ---');
+{
+    const tag = 'keptmark';
+    const pid = await install(edition1(tag));
+    const MODEL = JSON.stringify({ model: 'first-model:1', via: 'import' });
+    const a0 = nodeOf(pid, 'Lidwoorden');
+    // A model wrote A's Overview and the first card's front; the next edition
+    // rewrites only A's title and that card's back, and claims no model.
+    db.prepare('UPDATE nodes SET generated_by = ? WHERE id = ?').run(MODEL, a0.id);
+    db.prepare("UPDATE flashcards SET generated_by = ? WHERE node_id = ? AND front = 'de krant'").run(MODEL, a0.id);
+    const v2 = edition2(tag, (f) => {
+        const a = topic(f, 'Lidwoorden');
+        a.title = 'Lidwoorden (de/het)';
+        a.flashcards[0] = { ...a.flashcards[0], back: 'the newspaper' };
+    });
+    const r = await update(pid, v2);
+    const a = nodeOf(r.projectId, 'Lidwoorden (de/het)');
+    const stampOf = (sql, id) => db.prepare(sql).get(id)?.generated_by ?? null;
+    check('1b: a new title with no claim leaves the kept Overview marked as the model\'s',
+        stampOf('SELECT generated_by FROM nodes WHERE id = ?', a?.id), MODEL);
+    check('1b: a new back with no claim leaves the kept front marked as the model\'s',
+        cardsOf(a?.id).map(c => [c.front, c.back, stampOf('SELECT generated_by FROM flashcards WHERE id = ?', c.id)]),
+        [['de krant', 'the newspaper', MODEL], ['het huis', 'house', null]]);
+}
+
 // ---- 2. a conflict keeps the learner's version ------------------------------------
 console.log('\n--- case 2, conflict: a field both sides changed keeps the learner’s version ---');
 {

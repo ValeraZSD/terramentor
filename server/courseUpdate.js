@@ -419,6 +419,19 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         // Who wrote an item's text, as the file claims it: text the update writes
         // takes the file's claim with it, or the AI mark would follow the old text.
         const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
+        // One stamp speaks for all the text a row holds. A file's claim of a
+        // model marks the row; a file claiming none clears the mark only when
+        // the update rewrote every text the row holds, so text it kept keeps
+        // the mark it had. `undefined` = the update wrote no text: leave it.
+        const restamp = (table, id, textFields, fields, model) => {
+            if (!textFields.some(f => f in fields)) return undefined;
+            const declared = declaredBy(model);
+            if (declared != null) return declared;
+            const kept = textFields.filter(f => !(f in fields));
+            if (!kept.length) return null;
+            const row = prep(`SELECT ${kept.join(', ')}, generated_by FROM live_${table} ${table} WHERE id = ?`).get(id);
+            return kept.some(f => row?.[f]) ? row.generated_by : null;
+        };
 
         // The course header. `version` is the author's and nobody edits it.
         const pf = plan.project || {};
@@ -448,7 +461,8 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 sets.push(`${f} = ?`); vals.push(v);
                 if (f === 'title' || f === 'description') touched.add(o.id);
             }
-            if ('title' in o.fields || 'description' in o.fields) { sets.push('generated_by = ?'); vals.push(declaredBy(o.source?.generated_by)); }
+            const stamp = restamp('nodes', o.id, ['title', 'description'], o.fields, o.source?.generated_by);
+            if (stamp !== undefined) { sets.push('generated_by = ?'); vals.push(stamp); }
             prep(`UPDATE nodes SET ${sets.join(', ')}, updated_at = ${NOW_ISO} WHERE id = ?`).run(...vals, o.id);
         }
 
@@ -519,7 +533,8 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 }
                 sets.push(`${f} = ?`); vals.push(v);
             }
-            if (['front', 'back', 'extra', 'extra_front'].some(f => f in o.fields)) { sets.push('generated_by = ?'); vals.push(declaredBy(o.source?.generated_by)); }
+            const stamp = restamp('flashcards', o.id, ['front', 'back', 'extra', 'extra_front'], o.fields, o.source?.generated_by);
+            if (stamp !== undefined) { sets.push('generated_by = ?'); vals.push(stamp); }
             if (sets.length) prep(`UPDATE flashcards SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
         }
         for (const o of byKind('insert', 'card')) {
