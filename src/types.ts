@@ -920,7 +920,7 @@ export interface TopicPhotos {
     photos: TopicPhoto[];
 }
 
-/** `GET /api/projects/:id/photo-practice`: offered when two or more topics have a photo. */
+/** `GET /api/projects/:id/photo-practice`: offered when the photos show two or more kinds. */
 export interface PhotoPracticeState {
     topics: number;
     photos: number;

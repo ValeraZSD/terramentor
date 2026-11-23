@@ -355,8 +355,13 @@ const otherCourse = await answer(COURSES.single, checkedPhoto, chinese.id);
 ok('a photo of another course is not this course\'s to grade', otherCourse.status === 404, otherCourse.status);
 const nonePhoto = await answer(asia, chinese.photos[2], chinese.id);
 ok('an example with no photo cannot be answered', nonePhoto.status === 404, nonePhoto.status);
-const offList = await answer(asia, korean.photos[0], asia.topics[2].id);
+// The title itself, as a stale or forged client would send it: the course's
+// own topic, one no photo is named by.
+const offList = await post(`/api/projects/${asia.id}/photo-practice/answer`, { photo: korean.photos[0].uuid, attemptId: randomUUID(), picked: asia.topics[2].title });
 ok('a pick that is not one of the course\'s by-sight topics is refused', offList.status === 400 && evidenceRows(korean.id).length === 0, offList.status);
+const longKey = keyFor(asia, japanese.title);
+const tooLong = await post(`/api/projects/${asia.id}/photo-practice/answer`, { photo: korean.photos[0].uuid, attemptId: randomUUID(), picked: longKey + ' '.repeat(300) + 'x' });
+ok('a pick longer than any key is refused, not cut down to one', tooLong.status === 400 && evidenceRows(korean.id).length === 0, tooLong.status);
 
 // ---- 4. the comparison --------------------------------------------------------------
 section('4. a wrong pick shows both photos, each credited');
@@ -708,13 +713,42 @@ pair.topics[0].photos.forEach((p, j) => {
 });
 const sPair = await state(pair);
 ok('one topic whose photos show two kinds offers practice', sPair?.available === true && sPair?.kinds === 2 && sPair?.topics === 1, JSON.stringify(sPair));
+// Six kinds, three options beside the photo's own: the look-alike its topic
+// pairs it with must be chosen, not left to the draw (3 in 5 by chance).
+const sixBirds = { name: 'Six garden birds', topics: [
+    ['Tits', ['Great tit', 'Blue tit']], ['Finches', ['Chaffinch', 'Greenfinch']], ['Thrushes', ['Blackbird', 'Robin']],
+] };
+sixBirds.id = Number(insProject.run(sixBirds.name).lastInsertRowid);
+sixBirds.topics = sixBirds.topics.map(([title, kinds], i) => {
+    const id = Number(insNode.run(sixBirds.id, title, i).lastInsertRowid);
+    kinds.forEach((kind, j) => {
+        const uuid = randomUUID();
+        const { hash, size } = mediaStorage.put(jpeg(`six-${i}-${j}`));
+        insMedia.run(sixBirds.id, hash, `six${i}${j}.jpg`, size, kind);
+        insPhoto?.run(uuid, id, j, kind, kind, 'Look.', 'found', hash, `File:six${i}${j}.jpg`, 'Ann Lee', 'CC BY-SA 4.0',
+            'https://creativecommons.org/licenses/by-sa/4.0', `https://commons.wikimedia.org/wiki/File:six${i}${j}.jpg`, null, PROVENANCE);
+        setAnswer?.run(kind, uuid);
+    });
+    return { id, title, kinds };
+});
+// The gate's own record of each photo's kind and its topic partner, from the seed above.
+const partnerOf = new Map(sixBirds.topics.flatMap(t => [[t.kinds[0], t.kinds[1]], [t.kinds[1], t.kinds[0]]]));
+const sixKindOf = new Map(db.prepare(`SELECT p.uuid, p.subject FROM node_photos p JOIN nodes n ON n.id = p.node_id WHERE n.project_id = ?`)
+    .all(sixBirds.id).map(r => [r.uuid, r.subject]));
+const sixItems = [];
+for (let n = 0; n < 8; n++) sixItems.push(...await round(sixBirds, 6));
+ok('with more kinds than options, a photo is always offered the look-alike its topic pairs it with', sixItems.length === 48
+    && sixItems.every(i => i.options.length === 4 && i.options.some(o => o.title === partnerOf.get(sixKindOf.get(i.photo)))),
+    JSON.stringify(sixItems.filter(i => !i.options.some(o => o.title === partnerOf.get(sixKindOf.get(i.photo))))
+        .slice(0, 2).map(i => [sixKindOf.get(i.photo), i.options.map(o => o.title)])));
 // Cards: the back is what the photo is; one card per picture.
 cards?.syncAllPhotoCards?.();
 const bCardsNow = hasColumn ? photoCards(birds) : [];
 ok('one card per picture: the picture kept under two topics has one', bCardsNow.length === birdPictures.size
     && new Set(bCardsNow.map(c => JSON.parse(c.media).front[0].hash)).size === bCardsNow.length, bCardsNow.length);
-ok('a card\'s back is what its photo is', bCardsNow.length > 0 && bCardsNow.every(c => c.back === kindOfPhoto(c.photo_uuid)
-    || c.back.toLowerCase() === kindOfPhoto(c.photo_uuid).toLowerCase()), JSON.stringify(bCardsNow.map(c => c.back)));
+// Spelled as the round spells it: the feeder photo's answer is stored "great tit".
+ok('a card\'s back is what its photo is, spelled as the round offers it', bCardsNow.length > 0
+    && bCardsNow.every(c => c.back === kindOfPhoto(c.photo_uuid)), JSON.stringify(bCardsNow.map(c => c.back)));
 const titCard = bCardsNow.find(c => c.photo_uuid === firstTit.uuid);
 ok('...with what to look at under it, and no line that only repeats the back', titCard?.extra === firstTit.shows, JSON.stringify(titCard?.extra));
 const robinCard = bCardsNow.find(c => c.photo_uuid === birds.topics[1].photos[1].uuid);

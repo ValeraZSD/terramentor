@@ -50,6 +50,25 @@ export function photoCardMedia(photo) {
     };
 }
 
+/** An answer's words with the spaces tidied; `answerKey` is what makes two the same kind. */
+export const answerLabel = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+export const answerKey = (s) => answerLabel(s).toLowerCase();
+
+/**
+ * How the course spells each answer: `Map<key, label>`, the spelling of the
+ * course's earliest photo of that kind. The practice round's options and the
+ * cards' backs both read it, so "Great tit" is never "great tit" on a card.
+ */
+export function answerSpellings(projectId) {
+    const out = new Map();
+    for (const r of stmt(`SELECT p.answer FROM node_photos p JOIN live_nodes n ON n.id = p.node_id
+        WHERE n.project_id = ? AND p.status = 'found' AND p.answer IS NOT NULL ORDER BY p.id`).all(projectId)) {
+        const label = answerLabel(r.answer);
+        if (label && !out.has(answerKey(label))) out.set(answerKey(label), label);
+    }
+    return out;
+}
+
 /**
  * Make the missing cards of one course. Returns `{ added }`. Synchronous SQL
  * only, so an importer can call it inside its own transaction.
@@ -71,6 +90,7 @@ export function syncPhotoCards(projectId) {
     // cards with one front and two backs. The course's cards so far count.
     const pictures = new Set(stmt(`SELECT p.hash FROM flashcards f JOIN node_photos p ON p.uuid = f.photo_uuid
         JOIN nodes n ON n.id = p.node_id WHERE n.project_id = ? /* with deleted */`).all(projectId).map(r => r.hash));
+    const spellings = answerSpellings(projectId);
     let added = 0;
     db.transaction(() => {
         for (const p of photos) {
@@ -83,7 +103,7 @@ export function syncPhotoCards(projectId) {
             // The back names what the photo IS (its answer, the words the
             // practice round asks for), else its topic; under it the example
             // and what to look at, without a line that only repeats the back.
-            const back = String(p.answer ?? '').replace(/\s+/g, ' ').trim() || p.topic_title;
+            const back = spellings.get(answerKey(p.answer)) || answerLabel(p.answer) || p.topic_title;
             const extra = [p.subject, p.shows].filter(s => s && s.trim().toLowerCase() !== back.toLowerCase()).join('\n');
             // OR IGNORE: the index allows one card per photo, so a second
             // process making the same card at the same moment adds nothing.

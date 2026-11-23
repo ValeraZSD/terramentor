@@ -71,7 +71,8 @@ export default function PhotoPractice({ projectId }: { projectId: number }) {
 
     // An option named by a topic's title shows the part before a colon, the
     // same for the whole round: the rest describes the answer
-    // (src/utils/shortTitles.ts). A kind's own words have no colon to cut.
+    // (src/utils/shortTitles.ts). A kind's own words are short and rarely
+    // hold one; when two options would cut to the same words, none is cut.
     const labels = useMemo(() => shortTitles(items?.flatMap(i => i.options.map(o => o.title)) ?? []), [items]);
     const label = useCallback((title: string) => labels.get(title) ?? title, [labels]);
 

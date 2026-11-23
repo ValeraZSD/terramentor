@@ -105,6 +105,8 @@ Look at the two eaves stacked one above the other and the gentle upward sweep at
 
 Compare that with a temple hall, whose roof is lower and plainer and which sits on a far smaller platform than the palace hall does.`;
 let calls = [];
+/** When set, the stub's whole answer to a photo plan (section 19). */
+let planReply = null;
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
@@ -133,6 +135,8 @@ const stub = createServer((req, res) => {
                 description: 'Recognise Chinese and Korean buildings by their roofs and halls.',
                 topics: TOPICS.map((t, i) => ({ ...t, sections: [Math.min(i + 1, 3)] })),
             });
+        } else if (kind === 'photo_plan' && planReply) {
+            content = JSON.stringify(planReply);
         } else if (kind === 'photo_plan') {
             content = JSON.stringify({ topics: [
                 { topic: 1, examples: [
@@ -701,14 +705,52 @@ section('18. a picture the course already keeps under one topic is not kept unde
 // Look again on the temple topic of the first course, whose search now offers
 // only the palace hall's file: a free photo, but the palace topic holds it.
 archive.later['Bulguksa temple'] = [HALL];
+const hallFile = (r) => (r.url.hostname === 'upload.wikimedia.org' || r.url.hostname === 'thumb.wikimedia.org') && r.url.pathname.includes('Hall_of_Supreme_Harmony_2019');
+const hallFetchesBefore = archive.requests.filter(hallFile).length;
 const againRes = roofsTopic ? await fetch(`${base}/api/nodes/${roofsTopic.id}/photos/find`, { method: 'POST' }) : null;
 await settle();
+ok('a file the course already keeps is not even downloaded again', hallFetchesBefore > 0 && archive.requests.filter(hallFile).length === hallFetchesBefore,
+    JSON.stringify({ before: hallFetchesBefore, after: archive.requests.filter(hallFile).length }));
 const againRows = roofsTopic ? photoRows(roofsTopic.id) : [];
 const madeHashes = topicsOf(made.id).flatMap(n => photoRows(n.id)).map(r => r.hash).filter(Boolean);
 ok('the temple topic stays without a photo rather than repeat the palace hall', againRes?.ok && againRows.length === 1
     && againRows[0].status === 'none' && !againRows[0].hash, JSON.stringify({ s: againRes?.status, rows: againRows.map(r => r.status) }));
 ok('...so no picture sits twice in the course', madeHashes.length > 0 && new Set(madeHashes).size === madeHashes.length, madeHashes.length);
+// A deleted topic's pictures are out of the course: they no longer hold a file back.
+const palaceGone = hallsTopic ? await fetch(`${base}/api/nodes/${hallsTopic.id}`, { method: 'DELETE' }) : null;
+const thirdRes = roofsTopic ? await fetch(`${base}/api/nodes/${roofsTopic.id}/photos/find`, { method: 'POST' }) : null;
+await settle();
+const thirdRows = roofsTopic ? photoRows(roofsTopic.id) : [];
+ok('once the palace topic is deleted, the temple topic may keep that picture', palaceGone?.ok && thirdRes?.ok
+    && thirdRows[0]?.status === 'found' && thirdRows[0]?.hash === hallRows[0]?.hash, JSON.stringify({ del: palaceGone?.status, rows: thirdRows.map(r => r.status) }));
 archive.later = {};
+
+// ---- 19. the plan reuses the course's answers and keeps no unnamed example --------
+section('19. the plan reuses the course\'s answers; an example it gives no answer is dropped');
+const planTopics = [{ id: -1, title: 'Palace halls' }, { id: -2, title: 'Temple halls' }];
+const planProject = { id: made.id, name: 'Telling East Asian buildings apart', description: '' };
+planReply = { topics: [{ topic: 1, examples: [{ name: 'Bulguksa', search: 'Bulguksa temple', shows: 'Roofs.', answer: 'temple  HALL' }] }] };
+calls = [];
+const reused = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics, { known: ['Temple Hall', 'Palace hall'] }) : [];
+const planCall = calls.find(c => c.kind === 'photo_plan');
+ok('the plan is shown the answers the course already uses', /ANSWERS ALREADY USED IN THIS COURSE[^\n]*Temple Hall; Palace hall/.test(planCall?.user || ''),
+    (planCall?.user || '').split('\n').find(l => l.includes('ANSWERS')) ?? 'no such line');
+ok('...and an answer of the same kind takes the course\'s spelling', reused[0]?.examples?.[0]?.answer === 'Temple Hall', JSON.stringify(reused));
+planReply = { topics: [
+    { topic: 1, examples: [
+        { name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony', shows: '', answer: 'Palace hall' },
+        { name: 'Hall of Central Harmony', search: 'Hall of Central Harmony', shows: '' },
+    ] },
+    { topic: 2, examples: [{ name: 'Bulguksa', search: 'Bulguksa temple', shows: '', answer: '' }] },
+] };
+const unnamed = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics) : [];
+ok('an example with no answer is not kept once others have one, and a topic left empty is dropped', unnamed.length === 1
+    && unnamed[0].examples.length === 1 && unnamed[0].examples[0].answer === 'Palace hall', JSON.stringify(unnamed));
+planReply = { topics: [{ topic: 1, examples: [{ name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony', shows: '' }] }] };
+const noneNamed = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics) : [];
+ok('...while a plan that names none keeps its examples, named by their topic as before', noneNamed.length === 1
+    && noneNamed[0].examples.length === 1 && noneNamed[0].examples[0].answer === null, JSON.stringify(noneNamed));
+planReply = null;
 
 // ---- 17. a course file naming a file the app does not keep as a photo ------------
 section('17. an imported photo naming a sound, a GIF or an oversize file loses the photo');

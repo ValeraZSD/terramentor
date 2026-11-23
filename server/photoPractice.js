@@ -1,5 +1,5 @@
-// Telling a course's topics apart by their photos: "Which one is this?" asked
-// of a stored photo, with the course's by-sight topics as the options.
+// Telling a course's kinds apart by their photos: "Which one is this?" asked
+// of a stored photo, with what the course's photos show as the options.
 //
 // ## Why it works this way
 //
@@ -9,8 +9,8 @@
 // than one block at a time (Kornell & Bjork 2008; Carvalho & Goldstone 2014:
 // mixing helps most when the categories look alike), and from seeing a
 // mistaken pick beside the real thing (Kang & Pashler 2012). So a round mixes
-// every by-sight topic of the course, never puts two photos of one topic side
-// by side when it can avoid it, and a wrong pick answers with both photos.
+// every kind of the course, never puts two photos of one kind side by side
+// when it can avoid it, and a wrong pick answers with both photos.
 //
 // ## What the learner names
 //
@@ -53,6 +53,7 @@ import { recordOnce, updateMasteryFromAttempt } from './mastery.js';
 import { photoView, topicsInOrder } from './topicPhotos.js';
 import { standingRefs } from './itemReports.js';
 import { statusError } from './clientError.js';
+import { answerKey, answerLabel, answerSpellings } from './photoCards.js';
 
 /** A round's length when the screen does not ask for another. */
 export const ROUND_SIZE = 12;
@@ -106,8 +107,8 @@ export function sightTopics(projectId, { keepReported = false } = {}) {
     return out;
 }
 
-const labelOf = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
-const keyOf = (s) => labelOf(s).toLowerCase();
+const labelOf = answerLabel;
+const keyOf = answerKey;
 
 /** What a photo is named in practice: its answer, else its topic's title. */
 export const kindLabel = (photo, topic) => labelOf(photo.answer) || labelOf(topic.title);
@@ -115,10 +116,11 @@ export const kindLabel = (photo, topic) => labelOf(photo.answer) || labelOf(topi
 /**
  * The course's photos by what they are named: `Map<key, { key, label,
  * nodeIds: Set, photos: [{ p, t }] }>`, in course order. The label is the
- * first spelling met; a picture (the same file) is counted once, under the
- * first topic that holds it.
+ * course's spelling (`spellings`, photoCards.js answerSpellings, which the
+ * cards' backs use too), else the first met; a picture (the same file) is
+ * counted once, under the first topic that holds it.
  */
-export function sightKinds(topics) {
+export function sightKinds(topics, spellings = new Map()) {
     const kinds = new Map();
     const pictures = new Set();
     for (const t of topics) {
@@ -127,7 +129,7 @@ export function sightKinds(topics) {
             pictures.add(p.hash);
             const label = kindLabel(p, t);
             const key = keyOf(label);
-            if (!kinds.has(key)) kinds.set(key, { key, label, nodeIds: new Set(), photos: [] });
+            if (!kinds.has(key)) kinds.set(key, { key, label: spellings.get(key) ?? label, nodeIds: new Set(), photos: [] });
             const k = kinds.get(key);
             k.nodeIds.add(t.nodeId);
             k.photos.push({ p, t });
@@ -138,7 +140,7 @@ export function sightKinds(topics) {
 
 /** What the course page needs to offer practice: `{ topics, photos, kinds, available }`. */
 export function practiceState(projectId) {
-    const kinds = sightKinds(sightTopics(projectId));
+    const kinds = sightKinds(sightTopics(projectId), answerSpellings(projectId));
     const nodes = new Set([...kinds.values()].flatMap(k => [...k.nodeIds]));
     return {
         topics: nodes.size,
@@ -221,11 +223,12 @@ function optionsFor(kinds, own, nodeId) {
  */
 export function drawRound(projectId, { size = ROUND_SIZE } = {}) {
     const topics = sightTopics(projectId);
-    const kinds = [...sightKinds(topics).values()];
+    const kinds = [...sightKinds(topics, answerSpellings(projectId)).values()];
     if (kinds.length < MIN_KINDS) throw statusError(409, 'This course has no photos to tell apart yet');
     const want = Math.min(MAX_ROUND, Number.isInteger(size) && size > 0 ? size : ROUND_SIZE);
     const asked = lastAsked(topics.map(t => t.nodeId));
-    const order = (a, b) => byStaleness(asked)(a.p, b.p);
+    const stale = byStaleness(asked);
+    const order = (a, b) => stale(a.p, b.p);
     // Photos never answered come first, then the longest ago, so a short
     // round still reaches them; among equals, one photo per kind per pass
     // (`pass` = its place in its kind's queue), so the kinds stay even.
@@ -273,13 +276,14 @@ export function answerPhoto(projectId, { photo, picked, attemptId }) {
     const topics = row && row.project_id === projectId ? sightTopics(projectId) : [];
     const own = topics.find(t => t.nodeId === row?.node_id);
     if (!row || !own || !own.photos.some(p => p.uuid === row.uuid)) throw statusError(404, 'That photo is not in this course');
-    const kinds = sightKinds(topics);
+    const spellings = answerSpellings(projectId);
+    const kinds = sightKinds(topics, spellings);
     const ownKind = kinds.get(keyOf(kindLabel(row, own)));
     // A kind whose photos were all reported since the round began was still
     // offered: it is a pick like any other, with no photo to set beside.
     let everyKind = null;
     const kindOf = (key) => (typeof key === 'string' && key ? kinds.get(keyOf(key))
-        ?? (everyKind ??= sightKinds(sightTopics(projectId, { keepReported: true }))).get(keyOf(key)) : null);
+        ?? (everyKind ??= sightKinds(sightTopics(projectId, { keepReported: true }), spellings)).get(keyOf(key)) : null);
     const pickedKind = kindOf(picked);
     if (!pickedKind) throw statusError(400, 'Pick one of the topics offered');
     // The photo's own picture may sit under an earlier topic too; it is that
