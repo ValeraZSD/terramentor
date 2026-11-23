@@ -44,7 +44,15 @@ globalThis.Element = window.Element;
 globalThis.Node = window.Node;
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-window.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } };
+// Observers are kept so a case can announce a resize to them (`__resizeAll`).
+globalThis.__observers = new Set();
+globalThis.__resizeAll = () => { for (const o of [...globalThis.__observers]) o.cb([]); };
+window.ResizeObserver = class {
+    constructor(cb) { this.cb = cb; }
+    observe() { globalThis.__observers.add(this); }
+    unobserve() { }
+    disconnect() { globalThis.__observers.delete(this); }
+};
 globalThis.ResizeObserver = window.ResizeObserver;
 window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
 // No hovering pointer above, as on a phone; the "More" menu is placed on the
@@ -75,6 +83,8 @@ globalThis.__author = { calls: [], answer: null };
 // ('pending' streams progress and never finishes, which is the state the
 // screenshot caught; an object is returned as the server's answer).
 globalThis.__widget = { calls: [], lookup: { html: '', cached: false }, build: 'pending' };
+// The repair/rebuild endpoint: what it was asked, and its next answers.
+globalThis.__repair = { calls: [], answers: [] };
 
 const stubs = {
     store: `export const useStore = (sel) => sel({ theme: 'light', themeTint: '#ffffff', accentColor: '#0e7490' });
@@ -98,7 +108,16 @@ const stubs = {
                 return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
             },
             reportVisualBuildFailure: async () => ({ recorded: true }),
-            repairVisual: async () => ({ code: '' }),
+            // Each call takes the next answer: 'pending' runs until aborted
+            // (the rebuild in flight), an object is the server's reply.
+            repairVisual: async (kind, code, error, signal, onProgress, opts) => {
+                globalThis.__repair.calls.push({ kind, code, error, opts: opts ? { ...opts } : null });
+                const a = globalThis.__repair.answers.shift() ?? { code: '' };
+                if (a !== 'pending') return a;
+                onProgress?.({ chars: 10, thinking: 0 });
+                return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+            },
+            reportRepairUnusable: async () => ({}),
             reportVisual: async () => ({ id: null }),
             cancelTask: async () => ({}),
           };`,
@@ -110,8 +129,11 @@ const stubs = {
            export default { t };`,
     'react-i18next': `const t = (k, o = {}) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o[n] ?? ''));
            export const useTranslation = () => ({ t });`,
-    // A graph that always draws: Save is offered only once something rendered.
+    // A graph that draws anything but a spec saying BROKEN: Save is offered
+    // only once something rendered. Every call is counted.
     renderPlot: `export default async (el, code) => {
+            globalThis.__plotRenders = (globalThis.__plotRenders || 0) + 1;
+            if (code.includes('BROKEN')) throw new Error('unknown function BROKEN');
             const svg = document.createElement('svg');
             svg.setAttribute('data-drawn', code);
             el.appendChild(svg);
@@ -364,6 +386,136 @@ console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its r
     m = globalThis.__mount(host, plot);
     await settle(400);
     check('before anything is measured the row is unfolded', all(['Fix this', 'Save', 'Code', 'Copy']) && !more(), text());
+    m.unmount();
+}
+
+// ---- "Fix this": a rebuild from the learner's note ------------------------------
+//
+// A rebuild that is cancelled, or brings back the same drawing, leaves the block
+// as it was: a good drawing stays on screen, not behind "Couldn't render:
+// render failed", and a block that never drew keeps its error card and its Fix
+// with AI instead of being marked drawn with nothing drawn. The footer
+// names the job running NOW, and the panel hands focus back to its button.
+{
+    const GOOD = '{"data":[{"fn":"sin(x)"}]}';
+    const plotBase = { kind: 'plot', language: 'plot', live: false, surface: 'assistant' };
+    const stage = () => host.querySelector('.visual-block-stage');
+    const stageShown = () => !!stage() && !stage().classList.contains('hidden') && !!stage().querySelector('svg[data-drawn]');
+    const errorCard = () => /Couldn't render/.test(text());
+    const footer = () => text().match(/(Rebuilding|Repairing) graph/)?.[1] ?? null;
+    const typeNote = async (value) => {
+        const area = host.querySelector('textarea');
+        if (!area) return;
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(area, value);
+            area.dispatchEvent(new window.Event('input', { bubbles: true }));
+        });
+    };
+    const sendNote = async (note) => {
+        await click(button(/^Fix this$/));
+        await typeNote(note);
+        await click(button(/^Save and rebuild$/));
+        await settle(200);
+    };
+    globalThis.__widths = { block: 640, row: 420 };
+
+    console.log('\n--- a rebuild of a good drawing, cancelled ---');
+    globalThis.__repair = { calls: [], answers: ['pending'] };
+    let m = globalThis.__mount(host, { ...plotBase, code: GOOD, autoRepair: false });
+    await settle(400);
+    check('the drawing is on screen first', stageShown(), text());
+    await sendNote('The curve should be a cosine.');
+    check('the rebuild was asked, with their note', globalThis.__repair.calls.length === 1 && globalThis.__repair.calls[0].opts?.feedback === 'The curve should be a cosine.', JSON.stringify(globalThis.__repair.calls));
+    check('while it runs the footer says Rebuilding', footer() === 'Rebuilding', text());
+    await click([...host.querySelectorAll('button')].find(b => b.getAttribute('title') === 'Stop the AI fix'));
+    await settle(100);
+    check('Cancel leaves the good drawing on screen', stageShown(), `stage ${stage()?.className}`);
+    check('…with no error card', !errorCard(), text());
+    m.unmount();
+
+    console.log('\n--- a rebuild of a block that never drew ---');
+    globalThis.__repair = { calls: [], answers: [{ code: 'BROKEN(x)' }] };
+    m = globalThis.__mount(host, { ...plotBase, code: 'BROKEN(x)', autoRepair: false });
+    await settle(400);
+    check('the block starts on its error card', errorCard() && !!button(/Fix with AI/), text());
+    await sendNote('It should draw a parabola.');
+    await settle(200);
+    check('a rebuild that brings back the same spec keeps the error card', errorCard(), text());
+    check('…and Fix with AI with it', !!button(/Fix with AI/), text());
+    check('…and nothing is shown as drawn', !stageShown());
+    m.unmount();
+
+    globalThis.__repair = { calls: [], answers: ['pending'] };
+    m = globalThis.__mount(host, { ...plotBase, code: 'BROKEN(x)', autoRepair: false });
+    await settle(400);
+    await sendNote('It should draw a parabola.');
+    await click([...host.querySelectorAll('button')].find(b => b.getAttribute('title') === 'Stop the AI fix'));
+    await settle(100);
+    check('a cancelled rebuild of it keeps the error card with its own message', errorCard() && /unknown function BROKEN/.test(text()), text());
+    m.unmount();
+
+    console.log('\n--- a rebuild, then a repair: the footer names the job running now ---');
+    // The rebuild answers with a spec that does not draw; the block then repairs
+    // it by itself (a fresh answer, autoRepair on) and that repair runs on.
+    globalThis.__repair = { calls: [], answers: [{ code: 'BROKEN(cos(x))' }, 'pending'] };
+    m = globalThis.__mount(host, { ...plotBase, code: GOOD, autoRepair: true });
+    await settle(400);
+    await sendNote('The curve should be a cosine.');
+    await settle(400);
+    check('the rebuilt spec failed and a repair was started', globalThis.__repair.calls.length === 2 && globalThis.__repair.calls[1].opts === null, JSON.stringify(globalThis.__repair.calls.map(c => c.opts)));
+    check('the footer says Repairing, not Rebuilding', footer() === 'Repairing', text());
+    // Cancel on a REPAIR (not a rebuild) still ends on the error card, as before.
+    await click([...host.querySelectorAll('button')].find(b => b.getAttribute('title') === 'Stop the AI fix'));
+    await settle(100);
+    check('cancelling a repair ends on the error card with the render\'s message', errorCard() && /unknown function BROKEN/.test(text()) && !footer(), text());
+    m.unmount();
+
+    console.log('\n--- the Fix this panel gives focus back when it closes ---');
+    globalThis.__repair = { calls: [], answers: [] };
+    m = globalThis.__mount(host, { ...plotBase, code: GOOD, autoRepair: false });
+    await settle(400);
+    const fix = button(/^Fix this$/);
+    await click(fix);
+    const area = host.querySelector('textarea');
+    if (area) area.focus();
+    await act(async () => { area?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); });
+    const name = () => window.document.activeElement?.textContent?.trim() || window.document.activeElement?.tagName;
+    check('Escape closes the panel', !host.querySelector('textarea'));
+    const active = window.document.activeElement;
+    check('…and focus is on Fix this (the one in the row), not the page',
+        active === button(/^Fix this$/) && !active.closest('[data-toolbar-measure], [inert]'), name());
+    await click(button(/^Fix this$/));
+    await click(button(/^Cancel$/));
+    check('Cancel does the same', !host.querySelector('textarea') && window.document.activeElement === button(/^Fix this$/), name());
+    m.unmount();
+}
+
+// ---- a widget lays itself out: a resize never redraws it -------------------------
+console.log('\n--- a resize redraws a graph, never a widget ---');
+{
+    globalThis.__widths = { block: 640, row: 420 };
+    const resize = async (block) => {
+        globalThis.__widths = { ...globalThis.__widths, block };
+        await act(async () => { globalThis.__resizeAll(); });
+        await settle(200);
+    };
+    globalThis.__plotRenders = 0;
+    let m = globalThis.__mount(host, { kind: 'plot', language: 'plot', code: '{"data":[{"fn":"x"}]}', live: false, surface: 'assistant' });
+    await settle(400);
+    const before = globalThis.__plotRenders;
+    await resize(600);
+    check('a graph is drawn again at its new width (the resize reached the block)', globalThis.__plotRenders > before, `${before} -> ${globalThis.__plotRenders}`);
+    m.unmount();
+
+    globalThis.__widget.calls = [];
+    globalThis.__widget.lookup = { html: '', cached: false };
+    globalThis.__widths = { block: 640, row: 420 };
+    m = globalThis.__mount(host, { ...widgetBase, live: false, autoRepair: false, autoBuild: false });
+    await settle(400);
+    const lookups = globalThis.__widget.calls.length;
+    await resize(600);
+    await resize(560);
+    check('a widget is not rendered again when its width changes', globalThis.__widget.calls.length === lookups, `${lookups} -> ${globalThis.__widget.calls.length} calls`);
     m.unmount();
 }
 

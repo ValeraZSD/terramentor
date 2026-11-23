@@ -277,6 +277,67 @@ await flush();
 check('Ctrl+Enter still saves', saves.length === 1 && saves[0] === 'saved by keys', JSON.stringify(saves));
 act(() => notesRoot3.unmount());
 
+section('Escape while an input method is composing belongs to the input method');
+{
+    const root4 = createRoot(host);
+    act(() => root4.render(h(React.Fragment, null,
+        h(MarkdownNotes, { value: 'Original text', onChange() { }, onSave, label: 'My notes', nodeId: 4 }),
+        h(ConfirmDialog))));
+    saves = []; saveMode = 'sync';
+    click(buttonNamed(/^Edit/)); await flush();
+    // Unchanged, so a plain Escape would leave at once: the clearest sign it
+    // was taken for the editor's own. A dialog around the editor listens on
+    // the document; it must not hear the IME's Escape either.
+    let heard = 0;
+    const onDoc = (e) => { if (e.key === 'Escape') heard++; };
+    doc.addEventListener('keydown', onDoc);
+    press('Escape', { isComposing: true }, textarea());
+    await flush();
+    check('Escape mid-composition does not leave the editor', !!textarea() && !confirmOpen(), textarea() ? 'asked to discard' : 'editor closed');
+    // WebKit ends a composition with an Escape that says isComposing false
+    // and key 229.
+    const legacy = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    Object.defineProperty(legacy, 'keyCode', { value: 229 });
+    if (textarea()) act(() => { textarea().dispatchEvent(legacy); });
+    await flush();
+    check('…nor does one a browser reports as key 229 (the IME\'s)', !!textarea() && !confirmOpen());
+    check('…and neither reaches a dialog listening on the page', heard === 0, `${heard} heard`);
+    doc.removeEventListener('keydown', onDoc);
+    if (textarea()) type(textarea(), 'mid-word');
+    press('Enter', { ctrlKey: true, isComposing: true }, textarea() ?? doc.body);
+    await flush();
+    check('Ctrl+Enter that commits a composition does not save', saves.length === 0 && !!textarea(), JSON.stringify(saves));
+    if (textarea()) type(textarea(), 'Original text');
+    if (textarea()) press('Escape', {}, textarea());
+    await flush();
+    check('Escape after composition ends leaves as before', !textarea());
+    act(() => root4.unmount());
+}
+
+section('the word count counts words in languages written without spaces');
+{
+    const root5 = createRoot(host);
+    const countShown = () => (host.textContent.match(/(\d+) words/) || [])[1];
+    const show = (value, nodeId) => act(() => root5.render(h(MarkdownNotes, { value, onChange() { }, onSave, label: 'My notes', nodeId })));
+    // Bounds, not exact numbers: the word breaks come from the runtime's ICU
+    // data, which moves a little between versions (Node 24: 9 and 6). The
+    // punctuation 。 is never a word.
+    const between = (lo, hi) => { const n = Number(countShown()); return n >= lo && n <= hi; };
+    show('今日は晴れです。散歩に行きましょう。', 5);
+    await flush();
+    check('a Japanese sentence counts its words (7 to 11)', between(7, 11), `${countShown()} words`);
+    show('ฉันชอบเรียนภาษาไทยมาก', 6);
+    await flush();
+    check('so does a Thai one (5 to 7)', between(5, 7), `${countShown()} words`);
+    show('AI技术 iPhone15を買う', 8);
+    await flush();
+    check('a run mixing Latin and CJK counts both parts (4 to 6)', between(4, 6), `${countShown()} words`);
+    show('A well-known rule, stated twice: 3.14 is pi.', 7);
+    await flush();
+    check('English counts as it always did (one per space-separated run)', countShown() === '8', `${countShown()} words`);
+    act(() => root5.unmount());
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
 console.log(`\neditor gates: ${pass} passed, ${fail} failed${HEAD ? ' (against HEAD)' : ''}`);
 process.exit(fail ? 1 : 0);

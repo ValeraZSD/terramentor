@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, MoreHorizontal, Brush, PenLine, Wrench, X } from 'lucide-react';
-import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
+import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, WIDTH_FREE_KINDS, type VisualRenderer } from './registry';
 import { hasKnownGood, rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
 import { buildSignal } from './buildWatch';
@@ -312,6 +312,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // survive.
     const themeDep = SELF_THEMING_KINDS.has(kind) ? null : `${themeKey}:${accentColor}`;
     const [renderWidth, setRenderWidth] = useState(0);
+    // The same for width: a widget lays itself out, so a resize never redraws it.
+    const widthDep = WIDTH_FREE_KINDS.has(kind) ? null : renderWidth;
     const repairTriedRef = useRef(false);
     // Read live in the render effect's catch without making it an effect dep —
     // so a rendered visual doesn't re-run (flicker) when live flips false at
@@ -363,6 +365,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const originRef = useRef(origin);
     originRef.current = origin;
     const [error, setError] = useState('');
+    const errorRef = useRef(error);
+    errorRef.current = error;
     /**
      * The failure is the APP's: the renderer's module never arrived, or the
      * renderer cannot draw a spec known to be good (rendererHealth.ts). No
@@ -394,7 +398,16 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // being described is on screen, and a dialog would cover it.
     const [feedbackOpen, setFeedbackOpen] = useState(false);
     const [feedbackText, setFeedbackText] = useState('');
+    // Whether the model call running now is a rebuild from their note (true)
+    // or a repair of a spec that failed to draw (false): the footer names it.
     const [feedbackSent, setFeedbackSent] = useState(false);
+    // The Fix this button in the toolbar row (not its copy in the hidden
+    // measure): focus goes back to it when the panel it opened closes.
+    const fixButtonRef = useRef<HTMLButtonElement | null>(null);
+    // What the block showed before a rebuild started, put back when the
+    // rebuild is cancelled or brings nothing new: a drawing that was fine
+    // stays drawn, and a block that never drew keeps its error card.
+    const reviseFromRef = useRef<{ controller: AbortController; status: 'pending' | 'ok' | 'error' | 'undrawn'; error: string } | null>(null);
     // A one-line result from a rebuild that produced nothing usable. Not a toast:
     // it belongs beside the drawing it is about.
     const [reviseNote, setReviseNote] = useState<string | null>(null);
@@ -515,8 +528,13 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // guard so the button can try again.
     const runRepair = (badCode: string, message: string) => {
         repairTriedRef.current = true;
+        // A rebuild still running is superseded: stop listening to it, or its
+        // end would clear the busy state while this repair runs on.
+        repairAbortRef.current?.abort();
         const controller = new AbortController();
         repairAbortRef.current = controller;
+        reviseFromRef.current = null;
+        setFeedbackSent(false);
         setRepairing(true);
         setFixFailed(false);
         setRepairProgress({ chars: 0, thinking: 0 });
@@ -591,11 +609,17 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
      * ```p5 the block may hold a scene brief rather than a finished drawing, and
      * revising a brief with the SVG rules would answer with an SVG.
      */
+    // The panel closes from Escape, Cancel or a send; each time focus goes back
+    // to the button that opened it, not to the page.
+    const closeFeedback = () => {
+        setFeedbackOpen(false);
+        fixButtonRef.current?.focus();
+    };
+
     const sendFeedback = async () => {
         const text = feedbackText.trim();
         if (!text || repairing) return;
-        setFeedbackOpen(false);
-        setFeedbackSent(true);
+        closeFeedback();
         let feedbackId: string | null = null;
         try {
             const res = await api.reportVisual({
@@ -618,6 +642,10 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const runRevise = (currentCode: string, feedback: string, feedbackId: string | null) => {
         const controller = new AbortController();
         repairAbortRef.current = controller;
+        // Read now, not from the render the press came from: the note is
+        // written first, and a render may have finished in between.
+        reviseFromRef.current = { controller, status: statusRef.current, error: errorRef.current };
+        setFeedbackSent(true);
         setRepairing(true);
         setRepairProgress({ chars: 0, thinking: 0 });
         setStatus('pending');
@@ -644,15 +672,13 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     // Nothing came back, or the same spec came back. Say so
                     // rather than leaving a spinner: the drawing on screen is
                     // still the one they complained about.
-                    setStatus('ok');
-                    setError('');
+                    restoreBeforeRevise(controller);
                     setReviseNote('The model returned the same drawing. Your note was saved — try describing the change more concretely.');
                 }
             })
             .catch((e: unknown) => {
                 if (controller.signal.aborted) return;
-                setStatus('ok');
-                setError('');
+                restoreBeforeRevise(controller);
                 if (isConnectionFailure(e)) {
                     resumeRef.current = () => runRevise(currentCode, feedback, feedbackId);
                     setReviseNote(tr("The connection dropped. The rebuild carries on on the server and is picked up when you come back."));
@@ -662,23 +688,49 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             })
             .finally(() => {
                 if (repairAbortRef.current === controller) { repairAbortRef.current = null; repairTaskRef.current = null; }
+                if (reviseFromRef.current?.controller === controller) reviseFromRef.current = null;
                 if (!controller.signal.aborted) { setRepairing(false); setRepairProgress(null); }
             });
     };
 
+    // A rebuild that is cancelled or brings nothing new leaves the block as it
+    // was: drawn if it was drawn, its error card if it had one. A block caught
+    // mid-render falls back to its last drawing, or to the error card.
+    const restoreBeforeRevise = (controller: AbortController) => {
+        const from = reviseFromRef.current;
+        if (!from || from.controller !== controller) return;
+        if (from.status !== 'pending') {
+            setStatus(from.status);
+            setError(from.error);
+        } else if (hasRenderedRef.current) {
+            setStatus('ok');
+            setError('');
+        } else {
+            setStatus('error');
+            setError(from.error || 'render failed');
+        }
+    };
+
     // Stop an in-flight repair and drop back to the error card so the user can
-    // retry manually (or just leave it broken). The rebuild is a background
+    // retry manually (or just leave it broken). A rebuild from their note goes
+    // back to what was on screen before it instead. Either is a background
     // task — closing the socket only detaches from it, so a
     // Cancel pressed here also cancels the task by id, or the model would go
     // on drawing for a block that has stopped listening.
     const cancelRepair = () => {
-        repairAbortRef.current?.abort();
+        const controller = repairAbortRef.current;
+        controller?.abort();
         repairAbortRef.current = null;
         const taskId = repairTaskRef.current;
         repairTaskRef.current = null;
         if (taskId) api.cancelTask(taskId).catch(() => { });
         setRepairing(false);
         setRepairProgress(null);
+        if (controller && reviseFromRef.current?.controller === controller) {
+            restoreBeforeRevise(controller);
+            reviseFromRef.current = null;
+            return;
+        }
         setStatus('error');
         setError(prev => prev || 'render failed');
     };
@@ -890,7 +942,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             abort.abort();
             if (cleanup) cleanup();
         };
-    }, [kind, activeCode, themeDep, renderWidth, renderNonce]);
+    }, [kind, activeCode, themeDep, widthDep, renderNonce]);
 
     // Resume a render the connection cut off (see isConnectionFailure) as soon
     // as the page is visible and online again. Big chat clients all do this —
@@ -953,9 +1005,11 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // app can detect — so the report has to be one click from wherever the
     // learner noticed it, and it has to be in a position they can learn. It
     // leads the control group for that reason: Save, Code and Copy are about
-    // the spec, this is about the picture.
-    const fixButton = (
+    // the spec, this is about the picture. Only the row's copy carries the
+    // ref; the hidden measure's copy is never focused.
+    const fixButton = (ref?: RefObject<HTMLButtonElement | null>) => (
         <Button
+            ref={ref}
             {...TOOL}
             onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
             aria-expanded={feedbackOpen}
@@ -1011,7 +1065,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             <div className="relative flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
                 {kindLabel}
                 <div className="flex items-center shrink-0 -mr-2.5">
-                    {fixButton}
+                    {fixButton(fixButtonRef)}
                     {folded ? (
                         // Copied from the menu: the tick shows where the finger is.
                         <IconButton
@@ -1036,7 +1090,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     <div ref={toolbarRowRef} data-toolbar-measure className="flex w-max items-center gap-x-3 px-4">
                         {kindLabel}
                         <div className="flex items-center shrink-0 -mr-2.5">
-                            {fixButton}{saveButton}
+                            {fixButton()}{saveButton}
                             <Button {...TOOL} icon={<Code2 size={14} aria-hidden="true" />}>{widest(tr("Code"), tr("Hide code"))}</Button>
                             <Button {...TOOL} icon={<Copy size={14} aria-hidden="true" />}>{widest(tr("Copy"), tr("Copied!"))}</Button>
                         </div>
@@ -1110,7 +1164,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                         value={feedbackText}
                         onChange={e => setFeedbackText(e.target.value)}
                         onKeyDown={e => {
-                            if (e.key === 'Escape') { e.stopPropagation(); setFeedbackOpen(false); }
+                            if (e.key === 'Escape') { e.stopPropagation(); closeFeedback(); }
                             // Ctrl/Cmd+Enter submits — the same key the notes
                             // editor and every composer in this app already use.
                             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFeedback(); }
@@ -1127,7 +1181,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                             {tr("Saved on this machine, then sent to your own model to redraw it.")}
                         </p>
                         <div className="flex items-center gap-2">
-                            <Button variant="quiet" onClick={() => setFeedbackOpen(false)}>
+                            <Button variant="quiet" onClick={closeFeedback}>
                                 {tr("Cancel")}
                             </Button>
                             <Button variant="primary" onClick={sendFeedback} disabled={!feedbackText.trim() || repairing}>

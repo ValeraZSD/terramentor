@@ -353,14 +353,11 @@ const htmlComponents: Components = {
         return <CodeBlock language={match?.[1] ?? ''} value={value} />;
     },
 
-    p: ({ children, node }) => {
-        // Check if paragraph is inside a list item
-        const isInListItem = node?.position && node.position.start.column > 1;
-        if (isInListItem) {
-            return <>{children}</>;
-        }
-        return <p className="mb-4 last:mb-0 leading-relaxed">{children}</p>;
-    },
+    // Always a real paragraph. A tight list item has none to render (the
+    // markdown-to-HTML step leaves its text bare), so a paragraph that reaches
+    // here inside a blockquote or a loose list item is one the writer separated
+    // with a blank line, and it keeps its break.
+    p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{children}</p>,
     h1: ({ children }) => <h1 className="text-xl font-bold mb-4 mt-6 text-slate-900 dark:text-slate-100">{children}</h1>,
     h2: ({ children }) => <h2 className="text-lg font-semibold mb-3 mt-5 text-slate-900 dark:text-slate-100">{children}</h2>,
     h3: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-4 text-slate-900 dark:text-slate-100">{children}</h3>,
@@ -370,7 +367,13 @@ const htmlComponents: Components = {
     // The `marker:` prefix must be repeated per variant — `dark:text-slate-400`
     // (without it) greyed the whole item's TEXT in dark mode, not just the
     // bullet, costing contrast on every list the tutor writes.
-    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed">{children}</li>,
+    // `[&>p]:mb-2`: a loose item's paragraphs sit as close as the items do,
+    // not a full paragraph gap apart (a title line above a nested list).
+    // `[&>p:first-child]:inline`: inside `.prose` the markers are `list-inside`
+    // (index.css), and there a block first paragraph starts on the line BELOW
+    // its number. Inline, it runs beside the marker the way a tight item's text
+    // does; the paragraphs after it stay blocks, `[&>p+p]:mt-2` apart.
+    li: ({ children }) => <li className="marker:text-slate-500 dark:marker:text-slate-400 leading-relaxed [&>p]:mb-2 [&>p:first-child]:inline [&>p+p]:mt-2">{children}</li>,
 
     /**
      * A collapsible step (see utils/details.ts). Native `<details>`, so the
