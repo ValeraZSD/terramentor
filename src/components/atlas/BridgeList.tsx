@@ -98,6 +98,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     </span>
                 </span>
 
+                {/* eslint-disable-next-line jsx-a11y/control-has-associated-label -- its text sits inside OwnLine, past the rule's depth */}
                 <button
                     type="button"
                     data-row
