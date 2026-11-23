@@ -375,7 +375,7 @@ export function checkCompletion(token) {
     // so the caller has nothing to write (a second write would overwrite a
     // status set since, such as a skip). `status` is the topic's status now,
     // which may no longer be the completion the pass wrote.
-    const status = (topicStatusStmt ??= db.prepare('SELECT status FROM nodes WHERE id = ?')).get(s.nodeId)?.status ?? null;
+    const status = (topicStatusStmt ??= db.prepare('SELECT status FROM live_nodes nodes WHERE id = ?')).get(s.nodeId)?.status ?? null;
     return { nodeId: s.nodeId, projectId: s.projectId, completed: s.result.completed === true, status };
 }
 let topicStatusStmt;
@@ -425,7 +425,7 @@ function cardFront(card, presentationId) {
 let cardRowStatement = null;
 const cardRow = (id) => (cardRowStatement ??= db.prepare(`
     SELECT f.*, n.title AS node_title, n.project_id, p.name AS project_name
-    FROM flashcards f JOIN nodes n ON n.id = f.node_id JOIN projects p ON p.id = n.project_id
+    FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id JOIN live_projects p ON p.id = n.project_id
     WHERE f.id = ?
 `)).get(id);
 

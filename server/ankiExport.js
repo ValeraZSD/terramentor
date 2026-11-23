@@ -639,15 +639,15 @@ export function buildDeckPaths(rows, projectName) {
  */
 export async function buildProjectApkg(deps, projectId) {
     const { db, mediaStorage } = deps;
-    const project = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) throw new Error(`No such project: ${projectId}`);
 
-    const nodes = db.prepare('SELECT id, parent_id, title, is_note FROM nodes WHERE project_id = ?').all(projectId);
+    const nodes = db.prepare('SELECT id, parent_id, title, is_note FROM live_nodes nodes WHERE project_id = ?').all(projectId);
     const paths = buildDeckPaths(nodes, project.name);
 
     const cards = db.prepare(`
         SELECT f.*, f.node_id AS node_id
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ?
         ORDER BY f.node_id, f.id
     `).all(projectId);

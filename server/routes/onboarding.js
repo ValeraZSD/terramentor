@@ -21,13 +21,13 @@ app.get('/api/onboarding', (req, res) => {
 
         // "A project of your own": a new library starts empty, so the only
         // project anyone has is one they made.
-        const ownProjects = count('SELECT COUNT(*) c FROM projects');
+        const ownProjects = count('SELECT COUNT(*) c FROM live_projects projects');
 
         res.json({
             dismissed: getSetting('onboarding_dismissed', 'false') === 'true',
             steps: {
                 project: ownProjects > 0,
-                schedule: count('SELECT COUNT(*) c FROM projects WHERE start_date IS NOT NULL AND deadline IS NOT NULL') > 0,
+                schedule: count('SELECT COUNT(*) c FROM live_projects projects WHERE start_date IS NOT NULL AND deadline IS NOT NULL') > 0,
                 // Read in ANY scope: the home stream and a course's Study page
                 // are one stream. Never from `feed_items` alone, which is a
                 // cache (a finished topic's rows go at startup, and a topic's
@@ -40,7 +40,7 @@ app.get('/api/onboarding', (req, res) => {
                     || count(`SELECT COUNT(*) c FROM feed_items WHERE kind = 'lesson' AND consumed_at IS NOT NULL AND ${NOT_REPORTED()}`) > 0,
                 answer: count('SELECT COUNT(*) c FROM mastery_evidence') > 0,
                 prove: count("SELECT COUNT(*) c FROM mastery_evidence WHERE evidence_type = 'mastery_check'")
-                    + count("SELECT COUNT(*) c FROM nodes WHERE status = 'completed'") > 0,
+                    + count("SELECT COUNT(*) c FROM live_nodes nodes WHERE status = 'completed'") > 0,
             },
         });
     } catch (err) {

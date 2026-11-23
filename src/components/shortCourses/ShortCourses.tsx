@@ -86,7 +86,7 @@ function ShortCard({ row, project, onChanged }: {
         setMenuOpen(false);
         const confirmed = await showConfirm({
             title: t("Delete Project"),
-            message: t("Delete \"{{name}}\" and all its contents? This action cannot be undone.", { name: row.name }),
+            message: t("Delete \"{{name}}\" and all its contents? You can bring it back from Recently deleted in Settings.", { name: row.name }),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });

@@ -47,8 +47,11 @@ db.function('topic_dates_touch_all', { deterministic: false }, () => {
 // completion, the window and study week, head starts (node_mastery), and what
 // decides whether a project is measured in cards (its cards, `projects.kind`,
 // the per-project "teaches" row in settings).
-const NODE_COLS = 'status, parent_id, position, is_note, role, estimated_weight, completed_at, project_id';
-const OF_NODE = (row) => `(SELECT project_id FROM nodes WHERE id = ${row}.node_id)`;
+const NODE_COLS = 'status, parent_id, position, is_note, role, estimated_weight, completed_at, project_id, deleted_at';
+const OF_NODE = (row) => `(SELECT project_id FROM live_nodes nodes WHERE id = ${row}.node_id)`;
+// A card deleted or restored with its topic: the topic is marked in the same
+// statement, so its project is read past the deleted filter.
+const OF_ANY_NODE = (row) => `(SELECT project_id FROM nodes /* with deleted */ WHERE id = ${row}.node_id)`;
 // A closed topic with no completion time sits on its row's end date, else on
 // the day the row last changed (`layTopicDates`).
 const CLOSED_UNDATED = "NEW.status IN ('completed', 'skipped') AND NEW.completed_at IS NULL";
@@ -92,6 +95,8 @@ db.exec(`
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_ins AFTER INSERT ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
+    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_gone AFTER UPDATE OF deleted_at ON flashcards
+    BEGIN SELECT topic_dates_touch(${OF_ANY_NODE('NEW')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_del AFTER DELETE ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
 `);
@@ -107,7 +112,7 @@ db.exec(`
     DROP VIEW IF EXISTS temp.plan_nodes;
     CREATE TEMP VIEW plan_nodes AS
     SELECT ${viewColumns.join(', ')}
-    FROM main.nodes n
+    FROM main.live_nodes n
     LEFT JOIN topic_plan_projects tp ON tp.project_id = n.project_id
     LEFT JOIN topic_dates td ON td.node_id = n.id;
 `);
@@ -116,7 +121,7 @@ const clearProject = db.prepare('DELETE FROM topic_dates WHERE project_id = ?');
 const unplan = db.prepare('DELETE FROM topic_plan_projects WHERE project_id = ?');
 const plan = db.prepare('INSERT INTO topic_plan_projects (project_id) VALUES (?)');
 const putDate = db.prepare('INSERT INTO topic_dates (node_id, project_id, scheduled_start, scheduled_end) VALUES (?, ?, ?, ?)');
-const allProjects = db.prepare('SELECT id FROM projects').pluck();
+const allProjects = db.prepare('SELECT id FROM live_projects projects').pluck();
 const knownProjects = db.prepare('SELECT project_id FROM topic_plan_projects').pluck();
 
 let key = null;

@@ -92,7 +92,7 @@ async function readUpload(file, { withMedia = false } = {}) {
 }
 
 /** The installed course this file is a newer edition of, by the course's id. */
-const twinOf = (project) => (project.uuid ? db.prepare('SELECT id, name, version FROM projects WHERE uuid = ?').get(project.uuid) : null) || null;
+const twinOf = (project) => (project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null) || null;
 
 /** Plan the update of `twin` from the read file. */
 function plan(twin, read, choices = {}) {
@@ -276,7 +276,7 @@ app.post('/api/course-updates/commit', UPLOAD_GUARD, updateUpload.single('file')
 
 const projectParam = (req, res) => {
     const id = Number(req.params.projectId);
-    if (!Number.isInteger(id) || id <= 0 || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(id)) {
+    if (!Number.isInteger(id) || id <= 0 || !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(id)) {
         res.status(404).json(keyed('Project not found'));
         return null;
     }

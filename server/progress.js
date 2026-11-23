@@ -43,8 +43,8 @@ let shapeStmt = null;
 export function projectCountsInCards(projectId) {
     if (!shapeStmt) {
         shapeStmt = db.prepare(`
-            SELECT (SELECT COUNT(*) FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF}) AS topics,
-                   (SELECT COUNT(*) FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            SELECT (SELECT COUNT(*) FROM live_nodes n WHERE n.project_id = ? AND ${WORK_LEAF}) AS topics,
+                   (SELECT COUNT(*) FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
                     WHERE n.project_id = ?) AS cards
         `);
     }
@@ -77,8 +77,8 @@ function statements() {
                COUNT(f.id) AS cards,
                SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen,
                ${TAUGHT_SQL} AS taught
-        FROM nodes n
-        LEFT JOIN flashcards f ON f.node_id = n.id
+        FROM live_nodes n
+        LEFT JOIN live_flashcards f ON f.node_id = n.id
         WHERE ${WORK_LEAF}${scope}
         GROUP BY n.id
     `;
@@ -109,8 +109,8 @@ export function topicWeight(row) {
  */
 export const TAUGHT_SQL = `(
     LENGTH(COALESCE(n.description, '')) >= ${MATERIAL_MIN_CHARS}
-    OR EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 1)
-    OR EXISTS (SELECT 1 FROM quizzes q WHERE q.node_id = n.id)
+    OR EXISTS (SELECT 1 FROM live_nodes c WHERE c.parent_id = n.id AND c.is_note = 1)
+    OR EXISTS (SELECT 1 FROM live_quizzes q WHERE q.node_id = n.id)
 )`;
 
 /** Roll a set of topic rows up into one project's progress. */
@@ -147,7 +147,7 @@ function cardStatement() {
         cardStmt = db.prepare(`
             SELECT COUNT(*) AS cards,
                    SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ?
         `);
     }
