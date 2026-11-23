@@ -81,7 +81,7 @@ and fitted to your own reviews once there are enough of them).
 Every two weeks or so a course offers a look back: ten questions from across it, and a topic you
 miss comes back as a question the next day you study. In the weeks before an exam whose date cannot
 move, or one you have described, the offer is a full mock exam: the course's own questions on
-screen, or a past paper you add, written against the exam clock.
+screen, or a past paper you add, with an exam clock if you want one.
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)

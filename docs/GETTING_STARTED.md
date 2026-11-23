@@ -112,10 +112,11 @@ Schedule** at the top of the project), and the app lays the open topics out over
 The app then judges the date against **your own pace**: the topics (in a card deck, the new cards)
 you closed each week across all your courses, your recent weeks and your best month. One word
 says how it looks: *on pace*, *under pace*, *tight*, *out of reach*, or *learning* while it has
-under two weeks of your record. It gives a range of likely finish dates, never a single one,
-because a pace that comes in bursts cannot honestly give one. Courses with dates share that one
-weekly pace, the nearest date first; a course that cannot make its date takes the rest, and later
-or undated courses wait.
+under two weeks of your record. Once it has four weeks of your record it can name a range of
+likely finish dates, never a single one, because a pace that comes in bursts cannot honestly give
+one. From two weeks on, courses with dates share your weekly pace (topics and cards counted
+apart), the nearest date first; a course that cannot make its date takes the rest of the week,
+and later or undated courses wait. A paused course takes no share.
 
 **Open plan** shows that verdict with a chart of your weeks and what you can do about it:
 

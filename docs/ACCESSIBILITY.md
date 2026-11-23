@@ -52,9 +52,9 @@ The [conformance report](#conformance-report-wcag-22) at the end goes through ev
 
 - Seeing: Contrast (Standard, Higher, or System) and Motion (Full, Reduced, or System).
   Higher gives darker text and stronger borders and lines. Reduced stops movement in the app;
-  only the ring that fades out round a dropped item stays. Larger text and buttons brings the
-  app's small print up to normal size and makes every button bigger and easier to press.
-- Reading: letter, word and line spacing, each in three steps. The widest step uses at least
+  only the ring that fades out round a dropped item stays.
+- Reading: Larger text and buttons brings the app's small print up to normal size and makes
+  every button at least 44 px. Letter, word and line spacing, each in three steps. The widest step uses at least
   the spacing that WCAG 1.4.12 names. Reading line puts a band under the line you point at in
   lessons and notes.
 - Listening: Read aloud adds a speaker button to cards, questions, lessons, notes and
@@ -79,7 +79,8 @@ Elsewhere in the app:
 - Settings → AI & Models → Describe card pictures lists every card picture beside its
   description, so a description a model wrote can be checked and corrected. A description
   a model writes is refused, and the picture keeps waiting for one, when it is a refusal, only
-  names the kind of picture ("A bar chart."), or is in another language than the course.
+  names the kind of picture ("A bar chart."), or is in English or another script instead of
+  the course's language.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
   dashboard) sets its own page title, each screen has one main heading, and moving to another screen is announced.
 - Back (a phone's Back button, the browser's Back, a mouse's back key) closes the topmost
@@ -300,7 +301,7 @@ has nothing the criterion is about.
 | 2.5.2 Pointer Cancellation | Supports | Controls act on release; Confirm before grading adds a second press for answers. |
 | 2.5.3 Label in Name | Supports | Buttons are named by the words they show. |
 | 2.5.4 Motion Actuation | Not applicable | Nothing responds to moving or shaking the device. |
-| 3.1.1 Language of Page | Supports | The page language, and its direction (right to left for Arabic), is set to the interface language before the page loads. |
+| 3.1.1 Language of Page | Supports | The page language, and its direction (right to left for Arabic), is set to the interface language before the first screen is drawn. |
 | 3.2.1 On Focus | Supports | No control acts on focus alone. |
 | 3.2.2 On Input | Supports | Changing a setting does not move to another screen. |
 | 3.2.6 Consistent Help | Supports | The assistant is in the header of every screen; Report a problem is always in Settings. |
@@ -329,13 +330,13 @@ has nothing the criterion is about.
 | 2.4.5 Multiple Ways | Supports | The header, search (Ctrl+K, or Cmd+K on a Mac) and the atlas index. |
 | 2.4.6 Headings and Labels | Supports | One main heading per screen; settings rows and fields are labelled. |
 | 2.4.7 Focus Visible | Partially supports | A ring shows keyboard focus; on an accent-coloured button it is the button's own colour. |
-| 2.4.11 Focus Not Obscured (Minimum) | Not evaluated | Pop-up notices and the task dock sit over the page and can cover part of the focused control; no state has been found yet where one hides it fully. On Today the course's name stays pinned at the top and what scrolls into view stops below it; a name that wraps to two lines has not been checked. |
+| 2.4.11 Focus Not Obscured (Minimum) | Not evaluated | Pop-up notices and the task dock sit over the page and can cover part of the focused control; no state has been found yet where one hides it fully. On Today the course's name stays pinned at the top on one line and what scrolls into view stops a fixed 3.25rem below the top, clear of it; this has not been checked at the widest text spacing. |
 | 2.5.7 Dragging Movements | Partially supports | Lists have Move earlier and Move later; panel resizing and photo corners need a drag. |
 | 2.5.8 Target Size (Minimum) | Supports | axe reports no target-size failure on the scanned screens (a smaller target passes it when spaced apart). |
 | 3.1.2 Language of Parts | Partially supports | Course text carries its course's language; assistant answers do not. |
 | 3.2.3 Consistent Navigation | Supports | The header and its tabs are the same on every screen. |
 | 3.2.4 Consistent Identification | Supports | One set of shared controls, held by `control-gates.mjs`. |
 | 3.3.3 Error Suggestion | Not evaluated | Not yet reviewed form by form. |
-| 3.3.4 Error Prevention (Legal, Financial, Data) | Supports | Deleting asks first, and what was deleted comes back from Recently deleted in Settings; a card rating and an assistant change can be undone. |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | Supports | Deleting asks first, and a deleted course, topic, note, card, quiz or link comes back from Recently deleted in Settings; a card rating and an assistant change can be undone. |
 | 3.3.8 Accessible Authentication (Minimum) | Supports | Password fields accept pasting and password managers; there is no puzzle. |
 | 4.1.3 Status Messages | Partially supports | A review session's cards and answers, feed verdicts and assistant answers are announced; a rating, Undo, a topic's own card list, and drill and quiz results are not. |
