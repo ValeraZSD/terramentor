@@ -476,7 +476,12 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     A.plan = [{ status: 404 }];
     B.plan = [{ status: 200, content: 'A hand-drawn sine wave with its peaks labelled.' }];
     const { hash } = mediaStorage.put(Buffer.from('not really a png'));
-    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind) VALUES (NULL, ?, 'wave.png', 'image/png', 'image')").run(hash);
+    // On a card of its deck: a file no live card shows is not described.
+    const deck = db.prepare("INSERT INTO projects (name) VALUES ('Wave deck')").run().lastInsertRowid;
+    const topic = db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Waves')").run(deck).lastInsertRowid;
+    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind) VALUES (?, ?, 'wave.png', 'image/png', 'image')").run(deck, hash);
+    db.prepare("INSERT INTO flashcards (node_id, front, back, media) VALUES (?, 'Front', 'Back', ?)")
+        .run(topic, JSON.stringify({ front: [{ hash, kind: 'image', name: 'wave.png' }], back: [] }));
     const res = await withAnswerScope(() => describeMedia(hash)).catch(e => ({ error: e.message }));
     const row = db.prepare('SELECT description, generated_by FROM media_files WHERE hash = ?').get(hash);
     const modelOf = (raw) => { try { return JSON.parse(raw).model; } catch { return raw; } };
