@@ -424,6 +424,17 @@ await block(async () => {
 });
 await block(async () => {
     await set({ nc: true, draft: null }); await settle();
+    await create();
+    await fill(body().querySelector('#course-material-link'), 'https://example.org/knots');
+    await back();
+    check('Back from the form with a typed link steps to the first choice', !!titled('New course') && !asking() && buttons().some(b => b.textContent.includes('Create a course')));
+    await create();
+    check('and the typed link is still in its box on the way in again', body().querySelector('#course-material-link')?.value === 'https://example.org/knots');
+    await back(); await back();
+    check('Back at the first choice asks, the link being typed work', !!asking() && !!titled('New course'));
+});
+await block(async () => {
+    await set({ nc: true, draft: null }); await settle();
     await click(buttons().find(b => b.textContent.includes('Import a course')));
     await click(buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')));
     await fill(body().querySelector('textarea[aria-label="The model\'s reply"]'), '{ "nodes": [] }');

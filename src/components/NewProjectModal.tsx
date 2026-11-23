@@ -527,7 +527,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                 )}
             </Field>
             <StudyLanguageField language={newLanguage} setLanguage={setNewLanguage} isNew automaticAs={automaticAs} />
-            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} onDraft={setLinkDraft} />
+            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} draft={linkDraft} onDraft={setLinkDraft} />
         </>
     );
 
