@@ -54,8 +54,10 @@ ticked by doing the thing.
 
 ## The feed
 
-The home page is a **learning feed**. The app decides what comes next and you scroll; a course
-or a single topic streams the same way from its own **Study** button.
+The home page, **Today**, is a **learning feed**. The app decides what comes next and you scroll;
+a course or a single topic streams the same way from its own **Study** button. Today takes one
+course at a time, under that course's name: its lessons, questions and cards, then the next
+course once this one's share of the day is done.
 
 Cards come in a few kinds:
 
@@ -85,6 +87,9 @@ Inside, topics form a tree. Two rules are worth knowing:
    examples) and still be a leaf. Notes are never scheduled and have no status of their own: they
    are what the topic is *made of*.
 
+Deleting a course, a topic, a note, a card, a quiz or a link moves it to Settings → Library &
+about → *Recently deleted*, from where it comes back with everything you studied in it.
+
 **New course** first asks whether to create a course or import one. **Create a course** asks for
 a name, what you want to learn, and optionally its material: any number of files and links (a web
 page, a PDF, a YouTube video), mixed. You never pick a size: the model judges it from the name,
@@ -107,8 +112,10 @@ Schedule** at the top of the project), and the app lays the open topics out over
 The app then judges the date against **your own pace**: the topics (in a card deck, the new cards)
 you closed each week across all your courses, your recent weeks and your best month. One word
 says how it looks: *on pace*, *under pace*, *tight*, *out of reach*, or *learning* while it has
-under two weeks of your record. It never prints a single finish date, because a pace that comes in
-bursts cannot honestly give one.
+under two weeks of your record. It gives a range of likely finish dates, never a single one,
+because a pace that comes in bursts cannot honestly give one. Courses with dates share that one
+weekly pace, the nearest date first; a course that cannot make its date takes the rest, and later
+or undated courses wait.
 
 **Open plan** shows that verdict with a chart of your weeks and what you can do about it:
 
@@ -140,13 +147,17 @@ that the app never has to lie to you about what you actually know.
 Got a question wrong? On the review screen every missed answer offers **Teach me this** and a video
 search, so you can close the gap without leaving the app.
 
+A topic's panel shows **What the app thinks you know** about it and the answers that estimate
+rests on; its **Questions and cards** tab holds everything it can ask you.
+
 ## Remembering: reviews and recall
 
 Learning something once is not knowing it. Three mechanisms fight the forgetting curve:
 
 - **Flashcards**, scheduled by **FSRS-7**, the newest FSRS. Rate a card by how hard it was; easy cards come back in
   weeks, hard ones tomorrow, and "Again" means minutes. The scheduler fits itself to your own
-  review history once there is enough of it.
+  review history once there is enough of it. Each course has its own **Recall target** (90%
+  unless you change it): a higher one brings its cards back sooner and asks for more reviews.
 - **Recall cards**: saved questions from topics you did well on and have not practised for a
   while. They open the feed as a short round, one question per topic, starting with the hardest
   one you have answered right before. Answering one refreshes both the estimate and the timer.
