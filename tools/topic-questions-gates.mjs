@@ -485,6 +485,27 @@ console.log('--- two sets that read the same ---');
     m.unmount();
 }
 
+console.log('--- a photo card in the list ---');
+{
+    // A topic's photo cards all answer with the topic, so a row named by its
+    // answer reads the same three times: it is named by its example instead.
+    quizzes = [];
+    const photoMedia = (h) => JSON.stringify({ front: [{ kind: 'image', hash: h.repeat(64), prompt: true }], back: [] });
+    cards = [
+        { ...card(31, null), front: '', back: 'Japanese Architecture', extra: 'Horyu-ji Temple\nSlender posts.', media: photoMedia('a') },
+        { ...card(32, null), front: '', back: 'Japanese Architecture', extra: 'Himeji Castle\nWhite walls.', media: photoMedia('b') },
+        { ...card(33, null), front: '', back: 'Japanese Architecture', extra: '', media: photoMedia('c') },
+    ];
+    const m = globalThis.__mount({ nodeId: 9, topicTitle: 'Japanese Architecture' });
+    await flush(); await flush();
+    const rows = [...m.el.querySelectorAll('li')].filter(li => li.querySelector('img')).map(li => [...li.querySelectorAll('p')].map(p => p.textContent.trim()));
+    check('photo card rows lead with the example\'s name, the topic under it',
+        JSON.stringify(rows.slice(0, 2)) === JSON.stringify([['Horyu-ji Temple', 'Japanese Architecture'], ['Himeji Castle', 'Japanese Architecture']]),
+        JSON.stringify(rows));
+    check('...and one with no example is named by its answer alone', JSON.stringify(rows[2]) === JSON.stringify(['Japanese Architecture']), JSON.stringify(rows));
+    m.unmount();
+}
+
 try { rmSync(outfile, { force: true }); } catch { /* swept later */ }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

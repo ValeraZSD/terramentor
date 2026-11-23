@@ -86,14 +86,14 @@ export const themeKeyOf = (theme: Theme, tint: string) => `${theme}:${tint}`;
  *  comparison it now is, because ninety-odd call sites read it and the day the
  *  axis grows a third answer is not the day to find them. */
 export const isDarkTheme = (t: Theme): boolean => t === 'dark';
-export type WorkspaceView = 'dashboard' | 'tree' | 'vault' | 'study' | 'exam';
+export type WorkspaceView = 'dashboard' | 'tree' | 'vault' | 'study' | 'exam' | 'sight';
 
 /** The in-workspace views, used to validate the `:view` URL segment. `study`
  *  is the LEARNING view of a course: the feed scoped to the whole project
  *  (`/project/:id/study`) or to one topic (`/project/:id/study/:nodeId`).
  *  Every other view administers the course; this one teaches it. */
 export const VALID_WORKSPACE_VIEWS: ReadonlySet<WorkspaceView> = new Set<WorkspaceView>([
-    'dashboard', 'tree', 'vault', 'study', 'exam',
+    'dashboard', 'tree', 'vault', 'study', 'exam', 'sight',
 ]);
 
 /** THREE SCOPES, ONE STREAM — defined in types.ts (api.ts names it too),
@@ -2683,7 +2683,9 @@ export const useStore = create<AppState>((set, get) => ({
         // "teach me this course", so the selection is deliberately not
         // carried — otherwise whichever topic happened to be open silently
         // narrowed the whole course down to itself.
-        const nodeId = view === 'study' ? null : get().selectedNodeId;
+        // The photo practice carries none either: an open topic's photos
+        // beside it would name the answers.
+        const nodeId = view === 'study' || view === 'sight' ? null : get().selectedNodeId;
         nav(`/project/${pid}/${view}${nodeId ? `/${nodeId}` : ''}`);
     },
 

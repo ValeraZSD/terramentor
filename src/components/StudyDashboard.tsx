@@ -4,8 +4,9 @@ import CardsPanel from './deck/CardsPanel';
 import {
     CheckCircle2, Zap, RefreshCw, Loader2,
     MessageSquare, BarChart3, Play,
-    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History, Timer
+    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History, Timer, Images
 } from 'lucide-react';
+import { usePhotoPractice } from '../hooks/usePhotoPractice';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -52,6 +53,7 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
 
     const project = projects.find(p => p.id === currentProjectId);
     const placement = usePlacementStatus(currentProjectId);
+    const sight = usePhotoPractice(currentProjectId);
 
     // The course whose hub this mount has had an answer for. The first render comes
     // before the effect asks, so until the answer is in, an empty store means "coming",
@@ -268,6 +270,15 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
                     hint={tr("Answer a draw of this course's questions on screen, or write a past paper with the exam clock")}
                     onClick={() => setWorkspaceView('exam')}
                 />
+                {/* Only a course with photos on two or more topics: one with none promises none. */}
+                {sight?.available && (
+                    <ToolRow
+                        icon={Images}
+                        title={tr("Tell them apart")}
+                        hint={tr("Match each photo to its topic")}
+                        onClick={() => setWorkspaceView('sight')}
+                    />
+                )}
                 <ToolRow
                     icon={Layers}
                     title={tr("Generate study material")}

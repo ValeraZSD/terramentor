@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import CardText, { Ruby } from './CardText';
 import { splitWordReading, hasRichCardText, contextSentence, stripCardMarkup } from '../utils/cardText';
 
@@ -6,6 +7,7 @@ const bareLine = (s: string) => stripCardMarkup(s).replace(/\s+/g, ' ').trim().t
 import CardExtra from './CardExtra';
 import CardMedia, { CardMediaSides, CardAudioProvider, AudioClipButton, type CardMediaRef } from './CardMedia';
 import { useContentLang } from '../utils/contentLang';
+import { isPhotoPromptCard } from '../utils/photoCard';
 
 interface Props {
     front: string;
@@ -68,6 +70,9 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     // so the body size is what decides whether the reading is legible at all.
     const big = review ? 'text-xl sm:text-2xl leading-relaxed' : 'text-base leading-relaxed';
     const sideMedia = flipped ? media.back : media.front;
+    const { t, i18n } = useTranslation();
+    // A card whose front is only the photo asked about (server/photoCards.js).
+    const photoPrompt = isPhotoPromptCard(front, media);
     // **A clip sits beside the line it was written on.** The importer records
     // that line as `at`; here each clip is matched to the line it names (with
     // markup and readings stripped from both sides) and rendered right after
@@ -162,7 +167,11 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
             <div data-read-skip={flipped || undefined} className="contents">
             <p className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
                 <span>
-                    {rubyWord
+                    {photoPrompt
+                        // A photo card has no words on its front: the question is
+                        // the app's, so it is in the interface's language.
+                        ? <span lang={i18n.language}>{t("Which one is this?")}</span>
+                        : rubyWord
                         // The deck's per-kanji form of the word, rendered through the
                         // ordinary parser so each reading lands on its own character.
                         ? <CardText content={rubyWord} />

@@ -146,6 +146,11 @@ function itemLine(target, shown, max = PAGE_ITEM_CHARS) {
         keyed.push(key ? `Answer key: ${clip(v.answer, 200)}` : WITHHELD);
     } else if (target.kind === 'lesson') {
         rest.push(`Lesson text: ${clip(v.text, 600)}`);
+    } else if (target.kind === 'photo') {
+        // "Which one is this?" asked of a topic's photo: the topic and the
+        // example are the key until the learner picked.
+        lead.push('A photo asked "which one is this?" among the course\'s topics');
+        keyed.push(key ? `Answer key: ${clip(v.topic, 160)}; the example is ${clip(v.subject, 160)}${v.shows ? `. What to look at: ${clip(v.shows, 240)}` : ''}` : WITHHELD);
     } else if (target.kind === 'paper') {
         // The reference solution never leaves the server before the learner has worked it.
         rest.push(`Exercise brief: ${clip(v.brief, 400)}`);

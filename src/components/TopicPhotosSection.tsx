@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image as ImageIcon, Loader2, Search } from 'lucide-react';
+import { Image as ImageIcon, Images, Loader2, Search } from 'lucide-react';
+import { usePhotoPractice } from '../hooks/usePhotoPractice';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -16,6 +17,9 @@ import type { TopicPhotos } from '../types';
 export default function TopicPhotosSection({ nodeId }: { nodeId: number }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
+    const setWorkspaceView = useStore(s => s.setWorkspaceView);
+    // The course's photo practice, offered from here once two topics have photos.
+    const sight = usePhotoPractice(useStore(s => s.currentProjectId));
     const [data, setData] = useState<TopicPhotos | null>(null);
     const [failed, setFailed] = useState(false);
     const [asking, setAsking] = useState(false);
@@ -60,6 +64,16 @@ export default function TopicPhotosSection({ nodeId }: { nodeId: number }) {
                     <ImageIcon className="w-3 h-3" aria-hidden="true" />
                     {t("Photos")}
                 </span>
+                {data.photos.length > 0 && sight?.available && (
+                    <Button
+                        size="sm"
+                        variant="quiet"
+                        onClick={() => setWorkspaceView('sight')}
+                        icon={<Images className="w-4 h-4" aria-hidden="true" />}
+                    >
+                        {t("Tell them apart")}
+                    </Button>
+                )}
                 {data.state === 'none' && (
                     <Button
                         size="sm"

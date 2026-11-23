@@ -7,6 +7,7 @@
 //   card:<id>              a flashcard
 //   probe:<probeId>:<i>    a placement question
 //   drill:<node>:<drill>:<item>   one item of a drill
+//   photo:<uuid>           a topic's photo, asked "which one is this?"
 
 /** The fixed reasons, in the order the dialog lists them. The server's REPORT_REASONS. */
 export const REPORT_REASONS = ['wrong', 'unclear', 'off_topic', 'other'] as const;
@@ -16,9 +17,9 @@ export const REPORT_NOTE_MAX = 1000;
 
 /** Where a report was sent from: the server's closed REPORT_SURFACES. */
 export type ReportSurface =
-    | 'feed' | 'quiz' | 'mastery_check' | 'placement' | 'drill' | 'review' | 'lesson' | 'paper' | 'topic' | 'assistant' | 'mock';
+    | 'feed' | 'quiz' | 'mastery_check' | 'placement' | 'drill' | 'review' | 'lesson' | 'paper' | 'topic' | 'assistant' | 'mock' | 'sight';
 
-export type ReportKind = 'question' | 'lesson' | 'paper' | 'card' | 'drill' | 'probe';
+export type ReportKind = 'question' | 'lesson' | 'paper' | 'card' | 'drill' | 'probe' | 'photo';
 
 export interface ItemReport {
     id: number;
@@ -50,7 +51,7 @@ export interface ItemReportTarget {
     editable: boolean;
 }
 
-const REF = /^(?:fi:\d{1,12}|q:[A-Za-z0-9-]{8,64}|card:\d{1,12}|probe:\d{1,12}:\d{1,3}|drill:\d{1,12}:(?:f[0-9a-f]{8}|cards):(?:i[0-9a-f]{8}|c\d{1,12}))$/;
+const REF = /^(?:fi:\d{1,12}|q:[A-Za-z0-9-]{8,64}|photo:[A-Za-z0-9-]{8,64}|card:\d{1,12}|probe:\d{1,12}:\d{1,3}|drill:\d{1,12}:(?:f[0-9a-f]{8}|cards):(?:i[0-9a-f]{8}|c\d{1,12}))$/;
 
 /** Is this a ref the server can resolve? The same shapes as `parseRef` there. */
 export function isItemRef(ref: unknown): ref is string {
@@ -72,6 +73,9 @@ export const cardRef = (cardId: number | null | undefined): string | null =>
 
 export const probeRef = (probeId: number | null | undefined, index: number): string | null =>
     Number.isInteger(probeId) && Number.isInteger(index) ? `probe:${probeId}:${index}` : null;
+
+export const photoRef = (uuid: string | null | undefined): string | null =>
+    uuid && isItemRef(`photo:${uuid}`) ? `photo:${uuid}` : null;
 
 export const drillRef = (nodeId: number | null | undefined, drillKey: string | null | undefined, itemKey: string): string | null => {
     const ref = `drill:${nodeId}:${drillKey}:${itemKey}`;

@@ -47,6 +47,7 @@ import * as tasks from './tasks.js';
 import { getSetting } from './settingsStore.js';
 import { getProjectLanguage } from './language.js';
 import { WORK_LEAF } from './today.js';
+import { syncPhotoCards } from './photoCards.js';
 
 // Every statement compiled once: some run per topic, per photo and per lesson.
 const statements = new Map();
@@ -461,8 +462,12 @@ let chain = Promise.resolve();
 export const photosRunning = (projectId) => running.has(Number(projectId));
 const nodeRunning = (nodeId, projectId) => !!running.get(Number(projectId))?.nodes.has(Number(nodeId));
 
-/** The course's topics, in the order it is studied. */
-function topicsInOrder(projectId) {
+/**
+ * The course's topics, in the order it is studied: the first 60, the most
+ * a plan asks a model about; `{ all: true }` for every one (practice reads
+ * the photos a course already has, wherever they sit).
+ */
+export function topicsInOrder(projectId, { all = false } = {}) {
     return stmt(`
         WITH RECURSIVE ordered AS (
             SELECT id, printf('%08d-%010d', COALESCE(position, 0), id) AS path
@@ -475,8 +480,8 @@ function topicsInOrder(projectId) {
         FROM ordered o JOIN live_nodes n ON n.id = o.id
         WHERE ${WORK_LEAF}
         ORDER BY o.path
-        LIMIT 60
-    `).all(projectId);
+        LIMIT ?
+    `).all(projectId, all ? -1 : 60);
 }
 
 /** Search, pick, look and keep, for one topic's pending examples. */
@@ -607,6 +612,9 @@ async function runPhotos(projectId, { nodeIds = null, controller, handle } = {})
             AND node_id IN (SELECT id FROM nodes WHERE project_id = ? /* with deleted */)`).all(projectId)) {
             if (!next.has(id)) stmt(`UPDATE node_photos SET status = 'none' WHERE node_id = ? AND status = 'pending'`).run(id);
         }
+        // Each photo kept becomes a card (server/photoCards.js). A failure here
+        // costs nothing kept: the pass at the next start makes the cards.
+        try { syncPhotoCards(projectId); } catch { /* made at the next start */ }
     }
     const s = run.stats;
     logActivity({
@@ -825,11 +833,15 @@ export function lessonPhotoFields(nodeId, content, { partIndex = 1, partCount = 
  * shows, and for each photo found its credit (author, licence, source page)
  * and, in a bundle, the name of its file under `media/`. A plain JSON export
  * has no files, so it carries the credit and the examples only; the library
- * that imports it can look for them again.
+ * that imports it can look for them again. An example a model wrote says
+ * which (`generated_by`, the model alone), as a card does.
  */
+const modelOf = (stored) => {
+    try { const m = JSON.parse(stored || 'null')?.model; return typeof m === 'string' && m.trim() ? m.trim() : undefined; } catch { return undefined; }
+};
 export function exportedPhotos(nodeId, names = null) {
     return rowsOf(nodeId).map((r) => {
-        const out = { subject: r.subject, search: r.search || undefined, shows: r.shows || undefined };
+        const out = { subject: r.subject, search: r.search || undefined, shows: r.shows || undefined, generated_by: modelOf(r.generated_by) };
         if (r.status === 'found' && r.hash) {
             Object.assign(out, {
                 file_title: r.file_title || undefined,

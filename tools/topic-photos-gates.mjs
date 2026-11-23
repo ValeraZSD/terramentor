@@ -416,6 +416,12 @@ const none = roofsTopic ? await (await fetch(`${base}/api/nodes/${roofsTopic.id}
 ok('..."none" for the topic with no photo', none.state === 'none' && none.photos?.length === 0, JSON.stringify(none));
 const notSight = historyTopic ? await (await fetch(`${base}/api/nodes/${historyTopic.id}/photos`)).json().catch(() => ({})) : {};
 ok('...and no state for a topic not learned by sight', notSight.state === null, JSON.stringify(notSight));
+// The run's own end makes a card per kept photo (server/photoCards.js), with no startup pass in between.
+const cardCols = db.prepare("SELECT name FROM pragma_table_info('flashcards')").all().map(c => c.name);
+const runCards = cardCols.includes('photo_uuid') && hallsTopic
+    ? db.prepare('SELECT photo_uuid, back FROM flashcards WHERE node_id = ? AND photo_uuid IS NOT NULL').all(hallsTopic.id) : [];
+ok('each photo the run kept has its card when the run ends', runCards.length === hallRows.length && hallRows.length > 0
+    && hallRows.every(r => runCards.some(c => c.photo_uuid === r.uuid && c.back === hallsTopic.title)), JSON.stringify(runCards));
 
 section('4. the activity log records the run with numbers only');
 const logRow = db.prepare(`SELECT * FROM activity_log WHERE event LIKE 'photos.%' ORDER BY id DESC LIMIT 1`).get();

@@ -9,6 +9,7 @@ import { setNewPerDay } from './decks.js';
 import { mediaStorage } from './vaultStorage.js';
 import { releaseUuid } from './softDelete.js';
 import { PHOTO_BYTES, PHOTO_MIMES } from './topicPhotos.js';
+import { syncPhotoCards } from './photoCards.js';
 
 // IMPORT / EXPORT
 
@@ -55,7 +56,9 @@ const provenanceModel = (stored) => {
 // ~10 s, every other request waiting behind it.
 const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
 const quizzesOfNode = once('SELECT questions, generated_by FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id');
-const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM live_flashcards flashcards WHERE node_id = ? ORDER BY id');
+// A card made from a photo stays home: the photo travels, and the importing
+// library makes its card again (server/photoCards.js).
+const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM live_flashcards flashcards WHERE node_id = ? AND photo_uuid IS NULL ORDER BY id');
 const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM live_resources resources WHERE node_id = ? ORDER BY position');
 
 /** A topic's links in export order. */
@@ -243,11 +246,13 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
     // A topic's photos (server/topicPhotos.js): one whose file the bundle
     // carried is kept with its credit; the rest keep their example, so the
-    // topic page can look for a photo again. No model of ours named them.
+    // topic page can look for a photo again. No model of ours named them; the
+    // model the file names for their words is kept as its claim, like a card's,
+    // and the card made from the photo carries it (server/photoCards.js).
     const insertPhoto = db.prepare(`
         INSERT INTO node_photos (node_id, position, subject, search, shows, status, hash, width, height,
-            file_title, author, licence, licence_url, source_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            file_title, author, licence, licence_url, source_url, generated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     // The photo's file carries the course's words for it, so it reads aloud
     // and is not queued as an undescribed card picture.
@@ -313,13 +318,15 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             const c = found ? p.credit : {};
             insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', found ? 'found' : 'none',
                 found?.hash ?? null, c.width ?? null, c.height ?? null, c.file_title ?? null, c.author ?? null,
-                c.licence ?? null, c.licence_url ?? null, c.source_url ?? null);
+                c.licence ?? null, c.licence_url ?? null, c.source_url ?? null, declaredBy(p.generated_by));
             if (found) describePhoto.run(photoAlt(p.subject, p.shows), newProjectId, found.hash);
         });
         node.children.forEach((child, idx) => walk(child, newNodeId, idx, path));
     };
 
     nodes.forEach((node, idx) => walk(node, null, idx, []));
+    // The photos it brought get their cards, like photos found here.
+    syncPhotoCards(newProjectId);
     return { cardCount, unresolvedMedia };
 }
 

@@ -27,13 +27,14 @@ import { cardAnswerIsCorrect } from './cardEvidence.js';
 import { askedAs } from './sittingReview.js';
 import { BY_APP, logScheduleEvent, restore, softDelete } from './softDelete.js';
 import { KeyedError } from './clientError.js';
+import { syncPhotoCards } from './photoCards.js';
 
 export const REPORT_REASONS = ['wrong', 'unclear', 'off_topic', 'other'];
 export const REPORT_NOTE_MAX = 1000;
 // Where a report was sent from: a closed vocabulary, so it may reach the
 // activity log beside the kind and the reason.
 export const REPORT_SURFACES = new Set([
-    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant', 'mock',
+    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant', 'mock', 'sight',
 ]);
 
 // A parked card's next review: past every due query (`next_review <= now`)
@@ -85,10 +86,12 @@ function drillKeyOf(body) { return `f${fnv(String(body).replace(/\n$/, ''))}`; }
  *   card:<id>                       a flashcard
  *   probe:<probeId>:<index>         a placement question
  *   drill:<nodeId>:<drillKey>:<itemKey>   one item of a drill
+ *   photo:<uuid>                    a topic's photo, asked "which one is this?"
  */
 export function parseRef(ref) {
     const s = String(ref ?? '').trim();
     let m;
+    if ((m = /^photo:(.+)$/.exec(s)) && UUID.test(m[1])) return { type: 'photo', uuid: m[1] };
     if ((m = /^fi:(\d{1,12})$/.exec(s))) return { type: 'fi', feedItemId: Number(m[1]) };
     if ((m = /^q:(.+)$/.exec(s)) && UUID.test(m[1])) return { type: 'q', uuid: m[1] };
     if ((m = /^card:(\d{1,12})$/.exec(s))) return { type: 'card', cardId: Number(m[1]) };
@@ -209,6 +212,7 @@ function refOf(p) {
     if (p.type === 'card') return `card:${p.cardId}`;
     if (p.type === 'probe') return `probe:${p.probeId}:${p.index}`;
     if (p.type === 'drill') return `drill:${p.nodeId}:${p.drillKey}:${p.itemKey}`;
+    if (p.type === 'photo') return `photo:${p.uuid}`;
     return null;
 }
 
@@ -259,6 +263,16 @@ function liveTarget(p) {
         return {
             ref: `drill:${p.nodeId}:${p.drillKey}:${p.itemKey}`, kind: 'drill', nodeId: p.nodeId, projectId: projectOf(p.nodeId),
             item: { prompt: hit.prompt, answer: hit.answer }, modelWritten: p.drillKey !== 'cards', parsed: p,
+        };
+    }
+    if (p.type === 'photo') {
+        // The archive's photo a model picked for an example (server/topicPhotos.js).
+        const row = stmt(`SELECT p.uuid, p.node_id, p.hash, p.subject, p.shows, n.title, n.project_id FROM node_photos p
+            JOIN live_nodes n ON n.id = p.node_id WHERE p.uuid = ? AND p.status = 'found' AND p.hash IS NOT NULL`).get(p.uuid);
+        if (!row) return null;
+        return {
+            ref: `photo:${row.uuid}`, kind: 'photo', nodeId: row.node_id, projectId: row.project_id,
+            item: { hash: row.hash, topic: row.title, subject: row.subject, shows: row.shows || '' }, modelWritten: true, parsed: p,
         };
     }
     return null;
@@ -487,6 +501,24 @@ function reportDrillItem(undo, target) {
     voidItems(undo, rows, e => e?.k === itemKey);
 }
 
+/**
+ * A photo's answers: one evidence row each (server/photoPractice.js), all on
+ * the photo's topic. Its card (server/photoCards.js) asks the same thing, so it
+ * goes too, with its reviews' share of the evidence, as a reported card the app
+ * made does; the undo puts back the same row.
+ */
+function reportPhoto(undo, target) {
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND json_extract(metadata, '$.source') = 'sight'
+        AND json_extract(metadata, '$.photo') = ? ORDER BY id`).all(target.nodeId, target.parsed.uuid);
+    for (const r of rows) shrinkEvidence(undo, r, { ds: r.score, dt: r.total });
+    const card = stmt('SELECT * FROM live_flashcards flashcards WHERE photo_uuid = ?').get(target.parsed.uuid);
+    if (card) {
+        voidCardEvidence(undo, card);
+        undo.card = card;
+        softDelete('flashcards', card.id, { by: BY_APP });
+    }
+}
+
 function reportProbeQuestion(undo, target) {
     const { probeId, index } = target.parsed;
     const row = stmt('SELECT questions, created_at FROM placement_probes WHERE id = ?').get(probeId);
@@ -572,6 +604,12 @@ const activeFor = (ref) => stmt(`SELECT * FROM item_reports WHERE item_key = ? A
 
 export function getReport(id) { return publicReport(reportById(id)); }
 
+/** The refs starting with `prefix` (`photo:`) that a report stands on, as a Set. */
+export function standingRefs(prefix) {
+    return new Set(stmt(`SELECT item_key FROM item_reports WHERE substr(item_key, 1, length(?)) = ? AND ${STANDING}`)
+        .all(prefix, prefix).map(r => r.item_key));
+}
+
 export class ReportError extends KeyedError {
     constructor(status, key, params) { super(key, params); this.status = status; }
 }
@@ -579,7 +617,7 @@ export class ReportError extends KeyedError {
 /** Validate what a client sent; returns the clean fields or throws a ReportError (400). */
 export function readReportBody(body) {
     const ref = typeof body?.ref === 'string' ? canonicalRef(body.ref) : null;
-    if (!ref) throw new ReportError(400, 'ref must name one item (fi:, q:, card:, probe: or drill:)');
+    if (!ref) throw new ReportError(400, 'ref must name one item (fi:, q:, card:, probe:, drill: or photo:)');
     const reason = body?.reason;
     if (!REPORT_REASONS.includes(reason)) throw new ReportError(400, `reason must be one of: ${REPORT_REASONS.join(', ')}`);
     let note = body?.note;
@@ -607,6 +645,7 @@ const reportTx = db.transaction(({ ref, reason, note, surface }) => {
     else if (target.parsed.type === 'card') reportCard(undo, target);
     else if (target.parsed.type === 'drill') reportDrillItem(undo, target);
     else if (target.parsed.type === 'probe') reportProbeQuestion(undo, target);
+    else if (target.parsed.type === 'photo') reportPhoto(undo, target);
 
     if (target.parsed.type === 'probe') {
         const probe = getProbeById(target.parsed.probeId);
@@ -830,6 +869,10 @@ const undoTx = db.transaction((id) => {
 /** Undo a report: everything it took is put back. Idempotent: a second Undo changes and logs nothing. */
 export function undoReport(id) {
     const { report: out, undid } = undoTx.immediate(Number(id));
+    // A photo reported before it had a card gets its card now, not at the next start.
+    if (undid && out.kind === 'photo' && out.projectId != null) {
+        try { syncPhotoCards(out.projectId); } catch { /* made at the next start */ }
+    }
     if (undid) logActivity({ area: 'feed', event: 'item.report_undone', detail: out.kind, projectId: out.projectId ?? undefined, nodeId: out.nodeId ?? undefined });
     return out;
 }

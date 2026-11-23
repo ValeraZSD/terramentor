@@ -77,6 +77,15 @@ function activeRates({ p_T, p_S } = {}) {
 export { GUESS_BY_FORMAT as GUESS_BY_QUESTION_TYPE };
 
 /**
+ * The guess floor an evidence row was written with: its own `guess` where the
+ * caller knew the odds (a pick among a known number of options), else its
+ * format's. Read at call time, so the re-export above stays a live binding.
+ */
+export const guessOfEvidence = (meta) => (typeof meta?.guess === 'number' && meta.guess > 0 && meta.guess < 1
+    ? meta.guess
+    : GUESS_BY_FORMAT[meta?.questionType] ?? undefined);
+
+/**
  * Calculate posterior probability of knowing after an observation.
  * Uses Bayes' theorem with the BKT model.
  *
@@ -312,7 +321,7 @@ const applyAttempt = db.transaction((nodeId, score, total, evidenceType, metadat
     // a time, so it always does), the guess floor for that format is used
     // instead of the global default — a correct true/false is genuinely weaker
     // evidence than a correct calculation, and the estimate should say so.
-    const p_G = GUESS_BY_FORMAT[metadata?.questionType] ?? undefined;
+    const p_G = guessOfEvidence(metadata);
     let currentP;
     if (total >= MIN_GATE_QUESTIONS) {
         // An ASSESSMENT: one sitting, one observation, one transition — see
@@ -701,7 +710,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
         lowerUpTo(r.id);
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
-        const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
+        const p_G = guessOfEvidence(meta);
         const before = p;
         if (r.total >= MIN_GATE_QUESTIONS) {
             const prior = attempts === 0 ? Math.max(p || 0, BKT_PARAMS.p_L0) : p;

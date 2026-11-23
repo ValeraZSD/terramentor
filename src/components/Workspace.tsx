@@ -12,6 +12,7 @@ import DeckStudy from './deck/DeckStudy';
 import PaceIndicator from './PaceIndicator';
 import { LABEL as VERDICT_LABEL, VerdictDot } from './plan/verdict';
 import MockExamView from './mockExam/MockExamView';
+import PhotoPractice from './PhotoPractice';
 import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -53,9 +54,9 @@ export default function Workspace() {
     // asking. The other views administer the course and are exactly where
     // the tree belongs; it is one tab away from here.
     const studyView = workspaceView === 'study';
-    // The mock exam has no tab of its own: it opens from the Dashboard's
-    // tools, so the rail keeps saying Dashboard while it is open.
-    const tabView: WorkspaceView = workspaceView === 'exam' ? 'dashboard' : workspaceView;
+    // The mock exam and the photo practice have no tab of their own: they open
+    // from the Dashboard's tools, so the rail keeps saying Dashboard.
+    const tabView: WorkspaceView = workspaceView === 'exam' || workspaceView === 'sight' ? 'dashboard' : workspaceView;
     // While a mock is answered, the tabs and the course tree step aside like
     // the app header (mockExam/ExamFrame): an exam screen holds the exam only.
     const examFocus = useStore(s => s.examFocus);
@@ -366,6 +367,7 @@ export default function Workspace() {
                     {workspaceView === 'tree' && <NodeTree />}
                     {workspaceView === 'vault' && <VaultProjectView />}
                     {workspaceView === 'exam' && currentProjectId != null && <MockExamView key={currentProjectId} projectId={currentProjectId} />}
+                    {workspaceView === 'sight' && currentProjectId != null && <PhotoPractice key={currentProjectId} projectId={currentProjectId} />}
                     {/* Study is the scoped stream — except for a project measured
                         in cards, where it is the review session (DeckStudy): a
                         deck has nothing to teach, so the stream would only hand

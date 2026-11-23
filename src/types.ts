@@ -920,6 +920,32 @@ export interface TopicPhotos {
     photos: TopicPhoto[];
 }
 
+/** `GET /api/projects/:id/photo-practice`: offered when two or more topics have a photo. */
+export interface PhotoPracticeState {
+    topics: number;
+    photos: number;
+    available: boolean;
+}
+
+/** One "which one is this?": the photo alone, nothing that names its answer. */
+export interface PhotoRoundItem {
+    photo: string;
+    nodeId: number;
+    hash: string;
+    width: number | null;
+    height: number | null;
+    options: { nodeId: number; title: string }[];
+}
+
+/** The server's verdict on a pick, with the photo shown and (when wrong) one of the topic picked. */
+export interface PhotoVerdict {
+    correct: boolean;
+    answer: { nodeId: number; title: string };
+    shown: TopicPhoto & { topic: string };
+    picked: (TopicPhoto & { topic: string }) | null;
+    duplicate?: boolean;
+}
+
 /** A lesson part already read (`readLessonParts`, server/feed.js); the text
  *  comes only from `/feed/nodes/:id/read-parts`. */
 export interface FeedReadPart {
@@ -1851,6 +1877,8 @@ export interface Flashcard {
     /** Which rung of the (re)learning ladder the card is on. 0 for anything not
      *  mid-ladder. Persisted because FSRS's next step depends on it. */
     learning_steps?: number | null;
+    /** The topic photo a card was made from (server/photoCards.js); reported as that photo. */
+    photo_uuid?: string | null;
     /** Supporting lines shown under the ANSWER — a reading, an example sentence,
      *  its translation. Newline-separated; never part of the answer itself. */
     extra?: string | null;

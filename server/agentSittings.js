@@ -472,7 +472,11 @@ function reviewScope(project) {
         if (!found) throw new SittingError(404, `There is no project matching "${ref.slice(0, 120)}". Use project_state for the learner's projects.`);
         scope = found;
     }
-    const { reviews, fresh } = scope ? studyQueue(scope.id) : globalStudyQueue();
+    // A card made from a topic's photo (server/photoCards.js) stays in the app:
+    // the view draws a card's words and its topic, and that card's only
+    // words are its answer, the topic. Left out before the day's new cards are
+    // counted, so photo cards never take the place of the course's own.
+    const { reviews, fresh } = scope ? studyQueue(scope.id, { photoCards: false }) : globalStudyQueue({ photoCards: false });
     const queue = [...reviews, ...fresh].slice(0, MAX_SESSION_CARDS).map(c => c.id);
     return { scope, queue, where: { projectId: scope?.id ?? null, projectName: scope?.name ?? null } };
 }
