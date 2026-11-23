@@ -588,7 +588,7 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
         JSON.stringify([{ type: 'multiple_choice', node_id: lTopic, question: `${LEAK} probe question`, options: ['a', 'b'], answer: 0 }]));
     // A report naming a card of the course, with the card's text.
     ins(`INSERT INTO item_reports (kind, item_key, node_id, project_id, reason, item, created_at)
-        VALUES ('card', 'card:999999', ?, ?, 'wrong', ?, '2026-01-01T00:00:00.000Z')`, lTopic, lc, JSON.stringify({ front: `${LEAK} reported card` }));
+        VALUES ('card', 'card:999999', ?, ?, 'wrong', ?, '2026-01-01T00:00:00.000Z')`, lTopic, lc, JSON.stringify({ view: { front: `${LEAK} reported card` } }));
     // Mocks: a paper and a sitting of the course, and in the live course a
     // sitting with a part on a topic deleted before it is finished.
     const lPaper = mock.createPaper(lc, { title: `${LEAK} paper`, minutes: 60, parts: [{ question: '1', part: '', points: 10, nodeId: lTopic }] });
