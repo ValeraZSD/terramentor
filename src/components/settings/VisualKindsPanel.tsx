@@ -15,6 +15,7 @@ import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
 import { holdSampleStill, stillAtNextTop } from './sampleStill';
 import { switchSaver } from '../../utils/switchSaver';
+import { isRtl } from '../../utils/direction';
 
 /**
  * Where the switched-off animation sample stands still: the ball at the TOP of
@@ -513,8 +514,9 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
             const frac = (angle - ANGLE_MIN) / (ANGLE_MAX - ANGLE_MIN);
             if (fillRef.current) fillRef.current.style.width = `${frac * 100}%`;
             if (knobRef.current) {
-                knobRef.current.style.left = `${frac * 100}%`;
-                knobRef.current.style.transform = `translate(-50%, -50%) scale(${1 + 0.25 * (hand?.press ?? 0)})`;
+                // From the same edge as the fill, so the knob rides its tip in right to left too.
+                knobRef.current.style.insetInlineStart = `${frac * 100}%`;
+                knobRef.current.style.transform = `translate(calc(-50% * var(--inline-sign, 1)), -50%) scale(${1 + 0.25 * (hand?.press ?? 0)})`;
             }
             if (labelRef.current) labelRef.current.textContent = t("Angle {{deg}}°", { deg: Math.round(angle) });
             // WHOLE PIXELS, AND NO CSS TRANSITION. Both halves guard against the
@@ -573,10 +575,13 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
             const trackBox = track.getBoundingClientRect();
             const left = trackBox.left - rootBox.left, top = trackBox.top - rootBox.top;
 
-            // Where the handle is, in the card's own coordinates.
-            const onKnob = { x: left + frac * trackBox.width, y: top + trackBox.height / 2 };
-            // Where a hand comes from: below and to the right, off the picture.
-            const from = { x: left + trackBox.width + 18, y: top + 46 };
+            // Where the handle is, in the card's own coordinates. The knob rides
+            // from the inline START, which is the track's right edge in right
+            // to left; the hand's `translate` is always measured from the left.
+            const rtl = isRtl(track);
+            const onKnob = { x: rtl ? left + (1 - frac) * trackBox.width : left + frac * trackBox.width, y: top + trackBox.height / 2 };
+            // Where a hand comes from: below and past the track's end, off the picture.
+            const from = { x: rtl ? left - 18 : left + trackBox.width + 18, y: top + 46 };
 
             let hand: { x: number; y: number; on: number; press: number };
             if (u < DEMO.press) {
@@ -622,21 +627,24 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
                     {t("Angle {{deg}}°", { deg: ANGLE_REST })}
                 </span>
                 <div ref={trackRef} className="relative flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700">
-                    <div ref={fillRef} className="absolute left-0 top-0 h-full w-1/2 rounded-full bg-accent" />
+                    <div ref={fillRef} className="absolute start-0 top-0 h-full w-1/2 rounded-full bg-accent" />
                     <div
                         ref={knobRef}
-                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-accent shadow"
+                        className="absolute top-1/2 start-1/2 -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-accent shadow"
                     />
                 </div>
             </div>
             {/* The hand. Drawn last so it passes over the slider, and given a
-                shadow so it stays readable on a bar and on the paper alike. */}
+                shadow so it stays readable on a bar and on the paper alike.
+                `dir="ltr"`: its `translate` is in left-origin pixels, so its
+                anchor must be the left edge in every language. */}
             <div
                 ref={cursorRef}
-                className="absolute left-0 top-0 opacity-0 pointer-events-none will-change-transform"
+                dir="ltr"
+                className="absolute start-0 top-0 opacity-0 pointer-events-none will-change-transform"
                 style={{ transform: 'translate(-100px, -100px)' }}
             >
-                <MousePointer2 className="w-4 h-4 -mt-0.5 -ml-0.5 fill-white stroke-slate-700 dark:fill-slate-800 dark:stroke-slate-100 drop-shadow" />
+                <MousePointer2 className="w-4 h-4 -mt-0.5 -ms-0.5 fill-white stroke-slate-700 dark:fill-slate-800 dark:stroke-slate-100 drop-shadow" />
             </div>
         </div>
     );
@@ -817,7 +825,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                     <span className={`block text-sm font-medium ${enabled ? 'text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>
                                         {name.title}
                                         {spec.heavy && (
-                                            <span className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                                            <span className="ms-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                                                 {tr("needs a capable model")}
                                             </span>
                                         )}

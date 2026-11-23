@@ -123,7 +123,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                         <span className="min-w-[12rem] flex-1 text-sm text-slate-500 dark:text-slate-400">{held}</span>
                     )}
                     {/* One group, so a narrow footer wraps both buttons under the line, never one of them. */}
-                    <div className="ml-auto flex gap-2">
+                    <div className="ms-auto flex gap-2">
                         <Button onClick={leave} disabled={uploading > 0}>{t("Cancel")}</Button>
                         <Button variant="primary" busy={busy} disabled={held != null} onClick={save}>{t("Add the paper")}</Button>
                     </div>

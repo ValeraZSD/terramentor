@@ -119,7 +119,7 @@ function Choice({ icon, title, line, onClick }: { icon: ReactNode; title: string
             data-tile=""
             onClick={onClick}
             className={cx(
-                'flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-4 text-left transition-colors',
+                'flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-4 text-start transition-colors',
                 'dark:border-slate-700 dark:bg-slate-800 can-hover:hover:border-accent',
                 FOCUS_RING,
             )}
@@ -479,7 +479,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                             icon and colour (creation/AppearancePicker): it sits
                             where the card will show them, beside the name. */}
                         <div className="relative min-w-0">
-                            <div className="absolute left-1 top-1/2 z-10 -translate-y-1/2 touch:left-0">
+                            <div className="absolute start-1 top-1/2 z-10 -translate-y-1/2 touch:start-0">
                                 <AppearancePicker icon={newIcon} color={newColor} onIcon={setNewIcon} onColor={setNewColor} />
                             </div>
                             <TextInput
@@ -487,7 +487,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                                 value={newName}
                                 onChange={e => { nameTyped.current = true; setNewName(e.target.value); }}
                                 placeholder={firstTitle || t("e.g., Machine Learning, Japanese N3…")}
-                                className="pl-11 touch:pl-12"
+                                className="ps-11 touch:ps-12"
                             />
                         </div>
                         {/* The first box is where a learner holding only a

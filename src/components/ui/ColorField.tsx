@@ -479,6 +479,7 @@ export default function ColorField({
     const field = (
         <input
             type="text"
+            dir="ltr"
             value={typed}
             onChange={e => { setTyped(e.target.value); commit(e.target.value); }}
             onBlur={() => { if (!parseCssColor(typed)) setTyped(value); }}
@@ -615,7 +616,7 @@ export default function ColorField({
                             )}
                             {taken && !selected && (
                                 <span
-                                    className="absolute right-1 top-1 h-2 w-2 rounded-full bg-white ring-1 ring-black/45"
+                                    className="absolute end-1 top-1 h-2 w-2 rounded-full bg-white ring-1 ring-black/45"
                                     aria-hidden="true"
                                 />
                             )}

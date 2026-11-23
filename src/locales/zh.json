@@ -2797,7 +2797,7 @@
   "Runs in the background and pauses while you use the assistant.": "在后台运行，使用助手时会自动暂停。",
   "Sage": "鼠尾草绿",
   "Same as chat": "与聊天相同",
-  "Same as the browser": "与浏览器相同",
+  "Same as the browser ({{language}})": "与浏览器相同（{{language}}）",
   "Same as the chat model": "与聊天模型相同",
   "Same as the language": "与语言相同",
   "Sample exam 19": "样卷 19",

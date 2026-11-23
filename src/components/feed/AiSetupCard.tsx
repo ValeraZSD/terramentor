@@ -103,7 +103,7 @@ export default function AiSetupCard() {
                             onClick={dismiss}
                             label={t("Not now")}
                             icon={<X className="w-4 h-4" aria-hidden="true" />}
-                            className="-mt-0.5 -mr-1.5"
+                            className="-mt-0.5 -me-1.5"
                         />
                     </div>
                     <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">
@@ -114,7 +114,7 @@ export default function AiSetupCard() {
                     </p>
 
                     {info.steps.length > 0 && (
-                        <ol className="mt-3 text-sm text-slate-700 dark:text-slate-200 space-y-1 list-decimal pl-5">
+                        <ol className="mt-3 text-sm text-slate-700 dark:text-slate-200 space-y-1 list-decimal ps-5">
                             {info.steps.map(step => <li key={step}>{step}</li>)}
                         </ol>
                     )}

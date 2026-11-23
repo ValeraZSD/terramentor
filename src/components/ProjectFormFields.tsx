@@ -159,11 +159,17 @@ export function StudyLanguageField({ language, setLanguage, isNew = false, autom
             <option value="">{isNew
                 ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
                 : t("Follow the material")}</option>
-            {languages.map(l => (
-                <option key={l.code} value={l.code}>
-                    {l.endonym === l.name ? l.name : `${l.name} — ${l.endonym}`}
-                </option>
-            ))}
+            {/* Named in the interface's language and sorted by that name, the
+                language's own name after it: "Niederländisch — Nederlands" in a
+                German interface, not the catalog's English. */}
+            {languages
+                .map(l => ({ code: l.code, local: languageName(l.code, languages), endonym: l.endonym }))
+                .sort((a, b) => a.local.localeCompare(b.local, uiLocale()))
+                .map(l => (
+                    <option key={l.code} value={l.code}>
+                        {!l.endonym || l.endonym.toLocaleLowerCase() === l.local.toLocaleLowerCase() ? l.local : `${l.local} — ${l.endonym}`}
+                    </option>
+                ))}
         </>
     );
     // NEW, it is one line that says what it decides — "Lessons written in

@@ -166,8 +166,8 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
                             {!deck && (
                                 <span
                                     aria-hidden="true"
-                                    className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-sm bg-slate-800 dark:bg-slate-100"
-                                    style={{ left: `${pct(trail.threshold)}%` }}
+                                    className="absolute inset-y-0 w-0.5 -translate-x-1/2 rtl:translate-x-1/2 rounded-sm bg-slate-800 dark:bg-slate-100"
+                                    style={{ insetInlineStart: `${pct(trail.threshold)}%` }}
                                 />
                             )}
                         </div>
@@ -268,7 +268,7 @@ function EvidenceRowItem({ row, deck, onOpen }: { row: EvidenceRow; deck: boolea
                     <Button
                         variant="quiet"
                         size="sm"
-                        className="-ml-2.5 mt-0.5"
+                        className="-ms-2.5 mt-0.5"
                         onClick={() => onOpen(row.id)}
                         icon={<ListChecks className="h-4 w-4" aria-hidden="true" />}
                     >

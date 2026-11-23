@@ -124,7 +124,7 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
             // 8rem tall, because a compact row looks lost on an otherwise
             // empty screen. Icon left and the dashed edge in slate-400, like
             // the material row.
-            className={`flex min-h-32 items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 text-left cursor-pointer transition-colors ${isDragging
+            className={`flex min-h-32 items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 text-start cursor-pointer transition-colors ${isDragging
                 ? 'border-accent bg-accent/10'
                 : 'border-slate-400 dark:border-slate-500 hover:border-accent'
                 }`}

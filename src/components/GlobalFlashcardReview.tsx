@@ -619,7 +619,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         {title ?? t("Flashcard Review")}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 tabular-nums truncate">
-                        <span className="sm:hidden">{Math.min(queue.reviewedCount + 1, cards.length)} / {cards.length}</span>
+                        <span dir="ltr" className="sm:hidden">{Math.min(queue.reviewedCount + 1, cards.length)} / {cards.length}</span>
                         <span className="hidden sm:inline">
                             {t("{{min}} of {{length}} cards", { count: cards.length, min: Math.min(queue.reviewedCount + 1, cards.length), length: cards.length })}
                             {skipped > 0 && <>{' '}{t("• {{skipped}} skipped", { skipped })}</>}
@@ -781,7 +781,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         button or Space. The flag sits over its top-right corner
                         as a sibling, and the chip row leaves it the room. */}
                     <div className="relative flex-1 min-h-0 flex flex-col">
-                    <div className="absolute right-1.5 top-1 z-10 flex items-center gap-1 sm:right-3 sm:top-2.5">
+                    <div className="absolute end-1.5 top-1 z-10 flex items-center gap-1 sm:end-3 sm:top-2.5">
                         <ReadAloudButton key={`${currentCard.id}-${queue.flipped}`} target={cardTextRef} size="md" />
                         <ReportItem key={currentCard.id} itemRef={currentRef} surface="review" hideKey={!queue.flipped} />
                     </div>
@@ -800,7 +800,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 pl-3 pt-2.5 sm:pl-5 sm:pt-4 ${readAloud ? 'pr-24 sm:pr-28' : 'pr-12 sm:pr-14'}`}>
+                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 ps-3 pt-2.5 sm:ps-5 sm:pt-4 ${readAloud ? 'pe-24 sm:pe-28' : 'pe-12 sm:pe-14'}`}>
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>

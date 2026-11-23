@@ -13,6 +13,7 @@ import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
 import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
+import OwnLine from './ui/OwnLine';
 
 /**
  * What one background task is, where it belongs, and what it is doing — the
@@ -204,7 +205,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                         aria-hidden="true"
                     />
                     <div className="min-w-0 flex-1">
-                        <h2 className="truncate font-semibold text-slate-900 dark:text-white">{title}</h2>
+                        <h2 className="truncate font-semibold text-slate-900 dark:text-white"><OwnLine>{title}</OwnLine></h2>
                         <p className="truncate text-sm text-slate-500 dark:text-slate-400">
                             {subtitle}
                         </p>
@@ -219,7 +220,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                     {task.status === 'running' && percent != null && (
                         <div className="mb-4">
                             <ProgressBar value={percent} minVisible={2} decorative />
-                            <p className="mt-1 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">{percent}%</p>
+                            <p className="mt-1 text-end text-xs tabular-nums text-slate-500 dark:text-slate-400">{percent}%</p>
                         </div>
                     )}
 
@@ -295,7 +296,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                             {t("Dismiss")}
                         </Button>
                     )}
-                    <Button variant="quiet" className="ml-auto" onClick={onClose}>{t("Close")}</Button>
+                    <Button variant="quiet" className="ms-auto" onClick={onClose}>{t("Close")}</Button>
                 </div>
             </div>
         </div>,

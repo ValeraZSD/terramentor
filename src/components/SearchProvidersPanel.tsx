@@ -177,7 +177,7 @@ export default function SearchProvidersPanel() {
                                     aria-label={providerName(provider)}
                                     aria-describedby={provider.description ? `provider-desc-${provider.id}` : undefined}
                                     onClick={() => setSearchProviderEnabled(provider.id, !on)}
-                                    className={cx('w-full text-left p-4 flex items-start gap-3 rounded-xl', FOCUS_RING)}
+                                    className={cx('w-full text-start p-4 flex items-start gap-3 rounded-xl', FOCUS_RING)}
                                 >
                                     <span className="relative shrink-0">
                                         <span
@@ -197,7 +197,7 @@ export default function SearchProvidersPanel() {
                                         {on && (
                                             <span
                                                 aria-hidden="true"
-                                                className="absolute -right-1 -bottom-1 grid place-items-center w-4 h-4 rounded-full bg-accent text-white ring-2 ring-white dark:ring-slate-800"
+                                                className="absolute -end-1 -bottom-1 grid place-items-center w-4 h-4 rounded-full bg-accent text-white ring-2 ring-white dark:ring-slate-800"
                                             >
                                                 <Check className="w-2.5 h-2.5" strokeWidth={4} />
                                             </span>
@@ -298,7 +298,7 @@ export default function SearchProvidersPanel() {
                                         and then it is something to edit. */}
                                     <Button
                                         variant="quiet"
-                                        className="mr-auto"
+                                        className="me-auto"
                                         onClick={() => setDraft(EXAMPLE_MANIFEST)}
                                     >
                                         {t("Fill in an example")}
@@ -392,7 +392,7 @@ export default function SearchProvidersPanel() {
                                 <div className="flex flex-wrap justify-end gap-2 mt-4">
                                     <Button
                                         variant="quiet"
-                                        className="mr-auto"
+                                        className="me-auto"
                                         onClick={() => { setAdvanced(true); if (!draft) setDraft(EXAMPLE_MANIFEST); }}
                                     >
                                         {t("Paste a manifest instead")}

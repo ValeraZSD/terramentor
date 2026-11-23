@@ -121,6 +121,9 @@ const REGISTER = {
     pl: { informal: word('twój|twoja|twoje|twoim|ci|cię|ciebie'), formal: word('Pan|Pani|Państwa|Państwo', 'gu') },
     ru: { informal: word('ты|твой|твоя|твои|твоё|тебе|тебя|тобой'), formal: word('вы|вас|вам|вами|ваш|ваша|ваши|ваше') },
     uk: { informal: word('ти|твій|твоя|твої|тобі|тебе|тобою'), formal: word('ви|вас|вам|вами|ваш|ваша|ваші|ваше') },
+    // Turkish marks siz on the verb far more than in a pronoun, so the counts
+    // are small; a sen form at all is the finding.
+    tr: { informal: word('sen|senin|sana|seni|sende|senden'), formal: word('siz|sizin|size|sizi|sizde|sizden') },
 };
 /**
  * Japanese makes the same choice, spelled as a verb ending rather than a
@@ -192,9 +195,14 @@ const GENDERED = {
     ],
     fr: word('sûr|sûre|prêt|prête|connecté|connectée|inscrit|inscrite|content|contente|certain|certaine|fatigué|fatiguée'),
     de: word('Benutzer|Nutzer|Lernender|Anfänger|Besitzer|Autor'),
+    // Arabic: an imperative or a second-person verb or adjective, in either
+    // gender, addresses the reader as a man or as a woman; the file is written
+    // with verbal nouns and يمكنك instead. جاهز/جاهزة are left out: they agree
+    // with the course far more often than with the reader.
+    ar: word('اختر|اختاري|احفظ|احفظي|افتح|افتحي|اضغط|اضغطي|انقر|انقري|أدخل|أدخلي|تستطيع|تستطيعين|تريد|تريدين|متأكد|متأكدة|مستعد|مستعدة'),
 };
 
-const NON_LATIN = { ru: /[Ѐ-ӿ]/, uk: /[Ѐ-ӿ]/, ja: /[぀-ヿ一-鿿]/, zh: /[一-鿿]/ };
+const NON_LATIN = { ru: /[Ѐ-ӿ]/, uk: /[Ѐ-ӿ]/, ja: /[぀-ヿ一-鿿]/, zh: /[一-鿿]/, ar: /[؀-ۿ]/ };
 /** Words that stay Latin in every language: the app's own nouns and the stack's. */
 const KEEP_LATIN = /^(Anki|Atlas|Terramentor|Ollama|SQLite|FSRS|BKT|PDF|OCR|AI|API|URL|CSV|JSON|HTML|SVG|GPU|VRAM|RAM|CPU|GB|MB|KB|px|Docker|Tailscale|GitHub|YouTube|Wikipedia|LaTeX|KaTeX|Markdown|Vega|Lite|Mermaid|SMIL|WAL|UUID|ISO|HTTP|HTTPS|Express|Node|React|Vite|Windows|macOS|Linux|Edge|Chrome|Brave|Firefox|Safari|LM|Studio|llama|swap|nomic|embed|text|Qwen|GNU|Affero|General|Public|License|AGPL|MIT|SearXNG|DuckDuckGo)$/i;
 

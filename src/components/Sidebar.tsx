@@ -20,6 +20,7 @@ import { useDragA11y, useDragKeyboard, nodeTitle, keyBelongsToDrag } from '../ho
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { useCanHover } from '../utils/platform';
+import { fromInlineStart, inlineArrow, inlineDelta } from '../utils/direction';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import HeadStartMark from './HeadStartMark';
@@ -170,7 +171,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
                 style={{
                     // Capped (`--row-tree-reserve`), so a deep row keeps its title.
-                    paddingLeft: `calc(min(${shownDepth} * var(--row-indent-tree), max(0px, 100% - var(--row-tree-reserve))) + 0.5rem)`,
+                    paddingInlineStart: `calc(min(${shownDepth} * var(--row-indent-tree), max(0px, 100% - var(--row-tree-reserve))) + 0.5rem)`,
                     ...rootBg,
                     ...flash?.style,
                 }}
@@ -212,15 +213,15 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-row-title
                     aria-current={isSelected ? 'true' : undefined}
-                    className={`flex min-w-0 flex-1 items-center gap-1 px-1 text-left rounded ${FOCUS_RING}`}
+                    className={`flex min-w-0 flex-1 items-center gap-1 px-1 text-start rounded ${FOCUS_RING}`}
                 >
-                    <span data-larger-wraps className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span data-larger-wraps dir="auto" className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
 
                     {showOverdue && isRoot && (
-                        <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
+                        <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ms-1" title={t("Overdue")} />
                     )}
                 </button>
                 {/* What a row with rows under it has done, at the row's end, the
@@ -231,7 +232,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     not have to say the percentage; outside the title button, so
                     in high contrast its frame holds the title alone. */}
                 {(isRoot ? !isNote : hasChildren) && !untaught && (
-                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">
+                    <span data-row-progress className="shrink-0 ms-1" aria-hidden="true">
                         {isRoot ? (
                             // The chapter row is tinted with the course colour,
                             // where the status greys fall under 4.5:1.
@@ -347,7 +348,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     };
 
     const handleDragMove = (event: DragMoveEvent) => {
-        setDragOffsetX(event.delta.x);
+        setDragOffsetX(inlineDelta(event.delta.x));
         if (event.over) setOverId(event.over.id as number);
     };
 
@@ -388,7 +389,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!resizing.current) return;
-            setSidebarWidth(e.clientX);
+            setSidebarWidth(fromInlineStart(e.clientX));
         };
 
         const handleMouseUp = () => {
@@ -442,7 +443,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
                 ? visibleNodes.findIndex(n => n.id === cursorId)
                 : -1;
 
-            switch (e.key) {
+            // Right opens a row and Left closes it in left to right; in right
+            // to left the tree hangs from the right, so the keys swap.
+            switch (inlineArrow(e.key)) {
                 case 'ArrowDown':
                     e.preventDefault();
                     if (currentIndex < visibleNodes.length - 1) {
@@ -508,13 +511,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         <div
             ref={sidebarRef}
             data-course-sidebar={isDrawer ? undefined : ''}
-            className={`bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
+            className={`bg-white dark:bg-slate-800 border-e border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
             style={isDrawer ? undefined : { width: sidebarWidth }}
             tabIndex={0}
         >
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
                 <h2 className="font-semibold text-slate-800 dark:text-white text-sm">{t("Navigation")}</h2>
-                <IconButton size="sm" onClick={toggleAllExpanded} label={t("Toggle all")} icon={<ChevronsUpDown className="w-4 h-4" />} className="-my-1.5 -mr-1.5" />
+                <IconButton size="sm" onClick={toggleAllExpanded} label={t("Toggle all")} icon={<ChevronsUpDown className="w-4 h-4" />} className="-my-1.5 -me-1.5" />
             </div>
 
             <div className="flex-1 overflow-auto py-2" data-sidebar-node-list>
@@ -553,7 +556,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
             {!isDrawer && (
                 <div
-                    className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors"
+                    className="absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors"
                     onMouseDown={handleMouseDown}
                 />
             )}

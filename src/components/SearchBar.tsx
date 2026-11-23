@@ -156,7 +156,7 @@ function ResultItem({
         >
         <button data-row="search-result"
             type="button"
-            className="flex-1 min-w-0 flex items-start gap-3 px-4 py-3 text-left"
+            className="flex-1 min-w-0 flex items-start gap-3 px-4 py-3 text-start"
             onClick={onSelect}
         >
             <div
@@ -202,7 +202,7 @@ function ResultItem({
                 size="sm"
                 label={tr("Open “{{title}}” in a new tab", { title: item.title })}
                 icon={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
-                className="mt-2.5 mr-3"
+                className="mt-2.5 me-3"
                 onFocus={onFocusLink}
                 onClick={() => onOpenLink(link)}
             />

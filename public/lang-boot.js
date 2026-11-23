@@ -11,8 +11,11 @@
 // A file, not an inline <script>, for the reason theme-boot.js gives: the
 // script-src policy runs only scripts the app serves. The list below must name
 // the same codes as LANGUAGES in src/i18n/index.ts (tools/i18n-gates.mjs).
+// It sets `dir` too: the splash and the first frame of an Arabic interface are
+// laid out right to left from the start, not flipped once React mounts.
 (function () {
-    var SUPPORTED = ['en', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh'];
+    var SUPPORTED = ['en', 'ar', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'tr', 'uk', 'zh'];
+    var RTL = ['ar'];
     try {
         var pick = null;
         var cached = null;
@@ -26,5 +29,6 @@
             }
         }
         document.documentElement.lang = pick || 'en';
+        document.documentElement.dir = RTL.indexOf(pick) >= 0 ? 'rtl' : 'ltr';
     } catch (e) { /* keep index.html's lang */ }
 })();

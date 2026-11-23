@@ -94,13 +94,13 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
 
             {stages.length > PAGE && (
                 <div className="relative mb-3">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                    <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                     <input
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         placeholder={tr("Find a section in {{fmt}}…", { fmt: fmt(stages.length) })}
                         aria-label={tr("Filter sections")}
-                        className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-accent dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                        className="w-full rounded-xl border border-slate-300 bg-white py-2 ps-9 pe-3 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-accent dark:border-slate-600 dark:bg-slate-700 dark:text-white"
                     />
                 </div>
             )}
@@ -119,7 +119,7 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
                                     type="button"
                                     data-row="deck-section"
                                     onClick={() => onOpen(stage)}
-                                    className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/70 rounded-lg"
+                                    className="min-w-0 flex-1 text-start outline-none focus-visible:ring-2 focus-visible:ring-accent/70 rounded-lg"
                                 >
                                     <div className="flex items-center gap-2">
                                         <span className="truncate font-medium text-slate-900 dark:text-white">

@@ -47,10 +47,10 @@ export default function NumericInput({ question, value, onChange, disabled, resu
                 aria-label={unit ? t("Your answer, in {{unit}}", { unit }) : t("Your answer")}
                 className={cx(
                     FIELD_BASE,
-                    'w-full h-11 pl-3.5 text-base tabular-nums',
+                    'w-full h-11 ps-3.5 text-base tabular-nums',
                     // Room for the unit, so a long answer scrolls under it
                     // rather than running through it.
-                    unit ? 'pr-20' : 'pr-3.5',
+                    unit ? 'pe-20' : 'pe-3.5',
                     // Settled: the field stops inviting a caret, but stays read.
                     result && 'bg-slate-50 dark:bg-slate-800 cursor-default',
                 )}
@@ -58,7 +58,7 @@ export default function NumericInput({ question, value, onChange, disabled, resu
             {unit && (
                 <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 max-w-[4.5rem] truncate text-sm text-slate-500 dark:text-slate-400"
+                    className="pointer-events-none absolute end-3.5 top-1/2 -translate-y-1/2 max-w-[4.5rem] truncate text-sm text-slate-500 dark:text-slate-400"
                 >
                     {unit}
                 </span>

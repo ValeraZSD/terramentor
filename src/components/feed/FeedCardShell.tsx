@@ -33,10 +33,10 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
     // The rail is drawn exactly as in ChapterGroup: the card's own left border
     // at 4px, so it follows `rounded-2xl` around the top-left and bottom-left
     // corners instead of being cut flat by them. The colour is inline because
-    // `dark:border-slate-700` on the same element beats a `border-l-accent`
+    // `dark:border-slate-700` on the same element beats a `border-s-accent`
     // class and turns the rail grey in dark mode.
     const accent = useAccentVars(projectColor);
-    const accentStyle = accent && { ...accent, borderLeftColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
+    const accentStyle = accent && { ...accent, borderInlineStartColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
 
     return (
         // An article, not a section: a named section is a landmark, and the
@@ -45,7 +45,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
             ref={ref}
             style={accentStyle}
             aria-label={nodeTitle || courseName || t("Feed card")}
-            className={`relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden scroll-mt-20${projectColor ? ' border-l-4' : ''}`}
+            className={`relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden scroll-mt-20${projectColor ? ' border-s-4' : ''}`}
         >
             <div className="p-4 sm:p-6">
                 {(projectName || nodeTitle || badge) && (
@@ -60,7 +60,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
                                 onOpenNode ? (
                                     <button data-row="title"
                                         onClick={onOpenNode}
-                                        className="text-left text-base font-semibold text-slate-900 dark:text-white hover:underline line-clamp-2 break-words block max-w-full"
+                                        className="text-start text-base font-semibold text-slate-900 dark:text-white hover:underline line-clamp-2 break-words block max-w-full"
                                         title={t("Open this topic")}
                                     >
                                         {nodeTitle}

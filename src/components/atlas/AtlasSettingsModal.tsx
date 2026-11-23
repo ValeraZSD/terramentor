@@ -138,7 +138,7 @@ export default function AtlasSettingsModal({
         <Modal isOpen={open} onClose={onClose} title={title} maxWidth="max-w-2xl" footer={mode === 'done' && result ? <>
             {/* Settings is the way back, at the start; the file's own
                 actions hold the end, Download last. */}
-            <Button variant="quiet" className="mr-auto" icon={<SlidersHorizontal className="w-4 h-4" aria-hidden="true" />} onClick={() => setMode('settings')}>{tr("Settings")}</Button>
+            <Button variant="quiet" className="me-auto" icon={<SlidersHorizontal className="w-4 h-4" aria-hidden="true" />} onClick={() => setMode('settings')}>{tr("Settings")}</Button>
             <Button icon={<Film className="w-4 h-4" aria-hidden="true" />} onClick={startRender}>
                 {tr("Render again")}
             </Button>
@@ -230,7 +230,7 @@ export default function AtlasSettingsModal({
                                         label={tr("Speed")}
                                         valueText={tr("{{times}} times the standard speed", { count: settings.speed, times: num(settings.speed) })}
                                     />
-                                    <span className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                                    <span className="w-12 shrink-0 text-end text-sm tabular-nums text-slate-600 dark:text-slate-300">
                                         ×{num(settings.speed)}
                                     </span>
                                 </div>
@@ -251,7 +251,7 @@ export default function AtlasSettingsModal({
                                         label={tr("Pause on each topic")}
                                         valueText={tr("{{seconds}} seconds", { count: settings.holdMs / 1000, seconds: num(settings.holdMs / 1000) })}
                                     />
-                                    <span className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                                    <span className="w-12 shrink-0 text-end text-sm tabular-nums text-slate-600 dark:text-slate-300">
                                         {tr("{{seconds}}s", { seconds: num(settings.holdMs / 1000) })}
                                     </span>
                                 </div>

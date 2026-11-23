@@ -2945,7 +2945,7 @@
   "Runs in the background and pauses while you use the assistant.": "Runs in the background and pauses while you use the assistant.",
   "Sage": "Sage",
   "Same as chat": "Same as chat",
-  "Same as the browser": "Same as the browser",
+  "Same as the browser ({{language}})": "Same as the browser ({{language}})",
   "Same as the chat model": "Same as the chat model",
   "Same as the language": "Same as the language",
   "Sample exam 19": "Sample exam 19",

@@ -121,7 +121,7 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
         <Modal isOpen onClose={onClose} title={t("Edit card")} maxWidth="max-w-lg" footer={<>
             {/* Deleting is the one action here that cannot be taken
                 back, so it sits apart, at the start of the row. */}
-            <IconButton variant="danger" onClick={remove} disabled={busy} label={t("Delete this card")} icon={<Trash2 className="w-4 h-4" />} className="mr-auto" />
+            <IconButton variant="danger" onClick={remove} disabled={busy} label={t("Delete this card")} icon={<Trash2 className="w-4 h-4" />} className="me-auto" />
             <Button variant="quiet" onClick={onClose} disabled={busy}>
                 {t("Cancel")}
             </Button>

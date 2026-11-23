@@ -15,7 +15,7 @@
 //
 // No model, no internet, no key of anyone's.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -760,7 +760,7 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
         steps.size >= 7 && missing.length === 0, `steps ${[...steps].join(', ')}; missing ${missing.join(', ')}`);
     const localesDir = new URL('../src/locales/', import.meta.url);
     const untranslated = [];
-    for (const lang of ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']) {
+    for (const lang of readdirSync(localesDir).filter(f => f.endsWith('.json') && f !== 'en.json').map(f => f.slice(0, -5))) {
         const strings = JSON.parse(readFileSync(new URL(`${lang}.json`, localesDir), 'utf8'));
         for (const text of Object.values(texts)) if (!strings[text] || strings[text] === text) untranslated.push(`${lang}: ${text.slice(0, 40)}`);
     }

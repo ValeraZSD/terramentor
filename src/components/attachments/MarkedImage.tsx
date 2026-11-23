@@ -73,7 +73,9 @@ export default function MarkedImage({ src, width, height, box, label, maxWidth =
         labelMax = `min(16rem, ${Math.max(0, Math.floor(Math.max(roomLeft, roomRight)) - 4)}px)`;
     }
     return (
-        <span ref={frameRef} className={`relative block overflow-hidden ${className}`} style={frame}>
+        // A picture is not mirrored in right to left, so the box's position is
+        // in the picture's own left-to-right space; the label reads its own way.
+        <span ref={frameRef} dir="ltr" className={`relative block overflow-hidden ${className}`} style={frame}>
             <img
                 src={src}
                 alt={alt}
@@ -96,8 +98,9 @@ export default function MarkedImage({ src, width, height, box, label, maxWidth =
                 >
                     {label && (
                         <span
-                            className={`absolute ${labelRight ? 'right-[-3px]' : 'left-[-3px]'} truncate rounded-md bg-accent px-1.5 py-0.5 text-xs font-medium text-white ${labelInside ? 'top-0' : 'bottom-full mb-1'}`}
-                            style={{ maxWidth: labelMax }}
+                            dir="auto"
+                            className={`absolute truncate rounded-md bg-accent px-1.5 py-0.5 text-xs font-medium text-white ${labelInside ? 'top-0' : 'bottom-full mb-1'}`}
+                            style={{ maxWidth: labelMax, ...(labelRight ? { right: -3 } : { left: -3 }) }}
                         >
                             {label}
                         </span>

@@ -68,7 +68,7 @@ function ToastItem({ toast, onShowDetails, onDismiss, onHold, onRelease }: {
                         type="button"
                         data-toast-body
                         onClick={() => onShowDetails(toast)}
-                        className="flex-1 min-w-0 text-left cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="flex-1 min-w-0 text-start cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                         <span className="block text-sm font-medium text-slate-900 dark:text-white">{toast.message}</span>
                         <span className="block text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">
@@ -126,7 +126,7 @@ export default function ToastContainer() {
                 which is modal and must not be talked over. */}
             <div
                 className="fixed safe-top-4 z-[60] flex flex-col gap-2 max-w-sm"
-                style={{ right: 'calc(1rem + var(--assistant-w, 0px) + var(--safe-right))' }}
+                style={{ insetInlineEnd: 'calc(1rem + var(--assistant-w, 0px) + var(--safe-end))' }}
             >
                 {toasts.map(toast => (
                     <ToastItem

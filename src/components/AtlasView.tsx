@@ -579,7 +579,7 @@ export default function AtlasView() {
     if (!data && loading) {
         return (
             <div className="flex items-center justify-center h-full text-slate-500 dark:text-slate-400">
-                <Loader2 className="w-5 h-5 animate-spin mr-2" aria-hidden="true" />
+                <Loader2 className="w-5 h-5 animate-spin me-2" aria-hidden="true" />
                 {tr("Drawing your atlas…")}
             </div>
         );
@@ -768,7 +768,7 @@ export default function AtlasView() {
             </>) : (<>
                 <span aria-hidden="true" className="flex shrink-0">
                     {swatches.slice(0, 3).map(s => (
-                        <span key={s.id} className="w-2.5 h-2.5 -mr-0.5 rounded-full ring-1 ring-white dark:ring-slate-800" style={{ background: s.color }} />
+                        <span key={s.id} className="w-2.5 h-2.5 -me-0.5 rounded-full ring-1 ring-white dark:ring-slate-800" style={{ background: s.color }} />
                     ))}
                 </span>
                 <span className="min-w-0">{tr("A colour per course; stronger is more proven.")}</span>
@@ -972,7 +972,7 @@ export default function AtlasView() {
                     // most of the screen (SHEET_OPEN). It gives way before the
                     // map does. Under a finger, the height is on its style.
                     ? `shrink min-h-0 flex flex-col rounded-t-2xl border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 ${dragging ? '' : sheetOpen ? 'h-[62%]' : 'max-h-[45%]'}`
-                    : 'w-[22rem] shrink-0 flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}
+                    : 'w-[22rem] shrink-0 flex flex-col min-h-0 border-e border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}
             >
                 {narrow && sheetHandle}
                 <IndexBody

@@ -1,7 +1,8 @@
 import { Check, Moon, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useStore, type Theme } from '../../store';
-import { LANGUAGES, k } from '../../i18n';
+import { LANGUAGES, k, languageLabel, resolveLanguagePreference } from '../../i18n';
 import { themeRamp } from '../../utils/themeRamp';
 import { Select } from '../ui/Field';
 import Switch from '../ui/Switch';
@@ -82,7 +83,7 @@ export function ThemeCards() {
                             // is the accent as solved for this page (`accent-fg`), never
                             // the solid: the solid is only ever darkened, and a near-black
                             // accent drew the Dark card's border and tick black on black.
-                            className={`text-left rounded-xl border-2 overflow-hidden transition ${selected
+                            className={`text-start rounded-xl border-2 overflow-hidden transition ${selected
                                 ? 'border-accent-fg ring-2 ring-accent-fg/30'
                                 : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
                         >
@@ -133,9 +134,10 @@ export function ThemeCards() {
 
 /** The interface-language select alone; the row supplies the label it points at. */
 export function LanguageRow({ id = 'ui-language' }: { id?: string }) {
-    const { t: tr } = useTranslation();
+    const { t: tr, i18n } = useTranslation();
     const uiLanguage = useStore(s => s.uiLanguage);
     const setUiLanguage = useStore(s => s.setUiLanguage);
+    const shown = i18n.language;
     return (
         <Select
             id={id}
@@ -143,8 +145,16 @@ export function LanguageRow({ id = 'ui-language' }: { id?: string }) {
             value={uiLanguage}
             onChange={v => void setUiLanguage(v)}
         >
-            <option value="auto">{tr("Same as the browser")}</option>
-            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+            <option value="auto">{autoLanguageLabel(tr)}</option>
+            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{languageLabel(l.code, shown)}</option>)}
         </Select>
     );
+}
+
+/** "Same as the browser (Deutsch)": Automatic says which language it chose,
+ *  so a reader can tell the setting from a language picked by hand. */
+export function autoLanguageLabel(tr: TFunction): string {
+    const picked = resolveLanguagePreference('auto');
+    const name = LANGUAGES.find(l => l.code === picked)?.name ?? picked;
+    return tr("Same as the browser ({{language}})", { language: name });
 }

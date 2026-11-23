@@ -238,14 +238,14 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     const footer = step === 'form' ? (
         <>
             {!editing && !initialKind && (
-                <Button variant="quiet" className="mr-auto" onClick={() => setStep('pick')} disabled={busy} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
+                <Button variant="quiet" className="me-auto" onClick={() => setStep('pick')} disabled={busy} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
             )}
             {kind === 'chatgpt' ? (
                 <Button variant="primary" onClick={chatgpt} busy={busy} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
                     {t("Continue with ChatGPT")}
                 </Button>
             ) : (
-                <div className="flex flex-wrap gap-2 ml-auto">
+                <div className="flex flex-wrap gap-2 ms-auto">
                     {failure && canSaveAnyway && !editing && (
                         <Button variant="neutral" onClick={() => void submit(true)} disabled={busy}>{t("Save anyway")}</Button>
                     )}

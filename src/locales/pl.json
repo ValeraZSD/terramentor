@@ -3358,7 +3358,7 @@
   "Runs in the background and pauses while you use the assistant.": "Działa w tle i wstrzymuje się, gdy korzystasz z asystenta.",
   "Sage": "Szałwiowy",
   "Same as chat": "Takie samo jak czat",
-  "Same as the browser": "Takie samo jak przeglądarka",
+  "Same as the browser ({{language}})": "Takie samo jak przeglądarka ({{language}})",
   "Same as the chat model": "Tak samo jak model czatu",
   "Same as the language": "Tak samo jak język",
   "Sample exam 19": "Przykładowy egzamin 19",

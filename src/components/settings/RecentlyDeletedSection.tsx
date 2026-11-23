@@ -135,7 +135,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
                     </p>
                     <Button
                         variant="danger"
-                        className="ml-auto shrink-0"
+                        className="ms-auto shrink-0"
                         busy={emptying}
                         disabled={failed || !items?.length || restoring !== null}
                         onClick={() => void empty()}

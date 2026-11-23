@@ -92,7 +92,7 @@ export function PhaseProgress({ milestones }: { milestones: DashboardMilestone[]
                                 : ''}`}
                         >
                             {isActive && (
-                                <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-accent-fg" aria-hidden="true" />
+                                <span className="absolute start-0 top-2 bottom-2 w-1 rounded-e-full bg-accent-fg" aria-hidden="true" />
                             )}
                             {oneRow ? (
                                 <>

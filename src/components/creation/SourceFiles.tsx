@@ -27,6 +27,7 @@ import type { NumberOptions } from '../../utils/numberFormat';
 import { serverText } from '../../utils/serverText';
 import { READ_REASON, READ_REASON_OTHER } from '../shortCourses/readReasons';
 import type { ShortReadFail } from '../shortCourses/shortCourseTypes';
+import OwnLine from '../ui/OwnLine';
 
 /** One piece of material: a file or a link, being read, read, or refused. */
 export interface SourceFile {
@@ -465,7 +466,7 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
                 <span className={cx(line && 'mt-0.5')}>{icon}</span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                        <span className={cx('min-w-0 truncate text-sm font-medium', leftOut ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100')} title={file.url || undefined}>{name}</span>
+                        <span className={cx('min-w-0 truncate text-sm font-medium', leftOut ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100')} title={file.url || undefined}><OwnLine>{name}</OwnLine></span>
                         {failed && <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{humanSize(file.size, fmt)}</span>}
                     </div>
                     {line && <p className={cx('text-sm', tone)} title={title}>{line}</p>}

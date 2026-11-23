@@ -64,8 +64,8 @@ export default function ImageViewer({ attachment, box, label, onClose }: {
                     onDragLeave={noDrop}
                     onDrop={noDrop}
                 >
-                    <div className="flex shrink-0 items-center gap-2 pl-4 pr-2 py-2 text-white" {...backdrop}>
-                        <h2 id={titleId} className="min-w-0 mr-auto truncate text-sm font-medium" title={attachment.name}>
+                    <div className="flex shrink-0 items-center gap-2 ps-4 pe-2 py-2 text-white" {...backdrop}>
+                        <h2 id={titleId} className="min-w-0 me-auto truncate text-sm font-medium" title={attachment.name}>
                             {attachment.name}
                         </h2>
                         <IconLink

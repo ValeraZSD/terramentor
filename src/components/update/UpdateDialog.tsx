@@ -52,7 +52,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const changes = notes ? (
         <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
             <p className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{t("What's new")}</p>
-            <div className="max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain pr-1">
+            <div className="max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain pe-1">
                 <ReleaseNotesList notes={notes} repoUrl={status.repoUrl} />
             </div>
         </div>
@@ -192,7 +192,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             {/* The buttons are one group pushed right, so on a phone they wrap
                 together under "What's new" instead of one by one. */}
             {left}
-            <div className="ml-auto flex flex-wrap justify-end gap-2">{buttons}</div>
+            <div className="ms-auto flex flex-wrap justify-end gap-2">{buttons}</div>
         </>}>
             <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">{body}</div>
         </Modal>

@@ -289,7 +289,7 @@ export default function ScheduleModal() {
                             phone, a fifth of the screen above a scrolling body. */}
                         <h2 id={titleId} title={project.name} className="text-lg font-semibold text-slate-900 dark:text-white line-clamp-2">{project.name}</h2>
                     </div>
-                    <IconButton ref={closeRef} size="sm" onClick={() => setOpen(false)} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
+                    <IconButton ref={closeRef} size="sm" onClick={() => setOpen(false)} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-me-1.5" />
                 </div>
 
                 <div className={`${DIALOG_BODY} px-6 py-5 space-y-6`}>

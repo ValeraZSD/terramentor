@@ -165,7 +165,7 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                         disabled={!hasChildren}
                         aria-expanded={hasChildren ? !isCollapsed : undefined}
                         className={cx(
-                            'flex w-full min-h-10 items-start gap-2 rounded-lg px-2 py-2.5 text-left',
+                            'flex w-full min-h-10 items-start gap-2 rounded-lg px-2 py-2.5 text-start',
                             'can-hover:enabled:hover:bg-slate-100 dark:can-hover:enabled:hover:bg-slate-700/60 disabled:cursor-default',
                             FOCUS_RING,
                         )}
@@ -178,7 +178,7 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                         )}
                     </button>
                     {hasChildren && !isCollapsed && (
-                        <ul className="ml-4 border-l border-slate-200 pl-2 dark:border-slate-700">
+                        <ul className="ms-4 border-s border-slate-200 ps-2 dark:border-slate-700">
                             {node.children.map(renderNode)}
                         </ul>
                     )}
@@ -205,7 +205,7 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                     {!hasChildren && linksBadge(node.resourceCount)}
                 </div>
                 {hasChildren && (
-                    <ul className="ml-4 border-l border-slate-200 pl-2 dark:border-slate-700">
+                    <ul className="ms-4 border-s border-slate-200 ps-2 dark:border-slate-700">
                         {node.children.map(renderNode)}
                     </ul>
                 )}

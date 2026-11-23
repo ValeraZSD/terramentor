@@ -135,6 +135,9 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
             </figcaption>
             <div
                 ref={box}
+                // Weeks run left to right in every interface language: the
+                // chart is drawn in pixels from the left, so it stays an island.
+                dir="ltr"
                 className="relative mt-1.5 touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent-fg"
                 style={{ height }}
                 role="group"
@@ -169,21 +172,21 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                 )}
                 {grid.map(v => (
                     <span key={v} aria-hidden="true"
-                        className="absolute -translate-y-1/2 pr-1.5 text-right text-2xs tabular-nums text-slate-500 dark:text-slate-400"
+                        className="absolute -translate-y-1/2 pe-1.5 text-end text-2xs tabular-nums text-slate-500 dark:text-slate-400"
                         style={{ top: yOf(v), left: 0, width: gutter }}>
                         {num(Math.round(v))}
                     </span>
                 ))}
                 {need > 0 && NEEDED_STROKE[band] && (
                     <span aria-hidden="true"
-                        className={`absolute right-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${neededBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
+                        className={`absolute end-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${neededBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
                         style={{ top: yOf(need) }}>
                         {t("Needed: {{n}} a week", { n: r(need) })}
                     </span>
                 )}
                 {best > 0 && (
                     <span aria-hidden="true"
-                        className={`absolute right-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${bestBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
+                        className={`absolute end-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${bestBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
                         style={{ top: yOf(best) }}>
                         {t("Your best month: {{n}} a week", { n: r(best) })}
                     </span>
@@ -191,6 +194,7 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                 {shown && active != null && (
                     <div
                         aria-hidden="true"
+                        dir="auto"
                         className={`pointer-events-none absolute z-10 w-max px-2.5 py-1.5 text-xs ${MENU_SURFACE}`}
                         style={{ top: padTop, left: tipOnLeft ? undefined : tipX + 8, right: tipOnLeft ? width - tipX + 8 : undefined }}
                     >
@@ -210,7 +214,7 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
             <p className="sr-only" aria-live="polite">
                 {shown && active != null ? `${weekLabel(active)}: ${countLabel(shown.count)}` : ''}
             </p>
-            <div aria-hidden="true" className="relative mt-1 h-4 text-2xs text-slate-500 dark:text-slate-400">
+            <div aria-hidden="true" dir="ltr" className="relative mt-1 h-4 text-2xs text-slate-500 dark:text-slate-400">
                 {ticks.map(tk => (
                     <span key={`${tk.x}`} className="absolute top-0" style={{ left: tk.x }}>{tk.label}</span>
                 ))}

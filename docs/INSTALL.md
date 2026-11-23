@@ -84,7 +84,7 @@ Settings → Devices & security → *Other devices*. Step by step in [REMOTE_ACC
 
 ## Interface language
 
-The interface is available in twelve languages (Settings → General → *Interface language*).
+The interface is available in fourteen languages (Settings → General → *Interface language*).
 English aside, each began as a machine translation; see [I18N.md](I18N.md) to correct one or add
 yours.
 

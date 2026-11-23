@@ -67,7 +67,7 @@ export default function Stepper({ value, min, max, step = 1, onChange, label, su
             )}
         >
             <button type="button" onClick={() => nudge(value - step)} disabled={value <= min}
-                aria-label={t("Less: {{setting}}", { setting: label })} className={cx(arrow, 'border-r border-slate-200 dark:border-slate-700')}>
+                aria-label={t("Less: {{setting}}", { setting: label })} className={cx(arrow, 'border-e border-slate-200 dark:border-slate-700')}>
                 <Minus className="w-4 h-4" aria-hidden="true" />
             </button>
             <div className="relative flex items-center">
@@ -90,17 +90,17 @@ export default function Stepper({ value, min, max, step = 1, onChange, label, su
                         'w-14 h-full bg-transparent border-0 text-center text-sm font-medium tabular-nums',
                         'text-slate-900 dark:text-white outline-none',
                         '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-                        suffix && 'pr-3',
+                        suffix && 'pe-3',
                     )}
                 />
                 {suffix && (
-                    <span className="pointer-events-none absolute right-2 text-xs text-slate-500 dark:text-slate-400" aria-hidden="true">
+                    <span className="pointer-events-none absolute end-2 text-xs text-slate-500 dark:text-slate-400" aria-hidden="true">
                         {suffix}
                     </span>
                 )}
             </div>
             <button type="button" onClick={() => nudge(value + step)} disabled={value >= max}
-                aria-label={t("More: {{setting}}", { setting: label })} className={cx(arrow, 'border-l border-slate-200 dark:border-slate-700')}>
+                aria-label={t("More: {{setting}}", { setting: label })} className={cx(arrow, 'border-s border-slate-200 dark:border-slate-700')}>
                 <Plus className="w-4 h-4" aria-hidden="true" />
             </button>
         </div>

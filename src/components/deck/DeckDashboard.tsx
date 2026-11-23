@@ -8,6 +8,7 @@ import { ProjectStudyTimeSection } from '../studyTime/StudyTime';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
+import OwnLine from '../ui/OwnLine';
 
 /**
  * The page for a project whose content is CARDS.
@@ -111,12 +112,12 @@ export default function DeckDashboard() {
                             >
                                 <Layers className="h-5 w-5" />
                             </span>
-                            <span className="truncate">{deck.project.name}</span>
+                            <span className="truncate"><OwnLine>{deck.project.name}</OwnLine></span>
                         </h2>
                         {/* Indented by the badge (h-10) plus the gap (gap-3), in
                             rem like them: `52px` drifted off the title as soon as
                             `ui_scale` moved (30px short at 160%). */}
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 sm:ml-[3.25rem]">
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 sm:ms-[3.25rem]">
                             {t("{{fmt}} cards", { count: deck.totals.cards, fmt: fmt(deck.totals.cards) })}
                             {/* JSX drops the newline between these, so the space before each
                                 separator has to be written: "1 828 cards· 27 sections". */}

@@ -69,15 +69,15 @@ export default function ChapterGroup({
     // clear of the corners with `top-4 bottom-4` (square ends and short).
     // The colour is set INLINE because the class form loses the cascade:
     // `dark:border-slate-700` sets `border-color` for all four sides at
-    // specificity (0,2,0) and beats a plain `border-l-accent`, which turned the
+    // specificity (0,2,0) and beats a plain `border-s-accent`, which turned the
     // rail grey in dark mode.
-    const railStyle = { ...(accentStyle ?? {}), borderLeftColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
+    const railStyle = { ...(accentStyle ?? {}), borderInlineStartColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
 
     return (
         <article
             style={railStyle}
             aria-label={nodeTitle}
-            className="relative overflow-hidden rounded-2xl border border-l-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
+            className="relative overflow-hidden rounded-2xl border border-s-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
         >
             <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 rounded-t-2xl border-b border-slate-100 dark:border-slate-700/70">
                 {/* `truncate` on a card's own title assumes one line is always
@@ -96,11 +96,11 @@ export default function ChapterGroup({
                     <Heading className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
                         {nodeTitle}
                         {continued && (
-                            <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{t("continued")}</span>
+                            <span className="ms-2 text-xs font-normal text-slate-500 dark:text-slate-400">{t("continued")}</span>
                         )}
                     </Heading>
                 </div>
-                <div className="flex items-center shrink-0 -mr-1">
+                <div className="flex items-center shrink-0 -me-1">
                     {/* Video explanations of the same topic, one tap away — the
                         detour the reader was making by hand (copy title → switch
                         app → paste into YouTube), which ended the session. */}
