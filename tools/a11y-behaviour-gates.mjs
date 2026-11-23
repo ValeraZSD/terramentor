@@ -397,6 +397,85 @@ try {
     }
 
     // -----------------------------------------------------------------------
+    section('telling photos apart: confirm before grading, short options, focus on Next');
+    const PP = await load('PhotoPractice', `export { default } from './src/components/PhotoPractice';`);
+    if (PP?.default) {
+        const JP = 'Japanese Architecture: Restraint, Timber and Raised Floors';
+        const CN = 'Chinese Architecture: Curves, Power and Imperial Order';
+        const photo = (uuid, topic) => ({ uuid, hash: 'b'.repeat(64), width: 40, height: 30, subject: 'Himeji Castle', shows: 'White walls.', author: 'A', licence: 'CC BY-SA 4.0', licenceUrl: null, sourceUrl: null, topic });
+        const sent = [];
+        globalThis.__api = {
+            drawPhotoRound: async () => ({ items: [
+                { photo: 'p1', nodeId: 1, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ nodeId: 1, title: JP }, { nodeId: 2, title: CN }] },
+                { photo: 'p2', nodeId: 2, hash: 'b'.repeat(64), width: 40, height: 30, options: [{ nodeId: 2, title: CN }, { nodeId: 1, title: JP }] },
+            ] }),
+            answerPhoto: async (_p, body) => {
+                sent.push(body);
+                return { correct: body.picked === 1, answer: { nodeId: 1, title: JP }, shown: photo('p1', JP), picked: body.picked === 1 ? null : photo('p3', CN) };
+            },
+            sendStudyTime: async () => ({}),
+        };
+        const optionsOf = (host) => [...host.querySelectorAll('[data-answer-option]')];
+        const press = (el) => act(() => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+        const st = globalThis.__st.state;
+        Object.assign(st, { projects: [{ id: 7, name: 'Asia' }], setWorkspaceView() { }, setExamFocus() { }, a11y: { ...st.a11y, confirmAnswers: true } });
+
+        blur();
+        const on = await mount(h(PP.default, { projectId: 7 }));
+        await settle(60);
+        const labels = optionsOf(on.host).map(b => b.textContent.trim());
+        ok('the options are the topics\' short names, not the words describing them', JSON.stringify(labels) === JSON.stringify(['Japanese Architecture', 'Chinese Architecture']), JSON.stringify(labels));
+        await press(optionsOf(on.host)[0]);
+        await settle();
+        ok('"confirm before grading" on: the first press only selects', sent.length === 0 && optionsOf(on.host)[0].getAttribute('aria-pressed') === 'true',
+            JSON.stringify({ sent, pressed: optionsOf(on.host)[0]?.getAttribute('aria-pressed') }));
+        await settle(450);
+        await press(optionsOf(on.host)[0]);
+        await settle(60);
+        ok('…and the second press on it sends that topic', sent.length === 1 && sent[0].picked === 1 && sent[0].photo === 'p1', JSON.stringify(sent));
+        const next = [...on.host.querySelectorAll('button')].find(b => /Next photo/.test(b.textContent));
+        ok('the verdict in, focus is on Next photo', !!next && doc.activeElement === next, doc.activeElement?.outerHTML?.slice(0, 80));
+        if (next) await press(next);
+        await settle(60);
+        ok('Next hands focus to the next photo\'s question, not to the page', doc.activeElement?.textContent?.trim() === 'Which one is this?'
+            && doc.activeElement?.tagName === 'H3', doc.activeElement?.outerHTML?.slice(0, 80));
+        await press(optionsOf(on.host)[0]);
+        await settle(450);
+        await press(optionsOf(on.host)[0]);
+        await settle(60);
+        const end = [...on.host.querySelectorAll('button')].find(b => /See how it went/.test(b.textContent));
+        if (end) await press(end);
+        await settle(60);
+        ok('...and the last one hands it to the round\'s score', /of 2/.test(doc.activeElement?.textContent ?? '') && on.host.contains(doc.activeElement),
+            doc.activeElement?.outerHTML?.slice(0, 80));
+        const again = [...on.host.querySelectorAll('button')].find(b => /Another round/.test(b.textContent));
+        if (again) await press(again);
+        await settle(60);
+        ok('"Another round" hands focus to its first photo\'s question', doc.activeElement?.tagName === 'H3' && doc.activeElement?.textContent?.trim() === 'Which one is this?',
+            doc.activeElement?.outerHTML?.slice(0, 80));
+        await on.unmount();
+
+        Object.assign(st, { a11y: { ...st.a11y, confirmAnswers: false } });
+        sent.length = 0;
+        const off = await mount(h(PP.default, { projectId: 7 }));
+        await settle(60);
+        await press(optionsOf(off.host)[1]);
+        await settle(60);
+        ok('with it off, one press sends the pick', sent.length === 1 && sent[0].picked === 2, JSON.stringify(sent));
+        const said = off.host.textContent;
+        ok('a wrong pick names the topic by its short name', /This is Japanese Architecture/.test(said) && !/This is Japanese Architecture:/.test(said), said.slice(0, 200));
+        // On a phone the two photos fill the screen: the verdict above them is read first.
+        const verdictLine = [...off.host.querySelectorAll('p')].find(p => p.textContent.trim() === 'This is Japanese Architecture');
+        const firstPhoto = off.host.querySelector('img');
+        ok('...above the photos, not under them', !!verdictLine && !!firstPhoto
+            && !!(verdictLine.compareDocumentPosition(firstPhoto) & window.Node.DOCUMENT_POSITION_FOLLOWING), !!verdictLine);
+        ok('the picked topic\'s photo is labelled with that topic, short', /An example of Chinese Architecture/.test(said)
+            && !/An example of Chinese Architecture:/.test(said) && !/Your pick/.test(said), said.slice(0, 300));
+        await off.unmount();
+        delete globalThis.__api;
+    }
+
+    // -----------------------------------------------------------------------
     section('the axe gate: what it waits for, what it reports, how its list moves');
     const lib = join(root, 'tools', 'lib', 'axeScreens.mjs');
     const L = existsSync(lib) ? await import(pathToFileURL(lib).href) : null;

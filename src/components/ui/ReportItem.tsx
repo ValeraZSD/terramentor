@@ -333,6 +333,7 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
 /** The item as the app holds it, a few lines, so the learner sees what they are reporting. */
 export function ItemQuote({ item, kind, hideKey = false }: { item: Record<string, unknown>; kind: string; hideKey?: boolean }) {
     const text = (k: string) => (typeof item[k] === 'string' ? (item[k] as string) : '');
+    if (kind === 'photo') return <PhotoQuote hash={text('hash')} subject={hideKey ? '' : text('subject')} />;
     const lines = kind === 'card' ? [text('front'), hideKey ? '' : text('back')]
         : kind === 'drill' ? [text('prompt'), hideKey ? '' : text('answer')]
         : kind === 'lesson' ? [text('text')]
@@ -344,5 +345,17 @@ export function ItemQuote({ item, kind, hideKey = false }: { item: Record<string
         <blockquote className="rounded-lg border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
             {shown.map((l, i) => <p key={i} className="line-clamp-3 break-words">{l}</p>)}
         </blockquote>
+    );
+}
+
+/** A reported photo: the photo itself, and its example's name once the learner has picked. */
+function PhotoQuote({ hash, subject }: { hash: string; subject: string }) {
+    const { t } = useTranslation();
+    if (!/^[a-f0-9]{64}$/.test(hash)) return null;
+    return (
+        <div className="flex items-center gap-3 rounded-lg border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
+            <img src={`/api/media/${hash}`} alt={subject || t("Photo to recognise")} className="h-16 w-auto max-w-[8rem] shrink-0 rounded object-cover" />
+            {subject && <p className="min-w-0 line-clamp-3 break-words">{subject}</p>}
+        </div>
     );
 }
