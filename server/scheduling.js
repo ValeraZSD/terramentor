@@ -4,6 +4,7 @@ import { projectProgress, projectCountsInCards } from './progress.js';
 import { headStartsForProject, scheduleShare } from './headStart.js';
 import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
 import { topicDatesOf } from './topicDates.js';
+import { k, keyed } from './clientError.js';
 
 // Constants
 
@@ -123,10 +124,10 @@ export function isScheduleDate(value) {
  * check behind every door that writes or schedules a window.
  */
 export function scheduleWindowError(startDate, deadline) {
-    if (!isScheduleDate(startDate)) return 'Start date must be a date written YYYY-MM-DD.';
-    if (!isScheduleDate(deadline)) return 'Deadline must be a date written YYYY-MM-DD.';
-    if (startDate > deadline) return 'Start date must be before deadline.';
-    if (daysBetween(startDate, deadline) > MAX_SCHEDULE_DAYS) return 'A schedule can span at most 20 years.';
+    if (!isScheduleDate(startDate)) return k('Start date must be a date written YYYY-MM-DD.');
+    if (!isScheduleDate(deadline)) return k('Deadline must be a date written YYYY-MM-DD.');
+    if (startDate > deadline) return k('Start date must be before deadline.');
+    if (daysBetween(startDate, deadline) > MAX_SCHEDULE_DAYS) return k('A schedule can span at most 20 years.');
     return null;
 }
 
@@ -143,10 +144,10 @@ export function lockedDeadlineError(projectId, deadline, lock) {
     // date locked). Only a write that does not mention it (the card's editor,
     // an older client) is held to the stored mark.
     if (deadline === undefined || lock !== undefined) return null;
-    lockStmt ??= db.prepare('SELECT deadline, deadline_fixed FROM projects WHERE id = ?');
+    lockStmt ??= db.prepare('SELECT deadline, deadline_fixed FROM live_projects projects WHERE id = ?');
     const row = lockStmt.get(projectId);
     if (!row || !row.deadline_fixed || (deadline ?? null) === row.deadline) return null;
-    return 'This date is marked as an exam date that cannot move. Take the mark off to change it.';
+    return k('This date is marked as an exam date that cannot move. Take the mark off to change it.');
 }
 
 /**
@@ -231,7 +232,7 @@ function getProjectNodes(projectId) {
     return db.prepare(`
         SELECT id, parent_id, title, description, status, position, is_note, role,
                estimated_weight, scheduled_start, scheduled_end, completed_at, updated_at
-        FROM nodes
+        FROM live_nodes nodes
         WHERE project_id = ?
         ORDER BY position ASC
     `).all(projectId);
@@ -545,16 +546,16 @@ export function allocateSchedule(projectId, startDate, deadline, studyDays) {
     const { leaves, nodeMap } = getLeafNodesSequential(projectId);
 
     if (leaves.length === 0) {
-        return { success: false, error: 'No actionable items to schedule. Add topics first.' };
+        return { success: false, ...keyed('No actionable items to schedule. Add topics first.') };
     }
 
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
 
     const validDates = getValidStudyDates(startDate, deadline, studyDays);
 
     if (validDates.length === 0) {
-        return { success: false, error: 'No valid study days between start date and deadline.' };
+        return { success: false, ...keyed('No valid study days between start date and deadline.') };
     }
 
     // Step 1: Weight every leaf (user override or depth-discounted default,
@@ -628,7 +629,7 @@ function cardTotals(projectId) {
         cardTotalsStmt = db.prepare(`
             SELECT COUNT(*) AS cards,
                    COALESCE(SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END), 0) AS seen
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ?
         `);
     }
@@ -652,10 +653,10 @@ function cardTotals(projectId) {
  */
 function allocateCardWindow(projectId, startDate, deadline, studyDays) {
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
     const validDays = countStudyDays(startDate, deadline, studyDays);
     if (validDays === 0) {
-        return { success: false, error: 'No valid study days between start date and deadline.' };
+        return { success: false, ...keyed('No valid study days between start date and deadline.') };
     }
     const { cards } = cardTotals(projectId);
     const cardsPerDay = Math.round((cards / validDays) * 10) / 10;
@@ -741,7 +742,7 @@ export function clearStoredOpenDates(projectId) {
  * @returns {null | Map<number, { start: string, end: string }>}
  */
 export function layTopicDates(projectId, todayStr = today(), timeZone = learnerTimeZone(), { headStarts: withHeadStarts = true } = {}) {
-    const project = db.prepare('SELECT start_date, deadline, study_days FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT start_date, deadline, study_days FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project?.start_date || !project?.deadline) return null;
     if (scheduleWindowError(project.start_date, project.deadline)) return null;
     // A course in cards has a plan but no topic dates: `cardPlan` places its
@@ -811,18 +812,18 @@ export function layTopicDates(projectId, todayStr = today(), timeZone = learnerT
 export function recalibrateSchedule(projectId) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days, baseline_schedule
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     // A deadline with no start date is no window: nothing derives its topic
     // dates (`layTopicDates`), so a "recalibrated" plan would change nothing.
     if (!project || !project.deadline || !project.start_date) {
-        return { success: false, error: 'No schedule exists for this project. Create one first.' };
+        return { success: false, ...keyed('No schedule exists for this project. Create one first.') };
     }
     // Its plan is the window, and there are no topic dates to move — the clock
     // cannot be spread again, only the window changed.
     if (projectCountsInCards(projectId)) {
-        return { success: false, error: 'This project is measured in cards and has no topics to reschedule. Change its dates instead.' };
+        return { success: false, ...keyed('This project is measured in cards and has no topics to reschedule. Change its dates instead.') };
     }
     return layOpenFromToday(projectId, project.deadline, readStudyDays(project.study_days));
 }
@@ -838,7 +839,7 @@ function layOpenFromToday(projectId, deadline, studyDays) {
         const suggestedDeadline = addDays(startDate, Math.ceil(neededDays));
         return {
             success: false,
-            error: `Deadline (${deadline}) has already passed.`,
+            ...keyed('Deadline ({{deadline}}) has already passed.', { deadline }),
             suggestedDeadline,
         };
     }
@@ -854,12 +855,12 @@ function layOpenFromToday(projectId, deadline, studyDays) {
     // Today to the stored deadline: a row written before the routes checked
     // windows may hold anything, and must fail here rather than loop.
     const windowError = scheduleWindowError(startDate, deadline);
-    if (windowError) return { success: false, error: windowError };
+    if (windowError) return { success: false, ...keyed(windowError) };
 
     const validDates = getValidStudyDates(startDate, deadline, studyDays);
 
     if (validDates.length === 0) {
-        return { success: false, error: 'No valid study days remaining between today and deadline.' };
+        return { success: false, ...keyed('No valid study days remaining between today and deadline.') };
     }
 
     // Calculate weights for open leaves only, then run the SAME phase-aware
@@ -910,7 +911,7 @@ function layOpenFromToday(projectId, deadline, studyDays) {
 export function calculatePace(projectId, { today: todayStr = today(), timeZone = learnerTimeZone() } = {}) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days, baseline_schedule
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     if (!project || !project.start_date || !project.deadline) {
@@ -1082,7 +1083,7 @@ export function calculatePace(projectId, { today: todayStr = today(), timeZone =
 export function getScheduleSummary(projectId) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     if (!project || !project.start_date || !project.deadline) {
@@ -1150,7 +1151,7 @@ export function removeSchedule(projectId) {
  *   project has no window or is not measured in cards; sections in tree order.
  */
 export function cardPlan(projectId) {
-    const project = db.prepare('SELECT start_date, deadline, study_days FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT start_date, deadline, study_days FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project?.start_date || !project?.deadline) return null;
     if (scheduleWindowError(project.start_date, project.deadline)) return null;
     if (!projectCountsInCards(projectId)) return null;
@@ -1159,7 +1160,7 @@ export function cardPlan(projectId) {
     const counts = new Map(db.prepare(`
         SELECT f.node_id AS id, COUNT(*) AS cards,
                SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ? GROUP BY f.node_id
     `).all(projectId).map(r => [r.id, r]));
 

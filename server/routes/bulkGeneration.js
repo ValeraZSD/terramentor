@@ -1,7 +1,7 @@
 // /api/ai/bulk: study material for many topics in one run.
 import { bulkCandidates, bulkStatus, cancelBulk, MAX_BULK_NODES, startBulk } from '../bulkGen.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('bulkGeneration');
 
@@ -14,24 +14,24 @@ const app = routeTable('bulkGeneration');
 
 app.get('/api/projects/:id/bulk-candidates', (req, res) => {
     const projectId = Number(req.params.id);
-    if (!Number.isInteger(projectId)) return res.status(400).json({ error: 'Bad project id' });
+    if (!Number.isInteger(projectId)) return res.status(400).json(keyed('Bad project id'));
     try {
         res.json({
             candidates: bulkCandidates(projectId),
             max: MAX_BULK_NODES,
         });
     } catch (error) {
-        res.status(500).json({ error: clientError(error) });
+        res.status(500).json(errorBody(error));
     }
 });
 
 app.post('/api/ai/bulk', (req, res) => {
     const { projectId, nodeIds, kinds, questionCount, cardCount, skipExisting = true } = req.body || {};
     if (!Number.isInteger(Number(projectId))) {
-        return res.status(400).json({ error: 'Missing required field: projectId' });
+        return res.status(400).json(apiError('Missing required field: projectId'));
     }
     if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
-        return res.status(400).json({ error: 'Pick at least one topic.' });
+        return res.status(400).json(keyed('Pick at least one topic.'));
     }
     try {
         res.json(startBulk({
@@ -41,7 +41,7 @@ app.post('/api/ai/bulk', (req, res) => {
             questionCount, cardCount, skipExisting,
         }));
     } catch (error) {
-        res.status(error.status || 500).json({ error: clientError(error, error.status || 500) });
+        res.status(error.status || 500).json(errorBody(error, error.status || 500));
     }
 });
 

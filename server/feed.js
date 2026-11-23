@@ -1,5 +1,9 @@
 import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil } from './scheduling.js';
+import { libraryCapacity, paceStatusOf, severityOf } from './capacity.js';
+
+/** Capacity statuses that get no new work this week (server/capacity.js). */
+const HELD = new Set(['paused', 'waiting']);
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
 import { OPEN_LEAF, OPEN_WORK_LEAF, WORK_LEAF, LEAF_NODE, ACTIVE_PROJECT_JOIN } from './today.js';
@@ -271,10 +275,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     const projects = db.prepare(`
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
-                   SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
+                   SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
                    WHERE n.project_id = p.id
                ) AS has_cards
-        FROM projects p
+        FROM live_projects p
         WHERE COALESCE(p.status, 'active') = 'active'
           ${onlyProject ? 'AND p.id = ?' : ''}
         ORDER BY p.position ASC, p.created_at ASC
@@ -320,10 +324,19 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
         };
     });
 
-    const urgency = (i) => i.overdue.length * 100 + (i.pace?.daysBehind || 0) * 10 + i.todays.length;
-    infos.sort((a, b) => urgency(b) - urgency(a));
+    // One capacity for the library (server/capacity.js): courses are served
+    // nearest date first, and a course a nearer one crowds out, or one the
+    // learner paused, gets no new work here. One course's own stream is the
+    // learner's choice and is not rationed. (This replaced a score of overdue
+    // topics and "days behind", under which a course at 0% due next year
+    // outranked an exam in 17 days.)
+    const capacity = onlyProject ? null : libraryCapacity({ now: now == null ? undefined : Number(now) });
+    const rankOf = (i) => capacity?.courses.get(i.project.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    if (capacity) infos.sort((a, b) => rankOf(a) - rankOf(b));
+    // Held back this week: waiting behind a nearer date, or paused.
+    const held = (i) => HELD.has(capacity?.courses.get(i.project.id)?.status);
 
-    const anyScheduledWork = infos.some(i => i.overdue.length || i.todays.length);
+    const anyScheduledWork = infos.some(i => !held(i) && (i.overdue.length || i.todays.length));
     // A CARD COLLECTION holds a STANDING SLOT: its unscheduled leaves are always
     // eligible, even on a day full of real curriculum work. It is never
     // scheduled — thirty stages with deadlines would all be overdue by next
@@ -353,7 +366,18 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // on the larger share; the reservation only guarantees the tail exists.
     // Only one with a topic to serve: a short course still being written, or
     // one whose writing failed, would hold a slot and fill it with nothing.
-    const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
+    // An undated standing course keeps its slot while a dated one crowds the
+    // week (a deck's cards are another unit; a short course was made to be
+    // read now), but not once the learner paused it. One with a date still to
+    // come (a deadline and no start) is ranked by that date, so when it waits
+    // behind a nearer one it waits here too.
+    const holdsSlot = (i) => {
+        const status = capacity?.courses.get(i.project.id)?.status;
+        if (status === 'paused') return false;
+        return !(status === 'waiting' && i.project.deadline && i.project.deadline >= today);
+    };
+    const standingInfos = infos.filter(i => isStanding(i) && holdsSlot(i)
+        && aheadStmt.all(i.project.id, today, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))
         : 0;
@@ -400,7 +424,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     };
 
     for (const info of infos) {
-        if (isStanding(info)) continue;
+        if (isStanding(info) || held(info)) continue;
         if (focus.length >= maxTotal - reserved) break;
         take(info, maxTotal - reserved);
     }
@@ -416,7 +440,8 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     return {
         focus,
         projectInfos: infos,
-        catchUpActive: infos.some(i => i.overdue.length > 0),
+        catchUpActive: infos.some(i => !held(i) && i.overdue.length > 0),
+        capacity,
     };
 }
 
@@ -437,7 +462,7 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
     const node = db.prepare(`
         SELECT n.id, n.project_id, n.is_note,
                p.id AS pid, p.name, p.color, p.icon, p.start_date, p.deadline
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id = ?
     `).get(nodeId);
     if (!node || node.is_note) return { focus: [], projectInfos: [], catchUpActive: false };
@@ -456,7 +481,7 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
             SELECT ?, ''
             UNION ALL
             SELECT n.id, sub.path || printf('%06d.', n.position) || printf('%09d/', n.id)
-            FROM nodes n JOIN sub ON n.parent_id = sub.id WHERE n.is_note = 0
+            FROM live_nodes n JOIN sub ON n.parent_id = sub.id WHERE n.is_note = 0
         )
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.status, n.role
         FROM plan_nodes n JOIN sub ON sub.id = n.id
@@ -547,7 +572,7 @@ export function checkpointFacts(nodeId, gate) {
     // A topic's own page serves its closed leaves too (last), so a completed
     // topic's card must not offer to complete it, and a skipped one must not
     // offer to skip it again.
-    const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
+    const nodeStatus = db.prepare('SELECT status FROM live_nodes nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
     // The mode as it is NOW: a card composed before the setting changed would
     // otherwise keep offering the old mode's ways out.
     return { feedCorrect, feedTotal, masteryScore, gateScore, shownScore, practiceCeiling, practiceRight, practiceTotal, eligible, borrowedEstimate, borrowedFrom, practiceLifted, nodeStatus, gateMode: gate.mode };
@@ -577,15 +602,15 @@ function explainEmpty(projectIds) {
     const count = (sql, ids = projectIds) => (ids.length
         ? db.prepare(sql.replace('%IDS%', ids.map(() => '?').join(','))).get(...ids).c
         : 0);
-    const topics = count(`SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id IN (%IDS%) AND ${WORK_LEAF}`);
-    const openSql = `SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id IN (%IDS%) AND ${OPEN_WORK_LEAF}`;
+    const topics = count(`SELECT COUNT(*) AS c FROM live_nodes n WHERE n.project_id IN (%IDS%) AND ${WORK_LEAF}`);
+    const openSql = `SELECT COUNT(*) AS c FROM live_nodes n WHERE n.project_id IN (%IDS%) AND ${OPEN_WORK_LEAF}`;
     const open = count(openSql);
     const openTaught = count(openSql, projectIds.filter((id) => projectTeaches(id)));
     const cards = db.prepare(
-        `SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks})`,
+        `SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id IN (${marks})`,
     ).get(...projectIds).c;
     const cardsLeft = cards ? db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id IN (${marks}) AND (f.next_review IS NULL OR f.next_review <= ${NOW_ISO})
     `).get(...projectIds).c : 0;
     return { topics, cards, open, openTaught, cardsLeft };
@@ -644,7 +669,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // and never a second composer.
     const scoped = Number.isInteger(nodeId) && nodeId > 0;
     const projectScope = !scoped && Number.isInteger(projectId) && projectId > 0 ? projectId : null;
-    const { focus, projectInfos } = scoped
+    const { focus, projectInfos, capacity } = scoped
         ? getFocusForNode(nodeId)
         : getFocusNodes(projectScope ? { projectId: projectScope } : {});
     // The topic's first lesson, while the writer is on it, or after it failed.
@@ -675,14 +700,14 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         SELECT COUNT(*) AS c FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
     `);
     const latestQuizStmt = db.prepare(`
-        SELECT id, questions FROM quizzes WHERE node_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
+        SELECT id, questions FROM live_quizzes quizzes WHERE node_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
     `);
     const nodeFeedEvidenceTodayStmt = db.prepare(`
         SELECT COUNT(*) AS c FROM mastery_evidence
         WHERE node_id = ? AND ${IN_DAY('created_at')} AND metadata LIKE '%"source":"feed"%'
     `);
     const notesStmt = db.prepare(`
-        SELECT title, description, notes FROM nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position ASC
+        SELECT title, description, notes FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position ASC
     `);
 
     let anyDegradedServed = false;
@@ -961,7 +986,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // test an imported deck spent the day's review budget on cards the learner
     // last saw months ago in Anki, and the header announced thousands reviewed.
     const reviewsToday = db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
     `).get(day.start, day.end).c;
@@ -977,7 +1002,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const dueRows = dueBudget > 0 && (!scoped || focusIds.length) ? db.prepare(`
         SELECT f.*, n.title AS node_title, n.project_id,
                p.name AS project_name, p.color AS project_color
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE f.next_review IS NOT NULL AND f.next_review <= ${NOW_ISO}
         ${dueWhere}
@@ -997,8 +1022,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const introducedByProject = new Map(db.prepare(`
         SELECT n.project_id AS pid, COUNT(DISTINCT r.card_id) AS c
         FROM review_log r
-        JOIN flashcards f ON f.id = r.card_id
-        JOIN nodes n ON n.id = f.node_id
+        JOIN live_flashcards f ON f.id = r.card_id
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
         GROUP BY n.project_id
     `).all(day.start, day.end).map(r => [r.pid, r.c]));
@@ -1020,7 +1045,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         const candidates = db.prepare(`
             SELECT f.*, n.title AS node_title, n.project_id,
                    p.name AS project_name, p.color AS project_color
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             ${ACTIVE_PROJECT_JOIN}
             WHERE f.next_review IS NULL AND f.node_id IN (${focusIds.map(() => '?').join(',')})
             ORDER BY n.project_id ASC, f.id ASC
@@ -1360,11 +1385,19 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         for (const id of Object.keys(map)) map[id].review = reviews.has(Number(id));
     }
 
-    return { items, exhausted, transfers, placements, lessonWrite: write };
+    // `capacity`: the library's week this stream was ranked by, for the
+    // header built in the same request (null on one course or one topic).
+    return { items, exhausted, transfers, placements, lessonWrite: write, capacity: capacity ?? null };
 }
 
 /** Slim header for the feed shell: today's activity, catch-up state, deadline chip. */
-export function buildFeedHeader() {
+/**
+ * @param {{ capacity?: ReturnType<typeof libraryCapacity>|null, plan?: boolean }} [opts]
+ *   `capacity` is the library's week when the caller already has it (the feed
+ *   route, from the stream it just composed); `plan: false` answers the day's
+ *   numbers only, for a caller that reads nothing else (an answer's reply).
+ */
+export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     const day = studyDay();
     const today = day.date;
 
@@ -1376,7 +1409,7 @@ export function buildFeedHeader() {
     // different accuracy.
     const lessonsDone = db.prepare(`
         SELECT COUNT(*) AS c FROM feed_items fi
-        JOIN nodes n ON n.id = fi.node_id
+        JOIN live_nodes n ON n.id = fi.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
     `).get(day.start, day.end).c;
@@ -1386,7 +1419,7 @@ export function buildFeedHeader() {
     const ev = db.prepare(`
         SELECT COALESCE(SUM(me.score), 0) AS s, COALESCE(SUM(me.total), 0) AS t, COUNT(*) AS c
         FROM mastery_evidence me
-        JOIN nodes n ON n.id = me.node_id
+        JOIN live_nodes n ON n.id = me.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('me.created_at')} AND me.metadata LIKE '%"source":"feed"%'
     `).get(day.start, day.end);
@@ -1394,7 +1427,7 @@ export function buildFeedHeader() {
     // Same `stability IS NOT NULL` discriminator as composeFeed: reviews done
     // here, never the importer's stamp.
     const cardsReviewed = db.prepare(`
-        SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
     `).get(day.start, day.end).c;
@@ -1409,68 +1442,78 @@ export function buildFeedHeader() {
     const newIntroduced = db.prepare(`
         SELECT COUNT(DISTINCT r.card_id) AS c
         FROM review_log r
-        JOIN flashcards f ON f.id = r.card_id
-        JOIN nodes n ON n.id = f.node_id
+        JOIN live_flashcards f ON f.id = r.card_id
+        JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
     `).get(day.start, day.end).c;
 
+    const stats = {
+        itemsDoneToday: lessonsDone + ev.c + cardsReviewed,
+        lessonsReadToday: lessonsDone,
+        questionsAnsweredToday: ev.c,
+        accuracyToday: ev.t > 0 ? ev.s / ev.t : null,
+        cardsReviewedToday: cardsReviewed,
+        newCardsIntroducedToday: newIntroduced,
+    };
+    if (!plan) return { date: today, stats };
+
     refreshTopicDates({ today });
+    // The library's week, read once for the banner and the chip.
+    let week = capacity;
+    const weekOf = () => (week ??= libraryCapacity());
+    // A course held this week (paused, or waiting behind a nearer date) is
+    // served no new work, so its overdue topics are not work to catch up on.
     const overdueRows = db.prepare(`
         SELECT n.project_id AS pid, p.name AS name, COUNT(*) AS c
         FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF} AND n.scheduled_end < ?
         GROUP BY n.project_id
-    `).all(today);
+    `).all(today).filter(r => !HELD.has(weekOf().courses.get(r.pid)?.status));
     const catchUp = {
         active: overdueRows.length > 0,
         overdueLeaves: overdueRows.reduce((a, r) => a + r.c, 0),
         projects: overdueRows.map(r => ({ projectId: r.pid, name: r.name, overdue: r.c })),
     };
 
-    // Deadline chip: the most-pressed scheduled project (worst pace status,
-    // then most days behind, then soonest deadline).
+    // Deadline chip: the most-pressed dated project by its verdict (out of
+    // reach, then tight, then under pace), then the soonest date. Read from
+    // the learned-pace verdict, the same one the course header shows: the old
+    // "days behind" was a share of the window, not days, and with topic dates
+    // derived on read it could no longer say behind at all. Dated means a
+    // deadline, as the verdict and the capacity read it. A paused course, or
+    // one waiting behind a nearer date, is left out: the chip names a course
+    // the stream is serving. Ties go to the learner's own order.
     const scheduled = db.prepare(`
-        SELECT id, name, color, deadline FROM projects
-        WHERE COALESCE(status, 'active') = 'active'
-          AND start_date IS NOT NULL AND deadline IS NOT NULL AND deadline >= ?
+        SELECT id, name, color, deadline FROM live_projects projects
+        WHERE COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
+          AND deadline IS NOT NULL AND deadline >= ?
+        ORDER BY position ASC, created_at ASC, id ASC
     `).all(today);
-    const RANK = { critical: 3, falling_behind: 2, on_track: 1 };
     let deadline = null;
-    for (const p of scheduled) {
-        let pace = null;
-        try { pace = calculatePace(p.id); } catch { continue; }
-        if (!pace?.hasSchedule) continue;
-        const candidate = {
-            projectId: p.id, name: p.name, color: p.color,
-            deadline: p.deadline,
-            daysLeft: daysUntil(p.deadline, today),
-            paceStatus: pace.paceStatus || 'on_track',
-            daysBehind: pace.daysBehind || 0,
-        };
-        if (!deadline
-            || (RANK[candidate.paceStatus] || 0) > (RANK[deadline.paceStatus] || 0)
-            || ((RANK[candidate.paceStatus] || 0) === (RANK[deadline.paceStatus] || 0)
-                && (candidate.daysBehind > deadline.daysBehind
-                    || (candidate.daysBehind === deadline.daysBehind && candidate.daysLeft < deadline.daysLeft)))) {
-            deadline = candidate;
+    if (scheduled.length) {
+        let best = -1;
+        for (const p of scheduled) {
+            const placed = weekOf().courses.get(p.id);
+            if (HELD.has(placed?.status)) continue;
+            const verdict = placed?.verdict;
+            if (!verdict || verdict.band === 'done') continue;
+            const severity = severityOf(verdict);
+            const daysLeft = daysUntil(p.deadline, today);
+            if (deadline && (severity < best || (severity === best && daysLeft >= deadline.daysLeft))) continue;
+            best = severity;
+            deadline = {
+                projectId: p.id, name: p.name, color: p.color,
+                deadline: p.deadline,
+                daysLeft,
+                band: verdict.band,
+                paceStatus: paceStatusOf(verdict),
+            };
         }
     }
 
-    return {
-        date: today,
-        stats: {
-            itemsDoneToday: lessonsDone + ev.c + cardsReviewed,
-            lessonsReadToday: lessonsDone,
-            questionsAnsweredToday: ev.c,
-            accuracyToday: ev.t > 0 ? ev.s / ev.t : null,
-            cardsReviewedToday: cardsReviewed,
-            newCardsIntroducedToday: newIntroduced,
-        },
-        catchUp,
-        deadline,
-    };
+    return { date: today, stats, catchUp, deadline };
 }
 
 /**
@@ -1535,7 +1578,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     const readLesson = row
         ? row.kind === 'lesson'
         : kind === 'lesson' && Number.isInteger(nodeId)
-            && !!db.prepare(`SELECT 1 FROM nodes WHERE id = ?`).get(nodeId);
+            && !!db.prepare(`SELECT 1 FROM live_nodes nodes WHERE id = ?`).get(nodeId);
     if (readLesson) {
         db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('first_lesson_read_at', ${NOW_ISO})`).run();
     }

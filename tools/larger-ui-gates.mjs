@@ -134,6 +134,8 @@ const SCREENS = {
     },
     topic: go((ids) => `/project/${ids.project}/tree/${ids.study}`, 'Details'),
     'new-course': STATES['new-course'],
+    // The form behind "Create a course": name field, material list, the foot.
+    'new-course-form': STATES['new-course-form'],
 };
 
 // Two sizes at the ends of the interface-size range, on the screens they can

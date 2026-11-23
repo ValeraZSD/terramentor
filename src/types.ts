@@ -1271,8 +1271,10 @@ export interface FeedDeadline {
     color: string;
     deadline: string;
     daysLeft: number;
-    paceStatus: string;
-    daysBehind: number;
+    /** The date's verdict against the learner's pace (server/paceModel.js). */
+    band: VerdictBand;
+    /** The band as three steps: what the chip's colour reads. */
+    paceStatus: 'critical' | 'falling_behind' | 'on_track';
 }
 
 /** One thing the learner actually did today (GET /api/today/activity). */
@@ -2045,6 +2047,9 @@ export type StagedDocument =
         };
         /** The language the file is written in (catalog code), or null when unsure. */
         language: string | null;
+        /** Read from a link in the New course window (a page, a video, a PDF
+         *  behind a link), or a transcript pasted for a video. Null for a file. */
+        source?: { kind: 'page' | 'video' | 'pdf' | 'file'; url: string | null; host: string | null; minutes: number | null; pasted: boolean } | null;
     }
     | { ok: false; title: string; error: string; reason: 'no_text' | 'unreadable' };
 
@@ -2655,6 +2660,21 @@ export interface ProjectCompletion {
         /** Something was done here before the clock started: the total is real but not the whole. */
         partial: boolean;
     } | null;
+}
+
+/** One row of Recently deleted (GET /api/deleted, server/softDelete.js `listDeleted`). */
+export interface DeletedItem {
+    table: 'projects' | 'nodes' | 'resources' | 'flashcards' | 'quizzes';
+    id: number;
+    uuid: string | null;
+    kind: 'course' | 'deck' | 'topic' | 'note' | 'link' | 'card' | 'quiz';
+    title: string;
+    deletedAt: string;
+    /** The course it was in; null for a course or deck itself. */
+    projectId: number | null;
+    projectName: string | null;
+    /** Rows that went with it and come back with it. */
+    took: number;
 }
 
 /** A device connected from Settings by scanning its QR code (server/devices.js). */

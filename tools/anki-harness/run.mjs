@@ -101,6 +101,8 @@ await require('esbuild').build({
                         if (globalThis.__commitFails) { globalThis.__commitFails = false; throw new Error(''); }
                         globalThis.__calls.push(['commit', opts]); return { projectId: 3, name: opts.projectName, imported: 1501, skipped: 0, stages: 30 }; },
                     deleteProject: async () => { await globalThis.__deleteHold; },
+                    // The undo removes the import for good after the delete.
+                    purgeDeleted: async (table, id) => { globalThis.__calls.push(['purge', table, id]); return { removed: true }; },
                     // A preview picture with no alt looks up its stored description.
                     mediaInfo: async () => null,
                 };`,
@@ -300,6 +302,7 @@ check('"Open it" is switched off while an undo runs', byText('button', 'Open it'
 undone(); globalThis.__deleteHold = null;
 await act(async () => { await wait(); });
 check('the undo then closes the dialog', !!byText('p', 'Drop your .apkg here'), true);
+check('…after removing the imported course for good', JSON.stringify(globalThis.__calls.filter(c => c[0] === 'purge')), JSON.stringify([['purge', 'projects', 3]]));
 
 act(() => root.unmount());
 console.log(`\n${pass} passed, ${fail} failed`);

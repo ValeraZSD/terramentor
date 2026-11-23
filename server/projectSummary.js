@@ -40,7 +40,7 @@ export const PROJECT_SUMMARY_SQL = `
         COALESCE(fc.due_flashcard_count, 0) as due_flashcard_count,
         COALESCE(cc.card_count, 0) as card_count,
         COALESCE(cc.seen_card_count, 0) as seen_card_count
-    FROM projects p
+    FROM live_projects p
     LEFT JOIN (
         SELECT n.project_id,
                COUNT(*) as node_count,
@@ -58,7 +58,7 @@ export const PROJECT_SUMMARY_SQL = `
                -- When a topic was last closed: the date a finished course
                -- shows on the Finished list, and that list's order.
                MAX(CASE WHEN ${TOPIC_NODE} THEN n.completed_at END) as last_done_at
-        FROM nodes n
+        FROM live_nodes n
         WHERE ${LEAF_NODE}
         GROUP BY n.project_id
     ) nc ON nc.project_id = p.id
@@ -67,8 +67,8 @@ export const PROJECT_SUMMARY_SQL = `
         -- server/decks.js): counting it here is what made a freshly generated
         -- project announce that its owner was hundreds of cards behind.
         SELECT n.project_id, COUNT(*) as due_flashcard_count
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE ${reviewDue('f')}
         GROUP BY n.project_id
     ) fc ON fc.project_id = p.id
@@ -80,8 +80,8 @@ export const PROJECT_SUMMARY_SQL = `
         SELECT n.project_id,
                COUNT(*) as card_count,
                SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) as seen_card_count
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         GROUP BY n.project_id
     ) cc ON cc.project_id = p.id
     ORDER BY p.position

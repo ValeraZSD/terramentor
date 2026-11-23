@@ -251,21 +251,21 @@ const unit1 = (f) => f.nodes[0].children;
 const topic = (f, title) => f.nodes.flatMap(n => [n, ...(n.children || [])]).find(n => n.title === title);
 
 // ---- reading the library --------------------------------------------------------
-const nodeOf = (projectId, title) => db.prepare('SELECT * FROM nodes WHERE project_id = ? AND title = ?').get(projectId, title);
+const nodeOf = (projectId, title) => db.prepare('SELECT * FROM live_nodes WHERE project_id = ? AND title = ?').get(projectId, title);
 const copiesOf = (tag) => db.prepare('SELECT COUNT(*) AS n FROM projects WHERE name = ?').get(`Course ${tag}`).n;
 const evidenceOn = (nodeId) => (nodeId ? db.prepare('SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ?').get(nodeId).n : 0);
 const masteryOn = (nodeId) => (nodeId ? db.prepare('SELECT mastery_score FROM node_mastery WHERE node_id = ?').get(nodeId)?.mastery_score ?? null : null);
-const cardsOf = (nodeId) => (nodeId ? db.prepare('SELECT id, front, back, review_count FROM flashcards WHERE node_id = ? ORDER BY id').all(nodeId) : []);
-const bankOf = (nodeId) => (nodeId ? db.prepare('SELECT questions FROM quizzes WHERE node_id = ? ORDER BY id').all(nodeId)
+const cardsOf = (nodeId) => (nodeId ? db.prepare('SELECT id, front, back, review_count FROM live_flashcards WHERE node_id = ? ORDER BY id').all(nodeId) : []);
+const bankOf = (nodeId) => (nodeId ? db.prepare('SELECT questions FROM live_quizzes WHERE node_id = ? ORDER BY id').all(nodeId)
     .flatMap(r => JSON.parse(r.questions)) : []);
 const askedRows = (nodeId) => (nodeId ? db.prepare('SELECT question_uuid FROM question_log WHERE node_id = ? ORDER BY id').all(nodeId).map(r => r.question_uuid) : []);
 /** Every author-owned value of a project, for "nothing changed". */
 const fingerprint = (projectId) => JSON.stringify({
-    p: db.prepare('SELECT name, description, version FROM projects WHERE id = ?').get(projectId),
-    n: db.prepare('SELECT id, parent_id, title, description, position, status FROM nodes WHERE project_id = ? ORDER BY id').all(projectId),
-    q: db.prepare('SELECT q.id, q.questions FROM quizzes q JOIN nodes n ON n.id = q.node_id WHERE n.project_id = ? ORDER BY q.id').all(projectId),
-    c: db.prepare('SELECT f.id, f.front, f.back, f.review_count FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id').all(projectId),
-    l: db.prepare('SELECT ql.id FROM question_log ql JOIN nodes n ON n.id = ql.node_id WHERE n.project_id = ? ORDER BY ql.id').all(projectId),
+    p: db.prepare('SELECT name, description, version FROM live_projects WHERE id = ?').get(projectId),
+    n: db.prepare('SELECT id, parent_id, title, description, position, status FROM live_nodes WHERE project_id = ? ORDER BY id').all(projectId),
+    q: db.prepare('SELECT q.id, q.questions FROM live_quizzes q JOIN live_nodes n ON n.id = q.node_id WHERE n.project_id = ? ORDER BY q.id').all(projectId),
+    c: db.prepare('SELECT f.id, f.front, f.back, f.review_count FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id').all(projectId),
+    l: db.prepare('SELECT ql.id FROM question_log ql JOIN live_nodes n ON n.id = ql.node_id WHERE n.project_id = ? ORDER BY ql.id').all(projectId),
 });
 
 // ---- installing, studying, updating ----------------------------------------------

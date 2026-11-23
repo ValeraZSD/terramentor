@@ -29,7 +29,7 @@ import { planCourseUpdate } from '../courseMerge.js';
 import {
     applyCourseUpdate, readBase, readFileCourse, readInstalledCourse, undoAvailable, undoLastUpdate,
 } from '../courseUpdate.js';
-import { clientError } from '../clientError.js';
+import { KeyedError, errorBody, k, keyed } from '../clientError.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -40,7 +40,7 @@ const MAX_UPDATE_UPLOAD_BYTES = 200 * 1024 * 1024;
 const updateUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPDATE_UPLOAD_BYTES } });
 
 /** A file this door cannot read; the message is the answer, the status 400. */
-class UpdateRefusal extends Error {}
+class UpdateRefusal extends KeyedError {}
 
 const isZip = (buf) => buf.length > 3 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
 
@@ -92,7 +92,7 @@ async function readUpload(file, { withMedia = false } = {}) {
 }
 
 /** The installed course this file is a newer edition of, by the course's id. */
-const twinOf = (project) => (project.uuid ? db.prepare('SELECT id, name, version FROM projects WHERE uuid = ?').get(project.uuid) : null) || null;
+const twinOf = (project) => (project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null) || null;
 
 /** Plan the update of `twin` from the read file. */
 function plan(twin, read, choices = {}) {
@@ -215,7 +215,7 @@ const parseChoices = (raw) => {
 
 const answerRefusal = (res, err) => {
     if (err instanceof UpdateRefusal || err instanceof BundleRefusal) {
-        res.status(400).json({ error: clientError(err, 400) });
+        res.status(400).json(errorBody(err, 400));
         return true;
     }
     return false;
@@ -246,7 +246,7 @@ app.post('/api/course-updates/commit', UPLOAD_GUARD, updateUpload.single('file')
         // The preview was of THIS course; a file of another one is refused
         // rather than written over the wrong course.
         if (!twin || twin.id !== projectId) {
-            return res.status(409).json({ error: 'This file is not an edition of that course.' });
+            return res.status(409).json(keyed('This file is not an edition of that course.'));
         }
         const p = plan(twin, read, choices);
         if (p.plan.refused) return res.status(409).json(preview(twin, read, p));
@@ -276,8 +276,8 @@ app.post('/api/course-updates/commit', UPLOAD_GUARD, updateUpload.single('file')
 
 const projectParam = (req, res) => {
     const id = Number(req.params.projectId);
-    if (!Number.isInteger(id) || id <= 0 || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(id)) {
-        res.status(404).json({ error: 'Project not found' });
+    if (!Number.isInteger(id) || id <= 0 || !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(id)) {
+        res.status(404).json(keyed('Project not found'));
         return null;
     }
     return id;
@@ -293,7 +293,7 @@ app.post('/api/course-updates/:projectId/undo', (req, res) => {
     const id = projectParam(req, res);
     if (id == null) return;
     const done = undoLastUpdate(id);
-    if (!done.ok) return res.status(409).json({ error: done.reason ?? 'There is no update of this course to undo.' });
+    if (!done.ok) return res.status(409).json(keyed(done.reason ?? k('There is no update of this course to undo.')));
     invalidateProjectLanguage(id);
     scheduleNodeSync();
     scheduleSearchWords();

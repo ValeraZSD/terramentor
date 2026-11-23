@@ -88,7 +88,7 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
     if (!CLAIM_SOURCES.includes(source)) throw new ClaimError(400, `source must be one of: ${CLAIM_SOURCES.join(', ')}`);
     const who = typeof client === 'string' && client.trim() ? client.trim().slice(0, CLIENT_CHARS) : null;
 
-    const node = stmt(`SELECT n.id, n.title, n.is_note, (${WORK_LEAF}) AS work FROM nodes n WHERE n.id = ?`).get(nodeId);
+    const node = stmt(`SELECT n.id, n.title, n.is_note, (${WORK_LEAF}) AS work FROM live_nodes n WHERE n.id = ?`).get(nodeId);
     if (!node) throw new ClaimError(404, `No topic with nodeId ${nodeId}`);
     if (node.is_note) throw new ClaimError(400, `nodeId ${nodeId} is a piece of Material, not a topic: claim on the topic it belongs to`);
     if (!node.work) throw new ClaimError(400, `nodeId ${nodeId} is a section, not a topic: claim on one of the topics under it`);

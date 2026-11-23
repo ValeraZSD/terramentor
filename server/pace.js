@@ -51,7 +51,7 @@ function statements() {
     if (stmts) return stmts;
     stmts = {
         topicsClosed: db.prepare(`
-            SELECT ${AS_ISO('n.completed_at')} AS at FROM nodes n
+            SELECT ${AS_ISO('n.completed_at')} AS at FROM live_nodes n
             WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
         `),
         cardsMet: db.prepare(`
@@ -73,29 +73,29 @@ function statements() {
         // EXISTS per project for topics), so a screen that needs only topics
         // never pays for the review log's window query.
         firstTopicCourse: db.prepare(`
-            SELECT MIN(${AS_ISO('p.created_at')}) AS at FROM projects p
-            WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${WORK_LEAF})
+            SELECT MIN(${AS_ISO('p.created_at')}) AS at FROM live_projects p
+            WHERE EXISTS (SELECT 1 FROM live_nodes n WHERE n.project_id = p.id AND ${WORK_LEAF})
         `),
-        firstCard: db.prepare(`SELECT ${AS_ISO('MIN(julianday(created_at))')} AS at FROM flashcards`),
+        firstCard: db.prepare(`SELECT ${AS_ISO('MIN(julianday(created_at))')} AS at FROM live_flashcards flashcards`),
         firstClosed: db.prepare(`
-            SELECT ${AS_ISO('MIN(julianday(n.completed_at))')} AS at FROM nodes n
+            SELECT ${AS_ISO('MIN(julianday(n.completed_at))')} AS at FROM live_nodes n
             WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
         `),
         firstReview: db.prepare(`SELECT ${AS_ISO('MIN(julianday(reviewed_at))')} AS at FROM review_log`),
-        project: db.prepare('SELECT id, deadline, deadline_fixed, status FROM projects WHERE id = ?'),
-        openTopics: db.prepare(`SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}`),
+        project: db.prepare('SELECT id, deadline, deadline_fixed, status FROM live_projects projects WHERE id = ?'),
+        openTopics: db.prepare(`SELECT COUNT(*) AS c FROM live_nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}`),
         unmetCards: db.prepare(`
-            SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            SELECT COUNT(*) AS c FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ? AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)
         `),
-        // Other courses still asking for time: active, dated today or later
+        // Other courses still asking for time: active, not paused, dated today or later
         // (the deadline day is still a study day), with a topic or a card left.
         otherCourses: db.prepare(`
-            SELECT COUNT(*) AS c FROM projects p
-            WHERE p.id != ? AND COALESCE(p.status, 'active') = 'active'
+            SELECT COUNT(*) AS c FROM live_projects p
+            WHERE p.id != ? AND COALESCE(p.status, 'active') = 'active' AND COALESCE(p.paused, 0) = 0
               AND p.deadline IS NOT NULL AND p.deadline >= ?
-              AND (EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${OPEN_WORK_LEAF})
-                   OR EXISTS (SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
+              AND (EXISTS (SELECT 1 FROM live_nodes n WHERE n.project_id = p.id AND ${OPEN_WORK_LEAF})
+                   OR EXISTS (SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
                               WHERE n.project_id = p.id AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)))
         `),
     };
@@ -170,8 +170,10 @@ function dateOwnership(project) {
  * @param {number|string} projectId
  * @param {{ now?: number, timeZone?: string, library?: ReturnType<typeof libraryPace> }} [opts]
  *   `library` lets a screen judging many courses read the record once.
+ *   `offers: false` skips the placement probe behind the "check what you
+ *   know" offer, for a reader that uses only the band (the feed).
  */
-export function projectVerdict(projectId, { now = Date.now(), timeZone = learnerTimeZone(), library = null } = {}) {
+export function projectVerdict(projectId, { now = Date.now(), timeZone = learnerTimeZone(), library = null, offers = true } = {}) {
     const s = statements();
     const project = s.project.get(projectId);
     if (!project?.deadline) return null;
@@ -191,7 +193,7 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     // asked only then (it walks the course's tree). It places topics; a deck
     // has none to place. The offer is slotted in by OFFERS' order rather than
     // judged again, which would re-run both finish-range simulations.
-    if (!cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) {
+    if (offers && !cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) {
         verdict.offers = [...verdict.offers, { kind: 'check_known' }]
             .sort((a, b) => OFFERS.indexOf(a.kind) - OFFERS.indexOf(b.kind));
     }

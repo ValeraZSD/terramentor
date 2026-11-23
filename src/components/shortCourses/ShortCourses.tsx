@@ -1,45 +1,28 @@
-// The Projects page's short courses: one box to paste a link or drop a file
-// into, and the short courses being studied, three small cards to a row
-// (projects/CompactCard.tsx). A finished or archived one is on the page's
-// Finished or Archived view instead, with the full courses.
-//
-// A source is READ first (POST /api/short-courses/read): the box then shows
-// what it is and how big, and only Create writes a course. A source that cannot
-// be read says why and offers its way on (readReasons.ts, the reader's `fix`):
-// a file instead, Try again, a pasted transcript, or "Write it from the title"
-// for a video with no captions. A whole book offers a few of its chapters, or a
-// full course through the New course dialog; a few lines are too little.
+// The Projects page's short courses: the courses of a few topics on one level
+// that the New course window made from a small input (a video, an article,
+// one short document; server/courseShape.js decides), or the assistant made
+// from a link. Three small cards to a row (projects/CompactCard.tsx); a
+// finished or archived one is on the page's Finished or Archived view instead,
+// with the full courses. With none, the section is not drawn at all.
 //
 // The rows are GET /api/short-courses, owned by ProjectsGrid, which leaves
-// these courses out of its own grid. A course leaves the strip when it grows
+// these courses out of its own grid. A course leaves the section when it grows
 // a phase (server/shortCourses.js `listShortCourses`).
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
+    Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe,
+    Loader2, MoreVertical, PenLine, Play, RotateCcw, Trash2, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
-import type { Project, StagedDocument } from '../../types';
+import type { Project } from '../../types';
 import { Button, IconButton } from '../ui/Button';
-import { TextArea, TextInput } from '../ui/Field';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
-import { cx } from '../ui/vocabulary';
-import Checkbox from '../Checkbox';
 import ProgressRing from '../ProgressRing';
-import ConnectAIActions from '../ConnectAIActions';
-import { MAX_FILE_BYTES } from '../creation/SourceFiles';
 import { CompactCard, COMPACT_GRID } from '../projects/CompactCard';
-import { useElementWidth } from '../../hooks/useElementWidth';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
-import { freeColour } from '../../utils/freeColour';
-import { useCanHover } from '../../utils/platform';
-import { READ_REASON, READ_REASON_OTHER } from './readReasons';
-import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind } from './shortCourseTypes';
-
-/** Below this width the box and the rows stack their actions under the text. */
-const NARROW_PX = 560;
+import type { ShortCourseRow, SourceKind } from './shortCourseTypes';
 
 const KIND_ICON: Record<SourceKind, typeof Globe> = {
     video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: PenLine,
@@ -52,469 +35,6 @@ export function SectionLabel({ children }: { children: ReactNode }) {
             <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{children}</span>
             <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        </div>
-    );
-}
-
-function Tile({ children, tone = 'plain' }: { children: ReactNode; tone?: 'plain' | 'warn' }) {
-    return (
-        <div className={cx(
-            'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-            tone === 'warn'
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
-        )}>
-            {children}
-        </div>
-    );
-}
-
-/** The site of a link, for "Reading youtube.com"; the text itself when it is not one. */
-function hostOf(raw: string): string {
-    try {
-        return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.replace(/^www\./i, '');
-    } catch {
-        return raw;
-    }
-}
-
-/** What the box is showing. `pasted`: the transcript a read came from, so its
- *  line says "Transcript" rather than the link's kind. */
-type Box =
-    | { state: 'empty' }
-    | { state: 'reading'; where: string; detail: string }
-    | { state: 'read'; read: ShortReadOk; pasted?: string }
-    | { state: 'unreadable'; fail: ShortReadFail; where: string; link: string | null }
-    | { state: 'transcript'; title: string; url: string | null; short?: number; min?: number | null }
-    | { state: 'chapters'; read: ShortReadOk; picked: number[] };
-
-function useReadLine() {
-    const { t } = useTranslation();
-    const num = useNumberFormat();
-    /** "Video · 12 min · 4 topics": what was read and what it makes. */
-    return (read: ShortReadOk, pasted: boolean): string => {
-        const what = pasted ? t("Transcript")
-            : read.kind === 'video' ? t("Video")
-                : read.kind === 'page' ? t("Web page")
-                    : read.kind === 'pdf' ? t("PDF")
-                        : t("Document");
-        const size = read.kind === 'video' && read.minutes && !pasted ? t("{{n}} min", { n: read.minutes })
-            : read.pages && read.kind !== 'page' ? t("{{count}} pages", { count: read.pages })
-                : t("{{words}} words", { count: read.words, words: num(read.words) });
-        return [what, size, t("{{count}} topics", { count: read.topics })].join(' · ');
-    };
-}
-
-function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
-    projects: Project[];
-    narrow: boolean;
-    onCreated: () => void;
-    onFullCourse: (doc: StagedDocument, title: string) => void;
-}) {
-    const { t } = useTranslation();
-    const num = useNumberFormat();
-    const addToast = useStore(s => s.addToast);
-    const readLine = useReadLine();
-    // A finger cannot drag a file onto the box, so a touch screen is not told to.
-    const prompt = useCanHover() ? t("Paste a link or drop a file") : t("Paste a link");
-    const [box, setBox] = useState<Box>({ state: 'empty' });
-    const [text, setText] = useState('');
-    const [transcript, setTranscript] = useState('');
-    const [busy, setBusy] = useState(false);
-    const [dragOver, setDragOver] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
-    const hintId = useId();
-    const abortRef = useRef<AbortController | null>(null);
-    const transcriptRef = useRef<HTMLTextAreaElement>(null);
-    useEffect(() => () => abortRef.current?.abort(), []);
-
-    const begin = (where: string, detail: string) => {
-        abortRef.current?.abort();
-        const ac = new AbortController();
-        abortRef.current = ac;
-        setBox({ state: 'reading', where, detail });
-        return ac;
-    };
-
-    const show = (r: ShortRead, { link = null, file = null, pasted }: { link?: string | null; file?: string | null; pasted?: string }) => {
-        if (r.ok) setBox({ state: 'read', read: r, pasted });
-        else setBox({ state: 'unreadable', fail: r, where: r.title || file || r.host || (link ? hostOf(link) : '') || t("This link"), link });
-    };
-
-    const failed = (e: unknown, ac: AbortController) => {
-        if (ac.signal.aborted) return;
-        setBox({ state: 'empty' });
-        addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
-    };
-
-    const readLink = async (raw: string) => {
-        const link = raw.trim();
-        if (!link) return;
-        const ac = begin(hostOf(link), link);
-        try {
-            const r = await api.readShortSource({ url: link }, ac.signal);
-            if (!ac.signal.aborted) show(r, { link });
-        } catch (e) { failed(e, ac); }
-    };
-
-    const readFile = async (file: File) => {
-        if (file.size > MAX_FILE_BYTES) {
-            setBox({ state: 'unreadable', fail: { ok: false, reason: 'too_large', fix: null }, where: file.name, link: null });
-            return;
-        }
-        const ac = begin(file.name, '');
-        try {
-            const r = await api.readShortFile(file, ac.signal);
-            if (!ac.signal.aborted) show(r, { file: file.name });
-        } catch (e) { failed(e, ac); }
-    };
-
-    /** Back to an empty box. A source read and not used is let go now (the
-     *  server forgets it within a day anyway); `keep` when the New course
-     *  dialog took it. */
-    const clear = ({ keep = false }: { keep?: boolean } = {}) => {
-        abortRef.current?.abort();
-        if (!keep && (box.state === 'read' || box.state === 'chapters')) void api.discardShortSource(box.read.stagedId).catch(() => { });
-        setBox({ state: 'empty' });
-        setText('');
-        setTranscript('');
-    };
-
-    const create = async (body: Parameters<typeof api.createShortCourse>[0], read: ShortReadOk | null) => {
-        setBusy(true);
-        try {
-            await api.createShortCourse({ ...body, color: freeColour(projects), via: 'projects' });
-            setBox({ state: 'empty' });
-            setText('');
-            setTranscript('');
-            onCreated();
-        } catch (e) {
-            const err = e as { status?: number; data?: { reason?: string } } & Error;
-            if (err.data?.reason === 'no_ai' && read) setBox({ state: 'read', read: { ...read, ai: false } });
-            else {
-                if (err.status === 404) setBox({ state: 'empty' });
-                addToast('error', t("Could not create the short course"), err.message);
-            }
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const fromTranscript = async (title: string, url: string | null) => {
-        const pasted = transcript.trim();
-        if (!pasted) return;
-        // The read owns the box's controller like any other, so Cancel or a
-        // newer read drops its result instead of showing it late.
-        abortRef.current?.abort();
-        const ac = new AbortController();
-        abortRef.current = ac;
-        setBusy(true);
-        try {
-            const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined }, ac.signal);
-            if (ac.signal.aborted) return;
-            // Too little stays in its box with the text, saying how much there
-            // was, so more can be pasted; the read made from it is let go.
-            if (r.ok && r.size === 'too-small') {
-                void api.discardShortSource(r.stagedId).catch(() => { });
-                setBox({ state: 'transcript', title, url, short: r.words, min: r.minWords ?? null });
-                transcriptRef.current?.focus();
-                return;
-            }
-            if (r.ok && r.size === 'ok' && r.ai) {
-                setBusy(false);
-                await create({ stagedId: r.stagedId }, r);
-                return;
-            }
-            show(r, { link: url, pasted });
-        } catch (e) {
-            if (!ac.signal.aborted) addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const chooseFile = () => fileRef.current?.click();
-
-    // A dropped file is read at once; a dropped link (dragged from another
-    // tab's address bar) too.
-    const dropProps = {
-        onDragOver: (e: React.DragEvent) => {
-            if (box.state === 'reading') return;
-            e.preventDefault();
-            setDragOver(true);
-        },
-        onDragLeave: (e: React.DragEvent) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
-        },
-        onDrop: (e: React.DragEvent) => {
-            e.preventDefault();
-            setDragOver(false);
-            if (box.state === 'reading') return;
-            const file = e.dataTransfer.files?.[0];
-            if (file) { void readFile(file); return; }
-            const link = e.dataTransfer.getData('text/uri-list').split('\n').find(l => l && !l.startsWith('#'))
-                || e.dataTransfer.getData('text/plain');
-            if (link?.trim()) { setText(link.trim()); void readLink(link); }
-        },
-    };
-
-    // On a phone the forward actions need the whole line, so Clear is the
-    // box's own × beside the title instead of a button in that line.
-    const clearButton = narrow ? null : <Button variant="quiet" onClick={() => clear()}>{t("Clear")}</Button>;
-    const corner = narrow && box.state !== 'reading'
-        ? <IconButton label={t("Clear")} tooltip={false} icon={<X className="w-4 h-4" />} className="self-start -mr-1" onClick={() => clear()} />
-        : null;
-
-    const filePicker = (
-        <input
-            ref={fileRef}
-            type="file"
-            className="hidden"
-            onChange={e => {
-                // Copied before the input is cleared: a FileList is live.
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (file) void readFile(file);
-            }}
-        />
-    );
-
-    // Nothing in it yet: a text field that looks like one, its button beside
-    // it and what it takes under it. It was a card whose first line was the
-    // input drawn as a heading, the link icon in a tile beside it: it read as
-    // a title, a press on the card around the words did nothing, and the
-    // caret in a heading-sized line was all that showed it had focus.
-    if (box.state === 'empty') {
-        const typed = !!text.trim();
-        return (
-            <div data-short="source" {...dropProps}>
-                <div className="flex flex-wrap items-center gap-2">
-                    {/* The field takes nearly all the free room (999 to 1); on
-                        a phone too narrow for both, the button wraps under it
-                        and its `grow` spans that line instead of hanging left. */}
-                    <div className="min-w-[12rem] grow-[999] basis-0">
-                        <TextInput
-                            icon={<Link2 className="w-4 h-4" />}
-                            type="text"
-                            inputMode="url"
-                            enterKeyHint="go"
-                            value={text}
-                            onChange={e => setText(e.target.value)}
-                            // Not the Enter that confirms an input method's candidate.
-                            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void readLink(text); } }}
-                            // A pasted link is read at once: pasting IS the request.
-                            // Typed text waits for Enter or Read.
-                            onPaste={e => {
-                                const file = e.clipboardData.files?.[0];
-                                if (file) { e.preventDefault(); void readFile(file); return; }
-                                const pasted = e.clipboardData.getData('text').trim();
-                                if (pasted && !text.trim() && !/\s/.test(pasted)) { e.preventDefault(); setText(pasted); void readLink(pasted); }
-                            }}
-                            aria-label={prompt}
-                            aria-describedby={hintId}
-                            placeholder={prompt}
-                            className={cx(dragOver && '!border-accent ring-2 ring-accent')}
-                        />
-                    </div>
-                    {/* Both in one cell, the one not in use hidden: swapped
-                        outright, the field jumped 85px at the first letter typed. */}
-                    <div className="grid grow">
-                        <Button variant="primary" className={cx('[grid-area:1/1]', !typed && 'invisible')}
-                            onClick={() => void readLink(text)}>{t("Read")}</Button>
-                        <Button variant="neutral" className={cx('[grid-area:1/1]', typed && 'invisible')}
-                            onClick={chooseFile}>{t("Choose a file")}</Button>
-                    </div>
-                </div>
-                <p id={hintId} className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                    {t("A web page, a PDF, a YouTube video or a document")}
-                </p>
-                {filePicker}
-            </div>
-        );
-    }
-
-    if (box.state === 'transcript') {
-        return (
-            <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
-                <div className="flex items-center gap-3 min-w-0">
-                    <Tile><SquarePlay className="w-5 h-5" aria-hidden="true" /></Tile>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-base font-medium text-slate-900 dark:text-white line-clamp-2">{box.title}</p>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {t("On YouTube, open the description and press Show transcript, then copy it here.")}
-                        </p>
-                    </div>
-                </div>
-                <TextArea
-                    ref={transcriptRef}
-                    aria-label={t("The video's transcript")}
-                    value={transcript}
-                    onChange={e => {
-                        setTranscript(e.target.value);
-                        // The count was of the text sent; edited, it no longer
-                        // holds, and the line keeps only what a course needs.
-                        if (box.short != null) setBox({ ...box, short: undefined });
-                    }}
-                    rows={5}
-                    autoFocus
-                    className="block leading-6 resize-y"
-                />
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                    {(box.short != null || box.min != null) && (
-                        <span role="status" className="mr-auto text-sm text-slate-500 dark:text-slate-400">
-                            {box.short == null && box.min != null
-                                ? t("A course needs {{min}} words or more.", { count: box.min, min: num(box.min) })
-                                : <>{box.min != null
-                                    ? t("{{words}} of {{min}} words", { count: box.min, words: num(box.short ?? 0), min: num(box.min) })
-                                    : t("{{words}} words", { count: box.short ?? 0, words: num(box.short ?? 0) })} · {t("Too little for a course.")}</>}
-                        </span>
-                    )}
-                    {/* The two buttons wrap as one pair: on a narrow box the line
-                        takes its own row and Cancel stays beside Create. */}
-                    <div className="ml-auto flex items-center gap-2">
-                        <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
-                        <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
-                            {t("Create short course")}
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (box.state === 'chapters') {
-        const { read, picked } = box;
-        const chapters = read.chapters ?? [];
-        const toggle = (part: number, on: boolean) =>
-            setBox({ ...box, picked: on ? [...picked, part].sort((a, b) => a - b) : picked.filter(p => p !== part) });
-        const words = chapters.filter(c => picked.includes(c.part)).reduce((n, c) => n + c.words, 0);
-        // A preface alone is a note: the server refuses it, so Create waits for more.
-        const tooFew = picked.length > 0 && words < (read.minWords ?? 0);
-        // Every chapter of a book is the book again: refused too.
-        const tooMany = words > (read.maxWords ?? Infinity);
-        return (
-            <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
-                <div className="flex items-center gap-3 min-w-0">
-                    <Tile><FileText className="w-5 h-5" aria-hidden="true" /></Tile>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-base font-medium text-slate-900 dark:text-white line-clamp-2">{read.title}</p>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">{t("Pick the chapters to learn now.")}</p>
-                    </div>
-                </div>
-                <ul className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
-                    {chapters.map(c => (
-                        <li key={c.part}>
-                            <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                                <Checkbox checked={picked.includes(c.part)} onChange={on => toggle(c.part, on)} />
-                                <span className="min-w-0 flex-1 text-sm text-slate-800 dark:text-slate-100">{c.title}</span>
-                                <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">
-                                    {c.from != null ? t("p. {{from}}", { from: c.from }) : t("{{words}} words", { count: c.words, words: num(c.words) })}
-                                </span>
-                            </label>
-                        </li>
-                    ))}
-                </ul>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                    {picked.length > 0 && (
-                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">
-                            {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}{tooMany && ` · ${t("Too much for one short course.")}`}
-                        </span>
-                    )}
-                    <Button variant="quiet" onClick={() => setBox({ state: 'read', read })}>{t("Back")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!picked.length || tooFew || tooMany} onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
-                        {t("Create short course")}
-                    </Button>
-                </div>
-            </div>
-        );
-    }
-
-    let tile: ReactNode;
-    let first: ReactNode;
-    let second: ReactNode;
-    let actions: ReactNode;
-    let pair = false;
-    switch (box.state) {
-        case 'reading':
-            tile = <Tile><Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /></Tile>;
-            first = t("Reading {{where}}", { where: box.where });
-            second = box.detail;
-            actions = <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>;
-            break;
-        case 'unreadable': {
-            const { fail } = box;
-            tile = <Tile tone="warn"><CircleAlert className="w-5 h-5" aria-hidden="true" /></Tile>;
-            first = box.where;
-            second = t(READ_REASON[fail.reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) });
-            const fix = fail.fix === 'file'
-                ? <Button variant="primary" onClick={chooseFile}>{t("Choose a file")}</Button>
-                : fail.fix === 'retry' && box.link
-                    ? <Button variant="primary" onClick={() => void readLink(box.link!)}>{t("Try again")}</Button>
-                    : fail.fix === 'transcript'
-                        ? <Button variant="primary" onClick={() => setBox({ state: 'transcript', title: fail.title || box.where, url: fail.url ?? box.link })}>{t("Paste the transcript")}</Button>
-                        : fail.fix === 'topic' && fail.title
-                            ? <Button variant="primary" busy={busy} onClick={() => void create({ fromTopic: { title: fail.title! } }, null)}>{t("Write it from the title")}</Button>
-                            : null;
-            actions = <>{clearButton}{fix}</>;
-            break;
-        }
-        case 'read': {
-            const { read, pasted } = box;
-            const KindIcon = KIND_ICON[read.kind];
-            tile = <Tile><KindIcon className="w-5 h-5" aria-hidden="true" /></Tile>;
-            first = read.title;
-            if (read.size === 'too-big') {
-                second = t("Too long for one short course: make a full course of it, or pick a few chapters for a short one.");
-                pair = true;
-                actions = (
-                    <>
-                        {clearButton}
-                        <Button variant="neutral" block={narrow} onClick={() => setBox({ state: 'chapters', read, picked: [] })}>{t("Pick chapters")}</Button>
-                        <Button variant="primary" block={narrow} disabled={!read.staged} onClick={() => { if (read.staged) { onFullCourse(read.staged, read.title); clear({ keep: true }); } }}>{t("Full course")}</Button>
-                    </>
-                );
-            } else if (read.size === 'too-small') {
-                second = t("Too little for a course.");
-                actions = clearButton;
-            } else if (!read.ai) {
-                second = `${readLine(read, !!pasted)} · ${t("Writing it needs an AI connection.")}`;
-                actions = <>{clearButton}<ConnectAIActions returnTo="/projects" /></>;
-            } else {
-                second = readLine(read, !!pasted);
-                actions = <>{clearButton}<Button variant="primary" busy={busy} onClick={() => void create({ stagedId: read.stagedId }, read)}>{t("Create short course")}</Button></>;
-            }
-            break;
-        }
-    }
-
-    return (
-        <div
-            data-short="source"
-            {...dropProps}
-            className={cx(
-                'rounded-xl border bg-white dark:bg-slate-800 px-4 py-3 transition-colors',
-                dragOver ? 'border-accent ring-2 ring-accent' : 'border-slate-200 dark:border-slate-700',
-                narrow ? 'flex flex-col gap-3' : 'flex items-center gap-3 min-h-[4.5rem]',
-            )}
-        >
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-                {tile}
-                <div className="min-w-0 flex-1">
-                    <p className={cx('text-base font-medium text-slate-900 dark:text-white', narrow ? 'line-clamp-2' : 'truncate')} title={typeof first === 'string' ? first : undefined}>{first}</p>
-                    <p className={cx('text-sm', box.state === 'unreadable' ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400', narrow || box.state === 'unreadable' ? 'line-clamp-3' : 'truncate')}>{second}</p>
-                </div>
-                {corner}
-            </div>
-            {actions && (
-                <div className={cx(
-                    'items-center gap-2 shrink-0',
-                    narrow && pair ? 'grid grid-cols-2' : 'flex flex-wrap',
-                    narrow && 'justify-end',
-                )}>
-                    {actions}
-                </div>
-            )}
-            {filePicker}
         </div>
     );
 }
@@ -566,7 +86,7 @@ function ShortCard({ row, project, onChanged }: {
         setMenuOpen(false);
         const confirmed = await showConfirm({
             title: t("Delete Project"),
-            message: t("Delete \"{{name}}\" and all its contents? This action cannot be undone.", { name: row.name }),
+            message: t("Delete \"{{name}}\" and all its contents? You can bring it back from Recently deleted in Settings.", { name: row.name }),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });
@@ -612,6 +132,8 @@ function ShortCard({ row, project, onChanged }: {
         <>
             <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{row.from}</span>
+            {/* Made from several sources: the first, and how many more. */}
+            {row.more > 0 && <span className="shrink-0">{t("+{{n}} more", { n: num(row.more) })}</span>}
         </>
     ) : (
         <>
@@ -661,30 +183,26 @@ function ShortCard({ row, project, onChanged }: {
     );
 }
 
-export default function ShortCourses({ rows, projects, onChanged, onFullCourse }: {
+export default function ShortCourses({ rows, projects, onChanged }: {
     /** The short courses to show (the page has already left out the finished
      *  and the archived); null until loaded. */
     rows: ShortCourseRow[] | null;
     projects: Project[];
     onChanged: () => void;
-    onFullCourse: (doc: StagedDocument, title: string) => void;
 }) {
     const { t } = useTranslation();
-    const ref = useRef<HTMLElement>(null);
-    const width = useElementWidth(ref);
-    const narrow = width > 0 && width < NARROW_PX;
     const list = rows ?? [];
     const byId = new Map(projects.map(p => [p.id, p]));
+    // None: no heading over nothing. Short courses are made in the New
+    // course window like any other, so there is nothing to start here.
+    if (!list.length) return null;
 
     return (
-        <section ref={ref} aria-label={t("Short courses")} className="mb-10">
-            <SectionLabel>{list.length ? `${t("Short courses")} · ${list.length}` : t("Short courses")}</SectionLabel>
-            <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />
-            {list.length > 0 && (
-                <div className={cx(COMPACT_GRID, 'mt-4')}>
-                    {list.map(row => <ShortCard key={row.id} row={row} project={byId.get(row.id)} onChanged={onChanged} />)}
-                </div>
-            )}
+        <section aria-label={t("Short courses")} className="mb-10">
+            <SectionLabel>{`${t("Short courses")} · ${list.length}`}</SectionLabel>
+            <div className={COMPACT_GRID}>
+                {list.map(row => <ShortCard key={row.id} row={row} project={byId.get(row.id)} onChanged={onChanged} />)}
+            </div>
         </section>
     );
 }

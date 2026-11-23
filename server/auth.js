@@ -36,6 +36,7 @@ import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession }
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
 import { operatorSetupToken } from './hosted.js';
 import { isSiteLibrary } from './siteLibrary.js';
+import { keyed } from './clientError.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -532,7 +533,7 @@ export function recordLoginSuccess(req) {
  */
 export async function passwordThroughThrottle(req, given) {
     const wait = loginBlocked(req);
-    if (wait > 0) return { refused: { status: 429, body: { error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait } } };
+    if (wait > 0) return { refused: { status: 429, body: { ...keyed('Too many attempts. Try again in {{wait}}s.', { wait }), retryAfter: wait } } };
     recordLoginFailure(req);
     let right;
     try {
@@ -540,7 +541,7 @@ export async function passwordThroughThrottle(req, given) {
     } catch (e) {
         if (e?.code !== 'AUTH_BUSY') throw e;
         for (const key of throttleKeys(req)) refundAttempt(key);
-        return { refused: { status: 429, body: { error: 'The server is busy checking passwords. Try again in a moment.', retryAfter: 1 } } };
+        return { refused: { status: 429, body: { ...keyed('The server is busy checking passwords. Try again in a moment.'), retryAfter: 1 } } };
     }
     if (!right) return { wrong: true };
     recordLoginSuccess(req);
@@ -715,11 +716,11 @@ export function requireAuth(req, res, next) {
     // A site library has no password of its own: the note is the only way in.
     if (isSiteLibrary()) {
         if (siteNoteHolder(req)) return next();
-        return res.status(401).json({ error: 'Sign in again', authRequired: true, site: true });
+        return res.status(401).json({ ...keyed('Sign in again'), authRequired: true, site: true });
     }
     if (!isAuthEnabled()) {
         if (!remoteSetupRequired(req)) return next();
-        return res.status(401).json({ error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true });
+        return res.status(401).json({ ...keyed('Set a password to use this app from another device'), authRequired: true, setupRequired: true });
     }
     if (isRequestAuthenticated(req)) {
         // A session in use stays signed in: its cookie goes back with a fresh
@@ -727,5 +728,5 @@ export function requireAuth(req, res, next) {
         renewSessionCookie(req, res);
         return next();
     }
-    return res.status(401).json({ error: 'Authentication required', authRequired: true });
+    return res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
 }

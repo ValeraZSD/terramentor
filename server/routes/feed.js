@@ -10,7 +10,7 @@ import * as feedGen from '../feedGen.js';
 import { scheduleTransferSweep } from '../masteryTransfer.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, errorFields, keyed } from '../clientError.js';
 import { getAISettings } from '../ai.js';
 import { EXPLANATION_MAX, markExplanation, recordPreQuestions } from '../lessonPrompts.js';
 
@@ -48,12 +48,12 @@ app.get('/api/feed', (req, res) => {
         // next opens, so a list past the cap keeps its end.
         const courses = String(req.query.courses || '').split(',').filter(s => /^\d{1,9}$/.test(s))
             .map(Number).filter(n => n > 0).slice(-200);
-        const { items, exhausted, transfers, placements, lessonWrite } = composeFeed({
+        const { items, exhausted, transfers, placements, lessonWrite, capacity } = composeFeed({
             limit, excludeKeys, gate, nodeId: scopedNode, projectId: scopedProject,
             lessonWrite: scopedNode ? feedGen.lessonWriteState(scopedNode) : null,
             courses,
         });
-        const header = buildFeedHeader();
+        const header = buildFeedHeader({ capacity });
         res.json({
             date: header.date, header, items, exhausted, transfers, placements, lessonWrite,
             nodeId: scopedNode, projectId: scopedProject,
@@ -72,7 +72,7 @@ app.get('/api/feed', (req, res) => {
         // feed. Debounced and model-free, so it costs nothing on a rapid scroll.
         scheduleTransferSweep({ threshold: gate.threshold, decayDays: gate.decayDays });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -83,10 +83,10 @@ app.get('/api/feed', (req, res) => {
 app.post('/api/feed/nodes/:id/lesson/retry', (req, res) => {
     try {
         const nodeId = parseInt(req.params.id, 10);
-        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'id must be a positive integer' });
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json(apiError('id must be a positive integer'));
         res.json({ lessonWrite: feedGen.retryLessonWrite(nodeId) });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -94,13 +94,13 @@ app.post('/api/feed/consume', (req, res) => {
     try {
         const { key, kind, feedItemId, nodeId, result, uuid } = req.body || {};
         if (!FEED_CARD_KINDS.has(kind)) {
-            return res.status(400).json({ error: `kind must be one of: ${[...FEED_CARD_KINDS].join(', ')}` });
+            return res.status(400).json(apiError(`kind must be one of: ${[...FEED_CARD_KINDS].join(', ')}`));
         }
         if ((kind === 'question' || kind === 'recall') && !Number.isInteger(nodeId)) {
-            return res.status(400).json({ error: 'nodeId is required for question/recall cards' });
+            return res.status(400).json(apiError('nodeId is required for question/recall cards'));
         }
         const attemptId = readAttemptId(req.body?.attemptId);
-        if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
+        if (attemptId === undefined) return res.status(400).json(apiError(ATTEMPT_ID_ERROR));
         // The row's transition, the evidence and a bank question's log row are
         // one transaction inside consumeFeedItem; a replayed attemptId writes nothing.
         const outcome = consumeFeedItem({
@@ -115,11 +115,11 @@ app.post('/api/feed/consume', (req, res) => {
             uuid: typeof uuid === 'string' && uuid.length <= 100 ? uuid : null,
         });
         // Fresh counters so the client header ticks without a full refetch.
-        res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });
+        res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader({ plan: false }).stats });
         feedGen.ensureBuffer();
     } catch (err) {
-        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
-        res.status(500).json({ error: clientError(err) });
+        if (err instanceof AttemptReusedError) return res.status(err.status).json(errorBody(err, err.status));
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -128,13 +128,13 @@ app.post('/api/feed/consume', (req, res) => {
 app.post('/api/feed/nodes/:nodeId/pre-questions', (req, res) => {
     try {
         const nodeId = Number(req.params.nodeId);
-        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'nodeId required' });
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json(apiError('nodeId required'));
         const out = recordPreQuestions(nodeId, { outcome: req.body?.outcome, items: req.body?.items });
-        if (out.error) return res.status(400).json({ error: out.error });
-        if (out.missing) return res.status(404).json({ error: 'Node not found' });
+        if (out.error) return res.status(400).json(errorFields(out));
+        if (out.missing) return res.status(404).json(keyed('Node not found'));
         res.json({ ok: true, ...(out.duplicate ? { duplicate: true } : {}) });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -144,18 +144,18 @@ app.post('/api/feed/nodes/:nodeId/pre-questions', (req, res) => {
 app.post('/api/feed/lessons/:id/explain', async (req, res) => {
     try {
         const id = Number(req.params.id);
-        if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id required' });
+        if (!Number.isInteger(id) || id <= 0) return res.status(400).json(apiError('id required'));
         const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
         if (!text || text.length > EXPLANATION_MAX) {
-            return res.status(400).json({ error: `text must be 1 to ${EXPLANATION_MAX} characters` });
+            return res.status(400).json(apiError(`text must be 1 to ${EXPLANATION_MAX} characters`));
         }
         const ai = getAISettings();
-        if (!ai.enabled || !ai.model) return res.status(409).json({ error: 'No model is set up to mark this.' });
+        if (!ai.enabled || !ai.model) return res.status(409).json(keyed('No model is set up to mark this.'));
         const out = await markExplanation(id, text);
-        if (out.missing) return res.status(404).json({ error: 'Lesson not found' });
+        if (out.missing) return res.status(404).json(keyed('Lesson not found'));
         res.json(out);
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -166,11 +166,11 @@ app.get('/api/feed/nodes/:nodeId/read-parts', (req, res) => {
         const nodeId = Number(req.params.nodeId);
         const before = Number(req.query.before);
         if (!Number.isInteger(nodeId) || nodeId <= 0 || !Number.isInteger(before) || before < 2) {
-            return res.status(400).json({ error: 'nodeId and before (an integer of at least 2) required' });
+            return res.status(400).json(apiError('nodeId and before (an integer of at least 2) required'));
         }
         res.json({ parts: readLessonParts(nodeId, before) });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -180,11 +180,11 @@ app.get('/api/feed/nodes/:nodeId/read-parts', (req, res) => {
 app.get('/api/feed/nodes/:nodeId/checkpoint', (req, res) => {
     try {
         const nodeId = Number(req.params.nodeId);
-        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'nodeId required' });
-        if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) return res.status(404).json({ error: 'Node not found' });
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json(apiError('nodeId required'));
+        if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(nodeId)) return res.status(404).json(keyed('Node not found'));
         res.json(checkpointFacts(nodeId, getGateConfig()));
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -205,10 +205,10 @@ app.put('/api/feed/items/:id', (req, res) => {
         const id = Number(req.params.id);
         const { original, repaired } = req.body || {};
         if (typeof original !== 'string' || !original.trim() || typeof repaired !== 'string' || !repaired.trim()) {
-            return res.status(400).json({ error: 'original and repaired (non-empty strings) required' });
+            return res.status(400).json(apiError('original and repaired (non-empty strings) required'));
         }
         const row = db.prepare('SELECT content FROM feed_items WHERE id = ?').get(id);
-        if (!row) return res.status(404).json({ error: 'Feed item not found' });
+        if (!row) return res.status(404).json(keyed('Feed item not found'));
         const content = replaceSpecInContent(row.content, original, repaired);
         // Not an error: the card may have been regenerated since it was read.
         // The on-screen render is already fixed either way.
@@ -216,7 +216,7 @@ app.put('/api/feed/items/:id', (req, res) => {
         db.prepare('UPDATE feed_items SET content = ? WHERE id = ?').run(content, id);
         res.json({ success: true, replaced: true });
     } catch (err) {
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 

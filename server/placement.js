@@ -66,6 +66,7 @@ import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agen
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
 import { isUnverified } from './questionTrust.js';
+import { KeyedError } from './clientError.js';
 
 // Long enough to say something, short enough to still read as a warm-up. An
 // unfinished probe seeds only what it measured.
@@ -116,7 +117,7 @@ export function priorFromAnswer(questionType, correct, { base = DIRECT_PRIOR } =
 export function leafSequence(projectId) {
     const rows = db.prepare(`
         SELECT id, parent_id, title, position, status, is_note
-        FROM nodes
+        FROM live_nodes nodes
         WHERE project_id = ? AND is_note = 0
         ORDER BY position ASC, id ASC
     `).all(projectId);
@@ -156,7 +157,7 @@ export function probeCandidates(projectId) {
     const measured = new Set(db.prepare(`
         SELECT DISTINCT me.node_id
         FROM mastery_evidence me
-        JOIN nodes n ON n.id = me.node_id
+        JOIN live_nodes n ON n.id = me.node_id
         WHERE n.project_id = ?
     `).all(projectId).map(r => r.node_id));
 
@@ -392,7 +393,7 @@ export function createProbe(projectId, { limit = MAX_PROBE_QUESTIONS } = {}) {
     withdrawPlacement(projectId);
     db.prepare('DELETE FROM placement_probes WHERE project_id = ?').run(projectId);
     const targets = selectProbeTargets(projectId, { limit });
-    if (targets.length === 0) throw new Error('This project has no unmeasured topics left to place.');
+    if (targets.length === 0) throw new KeyedError('This project has no unmeasured topics left to place.');
     db.prepare(
         "INSERT INTO placement_probes (project_id, state, targets) VALUES (?, 'generating', ?)"
     ).run(projectId, JSON.stringify(targets));
@@ -418,8 +419,8 @@ export function failProbe(probeId, message) {
  */
 export function recordProbeAnswer(probeId, { questionIndex, correct }) {
     const probe = hydrateProbe(probeRow.get(probeId));
-    if (!probe) throw new Error('Probe not found');
-    if (probe.state === 'done') throw new Error('This probe is already finished');
+    if (!probe) throw new KeyedError('Probe not found');
+    if (probe.state === 'done') throw new KeyedError('This probe is already finished');
 
     const question = probe.questions[questionIndex];
     if (!question) throw new Error(`No probe question at index ${questionIndex}`);
@@ -495,7 +496,7 @@ export function applyProbeSeeds(projectId, probe) {
     const measured = new Set(db.prepare(`
         SELECT DISTINCT me.node_id
         FROM mastery_evidence me
-        JOIN nodes n ON n.id = me.node_id
+        JOIN live_nodes n ON n.id = me.node_id
         WHERE n.project_id = ? AND me.evidence_type != 'placement'
     `).all(projectId).map(r => r.node_id));
 
@@ -527,7 +528,7 @@ export function applyProbeSeeds(projectId, probe) {
 export function withdrawPlacement(projectId, { except = null } = {}) {
     const rows = db.prepare(`
         SELECT nm.node_id FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN nodes n /* with deleted */ ON n.id = nm.node_id
         WHERE n.project_id = ? AND nm.placement_prior IS NOT NULL
     `).all(projectId);
     let cleared = 0;
@@ -598,10 +599,12 @@ export function finishProbe(probeId) {
 export function discardProbe(projectId) {
     const before = layTopicDates(projectId);
     const cleared = withdrawPlacement(projectId);
+    // Deleted topics too: a restore must not bring back a head start the
+    // learner discarded.
     db.prepare(`
         DELETE FROM mastery_evidence
         WHERE evidence_type = 'placement'
-          AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)
+          AND node_id IN (SELECT id FROM nodes /* with deleted */ WHERE project_id = ?)
     `).run(projectId);
     db.prepare('DELETE FROM placement_probes WHERE project_id = ?').run(projectId);
     const rescheduled = relaySchedule(projectId, before);
@@ -618,7 +621,7 @@ export function summariseProbe(probe) {
     const correct = probe.answers.filter(a => a.correct).length;
     const seeded = db.prepare(`
         SELECT COUNT(*) AS n FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN live_nodes n ON n.id = nm.node_id
         WHERE n.project_id = ? AND nm.placement_prior IS NOT NULL
     `).get(probe.projectId).n;
     return {
@@ -796,7 +799,7 @@ export async function generateProbeQuestions(probe, { emit, signal } = {}) {
     }
     if (questions.length === 0) {
         failProbe(probe.id, 'no question could be written soundly');
-        throw new Error('No probe question could be written soundly — the model may be unreachable. You can start studying without a placement; the feed works the same way.');
+        throw new KeyedError('No probe question could be written soundly — the model may be unreachable. You can start studying without a placement; the feed works the same way.');
     }
     setProbeQuestions(probe.id, questions);
     emit?.({ phase: 'ready', written: questions.length, total: probe.targets.length });
@@ -811,7 +814,7 @@ export async function generateProbeQuestions(probe, { emit, signal } = {}) {
  */
 export async function answerProbeQuestion(probeId, questionIndex, userAnswer) {
     const probe = getProbeById(probeId);
-    if (!probe) throw new Error('Probe not found');
+    if (!probe) throw new KeyedError('Probe not found');
     const q = probe.questions[questionIndex];
     if (!q) throw new Error(`No probe question at index ${questionIndex}`);
 

@@ -320,7 +320,7 @@ export function outlineGapsError(gaps) {
 export function projectSources(projectId, { beforeOutline = false } = {}) {
     const docs = db.prepare(`
         SELECT d.id, d.title, d.content, d.file_type, d.page_count, d.original_filename
-        FROM documents d
+        FROM live_documents d
         WHERE d.project_id = ? AND d.node_id IS NULL
           AND (? OR EXISTS (SELECT 1 FROM node_sources s WHERE s.document_id = d.id))
         ORDER BY d.id LIMIT 100
@@ -368,7 +368,7 @@ const insertNodeStmt = db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const existingUrlsStmt = db.prepare('SELECT url, position FROM resources WHERE node_id = ?');
+const existingUrlsStmt = db.prepare('SELECT url, position FROM live_resources resources WHERE node_id = ?');
 const insertResourceStmt = db.prepare(`
     INSERT INTO resources (node_id, title, url, type, completed, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)

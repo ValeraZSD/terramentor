@@ -16,7 +16,7 @@ import { requestNode } from '../feedGen.js';
 import { logActivity } from '../activityLog.js';
 import { nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('itemReports');
 
@@ -24,7 +24,7 @@ const app = routeTable('itemReports');
 // sends it as written and turns anything else into the fixed sentence.
 const fail = (res, err) => {
     const status = err instanceof ReportError ? err.status : 500;
-    res.status(status).json({ error: clientError(err, status) });
+    res.status(status).json(errorBody(err, status));
 };
 
 // A new version is written by the model: a question or card now, in a task;
@@ -51,12 +51,12 @@ app.get('/api/item-reports', (req, res) => {
     const nodeId = req.query.nodeId != null ? positiveInt(req.query.nodeId) : null;
     const projectId = req.query.projectId != null ? positiveInt(req.query.projectId) : null;
     if ((req.query.nodeId != null && !nodeId) || (req.query.projectId != null && !projectId)) {
-        return res.status(400).json({ error: 'nodeId and projectId must be positive integers' });
+        return res.status(400).json(apiError('nodeId and projectId must be positive integers'));
     }
     const refs = typeof req.query.refs === 'string' && req.query.refs
         ? req.query.refs.split(',').map(s => s.trim()).filter(r => parseRef(r)).slice(0, 100)
         : null;
-    if (!nodeId && !projectId && !refs?.length) return res.status(400).json({ error: 'Name a nodeId, a projectId or refs' });
+    if (!nodeId && !projectId && !refs?.length) return res.status(400).json(apiError('Name a nodeId, a projectId or refs'));
     try {
         // With refs, also which of them a model wrote: every flag asks this
         // as it mounts, and marks its item "Written by AI" (writtenBy).
@@ -71,10 +71,10 @@ app.get('/api/item-reports', (req, res) => {
 // model's own retelling of the question.
 app.get('/api/item-reports/target', (req, res) => {
     const ref = typeof req.query.ref === 'string' ? req.query.ref.trim() : '';
-    if (!parseRef(ref)) return res.status(400).json({ error: 'ref must name one item' });
+    if (!parseRef(ref)) return res.status(400).json(apiError('ref must name one item'));
     try {
         const target = resolveTarget(ref);
-        if (!target) return res.status(404).json({ error: 'That item is not here any more.' });
+        if (!target) return res.status(404).json(keyed('That item is not here any more.'));
         const [existing] = listReports({ refs: [target.ref], limit: 1 });
         res.json({
             ref: target.ref, kind: target.kind, nodeId: target.nodeId, projectId: target.projectId,
@@ -94,10 +94,10 @@ app.get('/api/item-reports/target', (req, res) => {
 // is a word, never a number.
 app.get('/api/item-reports/:id', (req, res) => {
     const id = positiveInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Invalid report id' });
+    if (!id) return res.status(400).json(keyed('Invalid report id'));
     try {
         const report = getReport(id);
-        if (!report) return res.status(404).json({ error: 'No such report.' });
+        if (!report) return res.status(404).json(keyed('No such report.'));
         res.json({ report });
     } catch (err) {
         fail(res, err);
@@ -115,7 +115,7 @@ app.post('/api/item-reports', (req, res) => {
 
 app.delete('/api/item-reports/:id', (req, res) => {
     const id = positiveInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Invalid report id' });
+    if (!id) return res.status(400).json(keyed('Invalid report id'));
     try {
         res.json({ report: undoReport(id) });
     } catch (err) {
@@ -132,14 +132,14 @@ app.delete('/api/item-reports/:id', (req, res) => {
  */
 app.post('/api/item-reports/:id/rewrite', (req, res) => {
     const id = positiveInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Invalid report id' });
+    if (!id) return res.status(400).json(keyed('Invalid report id'));
     const src = rewriteSource(id);
-    if (!src) return res.status(404).json({ error: 'No such report.' });
+    if (!src) return res.status(404).json(keyed('No such report.'));
     const { report, undo } = src;
-    if (report.undoneAt) return res.status(409).json({ error: 'This report was undone.' });
-    if (!report.canRewrite) return res.status(400).json({ error: 'This item is not rewritten: edit it instead.' });
+    if (report.undoneAt) return res.status(409).json(keyed('This report was undone.'));
+    if (!report.canRewrite) return res.status(400).json(keyed('This item is not rewritten: edit it instead.'));
     const info = nodeTaskInfo(report.nodeId);
-    if (!info) return res.status(404).json({ error: 'Its topic is not here any more.' });
+    if (!info) return res.status(404).json(keyed('Its topic is not here any more.'));
     // Asked once: a second press while the new one is being written, or after
     // it was, answers with what is there rather than writing another.
     // `running` holds only while its task does: one cancelled from the dock or
@@ -147,7 +147,7 @@ app.post('/api/item-reports/:id/rewrite', (req, res) => {
     const state = report.rewrite?.state;
     if (state === 'running' && tasks.findByDedupeKey(`item-rewrite:${id}`)) return res.status(202).json({ report, taskId: report.rewrite.taskId ?? null });
     if (state === 'done') return res.json({ report });
-    if (!modelCanWrite()) return res.status(409).json({ error: 'AI is off, so a new one cannot be written now.' });
+    if (!modelCanWrite()) return res.status(409).json(keyed('AI is off, so a new one cannot be written now.'));
 
     try {
         if (report.kind === 'lesson' || report.kind === 'paper') {

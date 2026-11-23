@@ -30,7 +30,7 @@ import { refreshTopicDates } from './topicDates.js';
 import { MIN_GATE_QUESTIONS } from './mastery.js';
 import * as tasks from './tasks.js';
 import { readAverageMs, recordAverageMs } from './durationAverages.js';
-import { publicMessage } from './clientError.js';
+import { KeyedError, publicBody } from './clientError.js';
 
 /** Model calls this many topics past the reader before checking for interactive work. */
 const YIELD_POLL_MS = 5000;
@@ -117,8 +117,8 @@ export function bulkCandidates(projectId) {
     `).all(projectId);
 
     const quizCounts = new Map(db.prepare(`
-        SELECT q.node_id AS id, COUNT(*) AS c FROM quizzes q
-        JOIN nodes n ON n.id = q.node_id WHERE n.project_id = ? GROUP BY q.node_id
+        SELECT q.node_id AS id, COUNT(*) AS c FROM live_quizzes q
+        JOIN live_nodes n ON n.id = q.node_id WHERE n.project_id = ? GROUP BY q.node_id
     `).all(projectId).map(r => [r.id, r.c]));
 
     // What the mastery check will actually find: every non-ghost question the node
@@ -126,22 +126,22 @@ export function bulkCandidates(projectId) {
     // gate filters them out, so counting them would overstate coverage.
     const questionCounts = new Map(db.prepare(`
         SELECT q.node_id AS id, COUNT(*) AS c
-        FROM quizzes q
-        JOIN nodes n ON n.id = q.node_id
+        FROM live_quizzes q
+        JOIN live_nodes n ON n.id = q.node_id
         JOIN json_each(q.questions) je
         WHERE n.project_id = ?
           AND COALESCE(json_extract(je.value, '$.isGhost'), 0) = 0
         GROUP BY q.node_id
     `).all(projectId).map(r => [r.id, r.c]));
     const cardCounts = new Map(db.prepare(`
-        SELECT f.node_id AS id, COUNT(*) AS c FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? GROUP BY f.node_id
+        SELECT f.node_id AS id, COUNT(*) AS c FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? GROUP BY f.node_id
     `).all(projectId).map(r => [r.id, r.c]));
 
     // The path a learner recognises ("Phase 2 › Recursion"), built from the
     // ancestors rather than shown as a flat list of leaf titles — in a real
     // curriculum half the leaves are called "Introduction".
-    const titleById = new Map(db.prepare('SELECT id, title, parent_id FROM nodes WHERE project_id = ?')
+    const titleById = new Map(db.prepare('SELECT id, title, parent_id FROM live_nodes nodes WHERE project_id = ?')
         .all(projectId).map(r => [r.id, r]));
     const pathOf = (node) => {
         const parts = [];
@@ -219,20 +219,20 @@ async function waitForModel(j) {
  */
 export function startBulk({ projectId, nodeIds, kinds, questionCount = 5, cardCount = 8, skipExisting = true }) {
     if (job && job.status === 'running') {
-        const err = new Error('A bulk generation is already running. Wait for it or cancel it first.');
+        const err = new KeyedError('A bulk generation is already running. Wait for it or cancel it first.');
         err.status = 409;
         throw err;
     }
     const settings = getAISettings();
     if (!settings.enabled || !settings.model) {
-        const err = new Error('AI is off or no model is selected.');
+        const err = new KeyedError('AI is off or no model is selected.');
         err.status = 400;
         throw err;
     }
     const asked = (Array.isArray(kinds) ? kinds : []).map(normalizeKind);
     const wanted = BULK_KINDS.filter(k => asked.includes(k));
     if (!wanted.length) {
-        const err = new Error('Pick at least one of: mastery check, flashcards.');
+        const err = new KeyedError('Pick at least one of: mastery check, flashcards.');
         err.status = 400;
         throw err;
     }
@@ -258,7 +258,7 @@ export function startBulk({ projectId, nodeIds, kinds, questionCount = 5, cardCo
         throw err;
     }
 
-    const project = db.prepare('SELECT name, color FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT name, color FROM live_projects projects WHERE id = ?').get(projectId);
     const controller = new AbortController();
     job = {
         id: `bulk-${Date.now()}`,
@@ -364,7 +364,7 @@ async function runJob(j) {
                     // One topic's failure is a line in the report, not the end
                     // of the run — the next topic is a completely independent
                     // request and may well succeed.
-                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, error: publicMessage(err) });
+                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, ...publicBody(err) });
                     j.done++;
                     console.warn(`[Bulk] ${target.title} (${kind}) failed: ${err.message}`);
                 }

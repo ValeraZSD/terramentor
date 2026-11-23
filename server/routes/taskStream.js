@@ -1,6 +1,7 @@
 // Server-sent-event plumbing for background tasks, and the origin a task records.
 import db from '../database.js';
 import * as tasks from '../tasks.js';
+import { keyed } from '../clientError.js';
 
 // BACKGROUND AI TASKS (see server/tasks.js)
 //
@@ -50,7 +51,7 @@ function attachTaskStream(req, res, taskId) {
         if (evt.done || evt.error || evt.cancelled) end();
     });
     if (!unsub) {
-        write({ error: 'Task not found — it may have already finished and expired.' });
+        write(keyed('Task not found — it may have already finished and expired.'));
         return end();
     }
     // Client went away: detach only. The task keeps running; the dock keeps
@@ -63,7 +64,7 @@ function attachTaskStream(req, res, taskId) {
 function nodeTaskInfo(nodeId) {
     return db.prepare(`
         SELECT n.id, n.title, n.project_id as projectId, p.name as projectName, p.color as projectColor
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id = ?
     `).get(nodeId);
 }

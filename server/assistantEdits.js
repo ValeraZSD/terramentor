@@ -26,6 +26,7 @@
  * (`server/projectFields.js` is shared), but this is the door.
  */
 import db from './database.js';
+import { BY_APP, softDelete } from './softDelete.js';
 import { clearProjectSetting, readProjectSetting, writeProjectSetting } from './projectSettings.js';
 import { addProvenanceFields } from './projectIdentity.js';
 import {
@@ -40,6 +41,7 @@ import { markLearnerEdit } from './courseUpdate.js';
 import { aiProvenance } from './ai.js';
 import { persistDocument } from './stagedDocuments.js';
 import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
+import { KeyedError } from './clientError.js';
 
 /** What a saved link's title is cut to. */
 export const LINK_TITLE_MAX = 200;
@@ -54,10 +56,11 @@ const learnerEdited = (kind, table, id, field) => {
 };
 
 /** An error the route turns into a status: 400 a value no rule accepts, 404 a
- *  target that does not exist, 409 a preview that is out of date. */
-export class EditError extends Error {
-    constructor(status, message, extra = {}) {
-        super(message);
+ *  target that does not exist, 409 a preview that is out of date. The words are
+ *  a message key (server/clientError.js), filled from `params`. */
+export class EditError extends KeyedError {
+    constructor(status, key, extra = {}, params = undefined) {
+        super(key, params);
         this.status = status;
         Object.assign(this, extra);
     }
@@ -65,7 +68,7 @@ export class EditError extends Error {
 
 /** Whether a project has any cards: a daily allowance of new cards means nothing without them. */
 const hasCards = (projectId) => !!db.prepare(
-    'SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? LIMIT 1',
+    'SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? LIMIT 1',
 ).get(projectId);
 
 const NEW_PER_DAY_PREFIX = 'deck_new_per_day_';
@@ -79,7 +82,7 @@ const NEW_PER_DAY_PREFIX = 'deck_new_per_day_';
 const KINDS = {
     project: {
         label: 'course',
-        read: (id) => db.prepare('SELECT id, name, description, color, icon, status, generated_by FROM projects WHERE id = ?').get(id) || null,
+        read: (id) => db.prepare('SELECT id, name, description, color, icon, status, generated_by FROM live_projects projects WHERE id = ?').get(id) || null,
         fields: {
             name: {
                 words: true,
@@ -132,7 +135,7 @@ const KINDS = {
     },
     topic: {
         label: 'topic',
-        read: (id) => db.prepare('SELECT id, project_id, title FROM nodes WHERE id = ?').get(id) || null,
+        read: (id) => db.prepare('SELECT id, project_id, title FROM live_nodes nodes WHERE id = ?').get(id) || null,
         fields: {
             title: {
                 normalize: topicTitle,
@@ -162,7 +165,8 @@ function readTarget(kind, targetId) {
     const id = Number(targetId);
     if (!Number.isInteger(id) || id <= 0) throw new EditError(400, 'A change needs the id of what it changes.');
     const row = k.read(id);
-    if (!row) throw new EditError(404, `That ${k.label} does not exist.`);
+    if (!row && k.label === 'topic') throw new EditError(404, 'That topic does not exist.');
+    if (!row) throw new EditError(404, 'That course does not exist.');
     return { k, id, row };
 }
 
@@ -195,7 +199,9 @@ export function applyAssistantEdit({ kind, targetId, projectId = null, changes, 
         if (v === null || v === undefined) invalid.push(field);
         else next[field] = v;
     }
-    if (invalid.length) throw new EditError(400, `Not a value the app accepts: ${invalid.join(', ')}.`, { fields: invalid });
+    if (invalid.length) {
+        throw new EditError(400, 'Not a value the app accepts: {{fields}}.', { fields: invalid }, { fields: invalid.join(', ') });
+    }
     if (!Object.keys(next).length) throw new EditError(400, 'Nothing to change.');
 
     const shown = viewOf(k, row);
@@ -292,18 +298,18 @@ export function undoAssistantEdit(editId) {
  * The same page on the same topic twice is one row (`existed`).
  */
 export function saveAssistantLink({ projectId = null, nodeId, url, title = '', source = null }) {
-    const node = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(Number(nodeId));
+    const node = db.prepare('SELECT id, project_id, is_note FROM live_nodes nodes WHERE id = ?').get(Number(nodeId));
     if (!node) throw new EditError(404, 'That topic does not exist.');
     if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
     const checked = sanitizeUrl(url);
-    if (!checked.ok) throw new EditError(400, `Not a link the app can open: ${checked.reason}.`, { fields: ['url'] });
-    const same = db.prepare('SELECT id FROM resources WHERE node_id = ? AND url = ?').get(node.id, checked.url);
+    if (!checked.ok) throw new EditError(400, 'Not a link the app can open: {{reason}}.', { fields: ['url'] }, { reason: checked.reason });
+    const same = db.prepare('SELECT id FROM live_resources resources WHERE node_id = ? AND url = ?').get(node.id, checked.url);
     if (same) return { existed: true, resourceId: same.id };
     const name = oneLine(String(title || ''), LINK_TITLE_MAX) ?? checked.url.slice(0, LINK_TITLE_MAX);
     let editId = null;
     let resourceId = null;
     db.transaction(() => {
-        const pos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM resources WHERE node_id = ?').get(node.id).pos;
+        const pos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM live_resources resources WHERE node_id = ?').get(node.id).pos;
         resourceId = Number(db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)')
             .run(node.id, name, checked.url, 'article', pos).lastInsertRowid);
         editId = Number(db.prepare(`
@@ -340,13 +346,13 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
     let pid = null;
     let nid = null;
     if (nodeId != null) {
-        const node = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(Number(nodeId));
+        const node = db.prepare('SELECT id, project_id FROM live_nodes nodes WHERE id = ?').get(Number(nodeId));
         if (!node) throw new EditError(404, 'That topic does not exist.');
         if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
         pid = node.project_id;
         nid = node.id;
     } else if (projectId != null) {
-        if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(Number(projectId))) throw new EditError(404, 'That course does not exist.');
+        if (!db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(Number(projectId))) throw new EditError(404, 'That course does not exist.');
         pid = Number(projectId);
     } else {
         throw new EditError(400, 'Say where to save it: a topic or a course.', { fields: ['to'] });
@@ -356,7 +362,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
     if (att.kind === 'image' && !words) {
         throw new EditError(400, 'A picture is saved with words saying what it shows, so it can be found again.', { fields: ['description'] });
     }
-    const same = db.prepare('SELECT id FROM documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
+    const same = db.prepare('SELECT id FROM live_documents documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
     // Where it already is goes back with it, so the preview can still Open it.
     if (same) return { existed: true, documentId: same.id, projectId: pid, nodeId: nid };
     const text = att.kind === 'image' ? words : (words ? `${words}\n\n${att.content}` : att.content);
@@ -380,7 +386,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
  */
 function undoAttachment(rec) {
     const after = JSON.parse(rec.after);
-    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents WHERE id = ?').get(after.documentId);
+    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents /* with deleted */ WHERE id = ?').get(after.documentId);
     const unchanged = doc && doc.title === after.title && doc.project_id === after.projectId && (doc.node_id ?? null) === (after.nodeId ?? null);
     const chunkIds = unchanged ? documentChunkIds([doc]) : [];
     db.transaction(() => {
@@ -398,9 +404,9 @@ function undoAttachment(rec) {
 /** A saved link's Undo removes the row it added, if it is still that link. */
 function undoLink(rec) {
     const after = JSON.parse(rec.after);
-    const res = db.prepare('SELECT id, url FROM resources WHERE id = ?').get(after.resourceId);
+    const res = db.prepare('SELECT id, url FROM live_resources resources WHERE id = ?').get(after.resourceId);
     db.transaction(() => {
-        if (res && res.url === after.url) db.prepare('DELETE FROM resources WHERE id = ?').run(res.id);
+        if (res && res.url === after.url) softDelete('resources', res.id, { by: BY_APP });
         db.prepare('UPDATE assistant_edits SET undone_at = ? WHERE id = ?').run(nowIso(), rec.id);
     })();
     logActivity({ area: 'assistant', event: 'assistant.link.undone', nodeId: rec.target_id });
@@ -425,7 +431,7 @@ export function editBySource(source) {
     // row otherwise, and document ids are AUTOINCREMENT (never reused), so a
     // row by that id still there is the kept one.
     if (rec.kind === 'attachment' && rec.undone_at) {
-        const doc = db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(JSON.parse(rec.after).documentId);
+        const doc = db.prepare('SELECT project_id, node_id FROM documents /* with deleted */ WHERE id = ?').get(JSON.parse(rec.after).documentId);
         if (doc) Object.assign(edit, { kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } });
     }
     return edit;

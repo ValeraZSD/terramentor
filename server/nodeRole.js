@@ -79,7 +79,7 @@ export function backfillNodeRoles({ force = false } = {}) {
 
     const rows = db.prepare(`
         SELECT n.id, n.title
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE COALESCE(p.kind, 'curriculum') = 'deck'
           AND n.parent_id IS NOT NULL
           AND COALESCE(n.role, '${ROLE_TOPIC}') = '${ROLE_TOPIC}'
@@ -119,7 +119,7 @@ export const TEACH_PREFIX = 'teach_topics_';
 export function projectTeaches(projectId) {
     const value = readProjectSetting(TEACH_PREFIX, projectId);
     if (value != null && value !== '') return !(value === '0' || value === 'false');
-    const project = db.prepare('SELECT kind FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT kind FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return false;
     return (project.kind || 'curriculum') !== 'deck';
 }
@@ -132,7 +132,7 @@ export function setProjectTeaches(projectId, on) {
 /** Both halves: a topic (not pagination) in a project that teaches. */
 export function nodeIsTeachable(nodeId) {
     const row = db.prepare(
-        'SELECT project_id, role, is_note FROM nodes WHERE id = ?'
+        'SELECT project_id, role, is_note FROM live_nodes nodes WHERE id = ?'
     ).get(nodeId);
     if (!row || row.is_note) return false;
     if (isPagination(row)) return false;

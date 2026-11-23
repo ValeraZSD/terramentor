@@ -543,7 +543,9 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     renderModal(true, { closeButton: false });
     const dlg = doc.querySelector('[role="dialog"]');
     check('no "Close dialog" button in its head', !!dlg && !dlg.querySelector('button[aria-label="Close dialog"]'));
-    const spacer = dlg?.querySelector('h2 + span[aria-hidden="true"]');
+    // The ✕'s place is the head's last child (the title, and a ← when there is
+    // one, sit together before it).
+    const spacer = dlg?.querySelector('h2')?.parentElement?.nextElementSibling;
     const spacerClasses = spacer ? spacer.className.split(/\s+/).filter(Boolean) : [];
     const before = closes;
     press('Escape');
@@ -556,7 +558,8 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     // height and the title's width stay put when the ✕ comes and goes.
     const xClasses = new Set(xButton ? xButton.className.split(/\s+/) : []);
     check('without the ✕ its place keeps the ✕\'s box (size classes and margin)',
-        ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
+        spacer?.tagName === 'SPAN' && spacer.getAttribute('aria-hidden') === 'true'
+            && ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
         `spacer "${spacerClasses.join(' ')}"`);
     renderModal(false);
     const run = read('src/components/creation/CreationRunView.tsx');
@@ -569,6 +572,32 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     check('…and the foot picks its buttons from that same value',
         /\{stacked => foot === 'live' \? \(/.test(footBody) && /: foot === 'continue' \? \(/.test(footBody)
         && !/(\b(openable|needsSetup|live|finished)|canContinue\(run\)) \? \(/.test(footBody));
+}
+
+// A dialog of steps puts its way back in the head, before the title: a row of
+// its own in the body held one small button.
+section('a dialog of steps draws its ← before the title, and only when given one');
+{
+    const head = () => doc.querySelector('[role="dialog"] h2')?.closest('.border-b');
+    const back = () => doc.querySelector('[role="dialog"] button[aria-label="Back"]');
+    renderModal(true);
+    check('no ← without onBack', !back());
+    renderModal(false);
+    let backs = 0;
+    renderModal(true, { onBack: () => { backs++; } });
+    const b = back();
+    const h2 = doc.querySelector('[role="dialog"] h2');
+    check('with onBack, a ← in the head', !!b && !!head()?.contains(b));
+    check('…before the title', !!b && !!h2 && !!(b.compareDocumentPosition(h2) & window.Node.DOCUMENT_POSITION_FOLLOWING));
+    check('…and the ✕ is still the head\'s last control', head()?.lastElementChild?.getAttribute('aria-label') === 'Close dialog', head()?.lastElementChild?.outerHTML?.slice(0, 80));
+    const closesBefore = closes;
+    if (b) act(() => { b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    check('pressing it calls onBack, and not onClose', backs === 1 && closes === closesBefore && !!doc.querySelector('[role="dialog"]'), `${backs} onBack, ${closes - closesBefore} onClose call(s)`);
+    renderModal(false);
+    renderModal(true, { onBack: () => { }, closeButton: false });
+    const last = head()?.lastElementChild;
+    check('without the ✕, its aria-hidden box is still last', last?.tagName === 'SPAN' && last.getAttribute('aria-hidden') === 'true', last?.outerHTML?.slice(0, 80));
+    renderModal(false);
 }
 
 // ---------------------------------------------------------------------------

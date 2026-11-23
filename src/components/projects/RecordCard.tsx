@@ -18,7 +18,7 @@ import { CompactCard } from './CompactCard';
 
 const KIND_ICON = { video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: PenLine } as const;
 
-interface MadeFrom { kind?: keyof typeof KIND_ICON; host?: string; file?: string; url?: string }
+interface MadeFrom { kind?: keyof typeof KIND_ICON; host?: string; file?: string; url?: string; title?: string }
 
 function madeFrom(p: Project): MadeFrom | null {
     if (!p.made_from) return null;
@@ -54,7 +54,7 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
         setMenuOpen(false);
         const confirmed = await showConfirm({
             title: t("Delete Project"),
-            message: t("Delete \"{{name}}\" and all its contents? This action cannot be undone.", { name: project.name }),
+            message: t("Delete \"{{name}}\" and all its contents? You can bring it back from Recently deleted in Settings.", { name: project.name }),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });
@@ -68,7 +68,7 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
     // short. One shared line cut most sites to "howtomechatr…" beside the date.
     const KindIcon = from?.kind ? KIND_ICON[from.kind] ?? File : isDeck ? Layers : BookOpen;
     const what = from
-        ? (from.kind === 'topic' ? t("Written from its title") : from.host || from.file || t("Short course"))
+        ? (from.kind === 'topic' ? t("Written from its title") : from.host || from.file || from.title || t("Short course"))
         : isDeck ? t("Deck") : t("Course");
     // Finished: when, if every topic was done; how far, if it was filed early
     // or put away.

@@ -25,6 +25,8 @@ import { findDrills, parseDrillBody } from './drillCheck.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
 import { cardAnswerIsCorrect } from './cardEvidence.js';
 import { askedAs } from './sittingReview.js';
+import { BY_APP, logScheduleEvent, restore, softDelete } from './softDelete.js';
+import { KeyedError } from './clientError.js';
 
 export const REPORT_REASONS = ['wrong', 'unclear', 'off_topic', 'other'];
 export const REPORT_NOTE_MAX = 1000;
@@ -108,13 +110,13 @@ export function canonicalRef(ref) {
     return p ? refOf(p) : null;
 }
 
-const projectOf = (nodeId) => stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
+const projectOf = (nodeId) => stmt('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
 
 // ---- resolving --------------------------------------------------------------
 
 /** Every bank row holding this question: its own copy and review copies elsewhere. */
 function banksHolding(uuid) {
-    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM quizzes WHERE instr(questions, ?) > 0`).all(uuid);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE instr(questions, ?) > 0`).all(uuid);
     const out = [];
     for (const r of rows) {
         const qs = safeParse(r.questions);
@@ -165,9 +167,9 @@ const stampWriter = (stamp) => {
  */
 function drillSources(nodeId) {
     const out = [];
-    const node = stmt('SELECT description, generated_by FROM nodes WHERE id = ?').get(nodeId);
+    const node = stmt('SELECT description, generated_by FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (node?.description) out.push({ text: node.description, by: stampWriter(node.generated_by) });
-    for (const n of stmt('SELECT description, generated_by FROM nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
+    for (const n of stmt('SELECT description, generated_by FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
         if (n.description) out.push({ text: n.description, by: stampWriter(n.generated_by) });
     }
     for (const r of stmt(`SELECT content, meta FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
@@ -192,7 +194,7 @@ function drillsOf(nodeId) {
 function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
     if (drillKey === 'cards') {
         const m = /^c(\d+)$/.exec(itemKey);
-        const card = m ? stmt('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
+        const card = m ? stmt('SELECT id, node_id, front, back, generated_by FROM live_flashcards flashcards WHERE id = ?').get(Number(m[1])) : null;
         return card && card.node_id === nodeId
             ? { prompt: card.front, answer: card.back, cardId: card.id, by: stampWriter(card.generated_by) } : null;
     }
@@ -213,7 +215,7 @@ function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
 function banksHoldingAll(uuids) {
     const out = new Map(uuids.map(u => [u, []]));
     if (!uuids.length) return out;
-    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')}`).all(...uuids);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')}`).all(...uuids);
     for (const r of rows) {
         const qs = safeParse(r.questions);
         if (!Array.isArray(qs)) continue;
@@ -257,7 +259,7 @@ export function writtenBy(ref, memo = null) {
         if (own) return stampWriter(own.question.generated_by) ?? stampWriter(own.stamp);
         return holders.map(h => stampWriter(h.question.generated_by)).find(Boolean) ?? null;
     }
-    if (p.type === 'card') return stampWriter(stmt('SELECT generated_by FROM flashcards WHERE id = ?').get(p.cardId)?.generated_by);
+    if (p.type === 'card') return stampWriter(stmt('SELECT generated_by FROM live_flashcards flashcards WHERE id = ?').get(p.cardId)?.generated_by);
     if (p.type === 'probe') {
         // Only placement.js writes these, each a model's.
         const probes = memo?.probes;
@@ -348,7 +350,7 @@ function liveTarget(p) {
         return { ref: `q:${p.uuid}`, kind: 'question', nodeId: home.nodeId, projectId: projectOf(home.nodeId), item: questionView(home.question), modelWritten: true, parsed: p };
     }
     if (p.type === 'card') {
-        const card = stmt('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(p.cardId);
+        const card = stmt('SELECT id, node_id, front, back, generated_by FROM live_flashcards flashcards WHERE id = ?').get(p.cardId);
         if (!card) return null;
         return {
             ref: `card:${card.id}`, kind: 'card', nodeId: card.node_id, projectId: projectOf(card.node_id),
@@ -461,7 +463,7 @@ function reportBankQuestion(undo, target) {
     // with the same stem is that twin's). Looked for as it is written inside
     // the stored JSON (quotes and newlines escaped).
     const needle = stem ? JSON.stringify(stem).slice(1, -1) : null;
-    const ghostCopies = (needle ? stmt(`SELECT id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(needle) : [])
+    const ghostCopies = (needle ? stmt(`SELECT id, questions FROM live_quizzes quizzes WHERE instr(questions, ?) > 0`).all(needle) : [])
         .flatMap(r => {
             const qs = safeParse(r.questions);
             return Array.isArray(qs) ? qs.map((q, index) => ({ quizId: r.id, index, question: q })) : [];
@@ -511,7 +513,7 @@ function reportBankQuestion(undo, target) {
         byQuiz.get(h.quizId).push(h);
     }
     for (const [quizId, hs] of byQuiz) {
-        const row = stmt('SELECT * FROM quizzes WHERE id = ?').get(quizId);
+        const row = stmt('SELECT * FROM live_quizzes quizzes WHERE id = ?').get(quizId);
         const qs = safeParse(row?.questions);
         if (!Array.isArray(qs)) continue;
         const taken = [];
@@ -578,18 +580,20 @@ function voidCardEvidence(undo, card) {
 }
 
 function reportCard(undo, target) {
-    const card = stmt('SELECT * FROM flashcards WHERE id = ?').get(target.parsed.cardId);
+    const card = stmt('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(target.parsed.cardId);
     voidCardEvidence(undo, card);
     if (target.modelWritten) {
         // A card the model wrote goes: the learner never asked for it.
+        // Deleted softly, as the app: its reviews stay with it, and the undo
+        // restores the same row.
         undo.card = card;
-        undo.reviews = stmt('SELECT * FROM review_log WHERE card_id = ? ORDER BY id').all(card.id);
-        stmt('DELETE FROM flashcards WHERE id = ?').run(card.id);
+        softDelete('flashcards', card.id, { by: BY_APP });
     } else {
         // The learner's own card (written or imported) is theirs to fix: parked
         // until it is edited, never deleted.
         undo.parked = { cardId: card.id, nextReview: card.next_review };
         stmt('UPDATE flashcards SET next_review = ? WHERE id = ?').run(PARKED_UNTIL, card.id);
+        logScheduleEvent(card.id, 'park', { schedule: { next_review: PARKED_UNTIL } });
     }
 }
 
@@ -685,8 +689,8 @@ const activeFor = (ref) => stmt(`SELECT * FROM item_reports WHERE item_key = ? A
 
 export function getReport(id) { return publicReport(reportById(id)); }
 
-export class ReportError extends Error {
-    constructor(status, message) { super(message); this.status = status; }
+export class ReportError extends KeyedError {
+    constructor(status, key, params) { super(key, params); this.status = status; }
 }
 
 /** Validate what a client sent; returns the clean fields or throws a ReportError (400). */
@@ -870,7 +874,7 @@ const undoTx = db.transaction((id) => {
     for (const e of [...(undo.evidence || [])].reverse()) restoreEvidence(e, row);
 
     for (const b of undo.banks || []) {
-        const q = stmt('SELECT questions FROM quizzes WHERE id = ?').get(b.quizId);
+        const q = stmt('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(b.quizId);
         const qs = safeParse(q?.questions);
         if (!Array.isArray(qs)) continue;
         for (const t of b.taken) {
@@ -892,8 +896,11 @@ const undoTx = db.transaction((id) => {
         }
     }
 
-    if (undo.card && !stmt('SELECT 1 FROM flashcards WHERE id = ?').get(undo.card.id)
-        && stmt('SELECT 1 FROM nodes WHERE id = ?').get(undo.card.node_id)) {
+    // The card was withdrawn softly and comes back as the same row. A report
+    // filed by an older build removed the row: it comes back from the snapshot.
+    const withdrawn = undo.card ? restore('flashcards', undo.card.id, { app: true }) : null;
+    if (withdrawn?.error === 'not_deleted' && !stmt('SELECT 1 FROM flashcards WHERE id = ? /* with deleted */').get(undo.card.id)
+        && stmt('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(undo.card.node_id)) {
         const cols = Object.keys(undo.card);
         stmt(`INSERT INTO flashcards (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(undo.card);
         for (const rl of undo.reviews || []) {
@@ -902,8 +909,9 @@ const undoTx = db.transaction((id) => {
         }
     }
     if (undo.parked) {
-        stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?')
-            .run(undo.parked.nextReview, undo.parked.cardId, PARKED_UNTIL);
+        const moved = stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?')
+            .run(undo.parked.nextReview, undo.parked.cardId, PARKED_UNTIL).changes;
+        if (moved) logScheduleEvent(undo.parked.cardId, 'unpark', { schedule: { next_review: undo.parked.nextReview } });
     }
 
     if (undo.probe) {
@@ -922,7 +930,7 @@ const undoTx = db.transaction((id) => {
     // report; otherwise replayed from the evidence that is back.
     for (const m of undo.mastery || []) {
         const nodeId = m.before.node_id;
-        if (!stmt('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) continue;
+        if (!stmt('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(nodeId)) continue;
         const now = getNodeMastery(nodeId);
         if (sameRow(now, m.after)) {
             stmt(`UPDATE node_mastery SET ${MASTERY_COLUMNS.map(c => `${c} = @${c}`).join(', ')} WHERE node_id = @node_id`).run(m.before);
@@ -1041,7 +1049,8 @@ export function cardEdited(cardId) {
     if (!row) return null;
     const undo = safeParse(row.undo, {}) || {};
     if (!undo.parked) return null;
-    stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?').run(undo.parked.nextReview, cardId, PARKED_UNTIL);
+    const moved = stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?').run(undo.parked.nextReview, cardId, PARKED_UNTIL).changes;
+    if (moved) logScheduleEvent(cardId, 'unpark', { schedule: { next_review: undo.parked.nextReview } });
     // Every rating up to now was of the version they reported, so none of them
     // counts; the card's evidence starts again from its next rating.
     const newest = stmt(`SELECT MAX(id) AS id FROM review_log WHERE card_id = ? AND source = 'app'`).get(cardId)?.id ?? 0;
