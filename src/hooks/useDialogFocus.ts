@@ -1,11 +1,12 @@
 import { RefObject, useEffect, useRef } from 'react';
 import { hasPhysicalKeyboard } from '../utils/platform';
+import { holdBackEntry } from './dialogHistory';
 
 /**
  * What a modal dialog owes the keyboard, in one place for `Modal` and
  * `ConfirmDialog`: focus goes IN when it opens, Tab and Shift+Tab stay inside
- * it, Escape closes only the TOPMOST one, the page cannot scroll behind it, and
- * focus goes back to what had it when it closes.
+ * it, Escape and the system's Back close only the TOPMOST one, the page cannot
+ * scroll behind it, and focus goes back to what had it when it closes.
  *
  * Deliberately NOT here: making the rest of the page `inert`. Toasts and the
  * task dock are portals that live beside a dialog and must stay reachable, so
@@ -103,6 +104,10 @@ export function trapTab(e: Pick<KeyboardEvent, 'shiftKey' | 'preventDefault'>, c
 interface Options {
     /** Escape, while this is the topmost dialog. */
     onEscape?: (e: KeyboardEvent) => void;
+    /** The phone's or the browser's Back, while this is the topmost dialog
+     *  (`dialogHistory.ts`). Absent: Back does what Escape does. A dialog with
+     *  neither has no entry of its own, and Back leaves the page as before. */
+    onBack?: () => void;
     /** Where focus starts. Absent: the first text field, else the dialog itself. */
     initialFocus?: RefObject<HTMLElement | null>;
 }
@@ -150,7 +155,19 @@ export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElemen
         };
         document.addEventListener('keydown', onKey);
 
+        // The system's Back does what Escape would do here (close, answer no,
+        // or refuse), or `onBack` when the dialog has steps to go back
+        // through; either way the page under the dialog stays where it is.
+        // A dialog that refuses gets its history entry back.
+        const takesBack = !!(optsRef.current.onBack || optsRef.current.onEscape);
+        const releaseBack = takesBack ? holdBackEntry(() => {
+            const o = optsRef.current;
+            if (o.onBack) o.onBack();
+            else o.onEscape?.(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+        }) : null;
+
         return () => {
+            releaseBack?.();
             document.removeEventListener('keydown', onKey);
             const i = stack.indexOf(token);
             if (i >= 0) stack.splice(i, 1);

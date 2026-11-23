@@ -57,7 +57,12 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
     // ConfirmDialog so the two cannot drift.
     const titleId = useId();
     const dialogRef = useRef<HTMLDivElement>(null);
-    useDialogFocus(isOpen, dialogRef, { onEscape: () => { if (closable) onClose(); } });
+    // The system's Back is the title's ← while there is one, and Escape after:
+    // a dialog of steps walks back through them before it closes.
+    useDialogFocus(isOpen, dialogRef, {
+        onEscape: () => { if (closable) onClose(); },
+        onBack: () => { if (onBack) onBack(); else if (closable) onClose(); },
+    });
 
     // Dismiss on a backdrop TAP, not on any click that happens to land there —
     // dragging a selection out of the dialog (a quiz explanation, a flashcard

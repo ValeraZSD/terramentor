@@ -693,7 +693,7 @@ try {
             /result\.earned === result\.passPoints\s*\?\s*t\("That is exactly the pass line\."\)/.test(screen));
         check('the add dialog asks before Escape, the backdrop or Cancel drops a typed paper',
             /onClose=\{leave\}/.test(dialog) && /<Button onClick=\{leave\}(?: disabled=\{uploading > 0\})?>\{t\("Cancel"\)\}/.test(dialog)
-                && /if \(changed && !\(await showConfirm\(/.test(dialog));
+                && /if \(changed && !\(await confirmDiscard\(/.test(dialog));
     });
 } finally {
     server.close();

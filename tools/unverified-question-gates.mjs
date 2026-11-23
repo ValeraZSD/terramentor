@@ -156,8 +156,6 @@ if (argv[0] === '--client') {
     await esbuild.build({
         stdin: {
             contents: `export { default as MasteryGateModal } from '${entry('MasteryGateModal')}';
-                       export { default as QuizView } from '${entry('QuizView')}';
-                       export { default as ProjectQuizzesList } from '${entry('ProjectQuizzesList')}';
                        export { useOpenMasteryCheck } from '${join(repo, 'src', 'hooks', 'useOpenMasteryCheck.ts').replace(/\\/g, '/')}';`,
             resolveDir: repo, loader: 'tsx',
         },
@@ -169,7 +167,7 @@ if (argv[0] === '--client') {
     });
     const React = require('react');
     const { createRoot } = require('react-dom/client');
-    const { MasteryGateModal, QuizView, ProjectQuizzesList, useOpenMasteryCheck } = require(out);
+    const { MasteryGateModal, useOpenMasteryCheck } = require(out);
     const h = React.createElement;
     const act = (fn) => React.act(fn);
     const settle = () => act(async () => { await new Promise(r => setTimeout(r, 40)); });
@@ -220,33 +218,8 @@ if (argv[0] === '--client') {
         m.done();
     }
 
-    console.log('--- client: a practice sitting ---');
-    const bigQuiz = { id: 9, node_id: 3, title: 'Bank', questions: Array.from({ length: 20 }, (_, i) => mcq(`Big ${i}?`, i, { unverified: { reason: 'x', tries: 1 } })) };
-    {
-        globalThis.__api = { drawQuiz: async () => ({ size: 15, bankSize: 0, unverified: 20, questions: [] }) };
-        const m = await mount(h(QuizView, { quiz: bigQuiz, onClose() { } }));
-        check('a sampled sitting that came back empty says so, instead of "Loading…" for good',
-            !/Loading…/.test(m.host.textContent) && /This quiz has no questions that can be asked\./.test(m.host.textContent), m.host.textContent.slice(0, 160));
-        m.done();
-    }
-    {
-        globalThis.__api = { drawQuiz: async () => { throw new Error('Failed to fetch'); } };
-        const m = await mount(h(QuizView, { quiz: bigQuiz, onClose() { } }));
-        check('...and a draw that failed says that', !/Loading…/.test(m.host.textContent) && /Failed to load quiz/.test(m.host.textContent), m.host.textContent.slice(0, 160));
-        m.done();
-    }
-    {
-        let sent = null;
-        const small = { id: 9, node_id: 3, title: 'Bank', questions: [mcq('Small 0?', 0), mcq('Small 1?', 1, { unverified: { reason: 'x', tries: 1 } })].map(({ quizId: _q, index: _i, ...q }) => q) };
-        globalThis.__api = { submitQuizAttempt: async (...args) => { sent = args[5]; return { id: 1, passThreshold: 0.8 }; } };
-        const m = await mount(h(QuizView, { quiz: small, onClose() { } }));
-        await answerAll(m.host, 2, 'Submit Quiz');
-        check('a practice sitting names each question by its uuid', Array.isArray(sent) && sent.length === 2 && sent.every((a, i) => a.uuid === `uuid-${i}` && a.index === i), JSON.stringify(sent));
-        m.done();
-    }
-
-    // ---- the check's and the quiz's own screens ------------------------------
-    // Not about unchecked questions: the same two components, mounted once, so
+    // ---- the check's own screen ---------------------------------------------
+    // Not about unchecked questions: the same component, mounted once, so
     // these cases ride on the harness already built for them.
     const sequence = (text, i) => ({ type: 'sequence', question: text, items: ['b', 'c', 'a'], correct_answer: JSON.stringify(['a', 'b', 'c']), explanation: 'Alphabetical.', quizId: 7, index: i, uuid: `uuid-s${i}` });
     const four = (n = 4) => Array.from({ length: n }, (_, i) => mcq(`Question ${i}?`, i));
@@ -339,44 +312,6 @@ if (argv[0] === '--client') {
         check('...and it is graded as the served order', !!sent && sent[3] === 1 && sent[7]?.[0]?.answer === JSON.stringify(['b', 'c', 'a']), JSON.stringify(sent?.slice(2, 4)) + ' ' + JSON.stringify(sent?.[7]?.map(r => r.answer)));
         m.done();
     }
-    {
-        const quiz = { id: 9, node_id: 3, title: 'Bank', questions: [sequence('Put these in order.', 0)] };
-        globalThis.__api = {};
-        const m = await mount(h(QuizView, { quiz, onClose() { } }));
-        const submit = buttons(m.host, 'Submit Quiz')[0];
-        check('...and a practice quiz lets it through too', !!submit && !submit.disabled, submit ? 'Submit is disabled' : 'no Submit');
-        m.done();
-    }
-
-    console.log('--- client: the list of a project\'s quizzes ---');
-    {
-        const row = (id, title, node_title) => ({ id, node_id: id, title, node_title, questions: four(2), attempt_count: 2, best_score: 80 });
-        globalThis.__api = { getProjectQuizzes: async () => [row(1, 'Photosynthesis', 'Photosynthesis'), row(2, 'Quiz - 2026-11-01', 'Respiration')] };
-        const m = await mount(h(ProjectQuizzesList, { projectId: 1, onSelectQuiz() { }, onClose() { } }));
-        const rows = [...m.host.querySelectorAll('p.truncate')].map(p => p.parentElement.textContent);
-        check('a quiz titled like its topic does not print the topic twice', (rows[0]?.match(/Photosynthesis/g) ?? []).length === 1, rows[0]);
-        check('...a title that adds something still shows it', /2026-11-01/.test(rows[1] ?? ''), rows[1]);
-        m.done();
-    }
-    {
-        // A slow answer for the project just left must not land over the one on screen.
-        let releaseOld;
-        const old = new Promise(r => { releaseOld = r; });
-        const quiz = (name) => ({ id: 1, node_id: 1, title: name, node_title: name, questions: four(2), attempt_count: 0 });
-        globalThis.__api = { getProjectQuizzes: (id) => (id === 1 ? old : Promise.resolve([quiz('New project topic')])) };
-        const host = document.createElement('div'); document.body.append(host);
-        const r = createRoot(host);
-        act(() => r.render(h(ProjectQuizzesList, { projectId: 1, onSelectQuiz() { }, onClose() { } })));
-        await settle();
-        act(() => r.render(h(ProjectQuizzesList, { projectId: 2, onSelectQuiz() { }, onClose() { } })));
-        await settle();
-        await act(async () => { releaseOld([quiz('Old project topic')]); });
-        await settle();
-        check('an older project\'s late answer does not replace the current project\'s quizzes',
-            /New project topic/.test(host.textContent) && !/Old project topic/.test(host.textContent), host.textContent.slice(0, 200));
-        act(() => r.unmount()); host.remove();
-    }
-
     console.log('--- client: opening the check from a topic ---');
     {
         let opened = null;

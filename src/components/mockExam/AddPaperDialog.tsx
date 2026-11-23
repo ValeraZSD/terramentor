@@ -8,7 +8,7 @@ import { Select } from '../ui/Select';
 import Stepper from '../ui/Stepper';
 import { api } from '../../api';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
-import { useStore } from '../../store';
+import { useConfirmDiscard } from '../../hooks/useConfirmDiscard';
 import type { MockExamList } from './mockExamTypes';
 
 interface PartDraft { key: number; question: string; part: string; points: number; nodeId: number | null }
@@ -83,7 +83,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     };
 
     // A points table can be long work: Escape, the backdrop or Cancel asks before it is thrown away.
-    const showConfirm = useStore(s => s.showConfirm);
+    const confirmDiscard = useConfirmDiscard();
     const [start] = useState(() => JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }));
     const changed = JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts, printed }) !== start;
     // Why Add is held, said beside it: the first thing still to do.
@@ -94,13 +94,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     // An upload still running would land in the course with nothing pointing at it.
     const leave = async () => {
         if (busy || uploading > 0) return;
-        if (changed && !(await showConfirm({
-            title: t("Discard your changes?"),
-            message: t("The paper you typed in will not be added."),
-            confirmLabel: t("Discard"),
-            cancelLabel: t("Keep editing"),
-            variant: 'warning',
-        }))) return;
+        if (changed && !(await confirmDiscard(t("The paper you typed in will not be added.")))) return;
         onClose();
     };
 

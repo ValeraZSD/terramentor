@@ -215,9 +215,8 @@ The words the app and these documents use, each in one place.
 - **Proven, done, skipped**: proven means passed a mastery check (or the evidence reached the
   same bar); done means closed; skipped means closed without proof, and stays visibly different.
 - **Recall question** (a *Recall* card in the feed): a question from a topic you did well on and
-  have not practised for a while, brought back before you forget it. Practice quizzes add the
-  same kind as "review questions from earlier topics". The code and the technical documents
-  call them *ghost questions*.
+  have not practised for a while, brought back before you forget it. The code and the
+  technical documents call them *ghost questions*.
 - **Flashcard**: a card reviewed on the FSRS-7 schedule; "Again" brings it back in minutes.
 - **Head start**: a topic the placement check or another project suggests you already know. It
   is taught as a shorter review and offers the mastery check first; it never counts as proof.

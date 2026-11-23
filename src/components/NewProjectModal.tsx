@@ -29,6 +29,7 @@ import Modal from './Modal';
 import { StudyLanguageField } from './ProjectFormFields';
 import { freeColour } from '../utils/freeColour';
 import { OutlineBriefPanel } from './ExternalAuthoring';
+import type { BriefKept } from './ExternalAuthoring';
 import ProjectImportZone from './ProjectImportZone';
 import SourceFiles, { MAX_FILE_BYTES, MAX_SOURCE_FILES, hostOf, linksIn, onlyLinks, usableSource, type SourceFile } from './creation/SourceFiles';
 import { Button } from './ui/Button';
@@ -37,6 +38,7 @@ import ScrollShade from './ui/ScrollShade';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { firstField, focusableIn } from '../hooks/useDialogFocus';
+import { useConfirmDiscard } from '../hooks/useConfirmDiscard';
 import { hasPhysicalKeyboard } from '../utils/platform';
 import { cx, FOCUS_RING } from './ui/vocabulary';
 import { COURSE_DIALOG_SIZE, openCreationRun, startCreationRun, type CreationInput } from './creation/creationRuns';
@@ -72,6 +74,17 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     // lets them go (the server forgets them within a day anyway).
     const release = useRef<(() => void) | null>(null);
     const cancel = () => { release.current?.(); onClose(); };
+    // Whether the form holds the learner's work: a typed name or goal, an added
+    // file or link. Set by the form on every render, like `release`.
+    const holdsWork = useRef(false);
+    const confirmDiscard = useConfirmDiscard();
+    // Every way of closing it unasked (✕, Escape, a tap outside, the system's
+    // Back on the first step) asks first when there is work to lose. An import
+    // that finished and Create with AI are not discards: they close directly.
+    const leave = async () => {
+        if (holdsWork.current && !(await confirmDiscard(t("What you typed and the material you added will not be kept.")))) return;
+        cancel();
+    };
     // The first step, two tiles, takes the height it needs; the form and the
     // run that replaces it in place share the fixed box.
     const [choosing, setChoosing] = useState(!draft);
@@ -84,9 +97,9 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     return (
         // "New course": every line in the dialog says course (Course material,
         // Import a course, Lessons…), so the title says it too.
-        <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} maxWidth={COURSE_DIALOG_SIZE.maxWidth}
+        <Modal isOpen={isOpen} onClose={leave} title={t("New course")} maxWidth={COURSE_DIALOG_SIZE.maxWidth}
             className={choosing ? '' : COURSE_DIALOG_SIZE.className} fill onBack={back ?? undefined}>
-            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} onChoosing={setChoosing} onBack={onBack} />
+            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} holdsWork={holdsWork} onChoosing={setChoosing} onBack={onBack} />
         </Modal>
     );
 }
@@ -121,7 +134,7 @@ function Choice({ icon, title, line, onClick }: { icon: ReactNode; title: string
     );
 }
 
-function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack }: {
+function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosing, onBack }: {
     draft: CreationInput | null;
     /** Whether the first step (create or import) is showing. */
     onChoosing: (choosing: boolean) => void;
@@ -132,6 +145,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
     /** Closes and lets the staged files go. */
     onCancel: () => void;
     release: MutableRefObject<(() => void) | null>;
+    /** Written on every render: does a close have work to lose? */
+    holdsWork: MutableRefObject<boolean>;
 }) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
@@ -141,6 +156,11 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
     // A plain open asks first: create or import. A form handed back (a run's
     // Back, the assistant's "Open in New course") opens on the form itself.
     const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : 'choose');
+    // The chatbot path's own fields and the reply pasted back, kept here so a
+    // step back (its ←, the system's Back) does not drop them.
+    const [brief, setBrief] = useState<BriefKept>({ level: '', goal: '', reply: '' });
+    // A link typed into the source box but not yet added.
+    const [linkDraft, setLinkDraft] = useState('');
     // Before paint, so a reopened dialog never shows the old height first.
     useLayoutEffect(() => { onChoosing(createMode === 'choose'); }, [createMode, onChoosing]);
     const [newName, setNewName] = useState(draft?.name ?? '');
@@ -161,6 +181,9 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
     // runs those once on the way IN, and would let a draft's files go.
     const filesRef = useRef(files);
     filesRef.current = files;
+    // A row the learner added counts even when its read failed: it was theirs.
+    holdsWork.current = !!newName.trim() || !!newDescription.trim() || files.length > 0
+        || !!brief.level.trim() || !!brief.goal.trim() || !!brief.reply.trim() || !!linkDraft.trim();
     // The links being read, by row: removing a row, or closing the window,
     // stops its read, and a read that ends after that lets its source go.
     const readers = useRef(new Map<string, AbortController>());
@@ -504,7 +527,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
                 )}
             </Field>
             <StudyLanguageField language={newLanguage} setLanguage={setNewLanguage} isNew automaticAs={automaticAs} />
-            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} />
+            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} onLinks={addLinks} fixes={linkFixes} draft={linkDraft} onDraft={setLinkDraft} />
         </>
     );
 
@@ -549,6 +572,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
                             setSubject={setNewName}
                             language={newLanguage}
                             onImported={(id) => { onCancel(); openProject(id); }}
+                            kept={brief}
+                            onKeep={setBrief}
                         />
                     ) : createMode === 'import' ? (
                         <div className="space-y-4">

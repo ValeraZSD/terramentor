@@ -12,9 +12,10 @@ import ProgressBar from './ui/ProgressBar';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
+import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, keepsItsDate, ReviewRating, UnsentRating } from '../utils/srs';
 import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
+import { dayLabel } from '../utils/locale';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
 import { useConfirmPress } from '../hooks/useConfirmPress';
@@ -36,7 +37,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
      * (re)learning steps a card is rated more than once per session, and a map
      * lets the second snapshot overwrite the first.
      */
-    const undoSnapshots = useRef<{ index: number; snapshot: Record<string, unknown> }[]>([]);
+    // `snapshot: null` = a rating that wrote nothing (a card you knew before
+    // its day), so undoing it only steps back.
+    const undoSnapshots = useRef<{ index: number; snapshot: Record<string, unknown> | null }[]>([]);
     const [undoing, setUndoing] = useState(false);
     const addToast = useStore(s => s.addToast);
     /**
@@ -59,6 +62,11 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
     const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
+    // A card not due yet offers two outcomes, not four: Hard, Good and Easy
+    // would all keep its date, so three tiles saying the same thing become one
+    // "Knew it" (a Good). Keys 2-4 press it; 1 is Again.
+    const notDueYet = !!currentCard && keepsItsDate(currentCard, 'good');
+    const ratings: ReviewRating[] = notDueYet ? ['again', 'good'] : RATING_ORDER;
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.
     useStudyClock(
@@ -68,6 +76,14 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
 
     const handleRate = async (rating: ReviewRating) => {
         if (!currentCard || writing.current) return;
+        // Decided at the press, not at the render: a card can fall due between
+        // the flip and the press, and a due card is reviewed and written, so
+        // its "Knew it" is then a Good like any other.
+        if (keepsItsDate(currentCard, rating)) {
+            undoSnapshots.current.push({ index: queue.index, snapshot: null });
+            queue.advance(null);
+            return;
+        }
         writing.current = true;
         setSaving(true);
         try {
@@ -106,7 +122,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         writing.current = true;
         setUndoing(true);
         try {
-            if (card) {
+            if (card && step.snapshot) {
                 const restored = await api.updateFlashcard(card.id, step.snapshot as Partial<Flashcard>);
                 setEdits(prev => ({ ...prev, [card.id]: { ...card, ...(prev[card.id] ?? {}), ...restored } }));
             }
@@ -135,7 +151,10 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
+        onRate: (i) => {
+            const rating = ratings[i] ?? 'good';
+            confirmRate.press(rating, () => handleRate(rating));
+        },
         onUndo: () => void handleUndo(),
     });
 
@@ -247,13 +266,25 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             {/* Actions */}
             {queue.flipped && (
                 <div className="space-y-3">
-                    <p className="text-center text-sm text-slate-500">{t("How well did you know this?")}</p>
+                    <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+                        {notDueYet
+                            ? t("Not due yet: if you knew it, it keeps its date.")
+                            : t("How well did you know this?")}
+                    </p>
                     <div className="flex gap-2">
-                        {RATING_ORDER.map(rating => (
+                        {ratings.map(rating => (
                             <RatingButton
                                 key={rating}
                                 rating={rating}
-                                when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
+                                label={notDueYet && rating === 'good' ? t("Knew it") : undefined}
+                                when={notDueYet
+                                    // In words here: "<10m" beside "3.3mo" read as the
+                                    // run's own verdict, when one is the run re-asking
+                                    // and the other is the date the card already had.
+                                    ? (rating === 'again'
+                                        ? t("Back in this run")
+                                        : t("Still due {{day}}", { day: dayLabel(currentCard.next_review ?? '') }))
+                                    : formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
                                 onClick={() => confirmRate.press(rating, () => handleRate(rating))}
                                 armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}

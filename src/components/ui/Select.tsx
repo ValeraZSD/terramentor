@@ -5,6 +5,7 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactElement, 
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
+import { useBackClose } from '../../hooks/dialogHistory';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, FLOAT_LAYER, MENU_SURFACE } from './Popover';
 import { canHover } from '../../utils/platform';
@@ -205,6 +206,7 @@ export function Select({
         setOpen(false);
         if (refocus) buttonRef.current?.focus({ preventScroll: true });
     }, []);
+    useBackClose(open, close);
 
     const choose = useCallback((i: number) => {
         const o = options[i];
