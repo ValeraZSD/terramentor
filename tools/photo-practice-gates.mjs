@@ -229,10 +229,16 @@ ok('an unknown course is a 404', missing.status === 404, missing.status);
 
 // ---- 2. a round --------------------------------------------------------------------
 section('2. a round: each photo once, options from the course, mixed');
+/** Each option's key as a round sent it, by course and the words shown. */
+const optionKeys = new Map();
 const round = async (course, size) => {
     const r = await get(`/api/projects/${course.id}/photo-practice/round${size ? `?size=${size}` : ''}`);
-    return r.status === 200 && Array.isArray(r.body?.items) ? r.body.items : [];
+    const items = r.status === 200 && Array.isArray(r.body?.items) ? r.body.items : [];
+    for (const it of items) for (const o of it.options || []) optionKeys.set(`${course.id}:${o.title}`, o.key);
+    return items;
 };
+/** What the screen sends for the option showing these words (a topic's title, or a kind's). */
+const keyFor = (course, words) => optionKeys.get(`${course.id}:${words}`) ?? `not offered: ${words}`;
 const full = await round(asia, 50);
 const asiaFound = foundPhotos(asia);
 ok('a round asks every found photo of the course once', full.length === asiaFound.length
@@ -242,11 +248,11 @@ const sightTitles = new Set(sightTopics(asia).map(t => t.title));
 ok('every option is a by-sight topic of this course (never a topic read only, one with none, or another course\'s)',
     full.length > 0 && full.every(i => Array.isArray(i.options) && i.options.length >= 2 && i.options.every(o => sightTitles.has(o.title))),
     JSON.stringify(full[0]?.options));
-ok('...each option names its topic by id, and the titles are the topics\' own', full.length > 0 && full.every(i => i.options.every(o =>
-    asia.topics.find(t => t.id === o.nodeId)?.title === o.title)));
-ok('the photo\'s own topic is always among its options', full.length > 0 && full.every(i => i.options.some(o => o.nodeId === truthOf(i.photo).topic.id)));
+ok('...photos with no answer on record are named by their topic\'s own title, each option with a key to send back', full.length > 0
+    && full.every(i => i.options.every(o => typeof o.key === 'string' && o.key && asia.topics.some(t => t.title === o.title))));
+ok('the photo\'s own topic is always among its options', full.length > 0 && full.every(i => i.options.some(o => o.title === truthOf(i.photo).topic.title)));
 ok('...with up to three others, no topic twice', full.length > 0 && full.every(i => i.options.length === Math.min(4, sightTopics(asia).length)
-    && new Set(i.options.map(o => o.nodeId)).size === i.options.length));
+    && new Set(i.options.map(o => o.key)).size === i.options.length && new Set(i.options.map(o => o.title)).size === i.options.length));
 ok('never two photos of one topic side by side when the pool allows', full.length > 0
     && sameTopicNeighbours(full) === fewestPossible(sightTopics(asia).map(t => full.filter(i => truthOf(i.photo).topic === t).length)),
     full.map(i => truthOf(i.photo)?.topic.title).join(' | '));
@@ -286,8 +292,11 @@ section('3. graded by the photo\'s topic, evidence there only, once per attempt'
 const [chinese, japanese, , korean, vietnamese] = asia.topics;
 const checkedPhoto = chinese.photos[0];
 const plainPhoto = japanese.photos[1];
-const answer = (course, photo, picked, attemptId = randomUUID()) =>
-    post(`/api/projects/${course.id}/photo-practice/answer`, { photo: photo.uuid, picked, attemptId });
+/** `picked`: a topic of the course (by id, named by its title) or the words of a kind. */
+const answer = (course, photo, picked, attemptId = randomUUID()) => post(`/api/projects/${course.id}/photo-practice/answer`, {
+    photo: photo.uuid, attemptId,
+    picked: keyFor(course, typeof picked === 'number' ? course.topics.find(t => t.id === picked)?.title : picked),
+});
 const othersBefore = allEvidence() - evidenceRows(chinese.id).length;
 const right = await answer(asia, checkedPhoto, chinese.id);
 ok('the photo\'s own topic is right', right.status === 200 && right.body?.correct === true, JSON.stringify(right));
@@ -321,7 +330,7 @@ ok('in a course of two by-sight topics a lucky pick is one in two', two.status =
     ok('...also when the answers are replayed, as a report does', r2 === m2 && r4 === m4, JSON.stringify({ r2, r4, m2, m4 }));
 }
 const doricRows = evidenceRows(doric.id).length;
-const noId = await post(`/api/projects/${COURSES.skewed.id}/photo-practice/answer`, { photo: doric.photos[1].uuid, picked: doric.id });
+const noId = await post(`/api/projects/${COURSES.skewed.id}/photo-practice/answer`, { photo: doric.photos[1].uuid, picked: keyFor(COURSES.skewed, doric.title) });
 ok('an answer without an attempt id is refused, and writes nothing', noId.status === 400 && evidenceRows(doric.id).length === doricRows, noId.status);
 const emptySize = await get(`/api/projects/${asia.id}/photo-practice/round?size=`);
 ok('an empty ?size= gets a round of the usual length, not of one', emptySize.status === 200 && emptySize.body?.items?.length === Math.min(12, foundPhotos(asia).length),
@@ -346,8 +355,13 @@ const otherCourse = await answer(COURSES.single, checkedPhoto, chinese.id);
 ok('a photo of another course is not this course\'s to grade', otherCourse.status === 404, otherCourse.status);
 const nonePhoto = await answer(asia, chinese.photos[2], chinese.id);
 ok('an example with no photo cannot be answered', nonePhoto.status === 404, nonePhoto.status);
-const offList = await answer(asia, korean.photos[0], asia.topics[2].id);
+// The title itself, as a stale or forged client would send it: the course's
+// own topic, one no photo is named by.
+const offList = await post(`/api/projects/${asia.id}/photo-practice/answer`, { photo: korean.photos[0].uuid, attemptId: randomUUID(), picked: asia.topics[2].title });
 ok('a pick that is not one of the course\'s by-sight topics is refused', offList.status === 400 && evidenceRows(korean.id).length === 0, offList.status);
+const longKey = keyFor(asia, japanese.title);
+const tooLong = await post(`/api/projects/${asia.id}/photo-practice/answer`, { photo: korean.photos[0].uuid, attemptId: randomUUID(), picked: longKey + ' '.repeat(300) + 'x' });
+ok('a pick longer than any key is refused, not cut down to one', tooLong.status === 400 && evidenceRows(korean.id).length === 0, tooLong.status);
 
 // ---- 4. the comparison --------------------------------------------------------------
 section('4. a wrong pick shows both photos, each credited');
@@ -593,6 +607,170 @@ const served = studyQueue(asia.id, { newLimit: ownNew.length, photoCards: false 
 const photoAhead = studyQueue(asia.id, { newLimit: 10_000 }).fresh.findIndex(c => c.photo_uuid) < studyQueue(asia.id, { newLimit: 10_000 }).fresh.findIndex(c => c.id === lateCard);
 ok('...and a photo card never takes the place of the course\'s own new card', photoAhead && ownNew.includes(lateCard)
     && JSON.stringify(served) === JSON.stringify(ownNew), JSON.stringify({ served, ownNew, photoAhead }));
+
+// ---- 12. photos named by what they are ------------------------------------------------
+section('12. a photo is named by what it IS: its answer, not its topic');
+// A garden-birds course: one topic teaches two look-alikes, one is about how
+// to look (its photos are birds of the other topics), and one picture is kept
+// under two topics. The answers are the gate's own, seeded here.
+const hasAnswer = hasPhotos && db.prepare("SELECT name FROM pragma_table_info('node_photos')").all().some(c => c.name === 'answer');
+ok('a photo can record what it is (node_photos.answer)', hasAnswer);
+const birds = { name: 'Garden birds', topics: [
+    { title: 'Tits: great tit and blue tit', photos: [
+        { subject: 'Great tit', answer: 'Great tit', shows: 'Black head, white cheeks, a black stripe down a yellow breast.', author: 'Ann Lee' },
+        { subject: 'Great tit at a feeder', answer: 'great tit', shows: 'The stripe widens on a male.', author: 'Ann Lee' },
+        { subject: 'Blue tit', answer: 'Blue tit', shows: 'A blue cap and a white face with a dark eye stripe.', author: 'Ben Ho' },
+    ] },
+    { title: 'Thrushes: blackbird and robin', photos: [
+        { subject: 'Blackbird', answer: 'Blackbird', shows: 'All black with a yellow bill.', author: 'Cai Lun' },
+        { subject: 'European robin', answer: 'Robin', shows: 'An orange face and breast.', author: 'Dai Mori' },
+    ] },
+    { title: 'What to look at: size, shape and colour', photos: [
+        { subject: 'Blackbird singing', answer: 'Blackbird', shows: 'The yellow eye ring.', author: 'Emi Sato' },
+        // The same picture as the great tit above, kept again under this topic.
+        { subject: 'Great tit', answer: 'Great tit', shows: 'Compare its size with the blue tit.', author: 'Ann Lee', sameAs: 0 },
+    ] },
+] };
+const BIRD_KINDS = ['Great tit', 'Blue tit', 'Blackbird', 'Robin'];
+const setAnswer = hasAnswer ? db.prepare('UPDATE node_photos SET answer = ? WHERE uuid = ?') : null;
+birds.id = Number(insProject.run(birds.name).lastInsertRowid);
+const firstTit = birds.topics[0].photos[0];
+birds.topics.forEach((t, i) => {
+    t.id = Number(insNode.run(birds.id, t.title, i).lastInsertRowid);
+    t.photos.forEach((p, j) => {
+        p.uuid = randomUUID();
+        if (p.sameAs === 0) p.hash = firstTit.hash;
+        else {
+            const { hash, size } = mediaStorage.put(jpeg(`birds-${++seq}`));
+            p.hash = hash;
+            insMedia.run(birds.id, hash, `${p.subject.replace(/\W+/g, '_')}.jpg`, size, `${p.subject}. ${p.shows}`);
+        }
+        p.licence = 'CC BY-SA 4.0';
+        p.sourceUrl = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(p.subject.replace(/ /g, '_'))}_${j}.jpg`;
+        insPhoto?.run(p.uuid, t.id, j, p.subject, p.subject, p.shows, 'found', p.hash, `File:${p.subject}.jpg`, p.author, p.licence,
+            'https://creativecommons.org/licenses/by-sa/4.0', p.sourceUrl, null, PROVENANCE);
+        setAnswer?.run(p.answer, p.uuid);
+        photoTruth.set(p.uuid, { course: 'birds', topic: t, photo: p, found: true });
+    });
+});
+/** The gate's own name for a photo: its seeded answer, matched without case to the list above. */
+const kindOfPhoto = (uuid) => BIRD_KINDS.find(k => k.toLowerCase() === truthOf(uuid)?.photo.answer.toLowerCase());
+const birdPictures = new Set(birds.topics.flatMap(t => t.photos.map(p => p.hash)));
+const sBirds = await state(birds);
+ok('practice counts kinds and pictures, not topics and rows', sBirds?.available === true && sBirds?.kinds === BIRD_KINDS.length
+    && sBirds?.photos === birdPictures.size, JSON.stringify(sBirds));
+const bRound = await round(birds, 50);
+ok('a round asks each picture once, a picture kept under two topics too', bRound.length === birdPictures.size
+    && new Set(bRound.map(i => i.hash)).size === bRound.length, JSON.stringify(bRound.map(i => truthOf(i.photo)?.photo.subject)));
+ok('the options are what the photos show, never a topic\'s title', bRound.length > 0
+    && bRound.every(i => i.options.every(o => BIRD_KINDS.includes(o.title))), JSON.stringify(bRound[0]?.options));
+ok('...one spelling per kind ("great tit" is "Great tit")', bRound.length > 0
+    && bRound.every(i => new Set(i.options.map(o => o.title.toLowerCase())).size === i.options.length));
+ok('the photo\'s own kind is always among its options', bRound.length > 0 && bRound.every(i => i.options.some(o => o.title === kindOfPhoto(i.photo))));
+const titHashes = new Set(birds.topics[0].photos.map(p => p.hash));
+const titPhotos = bRound.filter(i => titHashes.has(i.hash));
+ok('a photo of a topic that teaches two look-alikes always offers the other one', titPhotos.length === 3
+    && titPhotos.every(i => i.options.some(o => o.title === (kindOfPhoto(i.photo) === 'Great tit' ? 'Blue tit' : 'Great tit'))),
+    JSON.stringify(titPhotos.map(i => i.options.map(o => o.title))));
+const sameKindNeighbours = bRound.reduce((n, it, i) => n + (i > 0 && kindOfPhoto(bRound[i - 1].photo) === kindOfPhoto(it.photo) ? 1 : 0), 0);
+ok('never two photos of one kind side by side when the pool allows', bRound.length > 0
+    && sameKindNeighbours === fewestPossible(BIRD_KINDS.map(k => bRound.filter(i => kindOfPhoto(i.photo) === k).length)),
+    bRound.map(i => kindOfPhoto(i.photo)).join(' | '));
+// A blackbird on the how-to-look topic: right when named a blackbird.
+const lookTopic = birds.topics[2];
+const singing = lookTopic.photos[0];
+const bRight = await answer(birds, singing, 'Blackbird');
+ok('a photo is right when named what it is, whatever topic it sits under', bRight.status === 200 && bRight.body?.correct === true
+    && bRight.body?.answer?.title === 'Blackbird', JSON.stringify(bRight.body?.answer ?? bRight));
+const bRow = evidenceRows(lookTopic.id).at(-1);
+ok('...the answer is written on the photo\'s own topic', metaOf(bRow).photo === singing.uuid && bRow?.score === 1
+    && evidenceRows(birds.topics[1].id).length === 0, JSON.stringify(bRow));
+ok('...a lucky pick counted as one in the four kinds offered', metaOf(bRow).guess === 0.25, JSON.stringify(metaOf(bRow)));
+const bWrong = await answer(birds, singing, 'Robin');
+ok('named another kind, it is wrong, and the verdict says what it was', bWrong.status === 200 && bWrong.body?.correct === false
+    && bWrong.body?.answer?.title === 'Blackbird' && bWrong.body?.shown?.topic === 'Blackbird', JSON.stringify(bWrong.body));
+ok('...beside it, a photo of the kind picked, named by that kind', kindOfPhoto(bWrong.body?.picked?.uuid) === 'Robin'
+    && bWrong.body?.picked?.topic === 'Robin', JSON.stringify(bWrong.body?.picked));
+const titWrong = await answer(birds, birds.topics[0].photos[2], 'Great tit');
+ok('a blue tit named a great tit, from the same topic, is wrong', titWrong.status === 200 && titWrong.body?.correct === false
+    && titWrong.body?.answer?.title === 'Blue tit' && kindOfPhoto(titWrong.body?.picked?.uuid) === 'Great tit', JSON.stringify(titWrong.body));
+const topicPick = await post(`/api/projects/${birds.id}/photo-practice/answer`, { photo: singing.uuid, attemptId: randomUUID(), picked: lookTopic.title });
+ok('a topic\'s title is not an answer when the photos say what they are', topicPick.status === 400, topicPick.status);
+// Two kinds in one topic are enough to practise.
+const pair = { name: 'Tits only', topics: [{ title: 'Tits', photos: [
+    { subject: 'Great tit', answer: 'Great tit', shows: 'Black head.', author: 'Ann Lee' },
+    { subject: 'Blue tit', answer: 'Blue tit', shows: 'Blue cap.', author: 'Ben Ho' },
+] }] };
+pair.id = Number(insProject.run(pair.name).lastInsertRowid);
+pair.topics[0].id = Number(insNode.run(pair.id, 'Tits', 0).lastInsertRowid);
+pair.topics[0].photos.forEach((p, j) => {
+    p.uuid = randomUUID();
+    const { hash, size } = mediaStorage.put(jpeg(`pair-${j}`));
+    insMedia.run(pair.id, hash, `pair${j}.jpg`, size, p.subject);
+    insPhoto?.run(p.uuid, pair.topics[0].id, j, p.subject, p.subject, p.shows, 'found', hash, `File:pair${j}.jpg`, p.author, 'CC BY-SA 4.0',
+        'https://creativecommons.org/licenses/by-sa/4.0', `https://commons.wikimedia.org/wiki/File:pair${j}.jpg`, null, PROVENANCE);
+    setAnswer?.run(p.answer, p.uuid);
+});
+const sPair = await state(pair);
+ok('one topic whose photos show two kinds offers practice', sPair?.available === true && sPair?.kinds === 2 && sPair?.topics === 1, JSON.stringify(sPair));
+// Six kinds, three options beside the photo's own: the look-alike its topic
+// pairs it with must be chosen, not left to the draw (3 in 5 by chance).
+const sixBirds = { name: 'Six garden birds', topics: [
+    ['Tits', ['Great tit', 'Blue tit']], ['Finches', ['Chaffinch', 'Greenfinch']], ['Thrushes', ['Blackbird', 'Robin']],
+] };
+sixBirds.id = Number(insProject.run(sixBirds.name).lastInsertRowid);
+sixBirds.topics = sixBirds.topics.map(([title, kinds], i) => {
+    const id = Number(insNode.run(sixBirds.id, title, i).lastInsertRowid);
+    kinds.forEach((kind, j) => {
+        const uuid = randomUUID();
+        const { hash, size } = mediaStorage.put(jpeg(`six-${i}-${j}`));
+        insMedia.run(sixBirds.id, hash, `six${i}${j}.jpg`, size, kind);
+        insPhoto?.run(uuid, id, j, kind, kind, 'Look.', 'found', hash, `File:six${i}${j}.jpg`, 'Ann Lee', 'CC BY-SA 4.0',
+            'https://creativecommons.org/licenses/by-sa/4.0', `https://commons.wikimedia.org/wiki/File:six${i}${j}.jpg`, null, PROVENANCE);
+        setAnswer?.run(kind, uuid);
+    });
+    return { id, title, kinds };
+});
+// The gate's own record of each photo's kind and its topic partner, from the seed above.
+const partnerOf = new Map(sixBirds.topics.flatMap(t => [[t.kinds[0], t.kinds[1]], [t.kinds[1], t.kinds[0]]]));
+const sixKindOf = new Map(db.prepare(`SELECT p.uuid, p.subject FROM node_photos p JOIN nodes n ON n.id = p.node_id WHERE n.project_id = ?`)
+    .all(sixBirds.id).map(r => [r.uuid, r.subject]));
+const sixItems = [];
+for (let n = 0; n < 8; n++) sixItems.push(...await round(sixBirds, 6));
+ok('with more kinds than options, a photo is always offered the look-alike its topic pairs it with', sixItems.length === 48
+    && sixItems.every(i => i.options.length === 4 && i.options.some(o => o.title === partnerOf.get(sixKindOf.get(i.photo)))),
+    JSON.stringify(sixItems.filter(i => !i.options.some(o => o.title === partnerOf.get(sixKindOf.get(i.photo))))
+        .slice(0, 2).map(i => [sixKindOf.get(i.photo), i.options.map(o => o.title)])));
+// Cards: the back is what the photo is; one card per picture.
+cards?.syncAllPhotoCards?.();
+const bCardsNow = hasColumn ? photoCards(birds) : [];
+ok('one card per picture: the picture kept under two topics has one', bCardsNow.length === birdPictures.size
+    && new Set(bCardsNow.map(c => JSON.parse(c.media).front[0].hash)).size === bCardsNow.length, bCardsNow.length);
+// Spelled as the round spells it: the feeder photo's answer is stored "great tit".
+ok('a card\'s back is what its photo is, spelled as the round offers it', bCardsNow.length > 0
+    && bCardsNow.every(c => c.back === kindOfPhoto(c.photo_uuid)), JSON.stringify(bCardsNow.map(c => c.back)));
+const titCard = bCardsNow.find(c => c.photo_uuid === firstTit.uuid);
+ok('...with what to look at under it, and no line that only repeats the back', titCard?.extra === firstTit.shows, JSON.stringify(titCard?.extra));
+const robinCard = bCardsNow.find(c => c.photo_uuid === birds.topics[1].photos[1].uuid);
+ok('...and the example\'s own name when it says more than the kind', robinCard?.extra === `European robin\n${birds.topics[1].photos[1].shows}`, JSON.stringify(robinCard?.extra));
+
+// A course file carries the answer, and the imported course practises by it.
+const bExport = await (await fetch(`${base}/api/export/${birds.id}`)).json().catch(() => ({}));
+const exPhotos = (bExport.nodes || []).flatMap(n => n.photos || []);
+ok('a course file carries each photo\'s answer', exPhotos.length === birds.topics.flatMap(t => t.photos).length
+    && exPhotos.every(p => BIRD_KINDS.some(k => k.toLowerCase() === String(p.answer).toLowerCase())), JSON.stringify(exPhotos.map(p => p.answer)));
+const birdBundle = await fetch(`${base}/api/export/${birds.id}/bundle`);
+const birdBuf = birdBundle.ok ? Buffer.from(await birdBundle.arrayBuffer()) : null;
+let birdCopy = null;
+if (birdBuf) {
+    const form = new FormData();
+    form.append('bundle', new Blob([birdBuf]), 'birds.studyvault');
+    const r = await fetch(`${base}/api/import/bundle`, { method: 'POST', body: form });
+    if (r.ok) birdCopy = db.prepare('SELECT id FROM projects WHERE name = ? AND id != ? ORDER BY id DESC LIMIT 1').get(birds.name, birds.id)?.id ?? null;
+}
+const copyRound = birdCopy ? await round({ id: birdCopy }, 50) : [];
+ok('...and the imported course asks for the same kinds', copyRound.length === birdPictures.size
+    && copyRound.every(i => i.options.every(o => BIRD_KINDS.includes(o.title))), JSON.stringify(copyRound[0]?.options));
 
 await new Promise(r => server.close(r));
 await new Promise(r => stub.close(r));

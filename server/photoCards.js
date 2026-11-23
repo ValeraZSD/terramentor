@@ -1,8 +1,10 @@
-// Cards made from a topic's photos: the photo on the front, the topic it
-// belongs to on the back, with the example's name and what to look at under
-// it (server/topicPhotos.js keeps the photos and their credit). The answer is
-// the topic, not the building: the skill is telling the course's topics apart,
-// and a card that asked for the example's name would train one picture.
+// Cards made from a topic's photos: the photo on the front, what it IS on the
+// back (its answer: the style, species or kind the practice round names it by,
+// server/photoPractice.js; else its topic), with the example's name and what
+// to look at under it (server/topicPhotos.js keeps the photos and their
+// credit). The answer is the kind, not the building: the skill is telling the
+// course's kinds apart, and a card that asked for one building's name would
+// train one picture. Where the example IS the kind (a species), it is both.
 //
 // A card is made ONCE per photo and is then the learner's like any other
 // card: scheduled by FSRS, edited, deleted. So the pass below only ever adds a
@@ -48,6 +50,25 @@ export function photoCardMedia(photo) {
     };
 }
 
+/** An answer's words with the spaces tidied; `answerKey` is what makes two the same kind. */
+export const answerLabel = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+export const answerKey = (s) => answerLabel(s).toLowerCase();
+
+/**
+ * How the course spells each answer: `Map<key, label>`, the spelling of the
+ * course's earliest photo of that kind. The practice round's options and the
+ * cards' backs both read it, so "Great tit" is never "great tit" on a card.
+ */
+export function answerSpellings(projectId) {
+    const out = new Map();
+    for (const r of stmt(`SELECT p.answer FROM node_photos p JOIN live_nodes n ON n.id = p.node_id
+        WHERE n.project_id = ? AND p.status = 'found' AND p.answer IS NOT NULL ORDER BY p.id`).all(projectId)) {
+        const label = answerLabel(r.answer);
+        if (label && !out.has(answerKey(label))) out.set(answerKey(label), label);
+    }
+    return out;
+}
+
 /**
  * Make the missing cards of one course. Returns `{ added }`. Synchronous SQL
  * only, so an importer can call it inside its own transaction.
@@ -65,16 +86,32 @@ export function syncPhotoCards(projectId) {
     // A photo reported as wrong before it had a card gets none until the
     // report is undone (server/itemReports.js takes the card of one reported after).
     const reported = standingRefs('photo:');
+    // One card per picture: the same file kept under two topics would be two
+    // cards with one front and two backs. The course's cards so far count,
+    // deleted ones too: a deleted card is never made again.
+    const pictures = new Set(stmt(`SELECT p.hash FROM flashcards f /* with deleted */ JOIN node_photos p ON p.uuid = f.photo_uuid
+        JOIN nodes n /* with deleted */ ON n.id = p.node_id WHERE n.project_id = ?`).all(projectId).map(r => r.hash));
+    const spellings = answerSpellings(projectId);
     let added = 0;
     db.transaction(() => {
         for (const p of photos) {
             if (reported.has(`photo:${p.uuid}`)) continue;
+            if (pictures.has(p.hash)) {
+                stmt(`UPDATE node_photos SET card_made_at = ${NOW_ISO} WHERE id = ?`).run(p.id);
+                continue;
+            }
+            pictures.add(p.hash);
+            // The back names what the photo IS (its answer, the words the
+            // practice round asks for), else its topic; under it the example
+            // and what to look at, without a line that only repeats the back.
+            const back = spellings.get(answerKey(p.answer)) || answerLabel(p.answer) || p.topic_title;
+            const extra = [p.subject, p.shows].filter(s => s && s.trim().toLowerCase() !== back.toLowerCase()).join('\n');
             // OR IGNORE: the index allows one card per photo, so a second
             // process making the same card at the same moment adds nothing.
             // Its uuid comes from the photo's, so two copies of one library
             // that each made it name the same card (server/syncTables.js).
             added += stmt(`INSERT OR IGNORE INTO flashcards (node_id, front, back, extra, media, generated_by, photo_uuid, uuid)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(p.node_id, '', p.topic_title, [p.subject, p.shows].filter(Boolean).join('\n'),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(p.node_id, '', back, extra,
                 JSON.stringify(photoCardMedia(p)), p.generated_by ?? null, p.uuid, derivedUuid(['photo-card', p.uuid])).changes;
             stmt(`UPDATE node_photos SET card_made_at = ${NOW_ISO} WHERE id = ?`).run(p.id);
         }

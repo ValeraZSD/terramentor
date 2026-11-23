@@ -270,12 +270,12 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
                     hint={tr("Answer a draw of this course's questions on screen, or write a past paper with the exam clock")}
                     onClick={() => setWorkspaceView('exam')}
                 />
-                {/* Only a course with photos on two or more topics: one with none promises none. */}
+                {/* Only a course whose photos show two or more kinds of thing: one with none promises none. */}
                 {sight?.available && (
                     <ToolRow
                         icon={Images}
                         title={tr("Tell them apart")}
-                        hint={tr("Match each photo to its topic")}
+                        hint={tr("Say what each photo shows")}
                         onClick={() => setWorkspaceView('sight')}
                     />
                 )}

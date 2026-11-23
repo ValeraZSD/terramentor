@@ -250,9 +250,9 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // model the file names for their words is kept as its claim, like a card's,
     // and the card made from the photo carries it (server/photoCards.js).
     const insertPhoto = db.prepare(`
-        INSERT INTO node_photos (node_id, position, subject, search, shows, status, hash, width, height,
+        INSERT INTO node_photos (node_id, position, subject, search, shows, answer, status, hash, width, height,
             file_title, author, licence, licence_url, source_url, generated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     // The photo's file carries the course's words for it, so it reads aloud
     // and is not queued as an undescribed card picture.
@@ -316,7 +316,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             const found = file && file.kind === 'image' && PHOTO_MIMES.has(file.mime)
                 && !(file.size > PHOTO_BYTES) ? file : null;
             const c = found ? p.credit : {};
-            insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', found ? 'found' : 'none',
+            insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', p.answer || null, found ? 'found' : 'none',
                 found?.hash ?? null, c.width ?? null, c.height ?? null, c.file_title ?? null, c.author ?? null,
                 c.licence ?? null, c.licence_url ?? null, c.source_url ?? null, declaredBy(p.generated_by));
             if (found) describePhoto.run(photoAlt(p.subject, p.shows), newProjectId, found.hash);

@@ -2557,7 +2557,7 @@ export const api = {
         request<PhotoPracticeState>(`/projects/${projectId}/photo-practice`),
     drawPhotoRound: (projectId: number, size?: number) =>
         request<{ items: PhotoRoundItem[] }>(`/projects/${projectId}/photo-practice/round${size ? `?size=${size}` : ''}`),
-    answerPhoto: (projectId: number, body: { photo: string; picked: number; attemptId: string }) =>
+    answerPhoto: (projectId: number, body: { photo: string; picked: string; attemptId: string }) =>
         request<PhotoVerdict>(`/projects/${projectId}/photo-practice/answer`, { method: 'POST', body: JSON.stringify(body) }),
 
     // Try again on a topic whose first lesson could not be written.

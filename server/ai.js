@@ -4841,16 +4841,21 @@ Rules:
     // photographed examples a photo archive holds under their own name
     // (server/topicPhotos.js). Topics are numbered; the answer names them by
     // number, so a renamed title cannot misplace an example.
-    photo_plan: (course, goal, topics, { lang = null } = {}) => ({
+    // `known`: answers the course's photos already carry (a run continued
+    // after a stop plans only the topics without photos), reused as written.
+    photo_plan: (course, goal, topics, { lang = null, known = [] } = {}) => ({
         system: `You decide which topics of a course are learned BY SIGHT: the learner has to recognise things, or tell them apart, by how they look (buildings and architectural styles, plants and animals, artworks and art styles, rocks and minerals, landmarks, vehicles, tools, clothing). A topic about ideas, rules, history, grammar, procedures or skills is not learned by sight, even when its subject could be photographed.
 For each topic learned by sight, name 2 to 4 concrete, real examples that a public photo archive holds photographs of under their own name: one named building (not "a pagoda"), one species, one painting, one mineral. Prefer famous, well-photographed examples that show the topic's typical features clearly.
+The archive keeps only free works: an artwork must be out of copyright, by an artist who died more than 70 years ago, so name such works (for Cubism, Juan Gris rather than Picasso or Braque).
+Every example belongs to the topic it is listed under: a topic about two species gets those two, never a third added to reach a count. An example is listed under one topic only, never under two.
 CRITICAL: Output ONLY a JSON object:
-{"topics": [{"topic": <the topic's number>, "examples": [{"name": "...", "search": "...", "shows": "..."}]}]}
+{"topics": [{"topic": <the topic's number>, "examples": [{"name": "...", "search": "...", "shows": "...", "answer": "..."}]}]}
 - "name": the example's name as the learner should read it. ${lang ? languageDirective(lang) : 'Write it in the language the course is written in.'}
 - "search": the example's name as an English-language encyclopedia or photo archive titles it, with the place when that tells it apart ("Hall of Supreme Harmony Forbidden City"); plain words, no quotes or operators.
 - "shows": one short sentence: what to look at in its photo, the features that tell it apart. Same language as "name".
+- "answer": what the learner says when shown this photo and asked "which one is this?": the style, species, kind or group from the course's GOAL that it belongs to, in one to four words ("Impressionism", "Great tit", "Japanese architecture"). Use the SAME words for every example of that kind anywhere in the course. When the GOAL names the things to tell apart (trees, birds, painting styles), every answer is one of those things, in every topic, never a feature they share (a leaf shape, a vein pattern, a kind of brushstroke). Never a topic's whole title, never the example's own name unless the example is itself the kind (a species, a tree). Same language as "name".
 List ONLY the topics learned by sight; {"topics": []} when none is.`,
-        user: `COURSE: ${String(course || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}
+        user: `COURSE: ${String(course || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}${known.length ? `\nANSWERS ALREADY USED IN THIS COURSE (write an answer of the same kind in exactly these words): ${known.slice(0, 40).map(a => String(a).replace(/\s+/g, ' ').trim().slice(0, 80)).join('; ')}` : ''}
 
 TOPICS:
 ${topics.map((t, i) => `${i + 1}. ${String(t.title || '').replace(/\s+/g, ' ').trim().slice(0, 200)}${t.description ? ` — ${String(t.description).replace(/\s+/g, ' ').trim().slice(0, 300)}` : ''}`).join('\n')}`,

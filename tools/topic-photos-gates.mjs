@@ -105,6 +105,8 @@ Look at the two eaves stacked one above the other and the gentle upward sweep at
 
 Compare that with a temple hall, whose roof is lower and plainer and which sits on a far smaller platform than the palace hall does.`;
 let calls = [];
+/** When set, the stub's whole answer to a photo plan (section 19). */
+let planReply = null;
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
@@ -133,13 +135,19 @@ const stub = createServer((req, res) => {
                 description: 'Recognise Chinese and Korean buildings by their roofs and halls.',
                 topics: TOPICS.map((t, i) => ({ ...t, sections: [Math.min(i + 1, 3)] })),
             });
+        } else if (kind === 'photo_plan' && planReply) {
+            content = JSON.stringify(planReply);
         } else if (kind === 'photo_plan') {
             content = JSON.stringify({ topics: [
                 { topic: 1, examples: [
-                    { name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony Forbidden City', shows: 'The double-eaved hip roof and the marble terrace.' },
-                    { name: 'Daibutsuden https://evil.example/pic.jpg', search: 'Todai-ji Daibutsuden', shows: 'A wooden hall on a huge scale.' },
+                    { name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony Forbidden City', shows: 'The double-eaved hip roof and the marble terrace.', answer: 'hall of supreme harmony' },
+                    { name: 'Daibutsuden https://evil.example/pic.jpg', search: 'Todai-ji Daibutsuden', shows: 'A wooden hall on a huge scale.', answer: 'Temple hall' },
                 ] },
-                { topic: 2, examples: [{ name: 'Bulguksa', search: 'Bulguksa temple', shows: 'The roof lines over the stone terraces.' }] },
+                { topic: 2, examples: [
+                    { name: 'Bulguksa', search: 'Bulguksa temple', shows: 'The roof lines over the stone terraces.', answer: '  temple   HALL ' },
+                    // Listed under topic 1 already.
+                    { name: 'The Hall of Supreme Harmony', search: 'Hall of Supreme Harmony Forbidden City', shows: 'Again.', answer: 'Palace hall' },
+                ] },
                 { topic: 9, examples: [{ name: 'Nowhere', search: 'Nowhere at all', shows: '' }] },
             ] });
         } else if (kind === 'photo_choice') {
@@ -343,6 +351,11 @@ for (const [what, p] of dropped) ok(`dropped: ${what}`, !!photos && !kept(p));
 const credit = photos?.candidateOf(HALL);
 ok('the author is the archive\'s, as plain text', credit?.author === 'Ann Lee', JSON.stringify(credit?.author));
 ok('the source is the file\'s page on the archive', /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(credit?.source || ''), credit?.source);
+const ASSUMED = 'No machine-readable author provided. <a href="//commons.wikimedia.org/wiki/User:Kev">Kev Lyfellow</a> assumed (based on copyright claims).';
+const assumed = photos?.candidateOf(page(1, 'm.jpg', { artist: ASSUMED }));
+ok('the archive\'s note around an assumed uploader is cut: the credit is the name', assumed?.author === 'Kev Lyfellow', JSON.stringify(assumed?.author));
+ok('...and the note alone is no author: CC BY with only it is dropped', !!photos
+    && !kept(page(1, 'n.jpg', { lic: 'CC BY 2.0', code: 'cc-by-2.0', artist: 'No machine-readable author provided.' })));
 
 // ---- 6. outline prompts never promise a picture quiz ----------------------------
 section('6. no outline prompt lets a description promise a picture quiz');
@@ -369,6 +382,14 @@ ok('no photo is sent to a model the catalogue only lists as seeing images (an un
 const choice = calls.find(c => c.kind === 'photo_choice');
 ok('the picker sees only the candidates that passed the filter', !!choice && choice.user.includes('Hall of Supreme Harmony 2019') && !/Taihedian (NC|plan|no author|elsewhere|GFDL|small)/.test(choice.user), choice?.user);
 ok('...by number, with no address in its prompt', !!choice && !/https?:\/\//.test(choice.user));
+const plan = calls.find(c => c.kind === 'photo_plan');
+ok('the plan asks what the learner names each example by, in the same words across the course', !!plan && plan.system.includes('"answer": "..."')
+    && /SAME words for every example of that kind anywhere in the course/.test(plan.system) && /Never a topic's whole title/.test(plan.system));
+ok('...and keeps each example under its own topic, once', !!plan && /never a third added to reach a count/.test(plan.system)
+    && /listed under one topic only, never under two/.test(plan.system));
+ok('...each answer one of the things the goal tells apart, never a feature they share', !!plan
+    && /every answer is one of those things, in every topic, never a feature they share/.test(plan.system));
+ok('...and names artworks the free archive can hold: out of copyright', !!plan && /artwork must be out of copyright, by an artist who died more than 70 years ago/.test(plan.system));
 
 const api = archive.requests.filter(r => r.url.hostname === 'commons.wikimedia.org');
 const downloads = archive.requests.filter(r => r.url.hostname === 'upload.wikimedia.org' || r.url.hostname === 'thumb.wikimedia.org');
@@ -401,7 +422,13 @@ ok('credit: the source page', hall.source_url === 'https://commons.wikimedia.org
 ok('a public-domain-style licence needs no author', hallRows[1]?.licence === 'CC0');
 ok('no kept photo is under a licence outside the four', hallRows.length > 0 && hallRows.every(r => /^(CC0|Public domain|CC BY(-SA)? \d)/.test(r.licence || '')));
 ok('an address inside a name the model wrote is dropped, never fetched', hallRows[1]?.subject === 'Daibutsuden' && archive.foreign.length === 0, hallRows[1]?.subject);
-ok('the model that named the examples is recorded', hallRows.length > 0 && hallRows.every(r => /stub-model/.test(r.generated_by || '')));
+ok('each example keeps what the learner names it by', hallRows[0]?.answer === 'Hall of Supreme Harmony' && hallRows[1]?.answer === 'Temple hall',
+    JSON.stringify(hallRows.map(r => r.answer)));
+ok('...an answer that is the example\'s own name takes the name\'s spelling', hallRows[0]?.answer === 'Hall of Supreme Harmony', JSON.stringify(hallRows[0]?.answer));
+ok('...in one spelling across the course: the first one written', roofRows[0]?.answer === 'Temple hall', JSON.stringify(roofRows[0]?.answer));
+ok('an example the plan lists under a second topic is kept under the first only', roofRows.length === 1 && roofRows[0]?.subject === 'Bulguksa',
+    JSON.stringify(roofRows.map(r => r.subject)));
+ok('the model that named the examples is recorded',hallRows.length > 0 && hallRows.every(r => /stub-model/.test(r.generated_by || '')));
 const media = hall.hash ? db.prepare('SELECT * FROM media_files WHERE hash = ? AND project_id = ?').get(hall.hash, made.id) : null;
 ok('the file is in the library\'s media store, for this course', !!media && media.mime === 'image/jpeg' && media.kind === 'image');
 ok('...described in the course\'s words, so it reads aloud and is not queued as undescribed',
@@ -420,8 +447,9 @@ ok('...and no state for a topic not learned by sight', notSight.state === null, 
 const cardCols = db.prepare("SELECT name FROM pragma_table_info('flashcards')").all().map(c => c.name);
 const runCards = cardCols.includes('photo_uuid') && hallsTopic
     ? db.prepare('SELECT photo_uuid, back FROM flashcards WHERE node_id = ? AND photo_uuid IS NOT NULL').all(hallsTopic.id) : [];
-ok('each photo the run kept has its card when the run ends', runCards.length === hallRows.length && hallRows.length > 0
-    && hallRows.every(r => runCards.some(c => c.photo_uuid === r.uuid && c.back === hallsTopic.title)), JSON.stringify(runCards));
+ok('each photo the run kept has its card when the run ends, its back what the photo is named by', runCards.length === hallRows.length && hallRows.length > 0
+    && hallRows.every(r => runCards.some(c => c.photo_uuid === r.uuid && c.back === r.answer)) && runCards.map(c => c.back).join() === 'Hall of Supreme Harmony,Temple hall',
+    JSON.stringify(runCards));
 
 section('4. the activity log records the run with numbers only');
 const logRow = db.prepare(`SELECT * FROM activity_log WHERE event LIKE 'photos.%' ORDER BY id DESC LIMIT 1`).get();
@@ -492,6 +520,9 @@ const backMedia = newProject ? db.prepare('SELECT description, described_by FROM
 ok('...described in the course\'s words there too', backMedia?.description === 'Hall of Supreme Harmony. The double-eaved hip roof and the marble terrace.'
     && backMedia?.described_by === 'author', JSON.stringify(backMedia));
 ok('...and the example with no photo keeps its example', newTopics[1] && photoRows(newTopics[1].id).length === 1 && photoRows(newTopics[1].id)[0].status === 'none');
+ok('a course file carries what each photo is named by, and brings it back', exHall?.photos?.[0]?.answer === 'Hall of Supreme Harmony'
+    && bHall?.photos?.[1]?.answer === 'Temple hall' && backRows.map(r => r.answer).join() === 'Hall of Supreme Harmony,Temple hall'
+    && newTopics[1] && photoRows(newTopics[1].id)[0]?.answer === 'Temple hall', JSON.stringify({ ex: exHall?.photos?.map(p => p.answer), back: backRows.map(r => r.answer) }));
 
 // ---- 8. a busy archive -----------------------------------------------------------
 section('8. a 429 is retried once, then the run stops');
@@ -668,6 +699,58 @@ ok('...by a run of its own, started from the topic', tasks.listTasks().filter(x 
 await settle();
 ok('nothing is left waiting in the course', topicsOf(busyCourse.id).every(n => photoRows(n.id).every(r => r.status !== 'pending')));
 archive.later = {};
+
+// ---- 18. one picture once per course --------------------------------------------
+section('18. a picture the course already keeps under one topic is not kept under another');
+// Look again on the temple topic of the first course, whose search now offers
+// only the palace hall's file: a free photo, but the palace topic holds it.
+archive.later['Bulguksa temple'] = [HALL];
+const hallFile = (r) => (r.url.hostname === 'upload.wikimedia.org' || r.url.hostname === 'thumb.wikimedia.org') && r.url.pathname.includes('Hall_of_Supreme_Harmony_2019');
+const hallFetchesBefore = archive.requests.filter(hallFile).length;
+const againRes = roofsTopic ? await fetch(`${base}/api/nodes/${roofsTopic.id}/photos/find`, { method: 'POST' }) : null;
+await settle();
+ok('a file the course already keeps is not even downloaded again', hallFetchesBefore > 0 && archive.requests.filter(hallFile).length === hallFetchesBefore,
+    JSON.stringify({ before: hallFetchesBefore, after: archive.requests.filter(hallFile).length }));
+const againRows = roofsTopic ? photoRows(roofsTopic.id) : [];
+const madeHashes = topicsOf(made.id).flatMap(n => photoRows(n.id)).map(r => r.hash).filter(Boolean);
+ok('the temple topic stays without a photo rather than repeat the palace hall', againRes?.ok && againRows.length === 1
+    && againRows[0].status === 'none' && !againRows[0].hash, JSON.stringify({ s: againRes?.status, rows: againRows.map(r => r.status) }));
+ok('...so no picture sits twice in the course', madeHashes.length > 0 && new Set(madeHashes).size === madeHashes.length, madeHashes.length);
+// A deleted topic's pictures are out of the course: they no longer hold a file back.
+const palaceGone = hallsTopic ? await fetch(`${base}/api/nodes/${hallsTopic.id}`, { method: 'DELETE' }) : null;
+const thirdRes = roofsTopic ? await fetch(`${base}/api/nodes/${roofsTopic.id}/photos/find`, { method: 'POST' }) : null;
+await settle();
+const thirdRows = roofsTopic ? photoRows(roofsTopic.id) : [];
+ok('once the palace topic is deleted, the temple topic may keep that picture', palaceGone?.ok && thirdRes?.ok
+    && thirdRows[0]?.status === 'found' && thirdRows[0]?.hash === hallRows[0]?.hash, JSON.stringify({ del: palaceGone?.status, rows: thirdRows.map(r => r.status) }));
+archive.later = {};
+
+// ---- 19. the plan reuses the course's answers and keeps no unnamed example --------
+section('19. the plan reuses the course\'s answers; an example it gives no answer is dropped');
+const planTopics = [{ id: -1, title: 'Palace halls' }, { id: -2, title: 'Temple halls' }];
+const planProject = { id: made.id, name: 'Telling East Asian buildings apart', description: '' };
+planReply = { topics: [{ topic: 1, examples: [{ name: 'Bulguksa', search: 'Bulguksa temple', shows: 'Roofs.', answer: 'temple  HALL' }] }] };
+calls = [];
+const reused = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics, { known: ['Temple Hall', 'Palace hall'] }) : [];
+const planCall = calls.find(c => c.kind === 'photo_plan');
+ok('the plan is shown the answers the course already uses', /ANSWERS ALREADY USED IN THIS COURSE[^\n]*Temple Hall; Palace hall/.test(planCall?.user || ''),
+    (planCall?.user || '').split('\n').find(l => l.includes('ANSWERS')) ?? 'no such line');
+ok('...and an answer of the same kind takes the course\'s spelling', reused[0]?.examples?.[0]?.answer === 'Temple Hall', JSON.stringify(reused));
+planReply = { topics: [
+    { topic: 1, examples: [
+        { name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony', shows: '', answer: 'Palace hall' },
+        { name: 'Hall of Central Harmony', search: 'Hall of Central Harmony', shows: '' },
+    ] },
+    { topic: 2, examples: [{ name: 'Bulguksa', search: 'Bulguksa temple', shows: '', answer: '' }] },
+] };
+const unnamed = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics) : [];
+ok('an example with no answer is not kept once others have one, and a topic left empty is dropped', unnamed.length === 1
+    && unnamed[0].examples.length === 1 && unnamed[0].examples[0].answer === 'Palace hall', JSON.stringify(unnamed));
+planReply = { topics: [{ topic: 1, examples: [{ name: 'Hall of Supreme Harmony', search: 'Hall of Supreme Harmony', shows: '' }] }] };
+const noneNamed = photos?.planPhotos ? await photos.planPhotos(planProject, planTopics) : [];
+ok('...while a plan that names none keeps its examples, named by their topic as before', noneNamed.length === 1
+    && noneNamed[0].examples.length === 1 && noneNamed[0].examples[0].answer === null, JSON.stringify(noneNamed));
+planReply = null;
 
 // ---- 17. a course file naming a file the app does not keep as a photo ------------
 section('17. an imported photo naming a sound, a GIF or an oversize file loses the photo');

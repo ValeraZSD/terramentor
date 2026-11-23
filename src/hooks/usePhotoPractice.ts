@@ -3,8 +3,8 @@ import { api } from '../api';
 import type { PhotoPracticeState } from '../types';
 
 /**
- * Whether a course offers "Tell them apart" (server/photoPractice.js): two or
- * more of its topics have a photo. Null until known, and on a failed read, so
+ * Whether a course offers "Tell them apart" (server/photoPractice.js): its
+ * photos show two or more kinds. Null until known, and on a failed read, so
  * nothing is offered that the course cannot hold.
  */
 export function usePhotoPractice(projectId: number | null): PhotoPracticeState | null {

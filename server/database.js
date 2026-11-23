@@ -2426,6 +2426,11 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_photo_once ON flashcar
 // When the photo's card was made. The photo keeps it, so a card the learner
 // deleted and then removed for good from Recently deleted is not made again.
 addColumnIfMissing('node_photos', 'card_made_at', 'TEXT DEFAULT NULL');
+// What the photo IS, in the words a learner names it by (a style, a species, a
+// country's buildings), the same for every photo of that kind in the course:
+// the practice round's options and the card's back (server/photoPractice.js).
+// NULL = the photo is named by its topic's title, as before it was kept.
+addColumnIfMissing('node_photos', 'answer', 'TEXT DEFAULT NULL');
 
 // Every change to a card's schedule that is not a review: a report parking the
 // card, the edit that unparks it, a schedule written directly, a rating taken
