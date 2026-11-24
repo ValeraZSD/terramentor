@@ -1,4 +1,9 @@
 {
+  "Correct, with a spelling slip": "正解（小さなつづりの誤りあり）",
+  "It is spelled:": "正しいつづり：",
+  "Only a letter or two off.": "1〜2文字違うだけです。",
+  "Forgive small spelling slips from now on": "今後は小さなつづりの誤りを許容します",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "次の解答から、小さなつづりの誤りは正解として扱われます。設定の「学習」でオフにできます。",
   " — stopped early, some pages were not re-read": "— 早期に停止、一部のページは再読されませんでした",
   " ({{answers}} answers)_other": "（{{answers}} 回答）",
   "— they'll appear here as they're ready.": "— 準備ができ次第、ここに表示されます。",
