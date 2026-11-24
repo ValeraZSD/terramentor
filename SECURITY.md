@@ -494,6 +494,13 @@ loads it. What it does:
   can reach a library's socket to ask.
 - **Names**: bound beyond loopback, the front desk refuses to start without `SITE_HOSTS`, and
   answers 421 to any other `Host`.
+- **Logs**: what a library prints goes to `server.log` in its own folder, capped (two files of
+  `SITE_LIBRARY_LOG_KB`, the oldest dropped) and deleted with the folder. The front desk writes
+  it as root and opens no link, pipe or file with a second name that the library's process may
+  have left at that name. The front desk's own log says only that a library started, stopped or
+  failed and the failure's kind, an address by its shape (`/site/invite/…`, `app`), never a
+  token, a query string or a library's output; a slow request in any copy of the app is logged
+  by its path, without the query. `tools/site-gates.mjs` §4c checks it.
 - **The breached-password check** is the one outbound call the front desk makes. When someone
   sets a password, the first five characters of its SHA-1 are sent to
   `https://api.pwnedpasswords.com/range/<five characters>` with `Add-Padding: true`; the

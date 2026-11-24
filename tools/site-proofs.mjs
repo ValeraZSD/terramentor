@@ -151,7 +151,9 @@ try {
     await pool.wake(a);
     await sleep(WATCH_MS);
     const onWake = modelHits.length;
-    const said = lines.some((l) => l.includes('[site] Woken: start-up model work is not started'));
+    // What a library prints goes to its own log, not the front desk's.
+    let said = false;
+    try { said = fs.readFileSync(path.join(pool.libDir(a), 'server.log'), 'utf8').includes('[site] Woken: start-up model work is not started'); } catch { /* no log: no line */ }
     await pool.stop(a, 'proof');
 
     // The control: the same library, started the way a hosted copy starts.

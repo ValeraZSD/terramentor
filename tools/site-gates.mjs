@@ -19,6 +19,13 @@
  *      cookie and refuses its own password routes, a cross-site form is
  *      refused, signing out clears the browser's data for the address, and a
  *      library answers nothing without a good note.
+ *   4c. The operator's log: after an invite, a course named with a marker, a
+ *      feed run, a search, sign-ins and a library that fails to start, the
+ *      front desk's lines hold neither the marker nor any invite, session or
+ *      library key. The library's own server.log holds what it printed, stays
+ *      under its cap in two files, is never written through a link the library
+ *      left, and goes with the library's folder. A slow request is logged
+ *      without its query.
  *   5. The solo app is unchanged: no `site` in its status, no site line in its log.
  *
  * Nothing here reaches a model: the model address is a closed port.
@@ -29,7 +36,8 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import vm from 'node:vm';
 import { dirname, join, resolve } from 'node:path';
@@ -338,7 +346,8 @@ try {
         ok('a site library keeps the hosted copy\'s refusals', disable.status === 403);
         const updates = await req('GET', '/api/updates', { headers: { cookie } });
         ok('the app does not offer the person update controls', updates.status === 200 && JSON.parse(updates.text).controls === false, updates.text.slice(0, 120));
-        ok('a wake starts no model work', lines.some((l) => l.includes('[site] Woken: start-up model work is not started')));
+        const ownLog = () => { try { return readFileSync(join(desk.pool.libDir(libId), 'server.log'), 'utf8'); } catch { return ''; } };
+        ok('a wake starts no model work (said in the library\'s own log)', ownLog().includes('[site] Woken: start-up model work is not started'), ownLog().slice(0, 300));
 
         // Straight to the library's socket: nothing without a good note.
         const direct = (headers) => new Promise((resolveReq, reject) => {
@@ -530,6 +539,167 @@ try {
             ok('a SITE_DIR too long for a socket path is refused when the pool is made', /SITE_DIR is too long/.test(tooLong), tooLong);
         }
         await release();
+    }
+
+    // -------------------------------------------------------------------------
+    console.log('--- 4c. what the operator\'s log holds ---');
+    {
+        // The person's text is a word no code path would print by accident.
+        const MARKER = `Zebrafinch${crypto.randomBytes(6).toString('hex')}`;
+        const LOG_CAP = 16 * 1024;
+        const lines = [];
+        const log = { log: (l) => lines.push(String(l)), error: (l) => lines.push(String(l)), warn: (l) => lines.push(String(l)) };
+        const secrets = []; // every token and key the front desks handle below
+        const deskOn = async (name, appRoot) => {
+            const siteDir = join(scratch, name);
+            const db = openSiteDb(siteDir);
+            const desk = createFrontDesk({
+                db, siteDir, appRoot, separate: false, env: { ...process.env, ...CLOSED_MODEL }, log, sweepEveryMs: 3_600_000, libraryLogBytes: LOG_CAP,
+            });
+            held.push(() => db.close(), () => desk.close());
+            await new Promise((r) => desk.server.listen(0, '127.0.0.1', r));
+            const port = desk.server.address().port;
+            const origin = `http://localhost:${port}`;
+            const req = (method, path, { headers = {}, body } = {}) => new Promise((resolveReq) => {
+                const r = http.request({ host: '127.0.0.1', port, method, path, headers: { host: `localhost:${port}`, ...headers } }, (res) => {
+                    let text = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (c) => { text += c; });
+                    res.on('end', () => resolveReq({ status: res.statusCode, headers: res.headers, text }));
+                });
+                r.on('error', () => resolveReq({ status: 0, headers: {}, text: '' })); // a refused form may cut the socket
+                if (body) r.write(body);
+                r.end();
+            });
+            const FORM = { 'content-type': 'application/x-www-form-urlencoded', origin };
+            /** Accept an invite for `email`; returns the session cookie and the library's id. */
+            const join_ = async (email) => {
+                const { token } = desk.accounts.createInvite(email);
+                secrets.push(token);
+                const pw = 'a long enough pass phrase';
+                const accepted = await req('POST', `/site/invite/${token}`, { headers: FORM, body: new URLSearchParams({ password: pw, again: pw }).toString() });
+                const cookie = String(accepted.headers['set-cookie'] || '').split(';')[0];
+                secrets.push(decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1)));
+                const libId = db.prepare('SELECT library_id FROM accounts WHERE email = ?').get(email).library_id;
+                secrets.push(db.prepare('SELECT note_key FROM libraries WHERE id = ?').get(libId).note_key);
+                return { cookie, libId, pw, accepted };
+            };
+            return { siteDir, db, desk, req, origin, FORM, join: join_ };
+        };
+        const libraryLog = (dir) => readdirSync(dir).filter((f) => /^server\.log(\.\d+)?$/.test(f)).sort()
+            .map((f) => ({ name: f, text: readFileSync(join(dir, f), 'utf8') }));
+        /** Every file under `dir` whose bytes hold `needle`. */
+        const holding = (dir, needle) => {
+            const found = [];
+            const walk = (d) => {
+                for (const e of readdirSync(d, { withFileTypes: true })) {
+                    const p = join(d, e.name);
+                    if (e.isDirectory()) walk(p);
+                    else if (e.isFile() && readFileSync(p).includes(needle)) found.push(p);
+                }
+            };
+            walk(dir);
+            return found;
+        };
+
+        // A real library: an invite, a form too big for it, a course named with
+        // the marker, a feed run and a search on it, a wrong and a right sign-in.
+        const one = await deskOn('log-site', repoRoot);
+        const frank = one.desk.accounts.createInvite('frank@example.org');
+        secrets.push(frank.token);
+        await one.req('POST', `/site/invite/${frank.token}`, { headers: one.FORM, body: `password=${'x'.repeat(9000)}` });
+        const erin = await one.join('erin@example.org');
+        ok('(the invite opened the library)', erin.accepted.status === 303 && one.desk.pool.isAwake(erin.libId), String(erin.accepted.status));
+        const course = { project: { name: `${MARKER} course` }, nodes: [{ title: `${MARKER} topic`, children: [] }] };
+        const imported = await one.req('POST', '/api/import', { headers: { cookie: erin.cookie, origin: one.origin, 'content-type': 'application/json' }, body: JSON.stringify(course) });
+        ok('(the course was imported)', imported.status === 200 || imported.status === 201, `${imported.status} ${imported.text.slice(0, 160)}`);
+        await one.req('GET', `/api/feed?limit=5&q=${MARKER}`, { headers: { cookie: erin.cookie } });
+        await one.req('GET', `/api/search?q=${MARKER}`, { headers: { cookie: erin.cookie } });
+        await one.req('POST', '/site/sign-in', { headers: one.FORM, body: new URLSearchParams({ email: 'erin@example.org', password: `${MARKER} wrong guess` }).toString() });
+        const again = await one.req('POST', '/site/sign-in', { headers: one.FORM, body: new URLSearchParams({ email: 'erin@example.org', password: erin.pw }).toString() });
+        const againCookie = String(again.headers['set-cookie'] || '').split(';')[0];
+        secrets.push(decodeURIComponent(againCookie.slice(againCookie.indexOf('=') + 1)));
+        // The library prints as it goes; give the feed run a moment.
+        for (let i = 0; i < 50 && !libraryLog(one.desk.pool.libDir(erin.libId)).some((f) => f.text.includes(MARKER)); i++) await new Promise((r) => setTimeout(r, 100));
+
+        // A library that fails to start, after printing the person's text and its key.
+        const fakeApp = join(scratch, 'fake-app');
+        mkdirSync(join(fakeApp, 'server'), { recursive: true });
+        writeFileSync(join(fakeApp, 'server', 'index.js'), [
+            `for (let i = 0; i < 400; i++) console.log('filler line ' + i + ' ' + '.'.repeat(80));`,
+            `console.log('the last line before the failure');`,
+            `console.error('Could not open "${MARKER} topic" with key ' + process.env.SITE_NOTE_KEY);`,
+            'process.exitCode = 3;',
+        ].join('\n'));
+        const two = await deskOn('log-site-broken', fakeApp);
+        const gail = await two.join('gail@example.org');
+        const opened = await two.req('GET', '/api/projects', { headers: { cookie: gail.cookie } });
+        ok('(the broken library\'s wake failed, at the invite and at the next request)', opened.status === 502, String(opened.status));
+
+        const deskLines = lines.join('\n');        ok('the front desk logged the starts, the failed form and the failed wakes',
+            /Started library/.test(deskLines) && /\/site\/invite\//.test(deskLines) && /First start of library/.test(deskLines) && /Could not open library/.test(deskLines), deskLines.slice(0, 600));
+        ok('the front desk\'s log never holds the person\'s text', !deskLines.includes(MARKER),
+            lines.find((l) => l.includes(MARKER))?.slice(0, 200));
+        const leaked = secrets.filter((s) => s && s.length >= 16 && deskLines.includes(s));
+        ok(`nor any of the ${secrets.length} tokens and keys it handled (invites, sessions, a library's key)`, leaked.length === 0,
+            leaked.map((s) => lines.find((l) => l.includes(s))?.slice(0, 160)).join(' | '));
+        ok('nor a request\'s query', !/\?(?:q|limit)=/.test(deskLines));
+
+        const erinDir = one.desk.pool.libDir(erin.libId);
+        const erinLog = libraryLog(erinDir);
+        ok('the library\'s own log, in its own folder, holds what it printed', erinLog.some((f) => f.text.includes(MARKER)), erinLog.map((f) => f.name).join(', ') || 'no log file');
+        const gailLog = libraryLog(two.desk.pool.libDir(gail.libId));
+        ok('a library that failed to start has its output in its own log', gailLog.some((f) => f.text.includes('the last line before the failure')), gailLog.map((f) => f.name).join(', ') || 'no log file');
+        ok(`each log file stays under its cap (${LOG_CAP / 1024} KB), the oldest dropped: two files at most`,
+            gailLog.length === 2 && gailLog.every((f) => Buffer.byteLength(f.text) <= LOG_CAP) && !gailLog.some((f) => f.text.includes('filler line 0 ')),
+            gailLog.map((f) => `${f.name} ${Buffer.byteLength(f.text)} B`).join(', '));
+
+        // The front desk writes the log as root into a folder the library owns, and
+        // its process may have left a link there: a hard link to another file (and,
+        // where links need no rights, a symbolic one). Nothing is written through either.
+        {
+            const pool = one.desk.pool;
+            const target = join(scratch, 'not-a-log.txt');
+            writeFileSync(target, 'untouched');
+            const hard = pool.create();
+            linkSync(target, join(pool.libDir(hard), 'server.log'));
+            await pool.wake(hard);
+            await pool.stop(hard, 'gate');
+            let soft = null;
+            if (process.platform !== 'win32') {
+                soft = pool.create();
+                symlinkSync(target, join(pool.libDir(soft), 'server.log'));
+                await pool.wake(soft);
+                await pool.stop(soft, 'gate');
+            }
+            ok(`a library that left a ${soft ? 'hard or symbolic' : 'hard'} link at its log's name still starts, and nothing is written through the link`,
+                readFileSync(target, 'utf8') === 'untouched', readFileSync(target, 'utf8').slice(0, 120));
+        }
+
+        await release();
+        const before = holding(join(scratch, 'log-site'), MARKER);
+        ok('only the library\'s folder holds the person\'s text', before.length > 0 && before.every((p) => p.startsWith(erinDir)), before.join(', '));
+        rmSync(erinDir, { recursive: true, force: true, maxRetries: 5 });
+        ok('and once the library is deleted, nothing on the site does', holding(join(scratch, 'log-site'), MARKER).length === 0);
+
+        // A slow request is logged by its path; the query (search text) stays out.
+        const savedSlow = process.env.SLOW_REQUEST_MS;
+        process.env.SLOW_REQUEST_MS = '1';
+        const { slowRequestLog } = await import('../server/slowLog.js');
+        if (savedSlow === undefined) delete process.env.SLOW_REQUEST_MS; else process.env.SLOW_REQUEST_MS = savedSlow;
+        const warned = [];
+        const realWarn = console.warn;
+        console.warn = (...a) => warned.push(a.join(' '));
+        try {
+            const res = new EventEmitter();
+            res.statusCode = 200;
+            res.getHeader = () => 'application/json';
+            slowRequestLog()({ method: 'GET', originalUrl: `/api/search?q=${MARKER}`, url: `/search?q=${MARKER}` }, res, () => {});
+            await new Promise((r) => setTimeout(r, 20));
+            res.emit('finish');
+        } finally { console.warn = realWarn; }
+        const slow = warned.find((l) => l.includes('[Slow]')) || '';
+        ok('a slow request\'s line names its path and holds no "?" and no search text', slow.includes('GET /api/search') && !slow.includes('?') && !slow.includes(MARKER), slow || 'no slow line');
     }
 
     // -------------------------------------------------------------------------

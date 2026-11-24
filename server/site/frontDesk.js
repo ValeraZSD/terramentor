@@ -21,7 +21,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
 import { createAccounts, WRONG } from './accounts.js';
-import { createLibraryPool } from './libraries.js';
+import { createLibraryPool, failureWord } from './libraries.js';
 import { MIN_LENGTH } from './passwords.js';
 import { inviteSpentPage, invitePage, openingPage, problemPage, signInPage } from './pages.js';
 import { makeNote, NOTE_HEADER } from '../siteLibrary.js';
@@ -55,6 +55,29 @@ function requestProto(req) {
         if (p === 'https' || p === 'http') return p;
     }
     return 'http';
+}
+
+// The front desk's own log lines. They outlive every library and its erasure,
+// so they name no person's text, no token and no request's query: a route by
+// its shape, a failure by its kind, the code by file and line.
+const SITE_ROUTES = new Set(['/site', '/site/health', '/site/sign-in', '/site/sign-out', '/site/sign-out-others', '/site/sessions', '/site/sessions.json']);
+
+/** A request's address as a log line may name it: an invite link without its token, an app request as `app`. */
+export function routeLabel(url) {
+    const p = String(url || '').split('?')[0];
+    if (SITE_ROUTES.has(p)) return p;
+    if (p.startsWith('/site/invite/')) return '/site/invite/…';
+    if (/^\/site\/sessions\/\d+\/sign-out$/.test(p)) return '/site/sessions/N/sign-out';
+    if (p === '/site' || p.startsWith('/site/')) return '/site/…';
+    return 'app';
+}
+
+/** Where a failure happened: up to four `at` lines of its stack, never its message. */
+export function codeFrames(err) {
+    const frames = String(err?.stack || '').split('\n')
+        .filter((l) => /^\s+at (?:.*\()?(?:file|node):[^\s()]+\)?$/.test(l))
+        .slice(0, 4).map((l) => l.trim());
+    return frames.length ? ` ${frames.join(' < ')}` : '';
 }
 
 function readCookie(req, name) {
@@ -106,11 +129,11 @@ function readForm(req) {
  */
 export function createFrontDesk({
     db, siteDir, appRoot, separate, hosts = [], env = process.env, log = console,
-    maxAwake, heapMb, memoryMb, idleMs, uidBase, breachCheck, sweepEveryMs = 30_000,
+    maxAwake, heapMb, memoryMb, idleMs, uidBase, breachCheck, sweepEveryMs = 30_000, libraryLogBytes,
 }) {
     const pool = createLibraryPool({
         db, siteDir, appRoot, separate, maxAwake, heapMb, memoryMb, idleMs, uidBase, env, log,
-        allowedHosts: hosts.join(','),
+        allowedHosts: hosts.join(','), ...(libraryLogBytes ? { logBytes: libraryLogBytes } : {}),
     });
     const accounts = createAccounts(db, {
         env, createLibrary: () => pool.create(), ...(breachCheck ? { breachCheck } : {}),
@@ -215,7 +238,7 @@ export function createFrontDesk({
                 if (result.error) return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, error: result.error }), headers);
                 // The new library's first start makes its database; done here so
                 // the first page does not wait for it.
-                await pool.wake(result.libraryId).catch((e) => log.error(`[site] First start of a new library failed: ${e.message}`));
+                await pool.wake(result.libraryId).catch((e) => log.error(`[site] First start of library ${result.libraryId.slice(0, 8)} failed: ${failureWord(e)}`));
                 return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token), 'Clear-Site-Data': CLEAR_SITE_DATA });
             }
         }
@@ -277,7 +300,7 @@ export function createFrontDesk({
                 const { nonce, headers } = nonceHeaders();
                 return send(res, 503, openingPage({ nonce }), { ...headers, 'Retry-After': '5' });
             }
-            log.error(`[site] Could not open library ${session.libraryId.slice(0, 8)}: ${e.message}`);
+            log.error(`[site] Could not open library ${session.libraryId.slice(0, 8)}: ${failureWord(e)}`);
             if (req.url.startsWith('/api/')) return json(res, 502, keyed('Your library could not be opened. Try again in a moment.'));
             const { nonce, headers } = nonceHeaders();
             return send(res, 502, problemPage({ nonce, title: 'Your library could not be opened', text: 'Try again in a moment.' }), headers);
@@ -339,7 +362,7 @@ export function createFrontDesk({
             done();
             if (!res.headersSent) json(res, 502, keyed('Your library did not answer. Try again in a moment.'));
             else res.destroy();
-            log.error(`[site] Library ${session.libraryId.slice(0, 8)} did not answer: ${e.message}`);
+            log.error(`[site] Library ${session.libraryId.slice(0, 8)} did not answer: ${failureWord(e)}`);
         });
         req.pipe(upstream);
     }
@@ -357,7 +380,7 @@ export function createFrontDesk({
             }
             return await forward(req, res, session);
         } catch (e) {
-            log.error(`[site] ${req.method} ${String(req.url).split('?')[0]}: ${e.stack || e.message}`);
+            log.error(`[site] ${req.method} ${routeLabel(req.url)} failed: ${failureWord(e)}${codeFrames(e)}`);
             if (!res.headersSent) json(res, e.status || 500, keyed('Something went wrong at the front desk.'));
             else res.destroy();
         }
@@ -367,8 +390,8 @@ export function createFrontDesk({
     server.keepAliveTimeout = 5_000;
 
     const sweeper = setInterval(() => {
-        pool.sweep().catch((e) => log.error(`[site] Sweep failed: ${e.message}`));
-        try { accounts.sweepSessions(); closeEndedStreams(); } catch (e) { log.error(`[site] Session sweep failed: ${e.message}`); }
+        pool.sweep().catch((e) => log.error(`[site] Sweep failed: ${failureWord(e)}${codeFrames(e)}`));
+        try { accounts.sweepSessions(); closeEndedStreams(); } catch (e) { log.error(`[site] Session sweep failed: ${failureWord(e)}${codeFrames(e)}`); }
     }, sweepEveryMs);
     sweeper.unref();
 

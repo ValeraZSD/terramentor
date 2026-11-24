@@ -8,6 +8,7 @@
 // hash made with weaker ones is re-made at the next sign-in (`needsRehash`).
 import crypto from 'node:crypto';
 import { safeFetch } from '../netSafety.js';
+import { failureFacts } from '../failureFacts.js';
 
 export const ARGON2 = { memory: 19456, passes: 2, parallelism: 1, tagLength: 32 };
 /** NIST SP 800-63B-4: 15 when a password is the only factor. No composition rules. */
@@ -118,7 +119,7 @@ export async function isBreached(password, { env = process.env, fetchImpl = safe
             headers: { 'Add-Padding': 'true', 'User-Agent': 'terramentor-site' },
             signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) throw new Error(`status ${res.status}`);
+        if (!res.ok) throw Object.assign(new Error(`status ${res.status}`), { httpStatus: res.status });
         const body = await res.text();
         for (const line of body.split('\n')) {
             const [suffix, count] = line.trim().split(':');
@@ -126,7 +127,9 @@ export async function isBreached(password, { env = process.env, fetchImpl = safe
         }
         return false;
     } catch (e) {
-        console.warn(`[site] The breached-password check could not be reached (${e.message}); the password was let through.`);
+        // Its kind, not its message: a refused fetch names the address, and the
+        // address holds the start of the password's hash.
+        console.warn(`[site] The breached-password check could not be reached (${failureFacts(e)}); the password was let through.`);
         return null;
     }
 }
