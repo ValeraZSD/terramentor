@@ -65,9 +65,16 @@ const NO_ENDPOINT_FITS = /data policy|zero data retention|\bzdr\b/i;
  * a learner-facing keyed error, so a route answers with these words rather
  * than the generic "check the model name in Settings", which a hosted learner
  * cannot reach; the same words go to the log for the operator.
+ *
+ * A 404 with no body counts as one too. A body that could not be read (the
+ * connection dropped mid-answer) arrives empty (aiWire.js reads error bodies
+ * and keeps '' on a failed read), and it may be the refusal: a plain failure
+ * would let `fallsOver` send the text on to a backup that keeps it.
  */
 export function zeroRetentionRefusal(settings, status, responseText, model = settings?.model) {
-    if (status !== 404 || !asksForZeroRetention(settings) || !NO_ENDPOINT_FITS.test(String(responseText || ''))) return null;
+    if (status !== 404 || !asksForZeroRetention(settings)) return null;
+    const said = String(responseText ?? '').trim();
+    if (said && !NO_ENDPOINT_FITS.test(said)) return null;
     return Object.assign(learnerError(
         ZERO_RETENTION_REFUSAL,
         { model: String(model || '') },
@@ -89,13 +96,21 @@ function extraProvider(raw) {
  * settings (getAISettings) of a hosted copy; a site's front desk passes none,
  * and the AI_* variables it hands every library are read instead, with
  * `hosted: true` because the desk is not hosted itself but its libraries are.
+ * `embeddingBase` is where document chunks go for embeddings when they take
+ * the OpenAI-compatible route (embeddings.js `openAIEmbeddingBase`), or null:
+ * with chat on a local model, that route is the only one text leaves by.
  */
-export function zeroRetentionWarnings(env = process.env, { hosted = isHosted(env), settings = null } = {}) {
+export function zeroRetentionWarnings(env = process.env, { hosted = isHosted(env), settings = null, embeddingBase = null } = {}) {
     if (!hosted) return [];
     const provider = settings ? settings.provider : env.AI_PROVIDER;
-    if (provider !== 'openai') return [];
-    let base = String((settings ? settings.baseUrl : env.AI_BASE_URL) || '').trim();
-    if (!base) base = OPENAI_DEFAULT_BASE;
+    let base;
+    if (provider === 'openai') {
+        base = String((settings ? settings.baseUrl : env.AI_BASE_URL) || '').trim() || OPENAI_DEFAULT_BASE;
+    } else if (embeddingBase) {
+        base = String(embeddingBase).trim();
+    } else {
+        return [];
+    }
     if (!isOpenRouterUrl(base)) {
         let host = base;
         try { host = new URL(base).host; } catch { /* shown as written */ }

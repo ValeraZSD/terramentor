@@ -151,6 +151,18 @@ function openAIEmbeddingTarget(ai) {
     return { settings, base: normalizeOpenAIBaseUrl(settings.baseUrl) };
 }
 
+/** Where embeddings send document chunks over the OpenAI-compatible route,
+ *  or null when they do not take it (off, Ollama, or refused). Read by the
+ *  hosted start-up warning (zeroRetention.js), since chat may be local. */
+export function openAIEmbeddingBase() {
+    const ai = getAISettings();
+    const cfg = getEmbeddingConfig();
+    const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
+    if (!cfg.enabled || provider !== 'openai') return null;
+    const target = openAIEmbeddingTarget(ai);
+    return target.refused ? null : target.base;
+}
+
 // Embed a batch of strings → array of number[]. Throws on any failure (missing
 // model, unreachable endpoint, shape mismatch) so callers can distinguish
 // "no embeddings available" from "zero results".

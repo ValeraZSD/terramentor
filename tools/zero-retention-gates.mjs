@@ -48,6 +48,9 @@ globalThis.fetch = async (url, init = {}) => {
     if (refuseRetention === 'mid-stream' && body?.stream) {
         return new Response(`data: ${NO_ZDR_BODY}\n\n`, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
     }
+    if (refuseRetention === 'unreadable') { // a 404 whose body breaks while it is read
+        return new Response(new ReadableStream({ start(c) { c.error(new Error('socket hang up')); } }), { status: 404 });
+    }
     if (refuseRetention) return json(404, NO_ZDR_BODY);
     if (u.pathname.endsWith('/embeddings')) {
         const n = Array.isArray(body?.input) ? body.input.length : 1;
@@ -200,11 +203,28 @@ try {
             effective.length === 1 && /api\.example\.net/.test(effective[0]), JSON.stringify(effective));
         const sub = zeroRetentionWarnings({ ...base, AI_BASE_URL: 'https://eu.openrouter.ai/api/v1' });
         check('an OpenRouter subdomain is OpenRouter, not "another endpoint"', sub.length === 1 && ACCOUNT.test(sub[0]), JSON.stringify(sub));
+        // Chat on a local model, embeddings over the OpenAI-compatible route:
+        // document chunks still leave the copy, so the warning follows them.
+        const local = { TERRAMENTOR_HOSTED: '1', AI_PROVIDER: 'ollama' };
+        const embedElsewhere = zeroRetentionWarnings(local, { settings: { provider: 'ollama', baseUrl: 'https://api.example.net/v1' }, embeddingBase: 'https://api.example.net/v1' });
+        check('chat on Ollama with embeddings sent to another endpoint is warned about, naming its host',
+            embedElsewhere.length === 1 && /api\.example\.net/.test(embedElsewhere[0]), JSON.stringify(embedElsewhere));
+        const embedRouter = zeroRetentionWarnings(local, { settings: { provider: 'ollama', baseUrl: OPENROUTER }, embeddingBase: OPENROUTER });
+        check('…and with embeddings on OpenRouter, the "ZDR only" line is said', embedRouter.length === 1 && ACCOUNT.test(embedRouter[0]), JSON.stringify(embedRouter));
+        const { openAIEmbeddingBase } = await import('../server/embeddings.js');
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_provider', 'openai')").run();
+        process.env.AI_PROVIDER = 'ollama'; process.env.AI_BASE_URL = 'https://api.example.net/v1';
+        const routed = openAIEmbeddingBase();
+        process.env.AI_PROVIDER = 'openai';
+        db.prepare("DELETE FROM settings WHERE key = 'embedding_provider'").run();
+        delete process.env.AI_PROVIDER; delete process.env.AI_BASE_URL;
+        check('openAIEmbeddingBase names that endpoint when chat is local and embeddings are routed to it', routed === 'https://api.example.net/v1', String(routed));
         const index = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
         const site = readFileSync(new URL('../server/site/index.js', import.meta.url), 'utf8');
         // Source checks: running either entry point starts a server.
         check('server/index.js prints the warnings at start, on a hosted copy only (a desktop start reads no model settings for it)',
             /if \(isHosted\(\) && !isSiteLibrary\(\)\) \{[\s\S]{0,400}?zeroRetentionWarnings\(/.test(index), 'expected the call inside if (isHosted() && !isSiteLibrary())');
+        check('…passing where embeddings go', /zeroRetentionWarnings\([^)]*embeddingBase/.test(index));
         check('the site front desk prints them for its libraries', /zeroRetentionWarnings\([^)]*hosted:\s*true/.test(site));
     }
 
@@ -287,6 +307,37 @@ try {
         check('a lesson\'s, a task\'s and a course creation\'s failure records carry the flag (feedGen.js, tasks.js, createProject.js)',
             /zeroRetention: err\?\.zeroRetention === true/.test(feedSrc) && /zeroRetention: e\.zeroRetention === true/.test(tasksSrc)
             && /zeroRetention: record\.zeroRetention/.test(screenFailure));
+        check('the feed writer hands its task the error itself, so the task record keeps the flag (feedGen.js handle.fail)',
+            /handle\.fail\(err\.message, err\)/.test(feedSrc));
+    }
+
+    section('a 404 whose body could not be read is taken as the refusal, never a fall-over');
+    {
+        useEnv();
+        const { zeroRetentionRefusal } = await import('../server/zeroRetention.js');
+        const { fallsOver } = await import('../server/aiJobs.js');
+        const settings = { provider: 'openai', baseUrl: OPENROUTER, model: MODEL };
+        const unread = zeroRetentionRefusal(settings, 404, '');
+        check('a hosted OpenRouter 404 with no body counts as the refusal (a failed read arrives as one)',
+            unread?.zeroRetention === true && fallsOver(unread) === false && zeroRetentionRefusal(settings, 404, null)?.zeroRetention === true);
+        check('a 404 whose body names no data policy is still an ordinary failure', zeroRetentionRefusal(settings, 404, '{"error":"no such model"}') === null);
+        useEnv({ hosted: false });
+        check('…and an empty 404 on the learner\'s own computer is not one', zeroRetentionRefusal(settings, 404, '') === null);
+        useEnv();
+        // The real calls: the 404's body stream breaks while it is read.
+        refuseRetention = 'unreadable';
+        let err = null;
+        try { await ai.generateResponse('What is a cell wall?', 'You are a tutor.'); } catch (e) { err = e; }
+        let streamErr = null;
+        try { for await (const _ of ai.streamResponse('Explain osmosis.', 'You are a tutor.')) { /* drain */ } } catch (e) { streamErr = e; }
+        let visErr = null;
+        try { await ai.transcribeImageToText(PNG, {}); } catch (e) { visErr = e; }
+        let embErr = null;
+        try { await embedBatch(['a passage']); } catch (e) { embErr = e; }
+        refuseRetention = false;
+        check('chat, stream, picture read and embeddings all stop on it',
+            [err, streamErr, visErr, embErr].every(e => e?.zeroRetention === true),
+            [err, streamErr, visErr, embErr].map(e => String(e?.message ?? e).slice(0, 80)).join(' | '));
     }
 
     section('outside a hosted copy, or off OpenRouter, nothing is added');
