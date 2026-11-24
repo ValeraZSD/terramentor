@@ -1,6 +1,11 @@
 {
   "Written by AI": "Escrito por IA",
   "Written by AI ({{model}})": "Escrito por IA ({{model}})",
+  "Correct, with a spelling slip": "Correto, com um pequeno erro de ortografia",
+  "It is spelled:": "Escreve-se:",
+  "Only a letter or two off.": "Apenas uma ou duas letras de diferença.",
+  "Forgive small spelling slips from now on": "Perdoar pequenos erros de ortografia a partir de agora",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "A partir da sua próxima resposta, pequenos erros de ortografia contam como certos. Pode desativar isto em Definições, em Aprendizagem.",
   " — stopped early, some pages were not re-read": "— interrompido antecipadamente, algumas páginas não foram relidas",
   " ({{answers}} answers)_many": " ({{answers}} respostas)",
   " ({{answers}} answers)_one": " ({{answers}} resposta)",

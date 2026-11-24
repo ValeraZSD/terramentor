@@ -1,6 +1,11 @@
 {
   "Written by AI": "Napisane przez AI",
   "Written by AI ({{model}})": "Napisane przez AI ({{model}})",
+  "Correct, with a spelling slip": "Poprawnie, z drobnym błędem pisowni",
+  "It is spelled:": "Poprawna pisownia:",
+  "Only a letter or two off.": "Różnica tylko jednej lub dwóch liter.",
+  "Forgive small spelling slips from now on": "Odtąd wybaczaj drobne błędy pisowni",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "Od następnej odpowiedzi drobne błędy pisowni liczą się jako poprawne. Możesz to wyłączyć w Ustawieniach, w sekcji Nauka.",
   " — stopped early, some pages were not re-read": "— zatrzymano wcześniej, niektóre strony nie zostały ponownie przeczytane",
   " ({{answers}} answers)_few": " ({{answers}} odpowiedzi)",
   " ({{answers}} answers)_many": " ({{answers}} odpowiedzi)",

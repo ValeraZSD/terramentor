@@ -6,7 +6,8 @@ import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
 import SpellingNote from '../answer/SpellingNote';
-import { formatOf, answerHint, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
+import SpellingOffer from '../answer/SpellingOffer';
+import { formatOf, answerHint, defaultAnswer, answerIsComplete, answerAsText, correctVerdict } from '../answer/formats';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
@@ -77,8 +78,9 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     // (a reload, a card scrolled back) neither speaks nor takes focus.
     const shown = result && !reportedNote ? (result.correct ? 'correct' : result.unsure ? 'unsure' : 'wrong') : '';
     const { ref: verdictRef, arrived } = useArrivalFocus<HTMLDivElement>(shown);
+    const correctLine = t(correctVerdict(question, result?.answer ?? ''));
     const verdict = !arrived ? ''
-        : shown === 'correct' ? t("Correct") : shown === 'unsure' ? t("Not marked") : shown === 'wrong' ? t("Not quite") : '';
+        : shown === 'correct' ? correctLine : shown === 'unsure' ? t("Not marked") : shown === 'wrong' ? t("Not quite") : '';
 
     return (
         // One item: the flag at the stem and the line under a wrong verdict
@@ -141,14 +143,16 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                             : 'text-red-700 dark:text-red-300'}`}
                         >
                             {result.correct ? <Check className="w-4 h-4 shrink-0" /> : <X className="w-4 h-4 shrink-0" />}
-                            {result.correct ? t("Correct") : result.unsure ? t("Not marked") : t("Not quite")}
+                            {result.correct ? correctLine : result.unsure ? t("Not marked") : t("Not quite")}
                         </p>
                         {!result.correct && (
                             <div className="mt-1.5">
                                 <AnswerKey question={question} />
                             </div>
                         )}
-                        {result.correct && <SpellingNote question={question} answer={result.answer} className="mt-1.5" />}
+                        {!result.correct && !result.unsure && <SpellingOffer question={question} answer={result.answer} projectId={projectId} className="mt-1.5" />}
+                        {/* The headline already says it was a slip: the note adds only the spelling. */}
+                        {result.correct && <SpellingNote question={question} answer={result.answer} headed className="mt-1.5" />}
                         {result.explanation && (
                             <p className="text-sm leading-6 text-slate-600 dark:text-slate-400 mt-1.5">
                                 <MathText content={result.explanation} />
