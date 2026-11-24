@@ -392,7 +392,9 @@ node --check server/app.js              # (and any other server file)
 ```
 
 `tools/run-gates.mjs` is what `npm test` runs, and CI runs the same command on
-Node 24, on Linux and Windows. Discovery is by filename, so a new `tools/*-gates.mjs` joins the
+Node 24, on Linux and Windows. It runs the suites side by side (`--jobs N` or `GATES_JOBS`; the
+browser suites take turns), so no suite may hold a fixed port, temp folder or repo file another
+also uses. Discovery is by filename, so a new `tools/*-gates.mjs` joins the
 suite automatically. A selection of what they cover; the table is not the whole
 list, `ls tools/*-gates.mjs` is:
 
