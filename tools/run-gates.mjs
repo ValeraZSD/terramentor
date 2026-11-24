@@ -78,7 +78,7 @@ const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'perf-budget-gat
  *     creates and deletes probe files there and the harnesses write their bundles;
  *   - provenance-gates counts every request its page makes while a fake fetch is
  *     in place, waiting a fixed number of event-loop turns; on a loaded machine
- *     other requests from the same page land in that window (2 of 4 side-by-side
+ *     other requests from the same page land in that window (2 of 8 side-by-side
  *     CI jobs failed on it). It passes alone, as it always did in a serial run.
  */
 const ALONE_SUITES = ['perf-budget-gates.mjs', 'dep-gates.mjs', 'provenance-gates.mjs'];
