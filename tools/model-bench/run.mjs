@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Model benchmark: runs every case in tools/model-bench/cases/ through the
- * app's own model-calling code against one or more OpenRouter models, and
+ * Model benchmark: runs every case of a suite (tools/model-bench/cases/, or
+ * cases-hard/ with --suite hard) through the app's own model-calling code
+ * against one or more OpenRouter models, and
  * writes one JSON line per (model, case) to <out>/<model>.jsonl.
  *
  *   node tools/model-bench/run.mjs --models free --out <dir>
@@ -11,6 +12,7 @@
  *            --shards N        split each model's cases over N workers (default 1)
  *            --daily 900       stop granting requests after this many in this run
  *                              (free models: defaults to the key's free quota left)
+ *            --suite hard      the case set (default standard; see suites.mjs)
  *            --cases a,b       only these case ids
  *            --label x         a repeat run for noise: writes <model>@x.jsonl
  *            --retry-errors    re-run rows that ended in a transient error
@@ -34,6 +36,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync } fr
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { isDirect, apiModel, hasAnthropicPrice } from './harness.mjs';
+import { suiteName } from './suites.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -54,6 +57,8 @@ if (wanted?.some(isDirect) && !process.env.ANTHROPIC_API_KEY) { console.error('A
 const OUT = path.resolve(String(args.out || ''));
 if (!args.out) { console.error('--out <dir> is required'); process.exit(2); }
 if (args.label && !/^[a-z0-9_-]+$/i.test(String(args.label))) { console.error('--label takes letters, digits, - and _'); process.exit(2); }
+let SUITE;
+try { SUITE = suiteName(args.suite === true ? '' : args.suite); } catch (e) { console.error(e.message); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
 
 const RPM = positive('rpm', args.rpm ?? 16);
@@ -158,7 +163,7 @@ function runModel(m, shard) {
         const file = fileFor(m);
         const child = fork(path.join(HERE, 'worker.mjs'), [], {
             env: { ...process.env, BENCH_MODEL: m.id, BENCH_VISION: m.vision ? '1' : '', BENCH_ZDR: m.zdr ? '1' : '',
-                BENCH_FILE: file, BENCH_CASES: args.cases ? String(args.cases) : '', BENCH_SHARD: `${shard}/${SHARDS}`,
+                BENCH_FILE: file, BENCH_SUITE: SUITE, BENCH_CASES: args.cases ? String(args.cases) : '', BENCH_SHARD: `${shard}/${SHARDS}`,
                 BENCH_RETRY_ERRORS: args['retry-errors'] ? '1' : '', BENCH_REV: REV || '' },
             stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
         });

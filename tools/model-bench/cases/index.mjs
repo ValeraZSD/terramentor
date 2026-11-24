@@ -20,37 +20,11 @@
  * place of the model to prove each scorer passes a good answer and fails
  * broken ones.
  */
+import { familyLoader } from '../suites.mjs';
+
 const FAMILIES = [
     'verify', 'grading', 'explainBack', 'paper', 'quiz', 'flashcards', 'lessons', 'audit',
     'outline', 'identity', 'searchWords', 'regions', 'chat', 'assistant', 'visuals', 'vision',
 ];
 
-export async function loadFamilies() {
-    const out = [];
-    for (const name of FAMILIES) {
-        // A family that fails to load fails the run: a silently missing one
-        // would shrink the benchmark and still pass the scorer check.
-        const mod = await import(`./${name}.mjs`);
-        out.push({ name, ...mod.default });
-    }
-    return out;
-}
-
-/** The flat case list, each bound to its family's fixture. */
-export async function loadCases(app) {
-    const ids = new Set();
-    const cases = [];
-    for (const f of await loadFamilies()) {
-        const fx = f.setup ? await f.setup(app) : {};
-        for (const c of f.cases) {
-            if (ids.has(c.id)) throw new Error(`duplicate case id ${c.id}`);
-            ids.add(c.id);
-            cases.push({
-                ...c, category: f.category, label: f.label,
-                run: (a) => c.run(fx, a),
-                score: (out, a) => c.score(out, fx, a),
-            });
-        }
-    }
-    return cases;
-}
+export const { loadFamilies, loadCases } = familyLoader(import.meta.url, FAMILIES);

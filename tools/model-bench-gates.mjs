@@ -18,5 +18,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const r = spawnSync(process.execPath, [join(here, 'model-bench', 'mutate.mjs')], { stdio: 'inherit' });
-process.exit(r.status ?? 1);
+// Both case sets (tools/model-bench/suites.mjs), one after the other; either
+// one failing fails the gate.
+let status = 0;
+for (const suite of ['standard', 'hard']) {
+    console.log(`suite: ${suite}`);
+    const r = spawnSync(process.execPath, [join(here, 'model-bench', 'mutate.mjs'), '--suite', suite], { stdio: 'inherit' });
+    if (r.status !== 0) status = r.status ?? 1;
+}
+process.exit(status);

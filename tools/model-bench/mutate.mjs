@@ -2,7 +2,7 @@
 /**
  * Checks the benchmark's scorers before any model is trusted to them.
  *
- *   node tools/model-bench/mutate.mjs [--cases a,b] [--family grading] [-v]
+ *   node tools/model-bench/mutate.mjs [--suite hard] [--cases a,b] [--family grading] [-v]
  *
  * For every case, the model is replaced by a stub that answers with the case's
  * `golden` reply, then with each of its `mutants` (hand-broken replies). The
@@ -20,11 +20,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs, anthropicUsage } from './harness.mjs';
 import { codeChildFlags } from './cases/visuals.mjs';
+import { loadSuite, suiteName } from './suites.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : ''; };
 const ONLY = opt('cases').split(',').filter(Boolean);
 const FAMILY = opt('family');
+const SUITE = suiteName(opt('suite'));
 const VERBOSE = argv.includes('-v');
 const MODEL = 'bench/mock-model';
 const APP_LOGS = argv.includes('--app-logs');
@@ -71,7 +73,7 @@ installFetch({
 });
 
 const app = await loadApp(MODEL);
-const { loadCases } = await import('./cases/index.mjs');
+const { loadCases } = await loadSuite(SUITE);
 const cases = (await loadCases(app)).filter(c => (!ONLY.length || ONLY.includes(c.id)) && (!FAMILY || c.category === FAMILY));
 
 const serve = async (c, reply) => {

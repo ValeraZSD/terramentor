@@ -2,7 +2,7 @@
 /**
  * Turns a results folder from run.mjs into a table and a chart.
  *
- *   node tools/model-bench/report.mjs --out <dir> [--md report.md] [--png chart.png]
+ *   node tools/model-bench/report.mjs --out <dir> [--suite hard] [--md report.md] [--png chart.png]
  *        [--noise <label>]      compare <model>.jsonl with <model>@<label>.jsonl
  *        [--profile file.json]  calls per active day by category, for $/month
  *        [--title text]         the chart's title
@@ -13,6 +13,7 @@
  * `errors` column, because a learner would have seen that failure too.
  */
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { loadSuite } from './suites.mjs';
 import path from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -20,7 +21,7 @@ const opt = (k, d = '') => { const i = argv.indexOf(`--${k}`); return i >= 0 ? a
 const OUT = opt('out');
 if (!OUT) { console.error('--out <dir> is required'); process.exit(2); }
 
-const { loadFamilies } = await import('./cases/index.mjs');
+const { loadFamilies } = await loadSuite(opt('suite'));
 const families = await loadFamilies();
 const caseCount = families.reduce((n, f) => n + f.cases.length, 0);
 const label = Object.fromEntries(families.map(f => [f.category, f.label]));
