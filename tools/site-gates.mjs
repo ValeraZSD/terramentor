@@ -655,6 +655,32 @@ try {
             routeLabel(`/site/invite/${frank.token}?x=1`) === '/site/invite/…' && routeLabel('/site/sessions/42/sign-out') === '/site/sessions/N/sign-out'
             && routeLabel(`/site/${MARKER}`) === '/site/…' && routeLabel(`/api/search?q=${MARKER}`) === 'app' && routeLabel('/site/sign-in?signed-out') === '/site/sign-in');
         {
+            // Every line the front desk's code writes, read from its source: one literal
+            // per call, and each value put into it one of the fixed-word helpers or a
+            // value that holds no person's text. A new log line with an error's message,
+            // a URL or a title in it fails here before any run would show it. (cli.js
+            // prints to the operator's own terminal on request, not to the log.)
+            const SAFE_VALUE = [/^\w+(?:\.\w+)*\.slice\(0, 8\)$/, /^(?:short|why|code|problem|host|port|sig)$/, /^code \?\? signal$/,
+                /^(?:failureWord|failureFacts|codeFrames)\(e\)$/, /^routeLabel\(req\.url\)$/, /^req\.method$/, /^Math\.round\(wakeMs\)$/];
+            const bad = [];
+            let calls = 0;
+            for (const name of readdirSync(join(repoRoot, 'server', 'site')).filter((n) => n.endsWith('.js') && n !== 'cli.js')) {
+                readFileSync(join(repoRoot, 'server', 'site', name), 'utf8').split('\n').forEach((line, i) => {
+                    const at = `${name}:${i + 1}`;
+                    const starts = line.match(/\b(?:log|console)\.(?:log|error|warn|info)\(/g) || [];
+                    const whole = [...line.matchAll(/\b(?:log|console)\.(?:log|error|warn|info)\((`[^`]*`|'[^']*')\)/g)];
+                    calls += starts.length;
+                    if (whole.length !== starts.length) bad.push(`${at} logs something besides one literal`);
+                    for (const [, literal] of whole) {
+                        for (const [, value] of literal.matchAll(/\$\{([^}]*)\}/g)) {
+                            if (!SAFE_VALUE.some((re) => re.test(value.trim()))) bad.push(`${at} puts \${${value}} in a line`);
+                        }
+                    }
+                });
+            }
+            ok(`every one of the front desk's ${calls} log lines is built from fixed words, ids and kinds only`, calls >= 15 && bad.length === 0, bad.join(' | ') || `${calls} calls`);
+        }
+        {
             const forged = new Error(`${MARKER}\n    at forged (file:///${MARKER}.js:1:1)`);
             const frames = codeFrames(forged);
             ok('a failure\'s code frames hold no line of its message, even one shaped like a frame', frames.includes('site-gates.mjs') && !frames.includes(MARKER), frames.slice(0, 200));
@@ -701,6 +727,22 @@ try {
                 readFileSync(target, 'utf8') === 'untouched' && refusedFor(hard) && (!soft || refusedFor(soft)), readFileSync(target, 'utf8').slice(0, 120));
         }
 
+        // A failed kill of a running library (EPERM) is told by its kind and keeps it
+        // on the books; a library killed from outside is told as stopped on its own.
+        {
+            const pool = one.desk.pool;
+            const id = pool.create();
+            const entry = await pool.wake(id);
+            entry.child.emit('error', Object.assign(new Error(`kill ${MARKER}`), { code: 'EPERM' }));
+            ok('a failed kill of a running library keeps it awake, and the front desk names only the kind',
+                pool.isAwake(id) && lines.some((l) => l === `[site] Library ${id.slice(0, 8)}: EPERM`), String(pool.isAwake(id)));
+            const gone = new Promise((r) => entry.child.once('exit', r));
+            process.kill(entry.pid, 'SIGKILL');
+            await gone;
+            ok('a library that stopped on its own is told in fixed words, and leaves the pool',
+                !pool.isAwake(id) && lines.some((l) => l.startsWith(`[site] Library ${id.slice(0, 8)} stopped on its own (`)), lines.filter((l) => l.includes(id.slice(0, 8))).join(' | '));
+        }
+
         // The writer itself: two streams cut mid-line, a line that never ends, a write after close.
         {
             const dir = join(scratch, 'writer');
@@ -728,6 +770,20 @@ try {
             ok('a line that never ends keeps its start up to the cap, and the rest of it is dropped',
                 got2.length === 2 && /^y+…$/.test(got2[0]) && got2[1] === 'after the long line'
                 && libraryLog(dir2).every((f) => Buffer.byteLength(f.text) <= 4096), JSON.stringify(got2.map((l) => l.slice(0, 30))));
+            // A folder the library left at the name is refused; a failure that is not its
+            // doing (here the folder is gone) is told by its code and tried again later.
+            const told = [];
+            const dir3 = join(scratch, 'writer-folder');
+            mkdirSync(join(dir3, 'server.log'), { recursive: true });
+            const w3 = createLibraryLog(dir3, { onRefused: () => told.push('refused'), onUnopened: (c) => told.push(c) });
+            w3.stream('stdout')('one\ntwo\n');
+            w3.close();
+            const w4 = createLibraryLog(join(scratch, 'writer-missing'), { onRefused: () => told.push('refused'), onUnopened: (c) => told.push(c) });
+            w4.stream('stdout')('one\n');
+            w4.stream('stdout')('two\n');
+            w4.close();
+            ok('a folder at the log\'s name is refused; a missing folder is told once by its code, not as refused',
+                JSON.stringify(told) === '["refused","ENOENT"]' && w3.lines === 0 && w4.lines === 0 && w.lines === 2, JSON.stringify(told));
         }
 
         await release();

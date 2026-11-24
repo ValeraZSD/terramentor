@@ -17,6 +17,8 @@
 // another owner (a hard link made to someone else's file). A file that fails a
 // check is not written to for the rest of that run, and `onRefused` is called
 // once: a lost line is better than root writing where a library pointed it.
+// A file that could not be opened for another reason (a full disk) is tried
+// again 30 s later; `onUnopened` names the error code the first time.
 // (On Windows the two flags do not exist; libraries there run as the front
 // desk's own user, so there is no boundary to keep.)
 import fs from 'node:fs';
@@ -32,22 +34,39 @@ const O_NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
 
 const closeQuietly = (fd) => { try { fs.closeSync(fd); } catch { /* already gone */ } };
 
-/** Open `file` for appending if it is safe to; returns `{ fd, size }` or null. */
+// What the library could have put at the name: a link (ELOOP), a pipe with no
+// reader (ENXIO), a folder (EISDIR). Any other failure (a full disk or file
+// table, a folder gone) is not its doing and is tried again later.
+const PUT_THERE = new Set(['ELOOP', 'ENXIO', 'EISDIR']);
+const RETRY_MS = 30_000;
+// A line cut inside a character ends in U+FFFD once decoded; that half is dropped.
+const CUT_CHARACTER = new RegExp(`${String.fromCharCode(0xfffd)}$`);
+
+/**
+ * Open `file` for appending if it is safe to. Returns `{ fd, size }`, or
+ * `{ refused: true }` for something the library put there, or `{ code }` for
+ * a failure worth another try.
+ */
 function openSafely(file, ownerUid) {
     let fd;
     try {
         fd = fs.openSync(file, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600);
-    } catch {
-        return null; // a link (ELOOP), a pipe with no reader (ENXIO), a folder
+    } catch (e) {
+        return PUT_THERE.has(e.code) ? { refused: true } : { code: String(e.code || 'error') };
     }
     try {
         const st = fs.fstatSync(fd);
         const ownerOk = process.platform === 'win32' || st.uid === 0 || st.uid === process.getuid?.() || (ownerUid != null && st.uid === ownerUid);
         if (st.isFile() && st.nlink === 1 && ownerOk) return { fd, size: st.size };
-    } catch { /* refused below */ }
+    } catch (e) {
+        closeQuietly(fd);
+        return { code: String(e.code || 'error') };
+    }
     closeQuietly(fd);
-    return null;
+    return { refused: true }; // a pipe, a device, a second name, someone else's file
 }
+
+const callQuietly = (fn, ...args) => { try { fn(...args); } catch { /* a report must not stop the writer */ } };
 
 /**
  * A writer for one library's output. `stream(name)` gives the function to call
@@ -59,79 +78,96 @@ function openSafely(file, ownerUid) {
  * the library.
  */
 export function createLibraryLog(dir, {
-    maxBytes = DEFAULT_LOG_BYTES, ownerUid = null, now = () => new Date(), onRefused = () => {},
+    maxBytes = DEFAULT_LOG_BYTES, ownerUid = null, now = () => new Date(),
+    onRefused = () => {}, onUnopened = () => {},
 } = {}) {
     const cap = Math.max(MIN_LOG_BYTES, Math.floor(maxBytes));
     const file = path.join(dir, LIBRARY_LOG);
     let handle = null;
     let refused = false;
     let closed = false;
+    let retryAt = 0;
+    let toldUnopened = false;
+    let lines = 0; // written this run
     const partial = new Map(); // stream name -> { text, dropping }
 
     const ensure = () => {
         if (handle || refused) return handle;
-        handle = openSafely(file, ownerUid);
-        if (!handle) { refused = true; onRefused(); }
-        return handle;
+        if (Date.now() < retryAt) return null;
+        const r = openSafely(file, ownerUid);
+        if ('fd' in r) { handle = r; return handle; }
+        if (r.refused) {
+            refused = true;
+            callQuietly(onRefused);
+        } else {
+            retryAt = Date.now() + RETRY_MS; // lines until then are lost
+            if (!toldUnopened) { toldUnopened = true; callQuietly(onUnopened, r.code); }
+        }
+        return null;
     };
     const rotate = () => {
         if (handle) { closeQuietly(handle.fd); handle = null; }
         // Renames move names, never what a link points at.
         try { fs.renameSync(file, `${file}.1`); } catch { try { fs.unlinkSync(file); } catch { /* nothing there */ } }
     };
-    const flush = (text) => {
+    const flush = (text, count) => {
         if (!text || !ensure()) return;
         try {
             fs.writeSync(handle.fd, text);
             handle.size += Buffer.byteLength(text);
+            lines += count;
         } catch { /* disk full: the lines are lost, the library runs on */ }
     };
     /** Stamp and write `lines` in as few writes as the cap allows. */
-    const put = (lines) => {
-        if (!lines.length || !ensure()) return;
+    const put = (batch) => {
+        if (!batch.length || !ensure()) return;
         let pending = '';
         let pendingBytes = 0;
-        for (const line of lines) {
+        let pendingLines = 0;
+        for (const line of batch) {
             let text = `${now().toISOString()} ${line}\n`;
             let bytes = Buffer.byteLength(text);
             if (bytes > cap) { // one line longer than the cap keeps its start
-                text = `${Buffer.from(text).subarray(0, cap - 4).toString('utf8').replace(/�$/, '')}…\n`;
+                text = `${Buffer.from(text).subarray(0, cap - 4).toString('utf8').replace(CUT_CHARACTER, '')}…\n`;
                 bytes = Buffer.byteLength(text);
             }
             if (handle && handle.size + pendingBytes + bytes > cap && handle.size + pendingBytes > 0) {
-                flush(pending);
-                pending = ''; pendingBytes = 0;
+                flush(pending, pendingLines);
+                pending = ''; pendingBytes = 0; pendingLines = 0;
                 rotate();
                 if (!ensure()) return;
             }
             pending += text;
             pendingBytes += bytes;
+            pendingLines += 1;
         }
-        flush(pending);
+        flush(pending, pendingLines);
     };
 
     return {
         file,
+        /** Lines written to the file this run: 0 means nothing of its output was kept. */
+        get lines() { return lines; },
         stream(name) {
             return (chunk) => {
                 if (closed) return;
                 const state = partial.get(name) ?? { text: '', dropping: false };
                 const parts = (state.text + String(chunk)).split('\n');
                 state.text = parts.pop();
-                const lines = [];
+                const batch = [];
                 for (const l of parts) {
                     if (state.dropping) { state.dropping = false; continue; } // the rest of a line already cut
-                    if (l.trim()) lines.push(l.replace(/\r$/, ''));
+                    if (l.trim()) batch.push(l.replace(/\r$/, ''));
                 }
                 // A line that never ends is written up to the cap, and the rest of
                 // it dropped up to its newline, rather than held in memory.
                 if (Buffer.byteLength(state.text) > cap) {
-                    if (!state.dropping) lines.push(state.text);
+                    if (!state.dropping) batch.push(state.text);
                     state.text = '';
                     state.dropping = true;
                 }
                 partial.set(name, state);
-                put(lines);
+                put(batch);
             };
         },
         close() {

@@ -79,6 +79,7 @@ export function createLibraryPool({
     const waking = new Map(); // id -> Promise
     const stopping = new Map(); // id -> Promise, until the old process has exited
     const children = new Set(); // every process started and not yet exited, awake or starting
+    const writers = new Map(); // id -> { log, drained }, until a process's pipes have closed
     let starting = 0; // slots taken by wakes that passed the cap and are starting
     const wakeTimes = [];
 
@@ -164,6 +165,13 @@ export function createLibraryPool({
         if (!tmpStat) { fs.mkdirSync(tmp, { mode: 0o700 }); tmpStat = fs.lstatSync(tmp); }
         if (!tmpStat.isDirectory()) throw poolError(`library ${id.slice(0, 8)}: its tmp is not a plain folder, so it is not started`);
         if (separate && process.platform !== 'win32') fs.lchownSync(tmp, row.uid, row.uid);
+        // The last run's final lines may still be in its pipes: they go in first,
+        // so two writers never append to the same file.
+        const before = writers.get(id);
+        if (before) {
+            await Promise.race([before.drained, new Promise((r) => setTimeout(r, 2000).unref())]);
+            before.log.close();
+        }
         const started = performance.now();
         const child = spawn(process.execPath, [`--max-old-space-size=${heapMb}`, path.join(appRoot, 'server', 'index.js')], {
             cwd: appRoot,
@@ -178,17 +186,25 @@ export function createLibraryPool({
         const own = createLibraryLog(libDir(id), {
             maxBytes: logBytes, ownerUid: separate ? row.uid : null,
             onRefused: () => log.error(`[site] Library ${short}: its server.log is a link, a pipe or a file with another name, so its output is not kept this run`),
+            onUnopened: (code) => log.error(`[site] Library ${short}: its server.log could not be opened (${code}); its output is dropped until it can be`),
         });
         const streams = [['stdout', child.stdout], ['stderr', child.stderr]].filter(([, s]) => s);
         let open = streams.length;
         let drained;
         const allDrained = new Promise((r) => { drained = r; });
+        const writer = { log: own, drained: allDrained };
+        writers.set(id, writer);
+        const done = () => {
+            own.close();
+            drained();
+            if (writers.get(id) === writer) writers.delete(id);
+        };
         for (const [name, stream] of streams) {
             stream.setEncoding('utf8'); // a character cut at a read is joined, not two U+FFFD
             stream.on('data', own.stream(name));
-            stream.once('close', () => { if (--open === 0) { own.close(); drained(); } });
+            stream.once('close', () => { if (--open === 0) done(); });
         }
-        if (!open) { own.close(); drained(); }
+        if (!open) done();
         let exited = null;
         const ended = (code, signal) => {
             exited ??= { code, signal };
@@ -201,15 +217,20 @@ export function createLibraryPool({
             }
         };
         child.once('exit', ended);
-        // A process that could not be started at all (EAGAIN, EPERM) emits error, not exit.
-        // `on`, not `once`: a later error (a failed kill) must not throw in the front desk.
-        child.on('error', (e) => { own.stream('spawn')(`could not be started: ${e.message}\n`); ended(failureFacts(e), null); });
+        // A process that could not be started at all (EAGAIN, EPERM) emits error, not exit,
+        // and has no pid. `on`, not `once`: a later error, a failed kill of a process
+        // still running, must neither throw in the front desk nor take it off the books.
+        child.on('error', (e) => {
+            if (child.pid === undefined) ended(failureFacts(e), null);
+            else log.error(`[site] Library ${short}: ${failureFacts(e)}`);
+        });
         // First answer: the status probe answers as soon as the app is listening.
         for (;;) {
             if (exited) {
                 // Its last lines are on their way through the pipes: in its log before the failure is told.
                 await Promise.race([allDrained, new Promise((r) => setTimeout(r, 2000).unref())]);
-                throw poolError(`library ${short} stopped while starting (${exited.code ?? exited.signal}); its output is in its own log`);
+                const where = own.lines ? 'its output is in its own log' : 'it left nothing in its own log';
+                throw poolError(`library ${short} stopped while starting (${exited.code ?? exited.signal}); ${where}`);
             }
             if (performance.now() - started > 60_000) { child.kill('SIGKILL'); throw poolError(`library ${short} did not answer within 60 s`); }
             try {
@@ -327,6 +348,10 @@ export function createLibraryPool({
                 c.once('exit', r);
                 c.kill('SIGKILL');
             })));
+            // Their last lines, then the files closed.
+            const pending = [...writers.values()];
+            await Promise.race([Promise.all(pending.map((w) => w.drained)), new Promise((r) => setTimeout(r, 2000).unref())]);
+            for (const w of pending) w.log.close();
         },
         awakeOrStarting: () => awake.size + starting,
         uidOf: (id) => q.get.get(id)?.uid ?? null,
