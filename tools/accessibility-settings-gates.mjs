@@ -189,7 +189,7 @@ section('7. read aloud and motion follow the reader, not the page around them');
     check('"Try it" starts nothing once the tab was left, and runs once at a time',
         /if \(!shown\.current\) return;[\s\S]*speak\('settings-test'/.test(testAfter) && /if \(testing\.current\) return;/.test(settings));
     const scroll = read('src/utils/scrollWithin.ts');
-    check('a scroll asked to be smooth is instant under reduced motion', /motionReduced\(\)/.test(code(scroll)) && /smooth && !motionReduced\(\)/.test(code(read('src/hooks/useStickToBottom.ts'))));
+    check('a scroll asked to be smooth is instant under reduced motion', /motionReduced\(\)/.test(code(scroll)) && /motionReduced\(\) \? 'auto' : 'smooth'/.test(code(read('src/hooks/useReadingScroll.ts'))));
     // No smooth scroll goes around the two helpers: a direct scrollTo /
     // scrollBy / scrollIntoView asking for 'smooth' must ask motionReduced
     // (or the reduced flag it read) in the same expression.

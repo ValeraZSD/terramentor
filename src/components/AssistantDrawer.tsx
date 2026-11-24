@@ -34,7 +34,7 @@ import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
 import { splitTurnTimeline } from '../utils/turnTimeline';
 import { useAutoGrow } from '../hooks/useAutoGrow';
-import { useStickToBottom } from '../hooks/useStickToBottom';
+import { useReadingScroll } from '../hooks/useReadingScroll';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
@@ -441,9 +441,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // Latest messages, read outside the render cycle by persistRepair.
     const messagesRef = useRef<ChatMessage[]>([]);
     const inputRef = useAutoGrow(input, { rows: 5 });
-    // Follow the stream unless the reader scrolled up: a long answer stays
-    // readable while it arrives.
-    const scroll = useStickToBottom<HTMLDivElement>(open);
+    // A sent question goes to the top of the log and its answer is written
+    // under it; the log never moves while a reply arrives.
+    const scroll = useReadingScroll<HTMLDivElement>();
     /** Ids already sent to /api/nodes/labels, so re-renders don't re-ask. */
     const askedRef = useRef<Set<number>>(new Set());
     /**
@@ -695,18 +695,32 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // lands on the newest message again.
     useEffect(() => {
         if (!open) return;
-        if (showList) { if (scroll.ref.current) scroll.ref.current.scrollTop = 0; }
-        else scroll.stick();
+        if (showList) scroll.toTop();
+        else scroll.toBottom();
     }, [open, loadingHistory, showList, scroll]);
 
-    // A turn the LEARNER just started re-arms following — you always want to see
-    // the answer to the question you just asked. Everything else respects
-    // whatever the reader has done with the scrollbar since.
+    // A question that has just become the last message — sent here, or asked on
+    // another device and followed — goes to the top of the view, and its answer
+    // is written below it. Nothing else a turn does moves the log: the reader
+    // reads down at their own pace (`useReadingScroll`).
+    const lastRow = messages[messages.length - 1];
+    const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
+    const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
+    const anchoredRef = useRef<{ id: number; content: string } | null>(null);
+    const loadingHistoryRef = useRef(loadingHistory);
+    useEffect(() => { loadingHistoryRef.current = loadingHistory; }, [loadingHistory]);
     useEffect(() => {
-        if (messages[messages.length - 1]?.role === 'user') scroll.stick(true);
-    }, [messages, scroll]);
-
-    useEffect(() => { scroll.follow(); }, [streamed, scroll]);
+        const prev = anchoredRef.current;
+        anchoredRef.current = lastQuestionId == null ? null : { id: lastQuestionId, content: lastQuestionText ?? '' };
+        if (lastQuestionId == null || lastQuestionId === prev?.id) return;
+        // The stored copy of the question already placed (a reload after a
+        // dropped socket swaps its provisional id for the real one): it is in
+        // place, and moving again would pull a reader who has scrolled on.
+        if (prev && prev.id < 0 && lastQuestionId > 0 && prev.content === lastQuestionText) return;
+        // A conversation being opened lands on its newest message instead (above).
+        if (loadingHistoryRef.current) return;
+        scroll.anchor(lastQuestionId);
+    }, [lastQuestionId, lastQuestionText, scroll]);
 
     useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -1269,6 +1283,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setTurnError(null);
         setStoppedPartial(false);
         setShowList(false);
+        scroll.toTop();
     };
 
     const newChat = () => {
@@ -1534,8 +1549,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
             <div className="sr-only" aria-live="polite">{spoken}</div>
             <div
-                ref={scroll.ref}
-                onScroll={scroll.onScroll}
+                ref={scroll.scrollerRef}
                 role="log"
                 aria-live="off"
                 aria-label={tr("Conversation")}
@@ -1549,7 +1563,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         onOpen={openConversation}
                         onDelete={removeConversation}
                     />
-                ) : (<>
+                ) : (<div ref={scroll.contentRef} className="space-y-4">
                 {loadingHistory && messages.length === 0 && (
                     <div className="flex justify-center py-6">
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
@@ -1585,7 +1599,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
-                    <div key={m.id} className="space-y-4">
+                    <div key={m.id} className="space-y-4" data-turn-id={m.id}>
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
                         <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'} data-read-turn>
                             {m.role === 'user' ? (
@@ -1824,7 +1838,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         </p>
                     </>
                 )}
-                </>)}
+                </div>)}
             </div>
 
             <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-3 space-y-2 select-none">

@@ -541,6 +541,51 @@ section('the chat draws the timeline, and the terminal frame pairs text with row
     check('the tutor panel is gone, so there is one chat surface', !existsSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url))));
 }
 
+section('the log reads like a page: the question goes up once, the answer never moves it');
+{
+    // Following every token moved the line being read up the screen several
+    // times a second. The only scroll a turn makes is putting the question at
+    // the top; what streams in is written below it (useReadingScroll).
+    const outScroll = join(scratch, 'useReadingScroll.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
+        bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
+    });
+    const { roomFor, scrollTargetFor } = await import(pathToFileURL(outScroll).href);
+    // Stated geometry: a scroller `client` tall at viewport y=`at`, padding `pad`
+    // top and bottom, its content box starting one padding down, the question
+    // `offset` px into that box, the log scrolled to `st`.
+    const cases = [
+        { offset: 600, client: 500, pad: 16, at: 100, st: 50 },   // a long conversation, short answer so far
+        { offset: 0, client: 700, pad: 16, at: 60, st: 0 },       // the first question of a chat
+        { offset: 2400, client: 320, pad: 12, at: 0, st: 2000 },  // a phone with the keyboard up
+    ];
+    const wrong = cases.filter(({ offset, client, pad, at, st }) => {
+        const room = roomFor(offset, client, pad, pad);
+        const maxScroll = pad + room + pad - client;
+        const target = scrollTargetFor(at + pad + offset - st, at, st, pad);
+        // The question at the top, one padding below the edge, and the room
+        // under it is exactly enough: no clamp, no blank page beyond it.
+        return target !== offset || maxScroll !== offset;
+    });
+    check('Send puts the question at the top, with exactly the room under it to stay there', wrong.length === 0, JSON.stringify(wrong));
+    check('no room is made for a box already taller than the view', roomFor(0, 0, 16, 16) === 0);
+    check('the turns carry the id the question is found by again', /data-turn-id=\{m\.id\}/.test(drawerSrc) && /<div ref=\{scroll\.contentRef\}/.test(drawerSrc));
+    // The four calls that may move the log, and no other: opening (bottom),
+    // the list and a new chat (top), a question just asked (anchor). A fifth
+    // call, or any hand-set scrollTop/scrollTo/scrollIntoView, is a new reason
+    // for the log to move on its own, and needs its own case here.
+    const calls = (drawerSrc.match(/scroll\.(?:anchor|toTop|toBottom|release|ref\.current)\b/g) || []).sort();
+    check('only opening, the list, a new chat and a new question move the log',
+        JSON.stringify(calls) === JSON.stringify(['scroll.anchor', 'scroll.toBottom', 'scroll.toTop', 'scroll.toTop'])
+        && !/\.scrollTop\s*=|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(/.test(drawerSrc), calls.join(', '));
+    check('the anchor waits out a conversation being opened, and a reload of the same question',
+        /if \(loadingHistoryRef\.current\) return;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
+        && /prev\.id < 0 && lastQuestionId > 0 && prev\.content === lastQuestionText\) return;/.test(drawerSrc));
+    const reset = drawerSrc.match(/const resetView = \(\) => \{\n([\s\S]*?)\n    \};/);
+    check('a new empty chat drops the room left under the last question', !!reset && /scroll\.toTop\(\);/.test(reset[1]));
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
