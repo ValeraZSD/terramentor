@@ -18,6 +18,7 @@ import { recordBuildFailure } from './visualBuilds.js';
 import { courseContextForNode, courseLeaves } from './courseContext.js';
 import { headStartFor, reviewParts, teachingStarted } from './headStart.js';
 import { lessonSourcesFor, resolveLessonCitations, teachingText } from './lessonSources.js';
+import { awaitTopicPhotos, placePhotoMarkers } from './topicPhotos.js';
 import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait } from './questionTrust.js';
 import { findDrills } from './drillCheck.js';
 import { learnerFaultForSlot } from './itemReports.js';
@@ -1253,6 +1254,11 @@ async function generateOne(f, missing, signal) {
         // the PLAN, not the live head start: the parts must agree with the
         // outline they belong to, and a changed head start re-plans instead.
         const review = !!safeParse(missing.plan?.meta)?.headStart;
+        // A topic learned by sight is written with its photos, numbered for
+        // the writer to place (server/topicPhotos.js); a lesson opened while
+        // they are still being found waits for them a little. null for any
+        // other topic, whose prompt is unchanged.
+        const photos = await awaitTopicPhotos(f.nodeId, { signal });
 
         // Write, check, rewrite — and CARRY THE REASON into each rewrite. An
         // identical prompt at temperature 0.6 mostly reproduces the same draft
@@ -1287,6 +1293,7 @@ async function generateOne(f, missing, signal) {
                     lang,
                     priorFault: fault,
                     review,
+                    photos,
                 },
             );
             const answered = {};
@@ -1362,7 +1369,10 @@ async function generateOne(f, missing, signal) {
         // The markers become a Sources line of document titles, exactly as a
         // chat answer's do; one naming a passage that was not offered is
         // dropped. A lesson written without passages is stored as written.
-        const { text: stored, cited } = resolveLessonCitations(vetted ? vetted.markdown : md, grounding.sources);
+        const { text: cited_, cited } = resolveLessonCitations(vetted ? vetted.markdown : md, grounding.sources);
+        // `[[photo:N]]` becomes the photo's id on a line of its own; on a
+        // topic learned by sight, an image the writer wrote itself goes.
+        const { text: stored, placed } = placePhotoMarkers(cited_, photos);
         db.prepare(`
             INSERT INTO feed_items (node_id, kind, seq, content, meta, status)
             VALUES (?, 'lesson', ?, ?, ?, 'ready')
@@ -1379,6 +1389,7 @@ async function generateOne(f, missing, signal) {
                     : { n: i + 1, documentId: p.documentId, chunkIndex: p.chunkIndex })),
                 cited: cited.length,
             } : {}),
+            ...(photos ? { photosOffered: photos.length, photosPlaced: placed.size } : {}),
             ...(vetted?.removed.length ? { visualsRemoved: vetted.removed } : {}),
             ...(vetted?.unchecked?.length ? { visualsUnchecked: vetted.unchecked } : {}),
             ...(drills.removed.length ? { drillItemsRemoved: drills.removed } : {}),

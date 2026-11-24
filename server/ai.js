@@ -3639,6 +3639,27 @@ const QUESTION_QUALITY_RULES = `\n${OPTION_RULES}\n${EXPLANATION_RULE}\n${NOT_TH
  */
 const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION. Use the symbols, indexing, units, ordering and names that this subject and this topic's Overview already use — a learner meeting your notation again in an exam, a textbook or a colleague's work must recognise it. Never define a private index, a renamed variable or a re-based scale to make a formula come out tidy. The test: if you find yourself explaining how YOUR notation relates to the standard one ("here n is the index, but the actual number is…"), you have invented one — delete it and use the standard directly. A running translation between two conventions is where mistakes are made, and the learner inherits both.`;
 
+// A description is written before anything is taught, so it cannot know what
+// the app will show: a topic promised "a picture quiz" had none to give.
+export const DESCRIPTION_PROMISE_RULE = `WHAT A DESCRIPTION SAYS: what the topic teaches and why it matters. It never promises how it will be taught or tested: no "picture quiz", "photos", "images", "video", "interactive exercise" or "game"; the app decides that, and a promise it cannot keep misleads the learner.\n`;
+
+/**
+ * The lesson writer's part about photos (server/topicPhotos.js): '' for a topic
+ * not learned by sight, a rule against pointing at pictures when it has none,
+ * else the photos by number. The writer places one with `[[photo:N]]`; the app
+ * turns the number into the photo's id before the part is kept, so no address
+ * a model wrote ever reaches the page.
+ */
+export function lessonPhotoBlock(photos) {
+    if (!Array.isArray(photos)) return '';
+    if (photos.length === 0) {
+        return '\n\nNO PICTURES: this topic is learned by recognising things by their look, but the learner sees no photo with it. Never tell them to look at a picture, photo or image, and never promise one; say in words what to look for.';
+    }
+    const clean = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const list = photos.map((p, i) => `[[photo:${i + 1}]] ${clean(p.subject, 160)}${p.shows ? ` (what to look at: ${clean(p.shows, 240)})` : ''}`).join('\n');
+    return `\n\nPHOTOS: the learner sees the real photos listed below with this topic. Where one shows what you are explaining, put its marker on a line of its own, right after the paragraph that talks about it: [[photo:1]] for photo 1 and so on, only these numbers, each at most once, and only the photos this part needs. Then tell the learner what to notice in it. Never write an image link, an image address or a Markdown image, and never describe a photo that is not listed.\n${list}`;
+}
+
 /**
  * Maths in the descriptions the creation run writes.
  *
@@ -4304,7 +4325,10 @@ ${stems.map((s, k) => `${k + 1}. ${s}`).join('\n')}`,
     // the topic's single widget — the guide then never mentions widgets, so the
     // model can't ask for a second expensive build. `review` marks a part of a
     // plan written as a review (feed_outline's `reviewParts`).
-    feed_lesson: (nodeTitle, outline, partIndex, context, priorParts = [], { allowWidget = true, actionNode = false, runningExample = '', lang = null, priorFault = null, review = false } = {}) => {
+    // `photos`: null for a topic not learned by sight (the prompt is unchanged);
+    // for one that is, the photos this part may place, `[{ subject, shows }]`
+    // numbered from 1, or [] when it has none to show (server/topicPhotos.js).
+    feed_lesson: (nodeTitle, outline, partIndex, context, priorParts = [], { allowWidget = true, actionNode = false, runningExample = '', lang = null, priorFault = null, review = false, photos = null } = {}) => {
         const partCount = outline.length;
         const cur = outline[partIndex - 1] || {};
         const upcoming = outline.slice(partIndex)
@@ -4335,7 +4359,7 @@ Rules:
 7. THIS TOPIC IS A TASK, NOT A CONCEPT. Teach the learner what to DO, why it is worth doing, and how they will know they have succeeded. You have NOT seen the tool, site or resource it names: describing its interface — buttons, screens, layout, colours, scoring, menus, what happens when they click — is fabrication, because you would be inventing it. Write about the learner's actions and their standard of success, never about the tool's UI.` : ''}
 
 LESSON OUTLINE (${partCount} part${partCount === 1 ? '' : 's'}):
-${outlineMap}${runningExample ? `\n\nRUNNING EXAMPLE ALREADY IN PLAY (continue it; do not introduce a competing one): ${runningExample}` : ''}
+${outlineMap}${runningExample ? `\n\nRUNNING EXAMPLE ALREADY IN PLAY (continue it; do not introduce a competing one): ${runningExample}` : ''}${lessonPhotoBlock(photos)}
 
 ${buildVisualsGuide(allowWidget ? {} : { widget: false })}`,
             user: `Topic: ${nodeTitle}
@@ -4803,15 +4827,45 @@ Rules:
     // or '' for both — so a creation without files sends the prompts with no
     // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_PROMISE_RULE}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     // `size` is the plan's (server/courseSize.js); `plan` every phase in
     // order and `earlier` the sections the phases before this one already
     // have, so a phase does not write again what another teaches.
     generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_PROMISE_RULE}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
+    }),
+    // Which topics of a course are learned by SIGHT, and for each the real,
+    // photographed examples a photo archive holds under their own name
+    // (server/topicPhotos.js). Topics are numbered; the answer names them by
+    // number, so a renamed title cannot misplace an example.
+    photo_plan: (course, goal, topics, { lang = null } = {}) => ({
+        system: `You decide which topics of a course are learned BY SIGHT: the learner has to recognise things, or tell them apart, by how they look (buildings and architectural styles, plants and animals, artworks and art styles, rocks and minerals, landmarks, vehicles, tools, clothing). A topic about ideas, rules, history, grammar, procedures or skills is not learned by sight, even when its subject could be photographed.
+For each topic learned by sight, name 2 to 4 concrete, real examples that a public photo archive holds photographs of under their own name: one named building (not "a pagoda"), one species, one painting, one mineral. Prefer famous, well-photographed examples that show the topic's typical features clearly.
+CRITICAL: Output ONLY a JSON object:
+{"topics": [{"topic": <the topic's number>, "examples": [{"name": "...", "search": "...", "shows": "..."}]}]}
+- "name": the example's name as the learner should read it. ${lang ? languageDirective(lang) : 'Write it in the language the course is written in.'}
+- "search": the example's name as an English-language encyclopedia or photo archive titles it, with the place when that tells it apart ("Hall of Supreme Harmony Forbidden City"); plain words, no quotes or operators.
+- "shows": one short sentence: what to look at in its photo, the features that tell it apart. Same language as "name".
+List ONLY the topics learned by sight; {"topics": []} when none is.`,
+        user: `COURSE: ${String(course || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}
+
+TOPICS:
+${topics.map((t, i) => `${i + 1}. ${String(t.title || '').replace(/\s+/g, ' ').trim().slice(0, 200)}${t.description ? ` — ${String(t.description).replace(/\s+/g, ' ').trim().slice(0, 300)}` : ''}`).join('\n')}`,
+    }),
+    // Pick, for each example, the archive's candidate that is a clear photo of
+    // exactly that thing. Candidates are numbered; the answer names numbers
+    // only, and anything else in it is ignored (server/topicPhotos.js).
+    photo_choice: (topic, examples) => ({
+        system: `You pick photos for a lesson from a photo archive's search results. For each EXAMPLE, choose up to two candidates, best first, that are clear photographs of exactly that thing and show what the learner must look at: the whole building from outside in daylight, the living plant or animal, the artwork itself.
+Never choose a map, plan, drawing, painting of a building, model or replica, postcard, stamp, coin, logo, sign or plaque, a detail when the whole is wanted, an interior when the outside is wanted, a scene where the subject is small or hidden, or a photo of a different thing with a similar name. Judge from the file name, description and categories. When no candidate fits, give an empty list.
+CRITICAL: Output ONLY a JSON object: {"picks": [{"example": 1, "candidates": [3, 1]}]}`,
+        user: `TOPIC: ${String(topic || '').replace(/\s+/g, ' ').trim().slice(0, 200)}
+
+${examples.map((e, i) => `EXAMPLE ${i + 1}: ${e.subject}${e.shows ? ` — look at: ${e.shows}` : ''}
+${e.candidates.length ? e.candidates.map((c, k) => `  ${k + 1}. ${c.label}`).join('\n') : '  (no candidates)'}`).join('\n\n')}`,
     }),
     // A short course (server/shortCourses.js): the whole outline in ONE call,
     // one level of `topics` sized by the source, from the source in `sources`
@@ -4831,11 +4885,11 @@ Rules:
 3. Titles are specific to this subject: never "Introduction", "Overview", "Conclusion", "Summary" or "Review".
 4. "name" names the course after what it teaches, in a few words. "description" is one or two sentences: what the learner can do after it.
 5. ${fromTopic ? 'There is no source material: write the topics from what the subject itself needs. Name no video, channel, website or author.' : 'Teach the subject of the source, not the source: never "In this video" or "the article says".'}
-${String(goal || '').trim() ? '6. Choose and order the topics for the learner\'s GOAL.\n' : ''}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+${String(goal || '').trim() ? '6. Choose and order the topics for the learner\'s GOAL.\n' : ''}${DESCRIPTION_PROMISE_RULE}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_PROMISE_RULE}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}${earlierSectionsBlock(earlier)}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
@@ -4858,7 +4912,7 @@ CRITICAL RULES:
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else. Nor do they teach again what an earlier phase already has.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
 6. "description" is one or two sentences: what to learn and why it matters.
-7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+7. ${DESCRIPTION_PROMISE_RULE}${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}

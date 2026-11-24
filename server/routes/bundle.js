@@ -25,6 +25,7 @@ import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { errorBody, keyed, publicBody, publicMessage } from '../clientError.js';
 import { recordInstalledBase } from '../courseUpdate.js';
+import { exportedPhotos } from '../topicPhotos.js';
 
 const app = routeTable('bundle');
 
@@ -112,6 +113,8 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
             role: n.role && n.role !== 'topic' ? n.role : undefined,
             questions: exportedQuestions(n.id),
             flashcards: exportedFlashcards(n.id, media.names),
+            // The topic's photos with their credit, each file under media/ (topicPhotos.js).
+            photos: exportedPhotos(n.id, media.names),
         };
         const resources = includeResources
             ? exportedResourceRows(n.id)

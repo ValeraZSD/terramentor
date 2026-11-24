@@ -2383,6 +2383,40 @@ try {
   console.error('[Migration] per-project setting keys (non-fatal):', e.message);
 }
 
+// The photos of a topic learned by sight (server/topicPhotos.js): one row per
+// example the model named (a building, a species, a painting), in the order it
+// named them. `status` is 'pending' until the search ran, then 'found' (the
+// picture is `hash` in the media store, a `media_files` row of the course) or
+// 'none'. The credit is the archive's own: `author`, `licence`, `licence_url`
+// and `source_url` (the file's page) come from its answer, never from a model.
+// `checked_by` names the model that looked at the photo and confirmed it shows
+// the example (provenance JSON), NULL when none looked. Created before the uuid loop below, which gives it its uuid
+// trigger and index.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS node_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT,
+    node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    subject TEXT NOT NULL,
+    search TEXT NOT NULL DEFAULT '',
+    shows TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'found', 'none')),
+    hash TEXT DEFAULT NULL,
+    width INTEGER DEFAULT NULL,
+    height INTEGER DEFAULT NULL,
+    file_title TEXT DEFAULT NULL,
+    author TEXT DEFAULT NULL,
+    licence TEXT DEFAULT NULL,
+    licence_url TEXT DEFAULT NULL,
+    source_url TEXT DEFAULT NULL,
+    checked_by TEXT DEFAULT NULL,
+    generated_by TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (${NOW_ISO})
+  );
+  CREATE INDEX IF NOT EXISTS idx_node_photos_node ON node_photos(node_id, position);
+`);
+
 // Every change to a card's schedule that is not a review: a report parking the
 // card, the edit that unparks it, a schedule written directly, a rating taken
 // back. The review log holds the reviews; together they are everything that

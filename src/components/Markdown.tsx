@@ -35,6 +35,7 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
 import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
 import { splitSourcesTail } from '../utils/citations';
+import { stripPhotoMarkers } from '../utils/photoMarkers';
 import SourceList from './SourceList';
 
 /** Fence languages held back / labelled while streaming: visuals + the drill tier. */
@@ -517,7 +518,10 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
     // The server's `Sources:` line is taken off the answer and drawn as things
     // to open (SourceList), never rendered as markdown: a document's link is an
     // `/api/` address, which an answer's own links may never be (MarkdownLink).
-    const { body: readable, sources } = useMemo(() => splitSourcesTail(safeContent), [safeContent]);
+    // A photo's place in a lesson (`[[photo:<uuid>]]`, server/topicPhotos.js) is
+    // drawn by the lesson card itself; anywhere else the line is dropped, never
+    // shown as text.
+    const { body: readable, sources } = useMemo(() => splitSourcesTail(stripPhotoMarkers(safeContent)), [safeContent]);
     // Repair layers, in order: unwrap a visual fence the model nested inside
     // another, fix math typography, then the two content tags. `streaming` is
     // passed to the collapsible expander so an unclosed <details> never hides

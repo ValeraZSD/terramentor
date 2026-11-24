@@ -14,6 +14,7 @@ import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { errorBody, keyed } from '../clientError.js';
 import { recordInstalledBase } from '../courseUpdate.js';
+import { exportedPhotos } from '../topicPhotos.js';
 
 const app = routeTable('importExport');
 
@@ -39,6 +40,8 @@ app.get('/api/export/:projectId', (req, res) => {
                     role: n.role && n.role !== 'topic' ? n.role : undefined,
                     questions: exportedQuestions(n.id),
                     flashcards: exportedFlashcards(n.id),
+                    // Examples and credit; the photos themselves travel only in a bundle.
+                    photos: exportedPhotos(n.id),
                 };
                 if (includeResources === 'true') {
                     const resources = exportedResourceRows(n.id);

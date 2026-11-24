@@ -94,6 +94,8 @@ export async function restoreCardMedia(zip, nodes, charge, warnings) {
         const wanted = new Set();
         const collect = (list) => list.forEach(n => {
             for (const c of n.flashcards) for (const side of ['front', 'back']) for (const m of c.media?.[side] || []) wanted.add(m.name);
+            // A topic's photos ride in the same folder (server/topicPhotos.js).
+            for (const p of n.photos || []) if (p.media && p.credit) wanted.add(p.media);
             collect(n.children);
         });
         collect(nodes);

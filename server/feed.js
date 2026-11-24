@@ -21,6 +21,7 @@ import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questio
 import { getGateConfig } from './settingsStore.js';
 import { preQuestionsFor } from './lessonPrompts.js';
 import { lookBackOffer } from './lookBack.js';
+import { lessonPhotoFields } from './topicPhotos.js';
 
 /**
  * Learning-feed composition — the home page's algorithm.
@@ -847,6 +848,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                             markdown: row.content,
                             degraded: false,
                             source: 'generated',
+                            // A topic learned by sight: the photos this part
+                            // places, and the ones no part does (topicPhotos.js).
+                            ...lessonPhotoFields(f.nodeId, row.content, { partIndex, partCount: meta.partCount ?? 1 }),
                             ...(readBefore.length ? { readBefore } : {}),
                             ...(preQuestions ? { preQuestions } : {}),
                             // The learner may put the part in their own words

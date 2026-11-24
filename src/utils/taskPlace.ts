@@ -78,6 +78,7 @@ export const SERVER_TASK_LABEL_KEYS = [
     k("Indexing “{{title}}”"),
     k("Study material · {{project}}"),
     k("Study material"),
+    k("Finding photos"),
 ];
 
 /** What KIND of job a task is. Client-side and closed, so `k()` marks it and the
@@ -102,6 +103,7 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     srs_optimize: k("Review intervals"),
     search_words: k("Search words"),
     short_course: k("Short course"),
+    find_photos: k("Photos"),
 };
 
 /** Settings' own tab hashes (see SETTINGS_SECTIONS in settings/sections.ts). */
@@ -191,6 +193,9 @@ export function originPlace(origin: AITaskOrigin | null | undefined): TaskPlace 
                     return { go: 'route', route: '/atlas', openKey: k("Open the atlas") };
                 case 'search_words':
                     return { go: 'route', route: '/projects', openKey: k("Open the projects page") };
+                // The photos land on the course's topics.
+                case 'find_photos':
+                    return project;
                 case 'index_topics':
                 case 'describe_media':
                     return { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
@@ -253,6 +258,7 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
                 case 'describe_media': return { key: k("Started by the app to describe the pictures in your cards.") };
                 case 'briefing': return { key: k("Started by the app to write your daily briefing.") };
                 case 'search_words': return { key: k("Started by the app to write the words each course's search links put before a topic.") };
+                case 'find_photos': return { key: k("Started by the app to find photos for the topics you learn by looking.") };
                 default: return { key: k("Started by the app itself.") };
             }
         default:
@@ -321,6 +327,11 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
         case 'search_words':
         case 'short_course':
             return { go: 'route', route: '/projects', openKey: k("Open the projects page") };
+
+        // A course's photos are drawn on its topics.
+        case 'find_photos':
+            if (projectId != null) return { go: 'project', projectId, openKey: k("Open the project") };
+            return null;
 
         case 'srs_optimize':
             return { go: 'route', route: SETTINGS_LEARNING, openKey: k("Open Settings → Learning") };

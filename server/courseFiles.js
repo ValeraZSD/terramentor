@@ -8,6 +8,7 @@ import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { setNewPerDay } from './decks.js';
 import { mediaStorage } from './vaultStorage.js';
 import { releaseUuid } from './softDelete.js';
+import { PHOTO_BYTES, PHOTO_MIMES } from './topicPhotos.js';
 
 // IMPORT / EXPORT
 
@@ -240,6 +241,21 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
+    // A topic's photos (server/topicPhotos.js): one whose file the bundle
+    // carried is kept with its credit; the rest keep their example, so the
+    // topic page can look for a photo again. No model of ours named them.
+    const insertPhoto = db.prepare(`
+        INSERT INTO node_photos (node_id, position, subject, search, shows, status, hash, width, height,
+            file_title, author, licence, licence_url, source_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    // The photo's file carries the course's words for it, so it reads aloud
+    // and is not queued as an undescribed card picture.
+    const describePhoto = db.prepare(`
+        UPDATE media_files SET description = ?, described_by = 'author'
+        WHERE project_id = ? AND hash = ? AND (description IS NULL OR description = '')
+    `);
+    const photoAlt = (subject, shows) => (shows ? `${subject}. ${shows}` : subject).slice(0, 1000);
     let cardCount = 0;
     let unresolvedMedia = 0;
     const resolveMedia = (media) => {
@@ -288,6 +304,18 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
                 declaredBy(card.generated_by), claimUuid('flashcards', card.uuid));
             cardCount++;
         }
+        (node.photos || []).forEach((p, idx) => {
+            // Only a file of a kind the app keeps a photo as: a course file
+            // could name its audio or a huge picture as a "photo".
+            const file = p.media && p.credit ? mediaByName?.get(p.media) : null;
+            const found = file && file.kind === 'image' && PHOTO_MIMES.has(file.mime)
+                && !(file.size > PHOTO_BYTES) ? file : null;
+            const c = found ? p.credit : {};
+            insertPhoto.run(newNodeId, idx, p.subject, p.search || '', p.shows || '', found ? 'found' : 'none',
+                found?.hash ?? null, c.width ?? null, c.height ?? null, c.file_title ?? null, c.author ?? null,
+                c.licence ?? null, c.licence_url ?? null, c.source_url ?? null);
+            if (found) describePhoto.run(photoAlt(p.subject, p.shows), newProjectId, found.hash);
+        });
         node.children.forEach((child, idx) => walk(child, newNodeId, idx, path));
     };
 

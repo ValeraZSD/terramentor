@@ -142,6 +142,7 @@ const ORIGIN_JOBS = new Set([
     'recover_pdf',     // a PDF's text being recovered
     'briefing',        // the daily briefing
     'search_words',    // each course's words for its search links
+    'find_photos',     // photos for topics learned by sight (topicPhotos.js)
 ]);
 
 const positiveId = (v) => {

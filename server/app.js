@@ -59,6 +59,7 @@ import * as studyTimeApi from './routes/studyTime.js';
 import * as importExportApi from './routes/importExport.js';
 import * as authoringApi from './routes/authoring.js';
 import * as mediaApi from './routes/media.js';
+import * as photosApi from './routes/photos.js';
 import * as ankiApi from './routes/anki.js';
 import * as bundleApi from './routes/bundle.js';
 import * as courseUpdatesApi from './routes/courseUpdates.js';
@@ -489,6 +490,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(importExportApi.routes);
     mount(authoringApi.routes);
     mount(mediaApi.routes);
+    mount(photosApi.routes);
     mount(ankiApi.routes);
     mount(bundleApi.routes);
     mount(courseUpdatesApi.routes);

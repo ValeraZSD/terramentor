@@ -144,10 +144,11 @@ export const READ_RESOURCE_FIELDS = ['title', 'url', 'type', 'completed', 'uuid'
  * "Stage 1" back into a topic and started teaching it. `learning_language` is
  * derived when a course is created (server/learningLanguage.js), never typed.
  * `search_words` are the learner's own (server/searchWords.js); a model's are
- * not exported, the importing app's model writes its own.
+ * not exported, the importing app's model writes its own. A topic's `photos`
+ * are found by the app (server/topicPhotos.js), never written by an author.
  */
 export const ROUND_TRIP_PROJECT_FIELDS = ['teaches', 'learning_language', 'search_words'];
-export const ROUND_TRIP_NODE_FIELDS = ['role'];
+export const ROUND_TRIP_NODE_FIELDS = ['role', 'photos'];
 
 /** `nodes.role`, as server/nodeRole.js names it (that module opens the database, so it is not imported here). */
 const NODE_ROLES = ['topic', 'pagination'];
@@ -403,6 +404,7 @@ export function normalizeImportTree(nodes, deps = {}) {
                 resources: normalizeResources(node.resources, at, warnings),
                 questions: normalizeImportQuestions(node.questions, at, warnings, deps, questionBudget, isNote),
                 flashcards: normalizeImportFlashcards(node.flashcards, at, warnings, cardBudget, isNote),
+                photos: isNote ? [] : normalizeImportPhotos(node.photos, at, warnings),
                 children,
             };
         });
@@ -700,6 +702,72 @@ function declaredModel(value, where, warnings) {
         return null;
     }
     return name;
+}
+
+/** The licences a kept photo may carry (server/topicPhotos.js `licenceOf`). */
+const FREE_PHOTO_LICENCE = /^(cc0\b|public domain\b|cc by(-sa)? \d(\.\d)?\b)/i;
+const NOT_FREE = /\b(nc|nd)\b/i;
+const MAX_PHOTOS_PER_NODE = 8;
+
+/** An https address on one of `hosts` (compared with any port), whose path
+ *  starts with `path` when given, or ''. Too long is refused, never cut. */
+function httpsUrl(value, hosts, path = '') {
+    try {
+        const u = new URL(String(value ?? ''));
+        if (u.protocol !== 'https:' || u.username || u.password) return '';
+        if (!hosts.includes(u.host) || !u.pathname.startsWith(path)) return '';
+        const out = u.toString();
+        return out.length <= 600 ? out : '';
+    } catch { return ''; }
+}
+
+/**
+ * A topic's photos from a course file: the examples, and for a photo the
+ * credit it was kept under. The credit is the file's claim, read under the
+ * same rules the app keeps a photo by: a free licence, a source page on the
+ * photo archive, an author unless it is CC0 or public domain. A photo whose
+ * credit fails them keeps its example and loses the photo, so the importing
+ * library can look for one again.
+ */
+function normalizeImportPhotos(photos, at, warnings) {
+    if (photos == null) return [];
+    if (!Array.isArray(photos)) { warnings.add(`The photos at ${at} are not a list — ignored.`); return []; }
+    const out = [];
+    let dropped = 0;
+    const line = (v, n) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+    for (const p of photos.slice(0, MAX_PHOTOS_PER_NODE)) {
+        if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+        // The words reach the course's model and the archive's search, so an
+        // address in them goes, as it does from a model's own answer.
+        const words = (v, n) => line(typeof v === 'string' ? v.replace(/\b(?:https?|ftp|data|file):\S*/gi, ' ').replace(/\bwww\.\S+/gi, ' ') : v, n);
+        const subject = words(p.subject, 160);
+        if (!subject) continue;
+        const photo = { subject, search: words(p.search, 160), shows: words(p.shows, 300), media: null, credit: null };
+        const media = line(p.media, 180);
+        if (media) {
+            const licence = line(p.licence, 80);
+            const credit = {
+                file_title: line(p.file_title, 300) || null,
+                author: line(p.author, 200) || null,
+                licence,
+                // A link labelled with a licence opens that licence's deed;
+                // the source is the file's own page on the archive.
+                licence_url: httpsUrl(p.licence_url, ['creativecommons.org']) || null,
+                source_url: httpsUrl(p.source_url, ['commons.wikimedia.org'], '/wiki/File:'),
+                width: Number.isSafeInteger(p.width) && p.width > 0 ? p.width : null,
+                height: Number.isSafeInteger(p.height) && p.height > 0 ? p.height : null,
+            };
+            const attributed = /^(cc0|public domain)\b/i.test(licence) || !!credit.author;
+            if (FREE_PHOTO_LICENCE.test(licence) && !NOT_FREE.test(licence.replace(/-/g, ' ')) && credit.source_url && attributed) {
+                photo.media = media;
+                photo.credit = credit;
+            } else dropped++;
+        }
+        out.push(photo);
+    }
+    if (photos.length > MAX_PHOTOS_PER_NODE) warnings.add(`A topic at ${at} carried ${photos.length} photos — only the first ${MAX_PHOTOS_PER_NODE} were imported.`);
+    if (dropped) warnings.add(`${dropped} photo(s) at ${at} had no free licence or no source on record — imported without the photo.`);
+    return out;
 }
 
 function normalizeResources(resources, at, warnings) {

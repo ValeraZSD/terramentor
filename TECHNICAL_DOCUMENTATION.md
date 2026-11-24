@@ -22,7 +22,7 @@ For the shape of the system and the reasoning behind it, read
 | Database | SQLite via `better-sqlite3` | **Synchronous**: no pool, no interleaving, no read/write races |
 | Vectors | `sqlite-vec` (`vec0` virtual tables) | Optional; absence degrades, never breaks |
 | AI | Ollama, or any OpenAI-compatible endpoint | Optional throughout |
-| Search | Wikipedia, DuckDuckGo, GitHub, SearXNG, and any hosted engine you key | See SECURITY.md for the full outbound list |
+| Search | Wikipedia, DuckDuckGo, GitHub, SearXNG, and any hosted engine you key; Wikimedia Commons for photos | See SECURITY.md for the full outbound list |
 
 Run: `npm run dev` (Vite 5173 + Express 3001) · `npm run standalone` (build +
 single-origin serve from Express; `standalone:watch` rebuilds on change) ·

@@ -605,5 +605,8 @@ export function resolveLessonCitations(markdown, sources = []) {
  * later part shown a finished source list would write one of its own.
  */
 export function teachingText(markdown) {
-    return String(markdown ?? '').replace(SOURCES_TAIL, '');
+    // A placed photo (server/topicPhotos.js) is a marker no model can see
+    // through, and a question about a photo the writer never saw would be
+    // invented: the line goes, the prose about it stays.
+    return String(markdown ?? '').replace(SOURCES_TAIL, '').replace(/^\[\[photo:[0-9a-f-]{36}\]\][ \t]*$/gm, '');
 }

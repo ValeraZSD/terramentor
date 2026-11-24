@@ -159,6 +159,9 @@ const { default: db } = await import(`${S}database.js`);
 const setSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
 setSetting.run('ai_enabled', 'true');
 setSetting.run('creation_find_resources', 'false');
+// A photo run goes on after its course is made, so its model call would land
+// in the next course's call list (server/topicPhotos.js).
+setSetting.run('creation_find_photos', 'false');
 setSetting.run('embedding_enabled', 'false');
 setSetting.run('pdf_math_recovery', 'off');
 setSetting.run('ui_language', 'en');
