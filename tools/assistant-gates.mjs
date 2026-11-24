@@ -617,7 +617,8 @@ section('the log reads like a page: the question goes up once, the answer never 
         && /const userId = -Date\.now\(\);/.test(drawerSrc));
     check('a question swapped for its stored copy keeps the place; one taken off drops the room',
         /if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\.id\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc));
-    const reset = drawerSrc.match(/const resetView = \(\) => \{\n([\s\S]*?)\n    \};/);
+    // \r?\n: a Windows checkout has CRLF line ends.
+    const reset = drawerSrc.match(/const resetView = \(\) => \{\r?\n([\s\S]*?)\r?\n    \};/);
     check('a new empty chat drops the room left under the last question', !!reset && /scroll\.toTop\(\);/.test(reset[1]));
 }
 
