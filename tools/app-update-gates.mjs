@@ -863,7 +863,13 @@ mkdirSync(join(appA, 'data'), { recursive: true });
 writeFileSync(join(appA, 'data', 'terramentor.db'), 'the library');
 writeFileSync(join(appA, 'library-location.txt'), 'D:/elsewhere');
 
-const port = 39000 + Math.floor(Math.random() * 900);
+// A port the system hands out as free, not one from a fixed range: other suites
+// run beside this one, and their servers must not answer the updater's probe.
+const port = await new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); });
+});
 const pidFile = join(scratch, 'app.pid');
 // The library's instance key, where the launcher would name it in the plan.
 const keyFile = join(scratch, 'instance.key');
