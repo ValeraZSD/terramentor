@@ -423,15 +423,21 @@ const JUMPS = {
             await sleep(600);
         },
     },
-    'switching the course\'s tabs and the top bar\'s': {
+    // Two entries, not one: navigating between them would replace the document,
+    // and with it the spacer and any scroll the course tabs had caused.
+    'switching the course\'s tabs': {
         reach: go((ids) => `/project/${ids.project}/dashboard`, 'Dashboard'),
         jump: async (page) => {
             for (const tab of ['tree', 'vault', 'dashboard']) {
                 await pressInPlace(page, `document.querySelector('nav[aria-label="Project views"] [data-tab="${tab}"]')`, `the ${tab} tab`);
                 await sleep(500);
             }
-            // The top bar's rail is drawn on the app-wide screens, not inside a course.
-            await page.go('/projects', 'New');
+        },
+    },
+    // The top bar's rail is drawn on the app-wide screens, not inside a course.
+    'switching the top bar\'s tabs': {
+        reach: go('/projects', 'New'),
+        jump: async (page) => {
             for (const tab of ['atlas', 'today', 'projects']) {
                 await pressInPlace(page, `document.querySelector('[data-tab="${tab}"]')`, `the ${tab} tab`);
                 await sleep(800);
