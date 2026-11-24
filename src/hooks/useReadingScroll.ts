@@ -35,6 +35,19 @@ export function textBelow(lastBottom: number, scrollerBottom: number, padBottom:
     return lastBottom - (scrollerBottom - padBottom);
 }
 
+/** Share of the visible text one press of "More below" moves on. */
+const PAGE_SHARE = 0.8;
+
+/**
+ * How far one press of "More below" scrolls: one page, keeping the last fifth
+ * of the view (the lines the button sat over) at the top as the place to go
+ * on from, and never past the last written line. `hidden` is `textBelow`,
+ * `view` the height of the scroller's text area (client height minus padding).
+ */
+export function pageStep(hidden: number, view: number): number {
+    return Math.max(0, Math.min(hidden, Math.round(view * PAGE_SHARE)));
+}
+
 /**
  * How a chat log scrolls while a model writes into it: like a page being
  * written, not like a terminal.
@@ -198,15 +211,19 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
     }, []);
 
     /**
-     * Bring the last written line into view, at the bottom edge. A press from
-     * the keyboard leaves focus on the log: the control that was pressed goes
-     * away once nothing is hidden, and focus must not fall back to the page.
+     * Turn one page: move on by `pageStep`, so a reader never skips the text
+     * between where they are and the end. The press that reaches the last line
+     * leaves keyboard focus on the log: the control goes away once nothing is
+     * hidden, and focus must not fall back to the page.
      */
-    const toEnd = useCallback((event?: { currentTarget: EventTarget | null }) => {
+    const nextPage = useCallback((event?: { currentTarget: EventTarget | null }) => {
         const el = ref.current;
         if (!el) return;
-        if (event?.currentTarget && event.currentTarget === document.activeElement) el.focus({ preventScroll: true });
-        el.scrollTo({ top: el.scrollTop + hiddenBelow(), behavior: motionReduced() ? 'auto' : 'smooth' });
+        const pad = padding(el);
+        const hidden = hiddenBelow();
+        const step = pageStep(hidden, el.clientHeight - pad.top - pad.bottom);
+        if (step >= hidden - BELOW_SLACK && event?.currentTarget && event.currentTarget === document.activeElement) el.focus({ preventScroll: true });
+        el.scrollTo({ top: el.scrollTop + step, behavior: motionReduced() ? 'auto' : 'smooth' });
     }, []);
 
     // The scroller resized (the panel dragged, a phone keyboard opened) or was
@@ -254,8 +271,8 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
 
     // One identity for the life of the panel: `below` is NOT in it (see above).
     const scroll = useMemo(
-        () => ({ scrollerRef, contentRef, anchor, retarget, toBottom, toTop, release, measure, toEnd }),
-        [scrollerRef, anchor, retarget, toBottom, toTop, release, measure, toEnd],
+        () => ({ scrollerRef, contentRef, anchor, retarget, toBottom, toTop, release, measure, nextPage }),
+        [scrollerRef, anchor, retarget, toBottom, toTop, release, measure, nextPage],
     );
     return [scroll, below] as const;
 }

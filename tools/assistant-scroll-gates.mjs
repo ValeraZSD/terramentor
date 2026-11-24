@@ -16,8 +16,10 @@
  *    the reader scrolls up to re-read, and does not move when it ends;
  *  - while text runs on below the view, "Still writing below" shows, and
  *    "More below" once the answer is done;
- *  - pressing it brings the answer's last paragraph into view and the button
- *    goes; pressed from the keyboard, focus lands on the log, not the page;
+ *  - each press turns one page and skips nothing (the line at the bottom edge
+ *    stays in view); pressed until it goes, the answer's last paragraph is in
+ *    view; from the keyboard, focus stays on the button while text is below
+ *    and lands on the log, not the page, on the last press;
  *  - closed and opened again, the panel shows the newest message with no
  *    room left under the old question;
  *  - a question the model refuses stays at the top with its notice in view
@@ -173,6 +175,7 @@ const STATE = `(() => {
         top: log.scrollTop,
         questionAt: q ? q.getBoundingClientRect().top - lr.top : null,
         pad: parseFloat(getComputedStyle(log).paddingTop),
+        padBottom: parseFloat(getComputedStyle(log).paddingBottom),
         hidden: content ? content.getBoundingClientRect().bottom - (lr.bottom - parseFloat(getComputedStyle(log).paddingBottom)) : null,
         answer: content ? content.getBoundingClientRect().height : null,
         view: lr.height,
@@ -272,23 +275,52 @@ const run = (form) => async (page) => {
     check('"More below" shows once it is done', done.button === 'More below', String(done.button));
     check('...and the end of the answer is out of sight', !done.lastStepShown);
 
-    await page.press(BUTTON, 'More below');
-    await page.waitFor(`(() => { const s = ${STATE}; return s && s.lastStepShown && !s.button; })()`, 'the end of the answer in view', 5000).catch(() => { });
-    const after = await page.evaluate(STATE);
-    check('pressing it brings the answer\'s last paragraph into view', after.lastStepShown && after.top > done.top,
-        `scrollTop ${done.top.toFixed(0)} -> ${after.top.toFixed(0)}, last paragraph in view: ${after.lastStepShown}`);
-    check('...and the button goes', after.button === null, String(after.button));
+    // Each press turns one page. Nothing may be skipped: the line at the
+    // bottom edge before a press must still be in view after it, so the log
+    // moves on by at most the height of its text area, and by something.
+    /** Press (or Enter), wait for the smooth scroll to stop, return the new state. */
+    const turn = async (press) => {
+        const before = await page.evaluate(STATE);
+        await press();
+        let s = before;
+        for (let i = 0, still = 0; i < 40 && still < 3; i++) {
+            await sleep(100);
+            const n = await page.evaluate(STATE);
+            still = Math.abs(n.top - s.top) < 1 ? still + 1 : 0;
+            s = n;
+        }
+        return { before, after: s, moved: s.top - before.top, text: before.view - before.pad - before.padBottom };
+    };
+    const presses = [];
+    for (let i = 0; i < 30; i++) {
+        if (!(await page.evaluate(`!!(${BUTTON})`))) break;
+        presses.push(await turn(() => page.press(BUTTON, 'More below')));
+    }
+    const fmt = (ps) => ps.map((p) => `${p.moved.toFixed(0)}/${p.text.toFixed(0)}`).join(', ');
+    check('one press turns one page, not straight to the end (it took more than one)', presses.length > 1, `${presses.length} press(es): ${fmt(presses)}`);
+    check('...each moving on, and never past the line that was at the bottom edge',
+        presses.length > 0 && presses.every((p) => p.moved > 0 && p.moved <= p.text + 1), fmt(presses));
+    const after = presses.at(-1)?.after ?? done;
+    check('pressing until it goes brings the answer\'s last paragraph into view', after.lastStepShown && after.button === null,
+        `last paragraph in view: ${after.lastStepShown}, button ${after.button}`);
 
-    // From the keyboard: back up, focus the button, Enter.
+    // From the keyboard: back up, focus the button, Enter until it goes. A press
+    // that leaves text below keeps focus on the button, so Enter can go on.
     await page.evaluate(`document.querySelector('aside[aria-label="Assistant"] [role="log"]').scrollTop = ${settled.top}`);
     await page.waitFor(`!!(${BUTTON})`, 'the button back after scrolling up', 5000);
     await page.evaluate(`(${BUTTON}).focus()`);
-    for (const type of ['keyDown', 'keyUp']) {
-        await page.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
-    }
-    await page.waitFor(`(() => { const s = ${STATE}; return s && s.lastStepShown && !s.button; })()`, 'the end of the answer in view', 5000).catch(() => { });
-    const keyed = await page.evaluate(STATE);
-    check('pressed with Enter, it scrolls and leaves focus on the log', keyed.lastStepShown && keyed.button === null && keyed.focusOnLog,
+    const enter = async () => {
+        for (const type of ['keyDown', 'keyUp']) {
+            await page.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+        }
+    };
+    const first = await turn(enter);
+    const focusOnButton = await page.evaluate(`document.activeElement === (${BUTTON})`);
+    check('pressed with Enter it turns a page and keeps focus on the button while text is below',
+        first.moved > 0 && first.moved <= first.text + 1 && focusOnButton, `moved ${first.moved.toFixed(0)}/${first.text.toFixed(0)}, focus on the button: ${focusOnButton}`);
+    let keyed = first.after;
+    for (let i = 0; i < 30 && keyed.button; i++) keyed = (await turn(enter)).after;
+    check('...and the last Enter leaves focus on the log, the end in view', keyed.lastStepShown && keyed.button === null && keyed.focusOnLog,
         `last paragraph in view ${keyed.lastStepShown}, button ${keyed.button}, focus on the log: ${keyed.focusOnLog}`);
 
     // Closed and opened again: the newest message, and no room left over.

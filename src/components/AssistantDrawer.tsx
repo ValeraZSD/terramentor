@@ -1871,7 +1871,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     <Button
                         size="sm"
                         icon={<ArrowDown />}
-                        onClick={scroll.toEnd}
+                        onClick={scroll.nextPage}
                         className="pointer-events-auto shadow-md"
                     >
                         {streaming ? tr("Still writing below") : tr("More below")}

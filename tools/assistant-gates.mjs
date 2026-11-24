@@ -551,13 +551,19 @@ section('the log reads like a page: the question goes up once, the answer never 
         entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
         bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
     });
-    const { roomFor, scrollTargetFor, textBelow } = await import(pathToFileURL(outScroll).href);
+    const { roomFor, scrollTargetFor, textBelow, pageStep } = await import(pathToFileURL(outScroll).href);
     // A log that does not follow the stream must say when the reply runs past
     // its bottom edge: strangers read a still screen as a reply that stopped.
     // Scroller box ends at y=900 with 16 px padding, so text is seen down to 884.
     check('text past the bottom edge counts as below, the padding does not', textBelow(1000, 900, 16) === 116 && textBelow(884, 900, 16) === 0 && textBelow(600, 900, 16) < 0);
-    check('the "more below" button shows only while text is below, and brings it into view',
-        /\{!showList && moreBelow && \(/.test(drawerSrc) && /onClick=\{scroll\.toEnd\}/.test(drawerSrc)
+    // One press turns one page, never straight to the end: a reader halfway
+    // down a long answer must not skip the middle (two outside readers did).
+    // A view 800 px tall moves on 640 px, keeping the last fifth in sight.
+    check('"More below" moves on one page, never past the last line',
+        pageStep(5000, 800) === 640 && pageStep(300, 800) === 300 && pageStep(0, 800) === 0 && pageStep(-40, 800) === 0,
+        [pageStep(5000, 800), pageStep(300, 800), pageStep(0, 800), pageStep(-40, 800)].join(' '));
+    check('the "more below" button shows only while text is below, and turns a page',
+        /\{!showList && moreBelow && \(/.test(drawerSrc) && /onClick=\{scroll\.nextPage\}/.test(drawerSrc)
         && /useEffect\(\(\) => \{ scroll\.measure\(\); \}\);/.test(drawerSrc));
     // `below` changes while a reply streams; the object the panel's effects
     // list must not, or the open effect re-runs and sends the log to the
