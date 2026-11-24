@@ -2409,6 +2409,9 @@ export interface AppVersion {
     deployment: 'docker' | 'git' | 'source';
     updateCommand: string | null;
     repoUrl: string;
+    /** A hosted copy (server/hosted.js): the library lives on a server, not on
+     *  the learner's computer. Absent from a server older than this field. */
+    hosted?: boolean;
 }
 
 /** Which releases an install is offered (server/version.js). */

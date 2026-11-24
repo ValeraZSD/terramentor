@@ -24,9 +24,11 @@ setChannelReader(currentChannel);
 // capture nothing" procedure stays literally true on a default install.
 
 /** Who am I. No network, no database — safe to call from anywhere, including
- *  the "report a problem" builder, which needs it before anything else works. */
+ *  the "report a problem" builder, which needs it before anything else works.
+ *  `hosted` is server/hosted.js's own answer, read per request rather than
+ *  cached with the rest: the page says where a learner's data is kept from it. */
 app.get('/api/version', (req, res) => {
-    res.json(appVersion());
+    res.json({ ...appVersion(), hosted: isHosted() });
 });
 
 /** Read the last check's result. Deliberately does NOT check: a GET that reaches
