@@ -519,7 +519,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         ref={setCardRef(card.key)}
                         tabIndex={-1}
                         style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
-                        className="outline-none"
+                        // `relative`: a card's hidden (`sr-only`, absolute)
+                        // lines are placed against the card, inside the feed's
+                        // scroller, never at the page's foot.
+                        className="relative outline-none"
                     >
                         {renderStandalone(card, !!feedDone[card.key], handleDone, openLookBack)}
                     </div>
@@ -537,7 +540,8 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
             ref={setCardRef(group.card.key)}
             tabIndex={-1}
             style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
-            className="outline-none"
+            // `relative`, as the cards above: hidden lines stay inside the feed.
+            className="relative outline-none"
         >
             {group.card.kind === 'lookback'
                 ? renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)

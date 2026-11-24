@@ -123,7 +123,7 @@ export default function ServingEndpointsPicker({
                             is not a cheap machine; anything
                             reporting no price at all goes last
                             rather than leading the table as free. */}
-                        <div className="overflow-x-auto">
+                        <div className="relative overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>
                                     <tr className="border-b border-slate-200 dark:border-slate-700 text-start text-xs font-medium text-slate-500 dark:text-slate-400">
