@@ -4,11 +4,12 @@
 //
 // Run:  node tools/model-bench-gates.mjs
 //
-// Every case in tools/model-bench/cases/ carries a reply a sound model could
-// give and replies broken by hand. This serves each one in place of the model,
-// through the same app code a live run uses (prompt, parser, validators,
-// stored rows), and fails when a sound reply is scored as a fail or a broken
-// one as a pass. No model, no network: a stub answers every request.
+// Every case of both suites (tools/model-bench/cases/ and cases-hard/)
+// carries a reply a sound model could give and replies broken by hand. This
+// serves each one in place of the model, through the same app code a live
+// run uses (prompt, parser, validators, stored rows), and fails when a sound
+// reply is scored as a fail or a broken one as a pass. No model, no network:
+// a stub answers every request.
 //
 // It runs in `npm test` because the scorers lean on the app's own parsers and
 // gates: a change to a prompt's reply format or to a validator can silently

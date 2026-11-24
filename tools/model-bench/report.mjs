@@ -13,7 +13,7 @@
  * `errors` column, because a learner would have seen that failure too.
  */
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
-import { loadSuite } from './suites.mjs';
+import { loadSuite, suiteName } from './suites.mjs';
 import path from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -21,16 +21,23 @@ const opt = (k, d = '') => { const i = argv.indexOf(`--${k}`); return i >= 0 ? a
 const OUT = opt('out');
 if (!OUT) { console.error('--out <dir> is required'); process.exit(2); }
 
-const { loadFamilies } = await loadSuite(opt('suite'));
+const suiteArg = opt('suite');
+if (argv.includes('--suite') && (!suiteArg || suiteArg.startsWith('--'))) { console.error('--suite needs a name'); process.exit(2); }
+let suite;
+try { suite = suiteName(suiteArg); } catch (e) { console.error(e.message); process.exit(2); }
+const { loadFamilies } = await loadSuite(suite);
 const families = await loadFamilies();
 const caseCount = families.reduce((n, f) => n + f.cases.length, 0);
 const label = Object.fromEntries(families.map(f => [f.category, f.label]));
+const caseIds = new Set(families.flatMap(f => f.cases.map(c => c.id)));
 
+// Only this suite's cases count: a folder that also holds another suite's
+// rows (same file name per model) must not mix into the score.
 const readRows = (file) => {
     const rows = new Map();
     for (const line of readFileSync(file, 'utf8').split('\n')) {
         if (!line.trim()) continue;
-        try { const r = JSON.parse(line); rows.set(r.case, r); } catch { /* torn line */ }
+        try { const r = JSON.parse(line); if (caseIds.has(r.case)) rows.set(r.case, r); } catch { /* torn line */ }
     }
     return [...rows.values()];
 };
@@ -78,7 +85,7 @@ const models = files.map((f) => {
 
 const cats = families.map(f => f.category);
 const fmt = (x, d = 1) => x == null ? '–' : Number(x).toFixed(d);
-let md = `# Model benchmark results\n\n${caseCount} cases in ${families.length} categories. Score = cases passed / cases the model could take x 100.\n\n`;
+let md = `# Model benchmark results (${suite} suite)\n\n${caseCount} cases in ${families.length} categories. Score = cases passed / cases the model could take x 100.\n\n`;
 md += 'Seconds are the time the app waited on the model per case.\n\n';
 md += '| model | ZDR | score | done | median s | p90 s | first token s | $ total | $/case | errors |\n|---|---|---|---|---|---|---|---|---|---|\n';
 for (const m of models) {
@@ -133,7 +140,7 @@ try {
     const cv = createCanvas(W, H); const g = cv.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#111827'; g.font = 'bold 30px sans-serif';
-    g.fillText(opt('title', `Terramentor model benchmark (${caseCount} cases)`), 30, 50);
+    g.fillText(opt('title', `Terramentor model benchmark, ${suite} suite (${caseCount} cases)`), 30, 50);
     g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
     g.fillText('Bar: score out of 100.   Right: median seconds the app waited per case (p90), then $ per 100 cases.', 30, 84);
     const x0 = 520, barW = 520;

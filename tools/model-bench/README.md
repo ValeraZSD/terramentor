@@ -85,7 +85,8 @@ scores close to nothing:
   differs from the key is a guess, not a refusal.
 - **Pairs** (the four code audits, grading, audit) run the model twice and
   pass only when both verdicts are right.
-- Each family's setup checks that no option reads as the key under the app's
+- The setup of every solve and unsound family (math, science, language,
+  knowledge, unsound) checks that no option reads as the key under the app's
   own answer comparison (`sameAnswer`), so a distractor is never scored as a
   right answer, and that no two items of an ordering read as one
   (`sameOption`), so a swapped pair is never scored as the right order.
@@ -118,6 +119,9 @@ code-running child's permission fence. `npm test` runs it for both suites as
     OPENROUTER_API_KEY=... node tools/model-bench/run.mjs --models free --out <dir>
     node tools/model-bench/run.mjs --models some/model,other/model --out <dir> [--suite hard]
     node tools/model-bench/report.mjs --out <dir> [--noise repeat] [--suite hard]
+
+Both suites write to `<model>.jsonl`; the report counts only the rows of the
+suite it is given, so a folder may hold both.
 
 Set the key from a launcher, not a shell history line. `--models free` reads
 the live OpenRouter list and takes every model priced at zero with text in and

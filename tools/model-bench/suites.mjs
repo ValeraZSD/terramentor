@@ -7,7 +7,7 @@
  */
 const SUITES = { standard: 'cases', hard: 'cases-hard' };
 
-export const suiteNames = () => Object.keys(SUITES);
+const suiteNames = () => Object.keys(SUITES);
 
 export function suiteName(value) {
     const name = value || 'standard';
