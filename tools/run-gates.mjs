@@ -379,6 +379,7 @@ function reap(roots) {
         if (!kids.has(p.ppid)) kids.set(p.ppid, []);
         kids.get(p.ppid).push(p);
     }
+    const byPid = new Map(list.map((p) => [p.pid, p]));
     const found = new Map();
     const walk = (p) => {
         if (found.has(p.pid) || p.pid === process.pid || p.pid === process.ppid) return;
@@ -386,6 +387,9 @@ function reap(roots) {
         for (const k of kids.get(p.pid) || []) if (k.created >= p.created - SLACK) walk(k);
     };
     for (const r of roots) {
+        // The id already belongs to a newer process (a suite started since, say): its children are not ours.
+        const owner = byPid.get(r.pid);
+        if (owner && owner.created > r.start + SLACK) continue;
         for (const k of kids.get(r.pid) || []) {
             if (k.created >= r.start - SLACK && k.created <= (r.end ?? now) + SLACK) walk(k);
         }

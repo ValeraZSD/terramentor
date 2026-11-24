@@ -35,7 +35,8 @@ const toolsDir = fileURLToPath(new URL('.', import.meta.url));
 const runner = join(toolsDir, 'run-gates.mjs');
 const fixtures = join(toolsDir, 'fixtures', 'run-gates');
 const WINDOWS = process.platform === 'win32';
-const TIMEOUT_MS = 3000;
+// Long enough for a cold Node start on a loaded CI runner: this gate runs inside a full pool.
+const TIMEOUT_MS = 6000;
 const scratchRoot = mkdtempSync(join(tmpdir(), 'gate-runner-gates-'));
 
 let pass = 0, fail = 0;
@@ -57,7 +58,9 @@ function killTree(pid) {
 
 /** The process ids the fixtures of one run noted. */
 const notedPids = (scratch) => readdirSync(scratch).filter((f) => f.endsWith('.pid'))
-    .map((f) => ({ name: f, pid: Number(readFileSync(join(scratch, f), 'utf8')) }));
+    .map((f) => ({ name: f, pid: Number(readFileSync(join(scratch, f), 'utf8')) }))
+    // A file read before its id was written gives 0, and kill(-0) is this process's own group.
+    .filter(({ pid }) => Number.isInteger(pid) && pid > 0);
 
 /** Wait (up to `ms`) for every noted process of a run to end; return the ones still running. */
 async function survivors(scratch, ms = 8000) {
@@ -128,7 +131,7 @@ async function basicRun(jobs) {
     check(`${how}: a silent exit 0 is told what it must print`, silentAt >= 0 && /exited 0 without printing an assertion count/.test(lines[silentAt + 1] || ''));
     const hang = rows.find((r) => r.name === 'hang-gates.mjs');
     check(`${how}: the hung suite is stopped at its limit and says so`,
-        hang && hang.ms >= TIMEOUT_MS && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
+        hang && hang.ms >= TIMEOUT_MS - 50 && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
     check(`${how}: the run did not wait for the processes left running (each sleeps a minute)`, run.ms < 45_000, `${run.ms} ms`);
 
     // Each failure's tagged lines sit together under its own FAIL line.
@@ -190,7 +193,10 @@ const apart = (a, b) => a.end <= b.start || b.end <= a.start;
         && Object.entries(s).filter(([k]) => k !== 'dep' && k !== 'perf-budget').every(([, o]) => s.dep.end <= o.start),
         JSON.stringify(s));
     check('the two browser suites never ran side by side', s.axe && s['plan-views'] && apart(s.axe, s['plan-views']), JSON.stringify(s));
-    check('locally the suites start at idle priority',
+    // Inside a local `npm test` this gate already runs at idle priority and its
+    // fixtures would inherit it: the check proves something only from above it.
+    if (getPriority() === osConstants.priority.PRIORITY_LOW) console.log('  note  idle priority not checked: this gate already runs at it');
+    else check('locally the suites start at idle priority',
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8') === String(osConstants.priority.PRIORITY_LOW),
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8'));
 }

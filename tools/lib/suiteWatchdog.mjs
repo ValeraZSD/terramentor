@@ -4,8 +4,10 @@
 // The runner stops its suites itself on a timeout, on Ctrl+C and on any signal
 // it can catch. This covers the case it cannot: the runner killed outright (Task
 // Manager, `taskkill /F`, SIGKILL, a cancelled CI job). Nothing then stops the
-// suites it started: on Windows a child outlives its parent, and on Linux each
-// suite runs in a process group of its own, out of reach of the terminal. So
+// suites it started on Linux and macOS, where each suite runs in a process group
+// of its own, out of reach of the terminal. (On Windows Node's job object already
+// ends a suite with the runner; there the check covers only what a suite started
+// detached, outside that job.) So
 // once a second the suite checks that the runner is still there, and when it is
 // gone the suite ends itself and everything it started.
 //
