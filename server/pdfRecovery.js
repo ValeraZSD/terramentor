@@ -378,6 +378,8 @@ async function runRecovery(documentId, { force }) {
     try {
         analysis = await analyzePdfPages(buffer);
     } catch (err) {
+        // Deleted while it was analysed: it stays pending for its Restore.
+        if (!isLiveDoc(documentId)) return;
         db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('failed', documentId);
         console.warn(`[recover] analysis failed for "${doc.title}": ${err.message}`);
         return;
@@ -560,6 +562,12 @@ async function runRecovery(documentId, { force }) {
         if (cancelled) handle.cancelled(); else handle.finish();
         console.log(`[recover] "${doc.title}": recovered ${recoveredCount}/${total} page(s) via ${method}${cancelled ? ' (cancelled mid-run, partial)' : ''}`);
     } catch (err) {
+        // Deleted during the run: pending for its Restore, like the path above.
+        if (!isLiveDoc(documentId)) {
+            db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE id = ?").run(documentId);
+            try { handle.cancelled(); } catch { /* ignore */ }
+            return;
+        }
         db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('failed', documentId);
         try { handle.fail(err.message); } catch { /* ignore */ }
         console.warn(`[recover] "${doc.title}" failed: ${err.message}`);

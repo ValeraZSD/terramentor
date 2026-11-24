@@ -675,6 +675,26 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
     resumePendingRecovery();
     await new Promise(r => setTimeout(r, 300));
     ok('a deleted PDF caught running by a restart is pending again, and not run', recovery(deadPdf) === 'pending', `${recovery(deadPdf)}`);
+    // Deleted after the run picked it up, while it is analysed: its bytes are
+    // not a PDF, so the analysis fails, and the file must stay pending for its
+    // Restore rather than be marked failed.
+    const midTopic = node(keep, kPhase, 'Keep topic deleted mid-analysis');
+    const midPdf = doc(keep, midTopic, 'Keep pdf deleted mid-analysis', { type: 'pdf', hash: vaultStorage.put(Buffer.from('Mid, not a pdf')).hash, recovery: 'pending' });
+    const midHash = db.prepare('SELECT file_hash FROM documents WHERE id = ?').pluck().get(midPdf);
+    const readBuffer = vaultStorage.readBuffer;
+    let deletedMidAnalysis = false;
+    // The run has read the live row; its topic is deleted as the bytes are read.
+    vaultStorage.readBuffer = function (hash) {
+        if (hash === midHash && !deletedMidAnalysis) deletedMidAnalysis = SD.softDelete('nodes', midTopic) > 0;
+        return readBuffer.call(this, hash);
+    };
+    try {
+        queueRecovery(midPdf);
+        await waitFor(() => deletedMidAnalysis);
+        await new Promise(r => setTimeout(r, 300));
+    } finally { vaultStorage.readBuffer = readBuffer; }
+    ok('a PDF deleted while it is analysed stays pending, not failed', deletedMidAnalysis && recovery(midPdf) === 'pending',
+        `deleted mid-analysis ${deletedMidAnalysis}, ${recovery(midPdf)}`);
 
     // 3. Pictures: listed, counted, swept, described, served.
     const listedHashes = ((await call('GET', '/api/media-descriptions?limit=200')).json?.items || []).map(i => i.hash);
