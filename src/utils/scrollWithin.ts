@@ -46,8 +46,18 @@ export interface ScrollWithinOptions {
     /** Where in the scroller the element should land. Default `nearest`. */
     block?: ScrollWithinBlock;
     behavior?: ScrollBehavior;
-    /** Breathing room at the edge, in px. */
+    /**
+     * Breathing room at the edge, in px. Added to the element's
+     * `scroll-margin` and the scroller's `scroll-padding`, which are read from
+     * the stylesheet the way native `scrollIntoView` reads them.
+     */
     padding?: number;
+}
+
+/** A resolved `scroll-margin-*` / `scroll-padding-*` in px; `auto` and unset are 0. */
+function px(value: string | undefined): number {
+    const n = parseFloat(value ?? '');
+    return Number.isFinite(n) ? n : 0;
 }
 
 /** True when this element declares a vertical scroll AND has room to use it. */
@@ -99,16 +109,23 @@ export function scrollIntoViewWithin(
     const top = box.top - frame.top + scroller.scrollTop;
     const view = scroller.clientHeight;
     const limit = scroller.scrollHeight - view;
+    // A pinned header over the scroller is cleared the CSS way: the element's
+    // `scroll-margin-top`, the scroller's `scroll-padding-top` (the feed sets
+    // both). Ignoring them put the next card under the feed's header.
+    const own = getComputedStyle(el);
+    const frameStyle = getComputedStyle(scroller);
+    const above = padding + px(own.scrollMarginTop) + px(frameStyle.scrollPaddingTop);
+    const below = padding + px(own.scrollMarginBottom) + px(frameStyle.scrollPaddingBottom);
 
     let target: number;
     if (block === 'start') {
-        target = top - padding;
+        target = top - above;
     } else if (block === 'center') {
         target = top - (view - box.height) / 2;
     } else {
         const from = scroller.scrollTop;
-        if (top >= from + padding && top + box.height <= from + view - padding) return true;
-        target = top < from + padding ? top - padding : top + box.height - view + padding;
+        if (top >= from + above && top + box.height <= from + view - below) return true;
+        target = top < from + above ? top - above : top + box.height - view + below;
     }
 
     const next = Math.max(0, Math.min(target, limit));

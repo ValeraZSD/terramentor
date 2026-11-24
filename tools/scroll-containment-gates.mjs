@@ -171,6 +171,41 @@ console.log('\nscrollIntoViewWithin — where the row lands');
     check('a scroller that is already scrolled still lands the row correctly', list.scrollTop === 1100,
         `landed at ${list.scrollTop}`);
 }
+{
+    // The feed: a pinned header sits over the top of its scroller, and the
+    // stylesheet says how far below it a card must stop (the card's
+    // `scroll-margin-top`, the scroller's `scroll-padding-top`). Native
+    // scrollIntoView reads both; a hand-rolled scroll that ignores them puts
+    // the next card's top under the header.
+    const { list, row } = tree(true);
+    row.style.scrollMarginTop = '96px';
+    list.style.scrollPaddingTop = '52px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('block:start stops below the scroll-margin and scroll-padding the stylesheet asks for',
+        list.scrollTop === 1100 - 96 - 52, `landed at ${list.scrollTop}, want ${1100 - 96 - 52}`);
+}
+{
+    const { list, row } = tree(true);
+    row.style.scrollMarginTop = '96px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 16 });
+    check('…and a caller\'s own padding adds to them', list.scrollTop === 1100 - 96 - 16,
+        `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
+    list.style.scrollPaddingTop = 'auto';
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('a scroll-padding of auto counts as none', list.scrollTop === 1100, `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
+    list.scrollTop = 1000;
+    row.top = 1150; // 50px into the view: visible, but under an 80px header
+    list.style.scrollPaddingTop = '80px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'nearest' });
+    check('block:nearest treats a row under the pinned header as out of view', list.scrollTop === 1050 - 80,
+        `landed at ${list.scrollTop}`);
+}
 
 // ── the source scan ─────────────────────────────────────────────────────────
 // `block: 'start'` and `block: 'center'` force every ancestor to move.
