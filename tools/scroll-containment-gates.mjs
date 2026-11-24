@@ -171,18 +171,60 @@ console.log('\nscrollIntoViewWithin — where the row lands');
     check('a scroller that is already scrolled still lands the row correctly', list.scrollTop === 1100,
         `landed at ${list.scrollTop}`);
 }
+{
+    // The feed: a pinned header sits over the top of its scroller, and the
+    // stylesheet says how far below it a card must stop (the card's
+    // `scroll-margin-top`, the scroller's `scroll-padding-top`). Native
+    // scrollIntoView reads both; a hand-rolled scroll that ignores them puts
+    // the next card's top under the header.
+    const { list, row } = tree(true);
+    row.style.scrollMarginTop = '96px';
+    list.style.scrollPaddingTop = '52px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('block:start stops below the scroll-margin and scroll-padding the stylesheet asks for',
+        list.scrollTop === 1100 - 96 - 52, `landed at ${list.scrollTop}, want ${1100 - 96 - 52}`);
+}
+{
+    const { list, row } = tree(true);
+    row.style.scrollMarginTop = '96px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 16 });
+    check('…and a caller\'s own padding adds to them', list.scrollTop === 1100 - 96 - 16,
+        `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
+    list.style.scrollPaddingTop = 'auto';
+    row.style.scrollMarginTop = '24px'; // so a helper that reads neither fails too
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('a scroll-padding of auto counts as none', list.scrollTop === 1100 - 24, `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
+    list.style.scrollPaddingTop = '10%'; // of the 700px scrollport: 70px, not 10px
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('a percentage scroll-padding is of the scroller\'s height', list.scrollTop === 1100 - 70,
+        `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
+    list.scrollTop = 1000;
+    row.top = 1150; // 50px into the view: visible, but under an 80px header
+    list.style.scrollPaddingTop = '80px';
+    scrollIntoViewWithin(row, { boundary: list, block: 'nearest' });
+    check('block:nearest treats a row under the pinned header as out of view', list.scrollTop === 1050 - 80,
+        `landed at ${list.scrollTop}`);
+}
 
 // ── the source scan ─────────────────────────────────────────────────────────
 // `block: 'start'` and `block: 'center'` force every ancestor to move.
 // `nearest` does not: it does the least work that makes the element visible, so
 // an element already on screen moves nothing. Only the forcing forms are
-// listed, and each one that stays has to be a deliberate PAGE scroll.
+// listed; none is allowed, since a deliberate page scroll goes through
+// `scrollPageTo`, which moves the window alone.
 console.log('\nno surface goes back to a forcing scrollIntoView');
 {
-    const allowed = new Map([
-        ['src/components/feed/FeedView.tsx', 'advancing the feed is a page scroll by design — the card stream IS the page'],
-        ['src/components/deck/DeckStages.tsx', 'jumping to a section on page three of a page-length list'],
-    ]);
+    /** @type {Map<string, string>} file -> why its forcing scroll is allowed */
+    const allowed = new Map();
     const files = [];
     const walk = (dir) => {
         for (const e of require('node:fs').readdirSync(dir, { withFileTypes: true })) {
@@ -222,6 +264,92 @@ for (const rel of ['src/components/AtlasView.tsx', 'src/hooks/useScrollToSelecte
     check(`${rel} scrolls within a boundary`,
         /scrollIntoViewWithin\(/.test(src) && /boundary:/.test(src));
     check(`${rel} does not also call scrollIntoView`, !/\.scrollIntoView\(/.test(src));
+}
+
+// The feed's "continue" scrolled the WINDOW on a desktop when anything made the
+// page taller than it (an assistant reply's hidden text twin did, by 107px), and
+// the app's header left the screen. Its own scroller first; the page only when
+// it has none.
+{
+    const src = readFileSync(join(root, 'src/components/feed/FeedView.tsx'), 'utf8');
+    check('the feed advances inside its own scroller first, the window only as the fallback',
+        /if \(!scrollIntoViewWithin\([^)]*boundary:[^)]*\)\)\s*\{\s*scrollPageTo\(el,/.test(src));
+}
+{
+    const src = readFileSync(join(root, 'src/components/deck/DeckStages.tsx'), 'utf8');
+    check('a deck section picked on the strip is scrolled to inside its own scroller first, the window only as the fallback',
+        /if \(el && !scrollIntoViewWithin\(el, \{[^}]*boundary:[^}]*\}\)\)\s*\{\s*scrollPageTo\(el,/.test(src));
+}
+
+// The phone fallback moves the window and nothing else: native scrollIntoView
+// would also scroll an `overflow: hidden` box on the way up, so a desktop list
+// that merely had nothing to scroll could still shift the app frame.
+console.log('\nscrollPageTo — the window moves, nothing else');
+{
+    const { scrollPageTo } = require(out);
+    const calls = [];
+    globalThis.window = { scrollY: 300, innerHeight: 800, scrollTo: (o) => calls.push(o) };
+    const { page, section, list, row } = tree(false);
+    row.style.scrollMarginTop = '78px';
+    scrollPageTo(row, { block: 'start' });
+    check('block:start lands the element below its scroll-margin, in page coordinates',
+        calls.length === 1 && calls[0].top === 1200 + 300 - 78, JSON.stringify(calls));
+    scrollPageTo(row, { block: 'center' });
+    check('block:center centres it in the window', calls[1]?.top === 1200 + 300 - (800 - 60) / 2, JSON.stringify(calls[1]));
+    check('and no box on the way up is scrolled',
+        [page, section, list].every((b) => b.scrolled.length === 0));
+    delete globalThis.window;
+}
+
+// `nearest` cannot force a scroll while the element is on screen, but it still
+// scrolls the page when the element is not (a page already moved by anything),
+// and then the header leaves. So no native call is left anywhere.
+console.log('\nno native scrollIntoView anywhere');
+{
+    const fallbacks = new Set();
+    const natives = [];
+    const walk = (dir) => {
+        for (const e of require('node:fs').readdirSync(dir, { withFileTypes: true })) {
+            const p = join(dir, e.name);
+            if (e.isDirectory()) walk(p);
+            else if (/\.tsx?$/.test(e.name)) {
+                const rel = p.slice(root.length + 1).replace(/\\/g, '/');
+                const code = readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+                const n = (code.match(/\.scrollIntoView\(/g) ?? []).length;
+                if (n && !fallbacks.has(rel)) natives.push(`${rel} (${n})`);
+                if (fallbacks.has(rel) && n !== 1) natives.push(`${rel} has ${n} native calls, one fallback allowed`);
+            }
+        }
+    };
+    walk(join(root, 'src'));
+    check('every other list moves through scrollIntoViewWithin or scrollRailTo', natives.length === 0, natives.join(', '));
+    for (const rel of ['src/components/Layout.tsx', 'src/components/Workspace.tsx']) {
+        check(`${rel} moves its tab rail with scrollRailTo`, /scrollRailTo\(/.test(readFileSync(join(root, rel), 'utf8')));
+    }
+    for (const rel of ['src/components/ModelPicker.tsx', 'src/components/SearchBar.tsx', 'src/components/Sidebar.tsx']) {
+        const src = readFileSync(join(root, rel), 'utf8');
+        check(`${rel} keeps its cursor row in view within a boundary`, /scrollIntoViewWithin\([^;]*boundary:/.test(src));
+    }
+}
+
+// The rails' horizontal helper, against stated geometry.
+console.log('\nscrollRailTo — a tab rail moves sideways and nothing else');
+{
+    const { scrollRailTo } = require(out);
+    const rail = (scrollWidth, clientWidth, left, right) => {
+        const r = { scrollWidth, clientWidth, moved: [], contains: () => true,
+            getBoundingClientRect: () => ({ left, right }), scrollBy: ({ left: d }) => r.moved.push(d) };
+        return r;
+    };
+    const tab = (left, right) => ({ getBoundingClientRect: () => ({ left, right }) });
+    const past = rail(900, 400, 0, 400);
+    check('a tab past the right edge moves the rail by what sticks out', scrollRailTo(tab(420, 500), past) && past.moved[0] === 100, String(past.moved));
+    const before = rail(900, 400, 100, 500);
+    check('a tab before the left edge moves it back', scrollRailTo(tab(40, 120), before) && before.moved[0] === -60, String(before.moved));
+    const inside = rail(900, 400, 0, 400);
+    check('a tab in view moves nothing', !scrollRailTo(tab(100, 180), inside) && inside.moved.length === 0);
+    const fits = rail(400, 400, 0, 400);
+    check('a rail with nothing to scroll moves nothing', !scrollRailTo(tab(420, 500), fits) && fits.moved.length === 0);
 }
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }

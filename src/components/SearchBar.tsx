@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { isAppleOS, modShortcut, usePhysicalKeyboard } from '../utils/platform';
 import { shortcutLetter } from '../utils/escapeKey';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import type {
     SearchResultItem,
@@ -380,9 +381,10 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
 
     // Auto-scroll selected item into view
     useEffect(() => {
-        if (!resultsRef.current) return;
-        const selected = resultsRef.current.querySelector('[data-selected="true"]');
-        selected?.scrollIntoView({ block: 'nearest' });
+        // The results list alone: native scrollIntoView would also scroll the page.
+        const list = resultsRef.current;
+        if (!list) return;
+        scrollIntoViewWithin(list.querySelector<HTMLElement>('[data-selected="true"]'), { boundary: list, block: 'nearest' });
     }, [selectedIndex]);
 
     const handleClose = () => {

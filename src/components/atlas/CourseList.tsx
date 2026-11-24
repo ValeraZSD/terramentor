@@ -74,7 +74,7 @@ export default function CourseList({ courses, value, onChange, swatches }: Props
                         data-row
                         onClick={() => onChange(picked ? null : c.id)}
                         onKeyDown={e => onKeyDown(e, i)}
-                        className={`flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60 transition-colors ${picked
+                        className={`relative flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60 transition-colors ${picked
                             ? 'bg-accent/10 text-slate-900 dark:text-white'
                             : 'text-slate-700 dark:text-slate-200 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60'}`}
                     >

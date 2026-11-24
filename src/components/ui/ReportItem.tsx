@@ -150,7 +150,7 @@ function WrittenByAi({ model }: { model: string | null }) {
     const { t } = useTranslation();
     const named = model ? t('Written by AI ({{model}})', { model }) : t('Written by AI');
     return (
-        <span className="me-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400" title={model ? named : undefined} data-ai-written="">
+        <span className="relative me-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400" title={model ? named : undefined} data-ai-written="">
             <span aria-hidden="true">{t('Written by AI')}</span>
             <span className="sr-only">{named}</span>
         </span>

@@ -113,7 +113,7 @@ export default function EstimateChart({ points, threshold, day, describe }: {
     const labelBelow = first.value >= threshold;
 
     return (
-        <figure className="m-0">
+        <figure className="relative m-0">
             <figcaption className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {t("How sure the app was over time")}
             </figcaption>
