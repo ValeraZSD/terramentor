@@ -688,13 +688,17 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
         if (hash === midHash && !deletedMidAnalysis) deletedMidAnalysis = SD.softDelete('nodes', midTopic) > 0;
         return readBuffer.call(this, hash);
     };
+    // Runs go one at a time, so a live file queued after it is marked failed
+    // only once that run has settled: its outcome is read after that.
+    const afterPdf = doc(keep, kTopic, 'Keep pdf queued after', { type: 'pdf', hash: vaultStorage.put(Buffer.from('After, not a pdf')).hash, recovery: 'pending' });
+    let settled = false;
     try {
         queueRecovery(midPdf);
-        await waitFor(() => deletedMidAnalysis);
-        await new Promise(r => setTimeout(r, 300));
+        queueRecovery(afterPdf);
+        settled = await waitFor(() => recovery(afterPdf) === 'failed');
     } finally { vaultStorage.readBuffer = readBuffer; }
-    ok('a PDF deleted while it is analysed stays pending, not failed', deletedMidAnalysis && recovery(midPdf) === 'pending',
-        `deleted mid-analysis ${deletedMidAnalysis}, ${recovery(midPdf)}`);
+    ok('a PDF deleted while it is analysed stays pending, not failed', settled && deletedMidAnalysis && recovery(midPdf) === 'pending',
+        `run settled ${settled}, deleted mid-analysis ${deletedMidAnalysis}, ${recovery(midPdf)}`);
 
     // 3. Pictures: listed, counted, swept, described, served.
     const listedHashes = ((await call('GET', '/api/media-descriptions?limit=200')).json?.items || []).map(i => i.hash);
