@@ -25,6 +25,8 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     const { t: tr } = useTranslation();
     const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
+    // A hosted copy keeps the profile on its server (server/hosted.js).
+    const hosted = useStore(s => s.appVersion?.hosted === true);
     const codeRunner = useStore(s => s.codeRunner);
     const setCodeRunner = useStore(s => s.setCodeRunner);
     const forgiveSpelling = useStore(s => s.forgiveSpelling);
@@ -283,7 +285,9 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup
                     title={tr("Learner profile")}
-                    intro={tr("Your background and experience, so the tutor pitches lessons at your level. Stored on this computer and sent only to the AI provider you connect.")}
+                    intro={hosted
+                        ? tr("Your background and experience, so the tutor pitches lessons at your level. Saved online, on the server that runs this app, and sent only to the AI provider it uses.")
+                        : tr("Your background and experience, so the tutor pitches lessons at your level. Stored on this computer and sent only to the AI provider you connect.")}
                 >
                 <div className="p-4">
                     <div className="relative rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus-within:ring-2 focus-within:ring-accent/60 focus-within:border-accent transition overflow-hidden">
