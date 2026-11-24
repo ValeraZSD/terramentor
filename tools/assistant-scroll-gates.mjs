@@ -5,18 +5,24 @@
  *
  *   node tools/assistant-scroll-gates.mjs                 desktop and phone
  *   node tools/assistant-scroll-gates.mjs --browser <p>   a Chromium-based browser (default: Edge or Chrome)
+ *   node tools/assistant-scroll-gates.mjs --only phone    one size (desktop or phone)
  *
  * The built app on the invented course from tools/docs-fixture.mjs, talking to
  * a stub model in this process that streams one long answer (nothing billed,
  * nothing leaves the machine). At a desktop and a phone size:
  *
  *  - Send puts the new question at the top of the log, one padding down;
- *  - after that the log does not move while the answer streams, and does not
- *    move when it ends: the reader scrolls, the log does not;
+ *  - after that the log does not move while the answer streams, also after
+ *    the reader scrolls up to re-read, and does not move when it ends;
  *  - while text runs on below the view, "Still writing below" shows, and
  *    "More below" once the answer is done;
- *  - pressing it brings the end of the answer into view and the button goes;
- *  - pressed from the keyboard, focus lands on the log, not on the page.
+ *  - pressing it brings the answer's last paragraph into view and the button
+ *    goes; pressed from the keyboard, focus lands on the log, not the page;
+ *  - closed and opened again, the panel shows the newest message with no
+ *    room left under the old question;
+ *  - a question the model refuses stays at the top with its notice in view
+ *    (the path that drops a question and its room, a send the server refuses
+ *    before a turn starts, is checked in the source by assistant-gates.mjs).
  *
  * Each "holds still" check also asserts the answer streamed long enough to
  * have moved a log that follows it, so a stream that never arrived passes
@@ -79,6 +85,8 @@ if (sources > built) {
 // a question containing "long", a short one otherwise.
 // ---------------------------------------------------------------------------
 
+const LONG_Q = 'Now the long version, please';
+const FAIL_Q = 'This one fails, please';
 const para = (i) => `Step ${i}. A wave on a string fixed at both ends reflects at each end, and the reflected wave adds to the incoming one. Where they always cancel the string stays still, a node; where they add the most it swings widest, an antinode.`;
 const LONG = Array.from({ length: 16 }, (_, i) => para(i + 1)).join('\n\n');
 const SHORT = 'Standing waves form when two equal waves travel in opposite directions.';
@@ -102,7 +110,15 @@ const stub = http.createServer((req, res) => {
             res.writeHead(200, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: 'NONE' }, finish_reason: 'stop' }], usage: { completion_tokens: 1 } }));
         }
-        const words = (/long/i.test(asked) ? LONG : SHORT).split(/(?<= )/);
+        if (asked.includes(FAIL_Q)) {
+            // Refused outright (not a transient error), so the turn fails, after
+            // a pause long enough to see the room made for the question first.
+            return setTimeout(() => {
+                res.writeHead(400, { 'content-type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'refused by the stub' } }));
+            }, 2000);
+        }
+        const words = (asked.includes(LONG_Q) ? LONG : SHORT).split(/(?<= )/);
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         let i = 0;
         const timer = setInterval(() => {
@@ -145,7 +161,6 @@ async function prepare(ctx) {
 // ---------------------------------------------------------------------------
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const LONG_Q = 'Now the long version, please';
 /** The log, where the long question sits in it, and the "below" button's words. */
 const STATE = `(() => {
     const log = document.querySelector('aside[aria-label="Assistant"] [role="log"]');
@@ -164,6 +179,15 @@ const STATE = `(() => {
         button: button ? button.textContent.trim() : null,
         busy: !!document.querySelector('[aria-label="Stop generating"]'),
         focusOnLog: document.activeElement === log,
+        room: log.firstElementChild?.style.minHeight ?? null,
+        // The answer's own last paragraph, found by its words, not by the hook's measure.
+        lastStepShown: (() => {
+            const p = [...log.querySelectorAll('p')].filter((e) => e.textContent.startsWith('Step 16.')).pop();
+            if (!p) return false;
+            const r = p.getBoundingClientRect();
+            return r.top >= lr.top && r.bottom <= lr.bottom;
+        })(),
+        text: log.innerText,
     };
 })()`;
 /** The bar's assistant button: icon-only with a name on a narrow bar, the word itself on a wide one. */
@@ -180,9 +204,9 @@ async function ask(page, text) {
     await page.press(`document.querySelector('[aria-label="Send"]')`, 'Send');
 }
 
-async function idle(page) {
-    await page.waitFor(`document.querySelector('[aria-label="Stop generating"]')`, 'the answer starting', 15_000).catch(() => { });
-    await page.waitFor(`!document.querySelector('[aria-label="Stop generating"]')`, 'the answer ending', 60_000);
+/** Wait until `text` is in the log and nothing is being written. */
+async function answered(page, text) {
+    await page.waitFor(`(() => { const s = ${STATE}; return s && !s.busy && s.text.includes(${JSON.stringify(text)}); })()`, `the answer containing "${text}"`, 60_000);
 }
 
 const run = (form) => async (page) => {
@@ -193,12 +217,12 @@ const run = (form) => async (page) => {
     await page.waitFor(`document.querySelector('textarea[placeholder="Ask anything…"]')`, 'the composer');
 
     await ask(page, 'What is a standing wave?');
-    await idle(page);
-    await sleep(600);
+    await answered(page, 'opposite directions');
 
     await ask(page, LONG_Q);
-    await page.waitFor(`document.querySelector('[aria-label="Stop generating"]')`, 'the long answer starting', 15_000);
-    // The one move a question makes: wait until it has settled (smooth scroll).
+    // The one move a question makes (a smooth scroll): first the question
+    // reaches the top, then the position holds for a moment.
+    await page.waitFor(`(() => { const s = ${STATE}; return s && s.questionAt != null && Math.abs(s.questionAt - s.pad) <= 4; })()`, 'the question at the top', 10_000).catch(() => { });
     let settled = await page.evaluate(STATE);
     for (let i = 0; i < 30; i++) {
         await sleep(150);
@@ -208,38 +232,51 @@ const run = (form) => async (page) => {
     }
     check('Send puts the question at the top of the log', settled.questionAt != null && Math.abs(settled.questionAt - settled.pad) <= 4,
         `question at ${settled.questionAt?.toFixed(1)} px, padding ${settled.pad}`);
+    check('...while the answer is still being written', settled.busy);
 
+    // Sampled while it is written. Part way through, the reader scrolls up
+    // to re-read and later comes back: the log must stay wherever they put it.
     const samples = [];
+    let expected = settled.top;
+    let scrolledUp = null;
     for (let i = 0; i < 400; i++) {
+        if (i === 12 || i === 24) {
+            expected = i === 12 ? Math.max(0, settled.top - 150) : settled.top;
+            await page.evaluate(`document.querySelector('aside[aria-label="Assistant"] [role="log"]').scrollTop = ${expected}`);
+        }
         const s = await page.evaluate(STATE);
-        samples.push(s);
+        samples.push({ ...s, expected });
+        if (i > 12 && i < 24 && s.busy) scrolledUp = (scrolledUp ?? true) && Math.abs(s.top - expected) < 1;
         if (!s.busy) break;
         await sleep(100);
     }
     const streaming = samples.filter((s) => s.busy);
-    const moved = streaming.filter((s) => Math.abs(s.top - settled.top) >= 1);
+    const moved = streaming.filter((s) => Math.abs(s.top - s.expected) >= 1);
     // Taller than the view, measured on the answer itself, not on the scroll:
     // a log that follows the stream hides nothing, yet the answer is as long.
     const tallest = Math.max(...streaming.map((s) => s.answer ?? 0));
-    const view = streaming[0]?.view ?? Infinity;
+    const view = streaming[0]?.view ?? 0;
     check('the answer streamed for a while and grew taller than the view (so a following log would have moved)',
-        streaming.length >= 10 && tallest > view + 100,
-        `${streaming.length} samples while writing, answer ${tallest.toFixed(0)} px, view ${view.toFixed?.(0)} px`);
+        streaming.length >= 30 && tallest > view + 100,
+        `${streaming.length} samples while writing, answer ${tallest.toFixed(0)} px, view ${view.toFixed(0)} px`);
     check('the log did not move while the answer was written', moved.length === 0,
-        `${moved.length} of ${streaming.length} samples off ${settled.top.toFixed(0)}: ${moved.slice(0, 5).map((s) => s.top.toFixed(0)).join(', ')}`);
+        `${moved.length} of ${streaming.length} samples off where the reader left it: ${moved.slice(0, 5).map((s) => `${s.top.toFixed(0)} (want ${s.expected.toFixed(0)})`).join(', ')}`);
+    check('...including after the reader scrolled up to re-read', scrolledUp === true, String(scrolledUp));
     check('"Still writing below" showed while it was written', streaming.some((s) => s.button === 'Still writing below'),
         [...new Set(streaming.map((s) => s.button))].join(' / '));
 
-    await sleep(1000);
+    await answered(page, 'Step 16.');
+    await sleep(800);
     const done = await page.evaluate(STATE);
     check('the log did not move when the answer ended', Math.abs(done.top - settled.top) < 1, `${settled.top.toFixed(0)} -> ${done.top.toFixed(0)}`);
     check('"More below" shows once it is done', done.button === 'More below', String(done.button));
+    check('...and the end of the answer is out of sight', !done.lastStepShown);
 
     await page.press(BUTTON, 'More below');
-    await sleep(1500);
+    await page.waitFor(`(() => { const s = ${STATE}; return s && s.lastStepShown && !s.button; })()`, 'the end of the answer in view', 5000).catch(() => { });
     const after = await page.evaluate(STATE);
-    check('pressing it brings the end of the answer into view', after.top > done.top && after.hidden <= 8,
-        `scrollTop ${done.top.toFixed(0)} -> ${after.top.toFixed(0)}, ${after.hidden?.toFixed(0)} px still hidden`);
+    check('pressing it brings the answer\'s last paragraph into view', after.lastStepShown && after.top > done.top,
+        `scrollTop ${done.top.toFixed(0)} -> ${after.top.toFixed(0)}, last paragraph in view: ${after.lastStepShown}`);
     check('...and the button goes', after.button === null, String(after.button));
 
     // From the keyboard: back up, focus the button, Enter.
@@ -249,13 +286,52 @@ const run = (form) => async (page) => {
     for (const type of ['keyDown', 'keyUp']) {
         await page.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
     }
-    await sleep(1500);
+    await page.waitFor(`(() => { const s = ${STATE}; return s && s.lastStepShown && !s.button; })()`, 'the end of the answer in view', 5000).catch(() => { });
     const keyed = await page.evaluate(STATE);
-    check('pressed with Enter, it scrolls and leaves focus on the log', keyed.hidden <= 8 && keyed.button === null && keyed.focusOnLog,
-        `hidden ${keyed.hidden?.toFixed(0)} px, button ${keyed.button}, focus on the log: ${keyed.focusOnLog}`);
+    check('pressed with Enter, it scrolls and leaves focus on the log', keyed.lastStepShown && keyed.button === null && keyed.focusOnLog,
+        `last paragraph in view ${keyed.lastStepShown}, button ${keyed.button}, focus on the log: ${keyed.focusOnLog}`);
+
+    // Closed and opened again: the newest message, and no room left over.
+    await page.evaluate(`document.querySelector('aside[aria-label="Assistant"] [role="log"]').scrollTop = ${settled.top}`);
+    await page.press(`document.querySelector('[aria-label="Close assistant"]')`, 'Close assistant');
+    await page.waitFor(`!document.querySelector('aside[aria-label="Assistant"]')`, 'the assistant closed', 5000);
+    await page.press(OPEN, 'Open the assistant');
+    await page.waitFor(`(() => { const s = ${STATE}; return s && s.text.includes('Step 16.'); })()`, 'the conversation again', 10_000);
+    await sleep(800);
+    const reopened = await page.evaluate(STATE);
+    check('opened again, it shows the newest message', reopened.lastStepShown && reopened.button === null,
+        `last paragraph in view ${reopened.lastStepShown}, button ${reopened.button}`);
+    check('...with no room left under the old question', !reopened.room, `min-height ${reopened.room}`);
+
+    // A turn the model refuses: the question is kept in the chat (the server
+    // dropped it; the panel puts it back) with a "didn't send" notice under
+    // it. The reader sees both without scrolling: the question at the top
+    // again, the notice in view.
+    await ask(page, FAIL_Q);
+    const NOTICE = `[...document.querySelectorAll('aside[aria-label="Assistant"] [role="log"] button')].find((b) => b.textContent.trim() === 'Try again')`;
+    try {
+        await page.waitFor(`!!(${NOTICE}) && !document.querySelector('[aria-label="Stop generating"]')`, 'the failed turn\'s notice', 30_000);
+    } catch (err) {
+        const s = await page.evaluate(STATE);
+        console.log(`        (log ends: ${JSON.stringify(s?.text.slice(-300))}, busy ${s?.busy})`);
+        throw err;
+    }
+    await sleep(1200);
+    const failed = await page.evaluate(`(() => {
+        const log = document.querySelector('aside[aria-label="Assistant"] [role="log"]');
+        const l = log.getBoundingClientRect();
+        const q = [...log.querySelectorAll('p')].filter((p) => p.textContent.includes(${JSON.stringify(FAIL_Q)})).pop();
+        const r = (${NOTICE}).getBoundingClientRect();
+        return { questionAt: q ? q.getBoundingClientRect().top - l.top : null, pad: parseFloat(getComputedStyle(log).paddingTop), noticeShown: r.top >= l.top && r.bottom <= l.bottom };
+    })()`);
+    check('a refused question stays at the top of the log', failed.questionAt != null && Math.abs(failed.questionAt - failed.pad) <= 4,
+        `question at ${failed.questionAt?.toFixed(1)} px`);
+    check('...with its notice in view under it', failed.noticeShown);
 };
 
+const only = value('--only');
 for (const [form, viewport] of [['desktop', { width: 1280, height: 800, scale: 1 }], ['phone', { width: 390, height: 844, scale: 1 }]]) {
+    if (only && form !== only) continue;
     const scratch = mkdtempSync(join(tmpdir(), 'assistant-scroll-gates-'));
     try {
         const states = { [form]: run(form) };
