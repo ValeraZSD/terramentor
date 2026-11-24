@@ -71,7 +71,8 @@ export function hostWire(baseUrl) {
 /** Does this base URL point at OpenRouter: its own host, or one of its subdomains? */
 export function isOpenRouterUrl(baseUrl) {
     try {
-        const host = new URL(String(baseUrl)).hostname.toLowerCase();
+        // A trailing dot ("openrouter.ai.") is the same host to DNS.
+        const host = new URL(String(baseUrl)).hostname.toLowerCase().replace(/\.+$/, '');
         return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
     } catch { return false; }
 }

@@ -332,6 +332,11 @@ export function isUnavailable(err) {
     // A connection with no embeddings route (Anthropic, a ChatGPT plan, or no
     // endpoint at all) is refused before any request: no model, not a fault.
     if (err?.code === NO_EMBEDDINGS) return true;
+    // A hosted copy's model has no zero-retention endpoint (zeroRetention.js):
+    // nothing is available until the operator picks another, so a document
+    // waits to be healed rather than being marked broken. Its sentence names
+    // no status code, so it is read by the flag.
+    if (err?.zeroRetention === true) return true;
     return m.includes('no router') || m.includes('not found') || m.includes('404')
         || m.includes('econnrefused') || m.includes('fetch failed')
         || m.includes('timeout') || m.includes('timed out')

@@ -163,6 +163,10 @@ try {
         const sub = await everyKind();
         check('an OpenRouter subdomain gets them on chat and embeddings', hasTerms(sub.chat) && hasTerms(sub.embeddings),
             `chat ${show(sub.chat)}, embeddings ${show(sub.embeddings)}`);
+        useEnv({ base: 'https://openrouter.ai./api/v1' });
+        const dotted = await everyKind();
+        check('so does the host written with a trailing dot', hasTerms(dotted.chat) && hasTerms(dotted.embeddings),
+            `chat ${show(dotted.chat)}, embeddings ${show(dotted.embeddings)}`);
     }
 
     section('the start-up warning names an AI_EXTRA_BODY that tries to drop them');
@@ -216,7 +220,7 @@ try {
         check('the message says no zero-retention endpoint serves the model, and names it',
             /zero.?(data.?)?retention/i.test(err?.message || '') && err?.message.includes(MODEL), err?.message);
         check('…and points the operator at what to change', /operator|AI_MODEL/i.test(err?.message || '') && /HOSTING/i.test(err?.message || ''), err?.message);
-        check('it was asked once, not retried', posts.length === 1, `${posts.length} chat POSTs`);
+        check('it was asked once, not retried (a guard: 404 is not a retry status today)', posts.length === 1, `${posts.length} chat POSTs`);
         check('every request that left carried the terms', posts.every(p => hasTerms(p.body)));
         check('it is said as a keyed sentence a learner can be shown, not as the endpoint\'s body',
             err?.expose === true && /^No zero-retention endpoint/.test(err?.messageKey || '') && err?.params?.model === MODEL, `${err?.messageKey} ${JSON.stringify(err?.params)}`);
@@ -226,7 +230,7 @@ try {
             /^No zero-retention endpoint/.test(answered?.messageKey || '') && !/model name in Settings/.test(answered?.error || ''), JSON.stringify(answered));
         const { fallsOver } = await import('../server/aiJobs.js');
         const plain404 = Object.assign(new Error('Chat request failed (404): no such model'), { httpStatus: 404 });
-        check('a backup model is never tried after it (the next choice may keep the text)', fallsOver(err) === false && fallsOver(plain404) === true);
+        check('fallsOver will not move the job chain to a backup after it, while a plain 404 still does (the predicate; an env-configured copy has a one-model chain)', fallsOver(err) === false && fallsOver(plain404) === true);
         sent = [];
         let visErr = null;
         try { await ai.transcribeImageToText(PNG, {}); } catch (e) { visErr = e; }
@@ -249,6 +253,9 @@ try {
         const { HOSTED_EMBEDDING_DEFAULT } = await import('../server/embeddings.js');
         check('embeddings fail the same way, naming the embedding model',
             /^No zero-retention endpoint/.test(embErr?.messageKey || '') && embErr?.params?.model === HOSTED_EMBEDDING_DEFAULT, embErr?.message);
+        const { isUnavailable } = await import('../server/embeddings.js');
+        check('…and counts as "no model available", so a document waits to be healed instead of being marked broken',
+            isUnavailable(embErr) === true && isUnavailable(err) === true);
         refuseRetention = false;
 
         // The learner-facing diagnosis must not turn this into "the endpoint
@@ -272,11 +279,14 @@ try {
         check('a lesson page says the whole refusal from the flag, though its record cut the message short',
             err?.message.length > 200 && said?.messageKey === ZERO_RETENTION_REFUSAL && said?.params?.model === MODEL, JSON.stringify(said));
         check('the failure dialog does not call it an unknown model', !/does not know the model/.test(plainCause(facts)?.messageKey || ''), JSON.stringify(plainCause(facts)));
-        check('…and does not offer Try again first', !retryMayHelp(facts));
+        check('…and does not offer Try again first (a guard: any 404 already does not)', !retryMayHelp(facts));
         const feedSrc = readFileSync(new URL('../server/feedGen.js', import.meta.url), 'utf8');
         const tasksSrc = readFileSync(new URL('../server/tasks.js', import.meta.url), 'utf8');
-        check('a lesson\'s and a task\'s failure records carry the flag (feedGen.js, tasks.js)',
-            /zeroRetention: err\?\.zeroRetention === true/.test(feedSrc) && /zeroRetention: e\.zeroRetention === true/.test(tasksSrc));
+        const createSrc = readFileSync(new URL('../server/routes/createProject.js', import.meta.url), 'utf8');
+        const screenFailure = createSrc.match(/function screenFailure\([\s\S]*?\n\}/)?.[0] || '';
+        check('a lesson\'s, a task\'s and a course creation\'s failure records carry the flag (feedGen.js, tasks.js, createProject.js)',
+            /zeroRetention: err\?\.zeroRetention === true/.test(feedSrc) && /zeroRetention: e\.zeroRetention === true/.test(tasksSrc)
+            && /zeroRetention: record\.zeroRetention/.test(screenFailure));
     }
 
     section('outside a hosted copy, or off OpenRouter, nothing is added');
