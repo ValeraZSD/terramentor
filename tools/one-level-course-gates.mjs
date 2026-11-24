@@ -53,9 +53,9 @@ const dashboard = (id) => {
     return body;
 };
 
-const addProject = (name, { madeFrom = null, generating = 0 } = {}) => Number(db.prepare(
-    'INSERT INTO projects (name, kind, position, made_from, ai_generating) VALUES (?, ?, 0, ?, ?)',
-).run(name, 'curriculum', madeFrom, generating).lastInsertRowid);
+const addProject = (name, { madeFrom = null, generating = 0, finished = null } = {}) => Number(db.prepare(
+    'INSERT INTO projects (name, kind, position, made_from, ai_generating, creation_finished) VALUES (?, ?, 0, ?, ?, ?)',
+).run(name, 'curriculum', madeFrom, generating, finished).lastInsertRowid);
 const addNode = (projectId, parentId, title, position, isNote = 0) => Number(db.prepare(
     'INSERT INTO nodes (project_id, parent_id, title, position, is_note) VALUES (?, ?, ?, ?, ?)',
 ).run(projectId, parentId, title, position, isNote).lastInsertRowid);
@@ -64,8 +64,9 @@ const SHORT_FROM = JSON.stringify({ kind: 'topic' });
 
 /** Both sides' answer for one course: server rows, and the client rule over the same rows. */
 function read(id) {
-    const project = db.prepare('SELECT id, ai_generating, made_from FROM projects WHERE id = ?').get(id);
-    const rows = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(id);
+    const project = db.prepare('SELECT id, ai_generating, creation_finished, made_from FROM projects WHERE id = ?').get(id);
+    // The rows a client is sent: live ones, as the server reads.
+    const rows = db.prepare('SELECT * FROM live_nodes WHERE project_id = ? ORDER BY position').all(id);
     return {
         rows: dashboard(id)?.milestones?.length ?? null,
         oneLevel: treeTs.isOneLevelCourse(treeTs.buildTree(rows), project),
@@ -117,6 +118,27 @@ const building = addProject('Being written in phases', { generating: 1 });
 r = read(building);
 eq('empty phases of a course being written still show as phases', r.rows, 3);
 eq('…on both sides', r.oneLevel, false);
+
+// ---- a run in phases that stopped before its sections ----------------------------
+// A cancel, a failure or a restart (which clears `ai_generating`) leaves empty
+// phases that "Continue creating" offers to finish: still phases.
+
+const stopped = addProject('Stopped in phases', { finished: 0 });
+['Phase 1', 'Phase 2'].forEach((t, i) => addNode(stopped, null, t, i));
+r = read(stopped);
+eq('empty phases of a stopped creation still show as phases', r.rows, 2);
+eq('…on both sides', r.oneLevel, false);
+
+// ---- a note at the top, and a deleted row under a topic ------------------------------
+
+const noted = addProject('Topics and a note');
+const notedTopic = addNode(noted, null, 'Topic', 0);
+addNode(noted, null, 'Course notes', 1, 1);
+const gone = addNode(noted, notedTopic, 'Deleted subtopic', 0);
+db.prepare("UPDATE nodes SET deleted_at = '2026-11-24T00:00:00.000Z' WHERE id = ?").run(gone);
+r = read(noted);
+eq('a note at the top and a deleted row do not make a phase', r.rows, 0);
+eq('…on both sides', r.oneLevel, true);
 
 // ---- a short course that grows a phase ----------------------------------------------
 

@@ -276,8 +276,10 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         // A course with no phases has no phase progress to show: every row at
         // its top is a topic (a short course, or any course whose topics all
         // sit at the top), and listing each as a phase read "0 of 1 topic
-        // finished" four times. A course still being written in phases keeps
-        // its rows, since its phases start out empty. Mirrors
+        // finished" four times. A course written in phases keeps its rows
+        // while it is written and after a run that stopped before its
+        // sections (`creation_finished` 0, the course "Continue creating"
+        // offers to finish): its phases start out empty. Mirrors
         // `isOneLevelCourse` in src/utils/tree.ts, which the sidebar uses.
         const hasPhase = db.prepare(`
     SELECT EXISTS (
@@ -285,7 +287,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         WHERE par.project_id = ? AND par.parent_id IS NULL AND par.is_note = 0 AND c.is_note = 0
     )
 `).pluck().get(projectId);
-        const buildingPhases = !!project.ai_generating && project.made_from == null;
+        const buildingPhases = project.made_from == null
+            && (!!project.ai_generating || project.creation_finished === 0);
         const oneLevel = topCategories.length > 0 && !hasPhase && !buildingPhases;
 
         const milestones = oneLevel ? [] : topCategories.map(cat => {
