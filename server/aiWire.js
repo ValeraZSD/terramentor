@@ -29,6 +29,7 @@
 import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
 import { assertNotMetadata } from './netSafety.js';
+import { isHosted } from './hosted.js';
 import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText, secretsOf, withoutSecret } from './httpBody.js';
 
 const HOST_WIRES = {
@@ -75,9 +76,14 @@ export function isOpenRouterUrl(baseUrl) {
     } catch { return false; }
 }
 
-/** The protocol behind one settings object (getAISettings / settingsForConnection). */
+/** The protocol behind one settings object (getAISettings / settingsForConnection).
+ *  A hosted copy talking to OpenRouter always speaks OpenRouter's own wire: a
+ *  stored forced protocol (a library restored from a desktop copy) would
+ *  rebuild the body without its zero-retention terms (`anthropic`) or send it
+ *  to another host altogether (`chatgpt`); see zeroRetention.js. */
 export function wireOf(settings) {
     if (settings?.provider !== 'openai') return 'ollama';
+    if (isHosted() && isOpenRouterUrl(settings.baseUrl)) return 'openrouter';
     if (API_FORMATS.includes(settings.apiFormat)) return settings.apiFormat;
     return hostWire(settings.baseUrl);
 }

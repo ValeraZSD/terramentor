@@ -1726,6 +1726,9 @@ async function runBurst() {
             emptyReply: err?.emptyReply === true ? true : null,
             reasoningTokens: err?.reasoningTokens ?? null,
             thinkingChars: err?.thinkingChars ?? null,
+            // A hosted copy's model has no zero-retention endpoint: the page
+            // says it from this flag, as the message above may be cut short.
+            zeroRetention: err?.zeroRetention === true ? true : null,
         };
         // A topic page still waits on its lesson: try again when the backoff
         // ends, or the page would say "couldn't be written" (or keep its

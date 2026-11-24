@@ -24,7 +24,7 @@ import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { isHosted } from './hosted.js';
-import { keepsNothing, withZeroRetention, zeroRetentionRefusal } from './zeroRetention.js';
+import { asksForZeroRetention, withZeroRetention, zeroRetentionRefusal } from './zeroRetention.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 import { endpointBody, keyed, learnerError, ownWords, publicBody } from './clientError.js';
 
@@ -538,7 +538,7 @@ export function openAIBody(fields, routing = {}, target = null) {
         }
     }
     const body = { ...merged, ...fields };
-    return JSON.stringify(hosted && keepsNothing(target) ? withZeroRetention(body) : body);
+    return JSON.stringify(hosted && asksForZeroRetention(target) ? withZeroRetention(body) : body);
 }
 
 /* ── transient upstream failures ────────────────────────────────────────────
@@ -858,8 +858,9 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
                 if (json.error) {
                     const code = Number(json.error?.code);
                     const httpStatus = Number.isInteger(code) && code >= 100 && code <= 599 ? code : undefined;
+                    const said = typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream';
                     throw tagAIError(
-                        new Error(withoutKey(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream', settings)),
+                        zeroRetentionRefusal(settings, httpStatus, said) || new Error(withoutKey(said, settings)),
                         { provider: 'openai', model: settings.model, endpoint: base, httpStatus, attempts, streamed: true,
                           retryBeforeOutput: !produced && !thinkingChars && !callFragments.size
                               && AI_RETRY_STATUSES.has(httpStatus) && attempts < AI_RETRY_ATTEMPTS });

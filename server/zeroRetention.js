@@ -35,8 +35,14 @@ export const ZERO_RETENTION = Object.freeze({ zdr: true, data_collection: 'deny'
  *  desk, which must not open the app database that ai.js opens). */
 const OPENAI_DEFAULT_BASE = 'https://api.openai.com/v1';
 
+/** The refusal a learner and the operator read. The client says the same
+ *  sentence from the failure record's `zeroRetention` flag
+ *  (src/utils/failureCause.ts), because a lesson's record keeps only the first
+ *  200 characters of a message; the gate checks the two are the same text. */
+export const ZERO_RETENTION_REFUSAL = k('No zero-retention endpoint on OpenRouter serves the model "{{model}}", so the request was not sent anywhere else. Whoever runs this copy has to choose a model that has one (AI_MODEL; see docs/HOSTING.md, Zero retention).');
+
 /** Does a request to this endpoint (a getAISettings-shaped object) carry the terms? */
-export function keepsNothing(settings, env = process.env) {
+export function asksForZeroRetention(settings, env = process.env) {
     return isHosted(env) && settings?.provider === 'openai' && isOpenRouterUrl(settings.baseUrl);
 }
 
@@ -61,9 +67,9 @@ const NO_ENDPOINT_FITS = /data policy|zero data retention|\bzdr\b/i;
  * cannot reach; the same words go to the log for the operator.
  */
 export function zeroRetentionRefusal(settings, status, responseText, model = settings?.model) {
-    if (status !== 404 || !keepsNothing(settings) || !NO_ENDPOINT_FITS.test(String(responseText || ''))) return null;
+    if (status !== 404 || !asksForZeroRetention(settings) || !NO_ENDPOINT_FITS.test(String(responseText || ''))) return null;
     return Object.assign(learnerError(
-        k('No zero-retention endpoint on OpenRouter serves the model "{{model}}". This copy sends what learners write only to endpoints that keep nothing, so it was not sent anywhere else. Whoever runs this copy has to choose a model that has one (AI_MODEL; see docs/HOSTING.md, Zero retention).'),
+        ZERO_RETENTION_REFUSAL,
         { model: String(model || '') },
     ), { zeroRetention: true });
 }
@@ -96,7 +102,10 @@ export function zeroRetentionWarnings(env = process.env, { hosted = isHosted(env
         return [`learners' text goes to ${host}, and how long it is kept there is up to that endpoint and your terms with it. `
             + 'This app can ask for zero retention only on OpenRouter.'];
     }
-    const out = [];
+    // Said on every start: the terms are a request, and what OpenRouter counts
+    // as zero retention depends on an account setting this app cannot read.
+    const out = ['learners\' text goes to OpenRouter with zdr: true, data_collection: "deny" on every request. '
+        + 'Endpoints under OpenRouter\'s Safety Retention policy still qualify unless your OpenRouter account is set to "ZDR only" (docs/HOSTING.md, Zero retention).'];
     const extra = extraProvider(env.AI_EXTRA_BODY);
     if (extra === undefined) return out;
     if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
