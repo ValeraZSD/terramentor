@@ -15,14 +15,16 @@
  * Side by side. Each suite is its own Node process with its own scratch library,
  * scratch folders (mkdtemp) and loopback ports (port 0), so the suites run in a
  * pool, `--jobs` at a time: by default every core on CI, and up to 16 elsewhere,
- * where they also run at idle CPU priority so the machine stays usable. Two kinds
+ * where they also run at idle CPU priority so the machine stays usable. Three kinds
  * of suite are kept apart from the pool:
  *   - the browser suites run one at a time beside it. Each builds dist/ when a
  *     source is newer, and two builds into one dist/ would break each other;
  *   - `perf-budget-gates.mjs` runs first, alone. It times the server's start and
  *     the first screens, and CI holds those times to budgets measured on an
  *     otherwise idle machine. It also builds dist/ when it is stale, so no suite
- *     after it starts a server over a half-written one.
+ *     after it starts a server over a half-written one;
+ *   - `dep-gates.mjs` runs next, alone too: it reads every file under tools/,
+ *     where other suites create and delete files while they run.
  * The slowest suites start first, by the times this checkout's last run measured
  * (node_modules/.cache/run-gates-times.json); without them, the harnesses first,
  * then the largest files. `--jobs 1` is the serial run, in name order.
@@ -68,8 +70,13 @@ const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 /** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
 const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
 
-/** Suites that time the machine, so nothing else may run beside them. First, before the pool. */
-const ALONE_SUITES = ['perf-budget-gates.mjs'];
+/**
+ * Suites nothing else may run beside, one by one before the pool:
+ *   - perf-budget times the machine;
+ *   - dep-gates walks tools/ and reads every file it lists, while security-gates
+ *     creates and deletes probe files there and the harnesses write their bundles.
+ */
+const ALONE_SUITES = ['perf-budget-gates.mjs', 'dep-gates.mjs'];
 
 const BROWSER_TIMEOUT_MS = 900_000;
 const TIMEOUT_MS = 180_000;
@@ -246,6 +253,7 @@ function runSuite(t) {
         // A suite that hangs must fail rather than stall the run.
         const timer = setTimeout(() => { r.timedOut = true; killTree(proc); }, t.timeoutMs);
         const collect = (chunks, which) => (buf) => {
+            if (r.overflow) return; // past the limit: what follows is never printed
             chunks.push(buf);
             bytes[which] += buf.length;
             if (bytes[which] > MAX_BUFFER && !r.overflow) {
@@ -475,7 +483,8 @@ function stop(signal) {
     stopping = signal;
     const code = exitCodeOf(signal);
     const live = [...running];
-    for (const proc of live) killTree(proc, { reapOrphans: false });
+    // A suite that already ended may have handed its id on: the sweep below, which checks start times, covers it.
+    for (const proc of live) if (!proc.end) killTree(proc, { reapOrphans: false });
     const leftovers = reap(started);
     const notRun = targets.length - results.length - live.length;
     let text = `\nStopped by ${signal}: ${live.length} running suite(s) killed with everything they started` +
@@ -550,6 +559,11 @@ function runPool(browserQueue, poolQueue) {
     });
 }
 
+// Several suites make their scratch folder inside node_modules/.cache without
+// creating .cache first. In name order a suite that creates it always ran
+// earlier; side by side, on a fresh checkout, one of them may start first.
+try { mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true }); } catch { /* the suite reports it */ }
+
 write(`Running ${targets.length} suites, ${jobs === 1 ? 'one at a time' : `${jobs} at a time, browser suites one at a time`}` +
     `${IDLE ? ', at idle priority' : ''}\n`);
 
@@ -560,7 +574,8 @@ if (jobs === 1) {
         report(r);
     }
 } else {
-    for (const t of targets.filter((x) => x.alone)) {
+    const aloneOrder = (t) => ALONE_SUITES.indexOf(basename(t.script));
+    for (const t of targets.filter((x) => x.alone).sort((a, b) => aloneOrder(a) - aloneOrder(b))) {
         const r = await runSuite(t);
         if (stopping) break;
         report(r);
@@ -568,7 +583,7 @@ if (jobs === 1) {
     if (!stopping) {
         await runPool(
             targets.filter((t) => t.browser && !t.alone),
-            longestFirst(targets.filter((t) => !t.browser)),
+            longestFirst(targets.filter((t) => !t.browser && !t.alone)),
         );
     }
 }

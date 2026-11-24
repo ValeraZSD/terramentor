@@ -180,11 +180,15 @@ const apart = (a, b) => a.end <= b.start || b.end <= a.start;
     const rows = rowsOf(run.out);
     const s = spans(run.scratch);
     check('every lane fixture passes, and the two that wait for each other did meet',
-        run.code === 0 && rows.length === 5 && rows.every((r) => r.verdict === 'PASS'), run.out);
-    check('the last line is the total', /^5\/5 suites passed, ~5 assertions, \d+\.\d+s$/.test(lastLine(run.out)), lastLine(run.out));
+        run.code === 0 && rows.length === 6 && rows.every((r) => r.verdict === 'PASS'), run.out);
+    check('the last line is the total', /^6\/6 suites passed, ~6 assertions, \d+\.\d+s$/.test(lastLine(run.out)), lastLine(run.out));
     const others = Object.entries(s).filter(([k]) => k !== 'perf-budget');
-    check('perf-budget-gates ran first and alone', s['perf-budget'] && others.length === 4
+    check('perf-budget-gates ran first and alone', s['perf-budget'] && others.length === 5
         && others.every(([, o]) => s['perf-budget'].end <= o.start), JSON.stringify(s));
+    check('dep-gates ran once, alone, after perf-budget and before the pool',
+        s.dep && rows.filter((r) => r.name === 'dep-gates.mjs').length === 1
+        && Object.entries(s).filter(([k]) => k !== 'dep' && k !== 'perf-budget').every(([, o]) => s.dep.end <= o.start),
+        JSON.stringify(s));
     check('the two browser suites never ran side by side', s.axe && s['plan-views'] && apart(s.axe, s['plan-views']), JSON.stringify(s));
     check('locally the suites start at idle priority',
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8') === String(osConstants.priority.PRIORITY_LOW),
@@ -194,7 +198,7 @@ const apart = (a, b) => a.end <= b.start || b.end <= a.start;
     const run = await runRunner('lanes', ['--quick', '--jobs', '2'], { env: { CI: 'true' } });
     const rows = rowsOf(run.out);
     check('--quick leaves the browser suites out and runs the rest',
-        run.code === 0 && JSON.stringify(rows.map((r) => r.name).sort()) === JSON.stringify(['pair-a-gates.mjs', 'pair-b-gates.mjs']), run.out);
+        run.code === 0 && JSON.stringify(rows.map((r) => r.name).sort()) === JSON.stringify(['dep-gates.mjs', 'pair-a-gates.mjs', 'pair-b-gates.mjs']), run.out);
     check('--quick says so on the last line', /\(--quick: harnesses and browser scans skipped\)$/.test(lastLine(run.out)), lastLine(run.out));
     check('on CI the suites start at the priority the runner has',
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8') === String(getPriority()),
