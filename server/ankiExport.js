@@ -38,6 +38,7 @@ import { createReadStream, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { aiWrittenTag } from './ankiAiTag.js';
 
 // --------------------------------------------------------------------------
 // Anki constants. Named rather than inlined because several of them are magic
@@ -570,7 +571,8 @@ export function buildNoteRows(cards, { deckIdFor, crtSec, baseId = Date.now(), m
             cardId: id + 1,
             guid: randomUUID(),
             did: deckIdFor(card),
-            tags: '',
+            // Anki's own spelling: space-separated, a space either side.
+            tags: ((tag) => (tag ? ` ${tag} ` : ''))(aiWrittenTag(card.generated_by)),
             fields,
             sched,
         });

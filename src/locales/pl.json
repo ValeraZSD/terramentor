@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Napisane przez AI",
+  "Written by AI ({{model}})": "Napisane przez AI ({{model}})",
   "Correct, with a spelling slip": "Poprawnie, z drobnym błędem pisowni",
   "It is spelled:": "Poprawna pisownia:",
   "Only a letter or two off.": "Różnica tylko jednej lub dwóch liter.",

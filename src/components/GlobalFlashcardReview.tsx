@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, ReactNode } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../hooks/usePortalAccent';
 import { focusIsLost } from '../utils/a11y';
@@ -292,6 +292,21 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     const revealRef = useRef<HTMLButtonElement>(null);
     const cardTextRef = useRef<HTMLDivElement>(null);
     const readAloud = useStore(s => s.a11y.readAloud);
+    // The chip row leaves the corner group its room. The group's width moves
+    // with the language ("Written by AI" is half again as long in Dutch) and
+    // with read aloud, so the room is measured: a fixed padding let a Dutch
+    // difficulty chip run under the read-aloud button at 360px. A callback
+    // ref, because the card mounts after the loading screen.
+    const [corner, setCorner] = useState<HTMLDivElement | null>(null);
+    const [cornerWidth, setCornerWidth] = useState(0);
+    useLayoutEffect(() => {
+        if (!corner) { setCornerWidth(0); return; }
+        const measure = () => setCornerWidth(corner.offsetWidth);
+        measure();
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        ro?.observe(corner);
+        return () => ro?.disconnect();
+    }, [corner]);
     const ratingsRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const active = document.activeElement;
@@ -781,7 +796,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         button or Space. The flag sits over its top-right corner
                         as a sibling, and the chip row leaves it the room. */}
                     <div className="relative flex-1 min-h-0 flex flex-col">
-                    <div className="absolute end-1.5 top-1 z-10 flex items-center gap-1 sm:end-3 sm:top-2.5">
+                    <div ref={setCorner} className="absolute end-1.5 top-1 z-10 flex items-center gap-1 sm:end-3 sm:top-2.5">
                         <ReadAloudButton key={`${currentCard.id}-${queue.flipped}`} target={cardTextRef} size="md" />
                         <ReportItem key={currentCard.id} itemRef={currentRef} surface="review" hideKey={!queue.flipped} />
                     </div>
@@ -800,7 +815,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 ps-3 pt-2.5 sm:ps-5 sm:pt-4 ${readAloud ? 'pe-24 sm:pe-28' : 'pe-12 sm:pe-14'}`}>
+                            {/* Both chips sit at the start: the corner group over the
+                                end grows by the "Written by AI" mark, which
+                                would cover a chip there. The end padding is the
+                                group's measured width plus air, and the chips
+                                wrap when even that leaves them too little. */}
+                            <div
+                                data-read-skip
+                                style={cornerWidth ? { paddingInlineEnd: `calc(${cornerWidth}px + 1.25rem)` } : undefined}
+                                className={`flex shrink-0 flex-wrap items-center gap-2 ps-3 pt-2.5 sm:ps-5 sm:pt-4 ${cornerWidth ? '' : readAloud ? 'pe-24 sm:pe-28' : 'pe-12 sm:pe-14'}`}>
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>

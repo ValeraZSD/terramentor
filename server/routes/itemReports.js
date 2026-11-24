@@ -8,7 +8,7 @@ import db from '../database.js';
 import * as tasks from '../tasks.js';
 import {
     ReportError, fileReport, getReport, learnerFaultText, listReports, parseRef, resolveTarget,
-    rewriteSource, setRewrite, undoReport, withoutOpenMockKey,
+    rewriteSource, setRewrite, undoReport, withoutOpenMockKey, writtenByRefs,
 } from '../itemReports.js';
 import { generateMaterial } from '../studyMaterial.js';
 import { getAISettings } from '../ai.js';
@@ -58,7 +58,9 @@ app.get('/api/item-reports', (req, res) => {
         : null;
     if (!nodeId && !projectId && !refs?.length) return res.status(400).json(apiError('Name a nodeId, a projectId or refs'));
     try {
-        res.json({ reports: listReports({ nodeId, projectId, refs }) });
+        // With refs, also which of them a model wrote: every flag asks this
+        // as it mounts, and marks its item "Written by AI" (writtenBy).
+        res.json({ reports: listReports({ nodeId, projectId, refs }), ...(refs?.length ? { written: writtenByRefs(refs) } : {}) });
     } catch (err) {
         fail(res, err);
     }

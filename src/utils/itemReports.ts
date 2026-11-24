@@ -39,6 +39,11 @@ export interface ItemReport {
     rewrite: { state: 'requested' | 'running' | 'done' | 'failed' | 'edited'; at?: string; taskId?: string } | null;
 }
 
+/** A model wrote the item (`writtenBy`, server/itemReports.js); `model` null when its row predates the stamp. */
+export interface WrittenBy {
+    model: string | null;
+}
+
 export interface ItemReportTarget {
     ref: string;
     kind: ReportKind;

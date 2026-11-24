@@ -224,8 +224,8 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // reads it; an export with progress writes it). A file without one leaves
     // it empty: a missing record, never a false one.
     const insertNode = db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at, generated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertResource = db.prepare(`
         INSERT INTO resources (node_id, title, url, type, completed, position, uuid)
@@ -236,9 +236,9 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // with the importer's name would make a hand-authored course indexable as
     // AI-written for the rest of its life. What a FILE says about an item is
     // kept as the file's claim and nothing more: a question keeps its own
-    // `generated_by` inside the JSON, and a card that one names stores
-    // `{"model","via":"import"}` — so exporting again cannot wash the mark out,
-    // and an unmarked card stays NULL.
+    // `generated_by` inside the JSON, and a card or a topic that one names
+    // stores `{"model","via":"import"}` — so exporting again cannot wash the
+    // mark out, and an unmarked one stays NULL.
     const insertQuiz = db.prepare(`
         INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, NULL)
     `);
@@ -273,7 +273,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         const result = insertNode.run(
             newProjectId, parentId, node.title, node.description, node.notes,
             node.status, node.is_note, position, claimUuid('nodes', node.uuid), node.role,
-            node.completed_at ?? null,
+            node.completed_at ?? null, declaredBy(node.generated_by),
         );
         const newNodeId = result.lastInsertRowid;
         if (onNode) onNode(node, newNodeId, path);
@@ -328,4 +328,4 @@ function applyImportedCardDial(projectId, project, cardCount) {
     setNewPerDay(projectId, project.new_per_day);
 }
 
-export { IMPORT_QUESTION_DEPS, applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows, insertImportedTree, newPerDaySetting, projectMediaNames };
+export { IMPORT_QUESTION_DEPS, applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows, insertImportedTree, newPerDaySetting, projectMediaNames, provenanceModel };

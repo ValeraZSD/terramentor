@@ -1,4 +1,6 @@
 {
+  "Written by AI": "由 AI 撰写",
+  "Written by AI ({{model}})": "由 AI 撰写 ({{model}})",
   "Correct, with a spelling slip": "正确，有小拼写错误",
   "It is spelled:": "正确拼写：",
   "Only a letter or two off.": "只差一两个字母。",
