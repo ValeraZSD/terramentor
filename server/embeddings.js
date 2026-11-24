@@ -26,6 +26,7 @@
 
 import db, { vecAvailable } from './database.js';
 import { getAISettings, normalizeOpenAIBaseUrl, openAIBody, withoutKey } from './ai.js';
+import { zeroRetentionRefusal } from './zeroRetention.js';
 import { wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
@@ -178,12 +179,13 @@ export async function embedBatch(texts) {
             // this path needs the endpoint's privacy fields every bit as much
             // as a chat turn does. The Ollama branch below is a local engine
             // and takes none of them.
-            body: openAIBody({ model, input: texts }),
+            body: openAIBody({ model, input: texts }, {}, target.settings),
             signal: AbortSignal.timeout(60000),
         });
         if (!res.ok) {
             const body = withoutKey(await res.text().catch(() => ''), ai);
-            throw new Error(`embeddings ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
+            throw zeroRetentionRefusal(target.settings, res.status, body, model)
+                || new Error(`embeddings ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
         }
         const json = await res.json();
         const data = Array.isArray(json?.data) ? json.data : [];

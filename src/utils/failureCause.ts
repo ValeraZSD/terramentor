@@ -60,6 +60,10 @@ export function plainCause(f: FailureFacts, { rawShown = true }: { rawShown?: bo
     if (f.httpStatus === 402) {
         return { messageKey: k('The provider refused the request for billing reasons — the account is out of credit or the model is not on your plan.') };
     }
+    // A hosted copy whose model has no zero-retention endpoint: also a 404,
+    // but the model exists, and the server's own message (zeroRetention.js)
+    // already says what the operator has to change, so it is shown as it is.
+    if (/no zero-retention endpoint/i.test(msg)) return null;
     if (f.httpStatus === 404) {
         if (f.model) {
             return { messageKey: k('The endpoint does not know the model "{{model}}". It may have been renamed, unloaded, or never installed.'), params: { model: f.model } };

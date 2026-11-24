@@ -7,6 +7,7 @@ import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
 import { hostedStartProblem, restoreMarkerPath } from './hosted.js';
+import { zeroRetentionWarnings } from './zeroRetention.js';
 import { isSiteLibrary, siteLibraryStartProblem, siteSocketPath } from './siteLibrary.js';
 import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
@@ -102,6 +103,9 @@ const SITE_SOCKET = siteSocketPath();
         console.error(`[hosted] Refusing to start: ${problem}`);
         process.exit(1);
     }
+    // Where learners' text goes. A site's front desk says this once for all
+    // its libraries, so a library does not repeat it on every wake.
+    if (!isSiteLibrary()) for (const line of zeroRetentionWarnings()) console.warn(`[hosted] ${line}`);
 }
 
 // Refresh the shipped add-on manifests before serving. The user's enabled/
