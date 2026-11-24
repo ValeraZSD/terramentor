@@ -443,7 +443,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const inputRef = useAutoGrow(input, { rows: 5 });
     // A sent question goes to the top of the log and its answer is written
     // under it; the log never moves while a reply arrives.
-    const scroll = useReadingScroll<HTMLDivElement>();
+    const [scroll, moreBelow] = useReadingScroll<HTMLDivElement>();
     /** Ids already sent to /api/nodes/labels, so re-renders don't re-ask. */
     const askedRef = useRef<Set<number>>(new Set());
     /**
@@ -707,6 +707,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
     const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
     const anchoredRef = useRef<{ id: number; content: string } | null>(null);
+    /** The question the view was last put under, at the top of the log. */
+    const placedRef = useRef<{ id: number; content: string } | null>(null);
     const loadingHistoryRef = useRef(loadingHistory);
     useEffect(() => { loadingHistoryRef.current = loadingHistory; }, [loadingHistory]);
     useEffect(() => {
@@ -719,8 +721,29 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (prev && prev.id < 0 && lastQuestionId > 0 && prev.content === lastQuestionText) return;
         // A conversation being opened lands on its newest message instead (above).
         if (loadingHistoryRef.current) return;
+        placedRef.current = { id: lastQuestionId, content: lastQuestionText ?? '' };
         scroll.anchor(lastQuestionId);
     }, [lastQuestionId, lastQuestionText, scroll]);
+
+    // The question the view was put under, followed when its row changes: its
+    // provisional copy swapped for the stored one keeps the place (the room
+    // under it is measured from the new row); a question that left the list
+    // (a failed turn takes its question off) takes the room with it, or a
+    // screen of blank space would stay under the previous answer.
+    useEffect(() => {
+        const placed = placedRef.current;
+        if (!placed || messages.some(m => m.id === placed.id)) return;
+        const stored = placed.id < 0
+            ? messages.find(m => m.role === 'user' && m.id > 0 && m.content === placed.content)
+            : undefined;
+        if (stored) {
+            placedRef.current = { id: stored.id, content: stored.content };
+            scroll.retarget(stored.id);
+        } else {
+            placedRef.current = null;
+            scroll.release();
+        }
+    }, [messages, scroll]);
 
     // Whether the reply now runs past the bottom edge: after every render,
     // because a streamed frame, a picture or a lookup row can each make it.
@@ -1562,7 +1585,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 role="log"
                 aria-live="off"
                 aria-label={tr("Conversation")}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
+                tabIndex={-1}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 select-text outline-none"
             >
                 {showList ? (
                     <ConversationList
@@ -1849,7 +1873,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 )}
                 </div>)}
             </div>
-            {!showList && scroll.below && (
+            {!showList && moreBelow && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
                     <Button
                         size="sm"

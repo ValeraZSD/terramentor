@@ -55,6 +55,11 @@ export function textBelow(lastBottom: number, scrollerBottom: number, padBottom:
  * `scrollerRef` goes on the scroller (a callback ref: the panel rebuilds it
  * when it docks or undocks), `contentRef` on the box holding the messages,
  * directly inside it; each turn's row carries `TURN_ATTR`.
+ *
+ * Returns `[scroll, below]`: `scroll` keeps one identity for the life of the
+ * panel, so effects can list it without re-running, and `below` (text runs on
+ * out of sight) changes on its own. Bundling the two once made the panel's
+ * open effect re-run, and jump to the bottom, each time `below` flipped.
  */
 export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = HTMLDivElement>() {
     const ref = useRef<T | null>(null);
@@ -62,6 +67,10 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
     const contentRef = useRef<C>(null);
     /** The anchored turn's id, and where it last stood inside the content box. */
     const anchorRef = useRef<{ id: string; offset: number } | null>(null);
+    /** Where the reader was, for a scroller rebuilt when the panel docks or undocks. */
+    const topRef = useRef(0);
+    /** Whether a scroller was attached before this one (a rebuild, not an opening). */
+    const attachedRef = useRef(false);
 
     const scrollerRef = useCallback((node: T | null) => {
         ref.current = node;
@@ -136,6 +145,17 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
     }, [fit]);
 
     /**
+     * The anchored question's row now carries `id`: its provisional copy was
+     * swapped for the stored one. It is already in place, so nothing moves;
+     * only later measuring must find the new row.
+     */
+    const retarget = useCallback((id: string | number) => {
+        if (!anchorRef.current) return;
+        anchorRef.current.id = String(id);
+        fit();
+    }, [fit]);
+
+    /**
      * How far the last written line ends below what the reader can see, in px
      * (zero or less: it is in view). Measured to the last message, never to
      * the box's bottom, which may be the empty room made for the question.
@@ -154,39 +174,73 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
      */
     const [below, setBelow] = useState(false);
     const belowRef = useRef(false);
+    /** Watches the last message, which grows inside the room without the scroller changing size. */
+    const rowsRef = useRef<{ observer: ResizeObserver; row: Element | null } | null>(null);
     // Called on every render of a streaming answer: no setState unless the
     // answer changed, so a stream frame never schedules a render of its own.
     const measure = useCallback(() => {
+        const rows = rowsRef.current;
+        const last = contentRef.current?.lastElementChild ?? null;
+        if (rows && rows.row !== last) {
+            if (rows.row) rows.observer.unobserve(rows.row);
+            if (last) rows.observer.observe(last);
+            rows.row = last;
+        }
         const b = hiddenBelow() > BELOW_SLACK;
         if (b === belowRef.current) return;
         belowRef.current = b;
         setBelow(b);
     }, []);
 
-    /** Bring the last written line into view, at the bottom edge. */
-    const toEnd = useCallback(() => {
+    /**
+     * Bring the last written line into view, at the bottom edge. A press from
+     * the keyboard leaves focus on the log: the control that was pressed goes
+     * away once nothing is hidden, and focus must not fall back to the page.
+     */
+    const toEnd = useCallback((event?: { currentTarget: EventTarget | null }) => {
         const el = ref.current;
         if (!el) return;
+        if (event?.currentTarget && event.currentTarget === document.activeElement) el.focus({ preventScroll: true });
         el.scrollTo({ top: el.scrollTop + hiddenBelow(), behavior: motionReduced() ? 'auto' : 'smooth' });
     }, []);
 
     // The scroller resized (the panel dragged, a phone keyboard opened) or was
-    // rebuilt (docked or undocked): measure the room again. Scrolling only
-    // changes what is below the view.
+    // rebuilt (docked or undocked): measure the room again, and put a rebuilt
+    // one back where the reader was. Scrolling only changes what is below.
     useEffect(() => {
-        if (!scroller) return;
+        if (!scroller) { attachedRef.current = false; return; }
+        const rebuilt = attachedRef.current;
+        attachedRef.current = true;
         fit();
-        measure();
-        scroller.addEventListener('scroll', measure, { passive: true });
-        if (typeof ResizeObserver === 'undefined') return () => scroller.removeEventListener('scroll', measure);
+        if (rebuilt) {
+            const a = anchorRef.current;
+            const row = a && contentRef.current ? target(contentRef.current, a.id) : null;
+            scroller.scrollTop = row
+                ? scrollTargetFor(row.getBoundingClientRect().top, scroller.getBoundingClientRect().top, scroller.scrollTop, padding(scroller).top)
+                : topRef.current;
+        }
+        const onScroll = () => { topRef.current = scroller.scrollTop; measure(); };
+        scroller.addEventListener('scroll', onScroll, { passive: true });
+        if (typeof ResizeObserver === 'undefined') {
+            measure();
+            return () => scroller.removeEventListener('scroll', onScroll);
+        }
         const ro = new ResizeObserver(() => { if (anchorRef.current) fit(); measure(); });
         ro.observe(scroller);
-        return () => { ro.disconnect(); scroller.removeEventListener('scroll', measure); };
+        rowsRef.current = { observer: new ResizeObserver(() => measure()), row: null };
+        measure();
+        return () => {
+            ro.disconnect();
+            rowsRef.current?.observer.disconnect();
+            rowsRef.current = null;
+            scroller.removeEventListener('scroll', onScroll);
+        };
     }, [scroller, fit, measure]);
 
-    // One memoised object: callers list it in effect dependency arrays.
-    return useMemo(
-        () => ({ ref, scrollerRef, contentRef, anchor, toBottom, toTop, release, below, measure, toEnd }),
-        [scrollerRef, anchor, toBottom, toTop, release, below, measure, toEnd],
+    // One identity for the life of the panel: `below` is NOT in it (see above).
+    const scroll = useMemo(
+        () => ({ scrollerRef, contentRef, anchor, retarget, toBottom, toTop, release, measure, toEnd }),
+        [scrollerRef, anchor, retarget, toBottom, toTop, release, measure, toEnd],
     );
+    return [scroll, below] as const;
 }
