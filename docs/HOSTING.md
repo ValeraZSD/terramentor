@@ -300,6 +300,9 @@ that copy. Anthropic watermarks the text of its current Claude models on its
 own API and when they are served through AWS, Google Cloud or Microsoft Foundry
 ([How Claude marks AI-generated content](https://support.claude.com/en/articles/16266773-how-claude-marks-ai-generated-content)).
 OpenRouter serves Claude only from those, so `hosted/example.env` starts with
-`anthropic/claude-sonnet-5.5`. A model with no watermark, such as most open
+`anthropic/claude-sonnet-5.5`. Stay on a model that page lists without a
+condition: on some older ones (Claude Sonnet 4.6, Sonnet 4.5, Opus 4.6, Opus 4.5,
+Opus 3 and Haiku 4.5) the mark may be missing when a request sets `temperature`,
+`top_p` or `top_k`, and the app sets `temperature` and `top_p` on its calls. A model with no watermark, such as most open
 models, leaves copied text unmarked. Sonnet costs more per token than most of
 those, so size each key's limit for it.
