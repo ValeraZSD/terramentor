@@ -25,8 +25,9 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     const { t: tr } = useTranslation();
     const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
-    // A hosted copy keeps the profile on its server (server/hosted.js).
-    const hosted = useStore(s => s.appVersion?.hosted === true);
+    // A hosted copy keeps the profile on its server (server/hosted.js). Until the
+    // server has said which kind of copy this is, the intro says nothing.
+    const hosted = useStore(s => s.appVersion ? s.appVersion.hosted === true : null);
     const codeRunner = useStore(s => s.codeRunner);
     const setCodeRunner = useStore(s => s.setCodeRunner);
     const forgiveSpelling = useStore(s => s.forgiveSpelling);
@@ -285,7 +286,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup
                     title={tr("Learner profile")}
-                    intro={hosted
+                    intro={hosted === null ? undefined : hosted
                         ? tr("Your background and experience, so the tutor pitches lessons at your level. Saved online, on the server that runs this app, and sent only to the AI provider it uses.")
                         : tr("Your background and experience, so the tutor pitches lessons at your level. Stored on this computer and sent only to the AI provider you connect.")}
                 >

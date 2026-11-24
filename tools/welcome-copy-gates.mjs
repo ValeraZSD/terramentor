@@ -1,8 +1,10 @@
 // tools/welcome-copy-gates.mjs — the first screen a learner reads says what is true, and says it kindly.
 //
-// Run:  node tools/welcome-copy-gates.mjs          (the working tree)
-//       node tools/welcome-copy-gates.mjs --head   (HEAD's components and server, to watch
-//                                                    the cases fail on the pre-fix code)
+// Run:  node tools/welcome-copy-gates.mjs                  (the working tree)
+//       node tools/welcome-copy-gates.mjs --ref=origin/main  (that commit's server, store and
+//                                                            components, to watch the cases
+//                                                            fail on the pre-fix code; --head
+//                                                            is --ref=HEAD)
 //
 // WHY. Two sentences on the welcome steps were wrong for the people the app is now
 // shown to:
@@ -27,6 +29,12 @@
 //   4. Desktop (the control, green on the old code too): the About-you note still
 //      says the profile is saved on this computer.
 //   5. Settings → Learning: hosted says the server, desktop says this computer.
+//   6. Before the server has answered, neither screen claims where the profile is kept.
+//   7. The store's own paths put the flag in place: signing in with a password loads
+//      the version, and a failed update check does not drop it.
+// Red on the pre-fix code: 1 (both answers), 2 (step 1, desktop and hosted), 3 (step 2:
+// its machine and its server sentence), 5 (hosted), 6 (both screens), 7 (both). The
+// rest are controls that pass on either.
 // No model, no network beyond loopback.
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -41,7 +49,8 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const HEAD = process.argv.includes('--head');
+const REF = process.argv.includes('--head') ? 'HEAD'
+    : (process.argv.find(a => a.startsWith('--ref=')) ?? '').slice('--ref='.length) || null;
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -56,24 +65,32 @@ const THIS_MACHINE = /\b(this|your) (computer|machine|PC|laptop)\b/i;
 
 const scratchDirs = [];
 const scratch = (name) => { const d = mkdtempSync(join(tmpdir(), `${name}-`)); scratchDirs.push(d); return d; };
+// Removed on every way out, a refusal or a crash included.
+process.on('exit', () => {
+    for (const d of scratchDirs) {
+        try { rmSync(d, { recursive: true, force: true, maxRetries: 3 }); }
+        catch (e) { console.log(`  (scratch ${d} left behind: ${e.code})`); }
+    }
+});
 
 // ---------------------------------------------------------------------------
 section('1. /api/version says whether this copy is hosted');
 {
-    // HEAD's server: a copy of server/ from HEAD in a scratch folder, beside the
-    // working tree's node_modules (it resolves packages from the repo root).
+    // The ref's server: a copy of server/ from that commit in a scratch folder inside
+    // the repo, so it resolves packages from the working tree's node_modules.
     let serverDir = join(root, 'server');
-    if (HEAD) {
-        const dir = mkdtempSync(join(root, 'temp', 'welcome-copy-head-'));
+    if (REF) {
+        mkdirSync(join(root, 'temp'), { recursive: true });
+        const dir = mkdtempSync(join(root, 'temp', 'welcome-copy-ref-'));
         scratchDirs.push(dir);
         // server/ imports a few modules from src/ (the scheduler's shared maths).
-        const files = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD', 'server', 'src'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+        const files = execFileSync('git', ['ls-tree', '-r', '--name-only', REF, 'server', 'src'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
         for (const f of files) {
             const out = join(dir, f);
             mkdirSync(dirname(out), { recursive: true });
-            writeFileSync(out, execFileSync('git', ['show', `HEAD:${f}`], { cwd: root, maxBuffer: 64 << 20 }));
+            writeFileSync(out, execFileSync('git', ['show', `${REF}:${f}`], { cwd: root, maxBuffer: 64 << 20 }));
         }
-        writeFileSync(join(dir, 'package.json'), execFileSync('git', ['show', 'HEAD:package.json'], { cwd: root }));
+        writeFileSync(join(dir, 'package.json'), execFileSync('git', ['show', `${REF}:package.json`], { cwd: root }));
         serverDir = join(dir, 'server');
     }
     // Scratch library, set in-process; nothing inherited may point elsewhere.
@@ -108,14 +125,14 @@ section('1. /api/version says whether this copy is hosted');
 }
 
 // ---------------------------------------------------------------------------
-const COMPONENTS = /[\\/]src[\\/]components[\\/](welcome[\\/](WelcomeFlow|PrivacyNote)|settings[\\/]LearningSettings)\.tsx$/;
-const headFiles = {
-    name: 'head-files',
+const COMPONENTS = /[\\/]src[\\/](components[\\/](welcome[\\/](WelcomeFlow|PrivacyNote)|settings[\\/]LearningSettings)\.tsx|store\.ts)$/;
+const refFiles = {
+    name: 'ref-files',
     setup(build) {
-        if (!HEAD) return;
+        if (!REF) return;
         build.onLoad({ filter: COMPONENTS }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
-            return { contents: execFileSync('git', ['show', `HEAD:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
+            return { contents: execFileSync('git', ['show', `${REF}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: rel.endsWith('.tsx') ? 'tsx' : 'ts' };
         });
     },
 };
@@ -141,7 +158,7 @@ const bundle = (await esbuild.build({
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' },
     loader: { '.css': 'empty', '.svg': 'dataurl', '.png': 'dataurl' },
-    plugins: [headFiles],
+    plugins: [refFiles],
 })).outputFiles[0].text;
 
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
@@ -155,8 +172,9 @@ const reply = (url) => {
     return null;   // anything else stays pending, as a slow server would leave it
 };
 
-/** One screen as text: the welcome step `step` (0-based), or Settings → Learning. */
-async function render({ hosted, step = 0, which = 'welcome' }) {
+/** A fresh page with the bundle loaded; `answer(url, init)` gives each request's
+ *  `{ status, body }`, or null to leave it pending. */
+function page(answer = (url) => { const b = reply(url); return b === null ? null : { status: 200, body: b }; }) {
     const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
     const w = dom.window;
     w.matchMedia = () => ({ matches: false, addEventListener() { }, removeEventListener() { } });
@@ -164,21 +182,29 @@ async function render({ hosted, step = 0, which = 'welcome' }) {
     w.MessageChannel = MessageChannel;
     w.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } };
     w.scrollTo = () => { };
-    w.fetch = (url) => {
-        const body = reply(url);
-        return body === null ? new Promise(() => { })
-            : Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
+    w.fetch = (url, init) => {
+        const a = answer(String(url), init);
+        return a === null ? new Promise(() => { })
+            : Promise.resolve(new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json' } }));
     };
-    w.sessionStorage.setItem('terramentor-welcome-step', String(step));
     w.eval(bundle);
+    return w;
+}
+
+/** One screen as text: the welcome step `step` (0-based), or Settings → Learning.
+ *  `hosted` undefined leaves the store as it starts: the server has not answered.
+ *  `whole` returns the whole page's text rather than the profile paragraph. */
+async function render({ hosted, step = 0, which = 'welcome', whole = false }) {
+    const w = page();
+    w.sessionStorage.setItem('terramentor-welcome-step', String(step));
     const { useStore, mount, act } = w.__gate;
-    useStore.setState({ appVersion: { ...VERSION, hosted } });
+    if (hosted !== undefined) useStore.setState({ appVersion: { ...VERSION, hosted } });
     const r = mount(w.document.getElementById('root'), which);
     await act(async () => { await settle(); });
     const flat = (el) => el.textContent.replace(/\s+/g, ' ');
     // Settings → Learning holds other panels too; the profile's own paragraph is
     // the smallest element that starts with its first words.
-    const text = which === 'learning'
+    const text = which === 'learning' && !whole
         ? [...w.document.querySelectorAll('p, div, span')].map(flat)
             .filter(s => s.trim().startsWith('Your background and experience')).sort((a, b) => a.length - b.length)[0] ?? ''
         : flat(w.document.body);
@@ -227,9 +253,46 @@ check('hosted Learning profile never names the learner\'s own machine', !THIS_MA
 check('hosted Learning profile says it is saved on the server that runs the app', /saved online, on the server that runs this app/i.test(screens['hosted:learning']));
 check('desktop Learning profile still says "Stored on this computer"', screens['desktop:learning'].includes('Stored on this computer'));
 
-for (const d of scratchDirs) {
-    try { rmSync(d, { recursive: true, force: true, maxRetries: 3 }); }
-    catch (e) { console.log(`  (scratch ${d} left behind: ${e.code})`); }
+section('6. before the server has said which kind of copy this is, nothing is claimed');
+{
+    const STORED = /Saved on this computer|Stored on this computer|Saved online/;
+    const about = await render({ step: 1 });
+    check('About-you rendered with no version answer yet', about.includes('About you') || about.length > 200, about.slice(0, 120));
+    check('…and says nothing about where the profile is kept', !STORED.test(about), about.match(STORED)?.[0]);
+    const learning = await render({ which: 'learning', whole: true });
+    check('Settings → Learning rendered with no version answer yet', learning.includes('Learner profile'), learning.slice(0, 120));
+    check('…and says nothing about where the profile is kept', !STORED.test(learning), learning.match(STORED)?.[0]);
 }
+
+section('7. the store\'s own paths put the hosted flag in place');
+{
+    // Signing in with a password: the learner arrives at the welcome steps from here
+    // on a hosted copy, which always has a password.
+    const w = page((url) => {
+        if (url.includes('/api/auth/login')) return { status: 200, body: { ok: true } };
+        if (url.includes('/api/version')) return { status: 200, body: { ...VERSION, hosted: true } };
+        if (url.includes('/api/updates')) return { status: 200, body: {} };
+        if (url.includes('/api/settings')) return { status: 200, body: {} };
+        if (url.includes('/api/projects')) return { status: 200, body: [] };
+        return null;
+    });
+    const { useStore, act } = w.__gate;
+    await act(async () => { useStore.getState().login('pw').catch(() => { }); await settle(); });
+    check('signing in with a password loads the version, hosted flag included',
+        useStore.getState().appVersion?.hosted === true, JSON.stringify(useStore.getState().appVersion));
+    w.close();
+
+    // A failed update verdict beside a good version answer.
+    const v = page((url) => {
+        if (url.includes('/api/version')) return { status: 200, body: { ...VERSION, hosted: true } };
+        if (url.includes('/api/updates')) return { status: 500, body: { error: 'boom' } };
+        return null;
+    });
+    await v.__gate.act(async () => { await v.__gate.useStore.getState().loadVersion(); await settle(); });
+    check('a failed update check does not drop the version answer',
+        v.__gate.useStore.getState().appVersion?.hosted === true, JSON.stringify(v.__gate.useStore.getState().appVersion));
+    v.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
