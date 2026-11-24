@@ -303,6 +303,8 @@ OpenRouter serves Claude only from those, so `hosted/example.env` starts with
 `anthropic/claude-sonnet-5.5`. Stay on a model that page lists without a
 condition: on some older ones (Claude Sonnet 4.6, Sonnet 4.5, Opus 4.6, Opus 4.5,
 Opus 3 and Haiku 4.5) the mark may be missing when a request sets `temperature`,
-`top_p` or `top_k`, and the app sets `temperature` and `top_p` on its calls. A model with no watermark, such as most open
-models, leaves copied text unmarked. Sonnet costs more per token than most of
+`top_p` or `top_k`. The app sets `temperature` and `top_p` on calls through
+OpenRouter or another OpenAI-compatible endpoint; a direct Anthropic connection
+never sends them. A model with no watermark, such as most open models, leaves
+copied text unmarked. Sonnet costs more per token than most of
 those, so size each key's limit for it.
