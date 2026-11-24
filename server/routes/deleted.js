@@ -9,6 +9,8 @@ import { CONTENT_TABLES, emptyDeleted, listDeleted, purge, restore } from '../so
 import { logActivity } from '../activityLog.js';
 import { apiError, keyed } from '../clientError.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { healDocuments } from '../embeddings.js';
+import { resumeRestoredRecovery } from '../pdfRecovery.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('deleted');
@@ -33,7 +35,12 @@ app.post('/api/deleted/:table/:id/restore', (req, res) => {
         return res.status(409).json({ ...keyed('What it was in is deleted too. Restore that first.'), code: 'parent_deleted' });
     }
     if (out.error) return res.status(404).json(keyed('That is not in Recently deleted.'));
-    if (t.table === 'projects' || t.table === 'nodes') scheduleNodeSync();
+    if (t.table === 'projects' || t.table === 'nodes') {
+        scheduleNodeSync();
+        // Files that came back with it: the indexing and recovery a delete held.
+        healDocuments();
+        resumeRestoredRecovery();
+    }
     logActivity({
         area: 'project', event: 'item.restored',
         projectId: t.table === 'projects' ? t.id : undefined,

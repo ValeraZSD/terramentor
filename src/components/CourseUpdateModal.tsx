@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
+import { useItemReports } from '../utils/itemReportStore';
 import { api } from '../api';
 import Modal from './Modal';
 import { Button } from './ui/Button';
@@ -44,6 +45,8 @@ export default function CourseUpdateModal() {
 
     // Apply and undo rewrite the course's rows; a course still open shows them only after a reload.
     const refreshOpenCourse = () => {
+        // Who wrote an item may have changed with it: the "Written by" captions ask again.
+        useItemReports.getState().forgetWriters();
         const s = useStore.getState();
         if (s.currentProjectId === match.projectId) s.loadProjectData(match.projectId).catch(() => { });
     };

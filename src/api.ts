@@ -1,7 +1,7 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
-import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
+import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem, WrittenBy } from './utils/itemReports';
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import { serverText } from './utils/serverText';
@@ -1749,7 +1749,8 @@ export const api = {
         if (scope.nodeId) q.set('nodeId', String(scope.nodeId));
         if (scope.projectId) q.set('projectId', String(scope.projectId));
         if (scope.refs?.length) q.set('refs', scope.refs.join(','));
-        return request<{ reports: ItemReport[] }>(`/item-reports?${q}`);
+        // `written`: which of the refs a model wrote (only when refs were asked).
+        return request<{ reports: ItemReport[]; written?: Record<string, WrittenBy> }>(`/item-reports?${q}`);
     },
 
     /** One report by its number, undone or not: what the assistant's prepared undo takes back. */

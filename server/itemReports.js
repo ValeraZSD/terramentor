@@ -116,12 +116,12 @@ const projectOf = (nodeId) => stmt('SELECT project_id FROM live_nodes nodes WHER
 
 /** Every bank row holding this question: its own copy and review copies elsewhere. */
 function banksHolding(uuid) {
-    const rows = stmt(`SELECT id, node_id, questions FROM live_quizzes quizzes WHERE instr(questions, ?) > 0`).all(uuid);
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE instr(questions, ?) > 0 ORDER BY id`).all(uuid);
     const out = [];
     for (const r of rows) {
         const qs = safeParse(r.questions);
         if (!Array.isArray(qs)) continue;
-        qs.forEach((q, index) => { if (q && typeof q === 'object' && q.uuid === uuid) out.push({ quizId: r.id, nodeId: r.node_id, index, question: q }); });
+        qs.forEach((q, index) => { if (q && typeof q === 'object' && q.uuid === uuid) out.push({ quizId: r.id, nodeId: r.node_id, index, question: q, stamp: r.generated_by }); });
     }
     return out;
 }
@@ -144,35 +144,170 @@ function questionView(q) {
     return out;
 }
 
-/** Text of a drill's home: the topic's Overview, its Material notes and its lesson rows. */
-function drillSources(nodeId) {
-    const texts = [];
-    const node = stmt('SELECT description FROM live_nodes nodes WHERE id = ?').get(nodeId);
-    if (node?.description) texts.push(node.description);
-    for (const n of stmt('SELECT description FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
-        if (n.description) texts.push(n.description);
-    }
-    for (const r of stmt(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
-        if (r.content) texts.push(r.content);
-    }
-    return texts;
+/**
+ * The model id in a provenance stamp: `{"provider","model"}` (`aiProvenance()`),
+ * `{"model","via":"import"}` (a course file's claim), a meta blob holding
+ * `model`, or the bare id a question's own claim carries. Null when it names none.
+ */
+function stampModel(stamp) {
+    const v = typeof stamp === 'string' && stamp.trim().startsWith('{') ? safeParse(stamp) : stamp;
+    const model = v && typeof v === 'object' ? v.model : v;
+    return typeof model === 'string' && model.trim() ? model.trim() : null;
 }
 
-function findDrillItem(nodeId, drillKey, itemKey) {
+/** A row's `generated_by` as who wrote it: `{ model }`, or null when no model did (NULL = none). */
+const stampWriter = (stamp) => {
+    const model = stampModel(stamp);
+    return model ? { model } : null;
+};
+
+/**
+ * Text of a drill's home, each with who wrote it: the topic's Overview and its
+ * Material notes (the node's own stamp), and its lesson rows (always a model's).
+ */
+function drillSources(nodeId) {
+    const out = [];
+    const node = stmt('SELECT description, generated_by FROM live_nodes nodes WHERE id = ?').get(nodeId);
+    if (node?.description) out.push({ text: node.description, by: stampWriter(node.generated_by) });
+    for (const n of stmt('SELECT description, generated_by FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
+        if (n.description) out.push({ text: n.description, by: stampWriter(n.generated_by) });
+    }
+    for (const r of stmt(`SELECT content, meta FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
+        if (r.content) out.push({ text: r.content, by: { model: stampModel(safeParse(r.meta, {})) } });
+    }
+    return out;
+}
+
+/**
+ * Every drill in a node's texts: `{ key, body, by, parsed }`. `parsed` is
+ * filled on first use and kept (null for a body that does not parse), so many
+ * refs into one drill parse it once.
+ */
+function drillsOf(nodeId) {
+    const out = [];
+    for (const { text, by } of drillSources(nodeId)) {
+        for (const d of findDrills(text)) out.push({ key: drillKeyOf(d.body), body: d.body, by, parsed: undefined });
+    }
+    return out;
+}
+
+function findDrillItem(nodeId, drillKey, itemKey, drills = null) {
     if (drillKey === 'cards') {
         const m = /^c(\d+)$/.exec(itemKey);
-        const card = m ? stmt('SELECT id, node_id, front, back FROM live_flashcards flashcards WHERE id = ?').get(Number(m[1])) : null;
-        return card && card.node_id === nodeId ? { prompt: card.front, answer: card.back, cardId: card.id } : null;
+        const card = m ? stmt('SELECT id, node_id, front, back, generated_by FROM live_flashcards flashcards WHERE id = ?').get(Number(m[1])) : null;
+        return card && card.node_id === nodeId
+            ? { prompt: card.front, answer: card.back, cardId: card.id, by: stampWriter(card.generated_by) } : null;
     }
-    for (const text of drillSources(nodeId)) {
-        for (const d of findDrills(text)) {
-            if (drillKeyOf(d.body) !== drillKey) continue;
-            const parsed = parseDrillBody(d.body);
-            const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
-            if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null };
-        }
+    for (const d of drills ?? drillsOf(nodeId)) {
+        if (d.key !== drillKey) continue;
+        if (d.parsed === undefined) d.parsed = parseDrillBody(d.body) ?? null;
+        const parsed = d.parsed;
+        const hit = parsed?.items.find(it => drillItemKey(it) === itemKey);
+        if (hit) return { prompt: hit.prompt, answer: hit.answer, title: parsed.title || null, by: d.by };
     }
     return null;
+}
+
+/**
+ * Every bank holding each of these questions, in one pass over the banks:
+ * `banksHolding` for many uuids at once.
+ */
+function banksHoldingAll(uuids) {
+    const out = new Map(uuids.map(u => [u, []]));
+    if (!uuids.length) return out;
+    const rows = stmt(`SELECT id, node_id, questions, generated_by FROM live_quizzes quizzes WHERE ${uuids.map(() => 'instr(questions, ?) > 0').join(' OR ')} ORDER BY id`).all(...uuids);
+    for (const r of rows) {
+        const qs = safeParse(r.questions);
+        if (!Array.isArray(qs)) continue;
+        qs.forEach((q, index) => {
+            const list = q && typeof q === 'object' ? out.get(q.uuid) : null;
+            if (list) list.push({ quizId: r.id, nodeId: r.node_id, index, question: q, stamp: r.generated_by });
+        });
+    }
+    return out;
+}
+
+/** The bank copies a standing report took out of their banks (its `undo`), named as `banksHolding` names them. */
+function reportedHolders(p) {
+    const undo = safeParse(activeFor(refOf(p))?.undo, {});
+    return (undo?.banks || []).flatMap(b => (b?.taken || [])
+        .filter(t => t?.question?.uuid === p.uuid)
+        .map(t => ({ quizId: b.quizId, index: t.index, question: t.question,
+            // The stamp the report kept; a report filed before it kept one reads the bank.
+            stamp: 'stamp' in b ? b.stamp : (stmt('SELECT generated_by FROM live_quizzes quizzes WHERE id = ?').get(b.quizId)?.generated_by ?? null) })));
+}
+
+/**
+ * Who wrote the item a ref names, for the "Written by AI" its flag shows (EU AI
+ * Act Art. 50: a reader is told which text a model wrote). `{ model }` when a
+ * model did, `model` null for a model's row older than its stamp; null when a
+ * person did, a file claimed nothing, or the item is gone.
+ *
+ * Read from what the row says, never from its text. A feed row or placement
+ * question is a model's by where it lives (only feedGen and placement.js write
+ * them), stamped or not. A bank question, card or topic is a model's only when
+ * stamped: one made before its table had the column reads as a person's. A
+ * stamped text keeps its stamp when a person edits it in the app; a course
+ * update that rewrites it takes the file's claim instead (courseUpdate.js).
+ *
+ * `memo` (from `writtenByRefs`) holds what one request already read.
+ */
+export function writtenBy(ref, memo = null) {
+    const p = typeof ref === 'string' ? parseRef(ref) : ref;
+    if (!p) return null;
+    if (p.type === 'fi') {
+        // Only feedGen writes the rows a learner reads here, each a model's.
+        const row = stmt('SELECT kind, meta FROM feed_items WHERE id = ?').get(p.feedItemId);
+        return row && ['lesson', 'question', 'practice'].includes(row.kind) ? { model: stampModel(safeParse(row.meta, {})) } : null;
+    }
+    if (p.type === 'q') {
+        let holders = memo?.banks.get(p.uuid) ?? banksHolding(p.uuid);
+        // A standing report took it out of its banks: the copies it kept speak for it.
+        if (!holders.length) holders = reportedHolders(p);
+        const own = holders.filter(h => !h.question.isGhost);
+        // The question's own claim (a course file's), else its bank's stamp. A
+        // review copy's bank is the practice quiz that borrowed it, so a copy
+        // on its own speaks only through its own claim. One uuid held as its
+        // own by two topics (two files claimed it) shares one ref: a model's
+        // claim on either copy marks it, so model text is never left unmarked.
+        if (own.length) return own.map(h => stampWriter(h.question.generated_by) ?? stampWriter(h.stamp)).find(Boolean) ?? null;
+        return holders.map(h => stampWriter(h.question.generated_by)).find(Boolean) ?? null;
+    }
+    if (p.type === 'card') {
+        const card = stmt('SELECT generated_by FROM live_flashcards flashcards WHERE id = ?').get(p.cardId)
+            ?? safeParse(activeFor(refOf(p))?.undo, {})?.card;
+        return stampWriter(card?.generated_by);
+    }
+    if (p.type === 'probe') {
+        // Only placement.js writes these, each a model's.
+        const probes = memo?.probes;
+        if (probes && !probes.has(p.probeId)) probes.set(p.probeId, getProbeById(p.probeId));
+        const q = (probes ? probes.get(p.probeId) : getProbeById(p.probeId))?.questions?.[p.index];
+        return q ? { model: stampModel(q.generated_by) } : null;
+    }
+    if (p.type === 'drill') {
+        const drills = memo?.drills;
+        if (drills && !drills.has(p.nodeId)) drills.set(p.nodeId, drillsOf(p.nodeId));
+        return findDrillItem(p.nodeId, p.drillKey, p.itemKey, drills?.get(p.nodeId) ?? null)?.by ?? null;
+    }
+    return null;
+}
+
+/**
+ * `writtenBy` for each ref, keyed by the ref as asked; a ref no model wrote is
+ * left out. One request reads the banks once, and each topic's drills and each
+ * placement once, however many refs name them.
+ */
+export function writtenByRefs(refs) {
+    const asked = [...new Set((refs || []).filter(r => typeof r === 'string'))];
+    const uuids = [...new Set(asked.map(parseRef).filter(p => p?.type === 'q').map(p => p.uuid))];
+    const memo = { banks: banksHoldingAll(uuids), drills: new Map(), probes: new Map() };
+    const out = {};
+    for (const ref of asked) {
+        const by = writtenBy(ref, memo);
+        if (by) out[ref] = by;
+    }
+    return out;
 }
 
 /**
@@ -408,7 +543,8 @@ function reportBankQuestion(undo, target) {
         }
         if (!taken.length) continue;
         stmt('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
-        undo.banks.push({ quizId, taken: taken.reverse() });
+        // The bank's stamp goes with it: a bank deleted later would take its writer along.
+        undo.banks.push({ quizId, stamp: row.generated_by ?? null, taken: taken.reverse() });
     }
 }
 
@@ -849,6 +985,8 @@ export function listReports({ nodeId = null, projectId = null, refs = null, incl
     if (projectId != null) { where.push('project_id = ?'); args.push(projectId); }
     if (keys.length) { where.push(`item_key IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }
     if (!includeSettled) where.push(STANDING);
+    // Not one of a deleted topic or course: its report holds the item's text.
+    where.push('(node_id IS NULL OR node_id IN (SELECT id FROM live_nodes))', '(project_id IS NULL OR project_id IN (SELECT id FROM live_projects))');
     const sql = `SELECT * FROM item_reports ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
     // Its text varies with the number of refs: prepared here, not kept.
     return db.prepare(sql).all(...args, Math.max(1, Math.min(200, Math.max(limit, keys.length)))).map(publicReport);

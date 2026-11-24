@@ -56,6 +56,8 @@ const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
 const quizzesOfNode = once('SELECT questions, generated_by FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id');
 const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM live_flashcards flashcards WHERE node_id = ? ORDER BY id');
 const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM live_resources resources WHERE node_id = ? ORDER BY position');
+const cardMediaOfProject = once(`SELECT f.media FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
+    WHERE n.project_id = ? AND f.media IS NOT NULL`);
 
 /** A topic's links in export order. */
 const exportedResourceRows = (nodeId) => resourcesOfNode().all(nodeId);
@@ -151,14 +153,23 @@ const exportedFlashcards = (nodeId, mediaNames = null) => {
  * One file name per media blob a project's cards reference. The stored name
  * is the author's (`media_files.filename`), which two different files may
  * share; a collision keeps the first and prefixes the rest with their hash,
- * so every entry in the bundle's `media/` folder is one file.
+ * so every entry in the bundle's `media/` folder is one file. Only the files
+ * the exported (live) cards name: a file only deleted cards show stays home.
  */
 const projectMediaNames = (projectId) => {
     const rows = db.prepare('SELECT hash, filename, mime, kind FROM media_files WHERE project_id = ? ORDER BY id').all(projectId);
+    const named = new Set();
+    for (const raw of cardMediaOfProject().pluck().all(projectId)) {
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch { continue; }
+        for (const side of ['front', 'back']) {
+            for (const m of Array.isArray(parsed?.[side]) ? parsed[side] : []) if (typeof m?.hash === 'string') named.add(m.hash);
+        }
+    }
     const names = new Map();
     const used = new Set();
     for (const r of rows) {
-        if (!r.hash || !mediaStorage.exists(r.hash)) continue;
+        if (!r.hash || !named.has(r.hash) || !mediaStorage.exists(r.hash)) continue;
         const base = String(r.filename || r.hash).replace(/[\\/]/g, '_').replace(/\.\./g, '_').slice(0, 180) || r.hash;
         const name = used.has(base) ? `${r.hash.slice(0, 12)}-${base}` : base;
         used.add(name);
@@ -213,8 +224,8 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // reads it; an export with progress writes it). A file without one leaves
     // it empty: a missing record, never a false one.
     const insertNode = db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at, generated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertResource = db.prepare(`
         INSERT INTO resources (node_id, title, url, type, completed, position, uuid)
@@ -225,9 +236,9 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // with the importer's name would make a hand-authored course indexable as
     // AI-written for the rest of its life. What a FILE says about an item is
     // kept as the file's claim and nothing more: a question keeps its own
-    // `generated_by` inside the JSON, and a card that one names stores
-    // `{"model","via":"import"}` — so exporting again cannot wash the mark out,
-    // and an unmarked card stays NULL.
+    // `generated_by` inside the JSON, and a card or a topic that one names
+    // stores `{"model","via":"import"}` — so exporting again cannot wash the
+    // mark out, and an unmarked one stays NULL.
     const insertQuiz = db.prepare(`
         INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, NULL)
     `);
@@ -262,7 +273,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         const result = insertNode.run(
             newProjectId, parentId, node.title, node.description, node.notes,
             node.status, node.is_note, position, claimUuid('nodes', node.uuid), node.role,
-            node.completed_at ?? null,
+            node.completed_at ?? null, declaredBy(node.generated_by),
         );
         const newNodeId = result.lastInsertRowid;
         if (onNode) onNode(node, newNodeId, path);
@@ -317,4 +328,4 @@ function applyImportedCardDial(projectId, project, cardCount) {
     setNewPerDay(projectId, project.new_per_day);
 }
 
-export { IMPORT_QUESTION_DEPS, applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows, insertImportedTree, newPerDaySetting, projectMediaNames };
+export { IMPORT_QUESTION_DEPS, applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows, insertImportedTree, newPerDaySetting, projectMediaNames, provenanceModel };

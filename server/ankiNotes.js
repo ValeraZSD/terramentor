@@ -14,6 +14,7 @@
 import { mapNoteFields } from './ankiFields.js';
 import { templateSides } from './ankiTemplates.js';
 import { sanitizeUrl } from './urlSafety.js';
+import { splitAiWrittenTag } from './ankiAiTag.js';
 
 /** Anki's field separator; schema 18 also joins deck levels with it. */
 export const FIELD_SEP = '\x1f';
@@ -334,7 +335,9 @@ export function notesToCards({ decks, noteTypes, cardTemplates, cardRows, noteRo
         const rawValues = String(note.flds ?? '').split(FIELD_SEP);
         const values = rawValues.map(stripAnkiHtml);
         const notecards = cardsByNote.get(note.id) ?? [];
-        const tags = String(note.tags ?? '').trim().split(/\s+/).filter(Boolean);
+        // Our own export's `ai-written::<model>` is the card's claim, not a tag
+        // to file the deck by (ankiAiTag.js).
+        const { model: generatedBy, tags } = splitAiWrittenTag(String(note.tags ?? '').trim().split(/\s+/).filter(Boolean));
 
         const media = {
             i: values.reduce((n, v) => n + v.images.length, 0),
@@ -421,7 +424,7 @@ export function notesToCards({ decks, noteTypes, cardTemplates, cardRows, noteRo
                 const deck = deckOf(ord - 1);
                 deckCounts.set(deck, (deckCounts.get(deck) ?? 0) + 1);
                 out.push({
-                    front: f.text, back: b.text, extra: clozeExtra, deck, tags, cloze: true,
+                    front: f.text, back: b.text, extra: clozeExtra, deck, tags, generated_by: generatedBy, cloze: true,
                     noteType: typeName, images: media.i, sched: schedOf(ord - 1),
                     order: orderOf(ord - 1), noteId: Number(note.id),
                     // The sentence's own media rides the front, so a listening
@@ -505,7 +508,7 @@ export function notesToCards({ decks, noteTypes, cardTemplates, cardRows, noteRo
             const deck = deckOf(ord);
             deckCounts.set(deck, (deckCounts.get(deck) ?? 0) + 1);
             out.push({
-                front: values[front].text, back: values[back].text, extra, extraFront, deck, tags, cloze: false,
+                front: values[front].text, back: values[back].text, extra, extraFront, deck, tags, generated_by: generatedBy, cloze: false,
                 noteType: typeName, images: media.i, sched: schedOf(ord),
                 order: orderOf(ord), noteId: Number(note.id),
                 fieldNames: model?.fields ?? [],

@@ -317,13 +317,22 @@ console.log('\n--- case 1, fast-forward: what the author changed arrives, the le
     const v2 = edition2(tag, (f) => {
         const a = topic(f, 'Lidwoorden');
         a.description = 'Overview A, second edition.';
+        // The second edition's author says a model wrote the new Overview, the changed card and the new topic.
+        a.generated_by = 'edition-model:2';
         a.questions[0] = { ...a.questions[0], question: 'Welk lidwoord hoort bij "krant" (de krant)?' };
-        a.flashcards[1] = { ...a.flashcards[1], back: 'house, home' };
-        unit1(f).push({ title: 'Werkwoorden', uuid: u(tag, 'C'), description: 'Overview C.',
+        a.flashcards[1] = { ...a.flashcards[1], back: 'house, home', generated_by: 'edition-model:2' };
+        unit1(f).push({ title: 'Werkwoorden', uuid: u(tag, 'C'), description: 'Overview C.', generated_by: 'edition-model:2',
             flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(tag, 'C3') }] });
     });
     const r = await update(pid, v2);
     const a = nodeOf(r.projectId, 'Lidwoorden');
+    const claim = (row) => (row?.generated_by ? JSON.parse(row.generated_by) : null);
+    const EDITION = { model: 'edition-model:2', via: 'import' };
+    check('1 fast-forward: a rewritten Overview takes the file\'s claim of who wrote it', claim(a), EDITION);
+    check('1 fast-forward: ...and so does a new topic', claim(nodeOf(r.projectId, 'Werkwoorden')), EDITION);
+    check('1 fast-forward: a rewritten card takes the file\'s claim; an unchanged one keeps its own (none)',
+        cardsOf(a?.id).map(c => [c.front, claim(db.prepare('SELECT generated_by FROM flashcards WHERE id = ?').get(c.id))]),
+        [['de krant', null], ['het huis', EDITION]]);
     check('1 fast-forward: the library still holds ONE copy of the course', copiesOf(tag), 1);
     check('1 fast-forward: the learner’s course reads the new Overview', a?.description, 'Overview A, second edition.');
     check('1 fast-forward: ...and keeps the mastery the learner earned on it', [evidenceOn(a?.id), masteryOn(a?.id)], [1, 0.8]);
@@ -339,6 +348,31 @@ console.log('\n--- case 1, fast-forward: what the author changed arrives, the le
         const overview = (r.inspected?.items?.changed || []).find(it => it.kind === 'node')?.diff?.find(d => d.field === 'description');
         check('1 fast-forward: the preview shows the Overview as it reads now and after', [overview?.from, overview?.to], ['Overview A, first edition.', 'Overview A, second edition.']);
     }
+}
+
+console.log('\n--- case 1b, fast-forward: text the update kept keeps its mark ---');
+{
+    const tag = 'keptmark';
+    const pid = await install(edition1(tag));
+    const MODEL = JSON.stringify({ model: 'first-model:1', via: 'import' });
+    const a0 = nodeOf(pid, 'Lidwoorden');
+    // A model wrote A's Overview and the first card's front; the next edition
+    // rewrites only A's title and that card's back, and claims no model.
+    db.prepare('UPDATE nodes SET generated_by = ? WHERE id = ?').run(MODEL, a0.id);
+    db.prepare("UPDATE flashcards SET generated_by = ? WHERE node_id = ? AND front = 'de krant'").run(MODEL, a0.id);
+    const v2 = edition2(tag, (f) => {
+        const a = topic(f, 'Lidwoorden');
+        a.title = 'Lidwoorden (de/het)';
+        a.flashcards[0] = { ...a.flashcards[0], back: 'the newspaper' };
+    });
+    const r = await update(pid, v2);
+    const a = nodeOf(r.projectId, 'Lidwoorden (de/het)');
+    const stampOf = (sql, id) => db.prepare(sql).get(id)?.generated_by ?? null;
+    check('1b: a new title with no claim leaves the kept Overview marked as the model\'s',
+        stampOf('SELECT generated_by FROM nodes WHERE id = ?', a?.id), MODEL);
+    check('1b: a new back with no claim leaves the kept front marked as the model\'s',
+        cardsOf(a?.id).map(c => [c.front, c.back, stampOf('SELECT generated_by FROM flashcards WHERE id = ?', c.id)]),
+        [['de krant', 'the newspaper', MODEL], ['het huis', 'house', null]]);
 }
 
 // ---- 2. a conflict keeps the learner's version ------------------------------------
