@@ -551,7 +551,14 @@ section('the log reads like a page: the question goes up once, the answer never 
         entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
         bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
     });
-    const { roomFor, scrollTargetFor } = await import(pathToFileURL(outScroll).href);
+    const { roomFor, scrollTargetFor, textBelow } = await import(pathToFileURL(outScroll).href);
+    // A log that does not follow the stream must say when the reply runs past
+    // its bottom edge: strangers read a still screen as a reply that stopped.
+    // Scroller box ends at y=900 with 16 px padding, so text is seen down to 884.
+    check('text past the bottom edge counts as below, the padding does not', textBelow(1000, 900, 16) === 116 && textBelow(884, 900, 16) === 0 && textBelow(600, 900, 16) < 0);
+    check('the "more below" button shows only while text is below, and brings it into view',
+        /\{!showList && scroll\.below && \(/.test(drawerSrc) && /onClick=\{scroll\.toEnd\}/.test(drawerSrc)
+        && /useEffect\(\(\) => \{ scroll\.measure\(\); \}\);/.test(drawerSrc));
     // Stated geometry: a scroller `client` tall at viewport y=`at`, padding `pad`
     // top and bottom, its content box starting one padding down, the question
     // `offset` px into that box, the log scrolled to `st`.

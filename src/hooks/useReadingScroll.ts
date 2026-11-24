@@ -23,6 +23,18 @@ export function scrollTargetFor(targetTop: number, scrollerTop: number, scrollTo
     return targetTop - scrollerTop + scrollTop - padTop;
 }
 
+/** Text hidden by less than this does not count as "more below": half a line, a subpixel. */
+const BELOW_SLACK = 8;
+
+/**
+ * How many px of written text lie below the visible part of a scroller: the
+ * last line ends at `lastBottom`, the scroller's box ends at `scrollerBottom`
+ * (viewport px) and its bottom padding is not part of the visible text area.
+ */
+export function textBelow(lastBottom: number, scrollerBottom: number, padBottom: number): number {
+    return lastBottom - (scrollerBottom - padBottom);
+}
+
 /**
  * How a chat log scrolls while a model writes into it: like a page being
  * written, not like a terminal.
@@ -123,20 +135,58 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
         });
     }, [fit]);
 
+    /**
+     * How far the last written line ends below what the reader can see, in px
+     * (zero or less: it is in view). Measured to the last message, never to
+     * the box's bottom, which may be the empty room made for the question.
+     */
+    const hiddenBelow = () => {
+        const el = ref.current;
+        const last = contentRef.current?.lastElementChild;
+        if (!el || !last) return 0;
+        return textBelow(last.getBoundingClientRect().bottom, el.getBoundingClientRect().bottom, padding(el).bottom);
+    };
+
+    /**
+     * Whether text continues below the view. A log that does not follow the
+     * stream must say so, or a reply written past the bottom edge looks like a
+     * reply that stopped there.
+     */
+    const [below, setBelow] = useState(false);
+    const belowRef = useRef(false);
+    // Called on every render of a streaming answer: no setState unless the
+    // answer changed, so a stream frame never schedules a render of its own.
+    const measure = useCallback(() => {
+        const b = hiddenBelow() > BELOW_SLACK;
+        if (b === belowRef.current) return;
+        belowRef.current = b;
+        setBelow(b);
+    }, []);
+
+    /** Bring the last written line into view, at the bottom edge. */
+    const toEnd = useCallback(() => {
+        const el = ref.current;
+        if (!el) return;
+        el.scrollTo({ top: el.scrollTop + hiddenBelow(), behavior: motionReduced() ? 'auto' : 'smooth' });
+    }, []);
+
     // The scroller resized (the panel dragged, a phone keyboard opened) or was
-    // rebuilt (docked or undocked): measure the room again.
+    // rebuilt (docked or undocked): measure the room again. Scrolling only
+    // changes what is below the view.
     useEffect(() => {
         if (!scroller) return;
         fit();
-        if (typeof ResizeObserver === 'undefined') return;
-        const ro = new ResizeObserver(() => { if (anchorRef.current) fit(); });
+        measure();
+        scroller.addEventListener('scroll', measure, { passive: true });
+        if (typeof ResizeObserver === 'undefined') return () => scroller.removeEventListener('scroll', measure);
+        const ro = new ResizeObserver(() => { if (anchorRef.current) fit(); measure(); });
         ro.observe(scroller);
-        return () => ro.disconnect();
-    }, [scroller, fit]);
+        return () => { ro.disconnect(); scroller.removeEventListener('scroll', measure); };
+    }, [scroller, fit, measure]);
 
     // One memoised object: callers list it in effect dependency arrays.
     return useMemo(
-        () => ({ ref, scrollerRef, contentRef, anchor, toBottom, toTop, release }),
-        [scrollerRef, anchor, toBottom, toTop, release],
+        () => ({ ref, scrollerRef, contentRef, anchor, toBottom, toTop, release, below, measure, toEnd }),
+        [scrollerRef, anchor, toBottom, toTop, release, below, measure, toEnd],
     );
 }

@@ -38,7 +38,7 @@ import { useReadingScroll } from '../hooks/useReadingScroll';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
-import { ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
@@ -721,6 +721,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (loadingHistoryRef.current) return;
         scroll.anchor(lastQuestionId);
     }, [lastQuestionId, lastQuestionText, scroll]);
+
+    // Whether the reply now runs past the bottom edge: after every render,
+    // because a streamed frame, a picture or a lookup row can each make it.
+    // A no-op unless the answer changed (`measure` holds the last one).
+    useEffect(() => { scroll.measure(); });
 
     useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -1548,6 +1553,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             </header>
 
             <div className="sr-only" aria-live="polite">{spoken}</div>
+            {/* The log and the one control that floats over it: the log does
+                not follow a reply, so text written past its bottom edge needs
+                something on screen that says it is there. */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
             <div
                 ref={scroll.scrollerRef}
                 role="log"
@@ -1839,6 +1848,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     </>
                 )}
                 </div>)}
+            </div>
+            {!showList && scroll.below && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                    <Button
+                        size="sm"
+                        icon={<ArrowDown />}
+                        onClick={scroll.toEnd}
+                        className="pointer-events-auto shadow-md"
+                    >
+                        {streaming ? tr("Still writing below") : tr("More below")}
+                    </Button>
+                </div>
+            )}
             </div>
 
             <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-3 space-y-2 select-none">
