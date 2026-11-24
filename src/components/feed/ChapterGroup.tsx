@@ -152,7 +152,7 @@ export function ChapterSection({ innerRef, children }: {
             ref={innerRef}
             tabIndex={-1}
             style={{ scrollMarginTop: STREAM_SCROLL_MARGIN }}
-            className="outline-none py-5 border-t border-slate-100 dark:border-slate-700/60 first:border-t-0 first:pt-4"
+            className="relative outline-none py-5 border-t border-slate-100 dark:border-slate-700/60 first:border-t-0 first:pt-4"
         >
             {children}
         </div>

@@ -55,7 +55,8 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
             // under the title from the name (label in name). The status, the
             // head-start note and that line are read as its description.
             aria-describedby={studies ? [statusId, headStartId, detailId].filter(Boolean).join(' ') : undefined}
-            className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-start can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            // `relative`: the row's `sr-only` words stay inside the list's scroller.
+            className="group relative w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-start can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
             <span
                 aria-hidden="true"

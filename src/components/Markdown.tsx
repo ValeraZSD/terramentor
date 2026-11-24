@@ -136,7 +136,10 @@ const PendingVisual = memo(({ kind, language, chars }: { kind: string; language:
     const num = useNumberFormat();
     const label = PENDING_KIND_LABELS[kind] ?? kind;
     return (
-        <div className="visual-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+        // `relative`, as the drawn card (VisualBlock): nothing absolute sits
+        // inside today, but one added later is placed against this clipping
+        // card, never past the list it sits in.
+        <div className="visual-block relative my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between px-4 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
                 <span>{label}</span>
                 <span className="lowercase">{language}</span>

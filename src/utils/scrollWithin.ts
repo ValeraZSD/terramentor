@@ -22,9 +22,9 @@
  * markup on a narrow screen, where the page does the scrolling for everything —
  * there is nothing to scroll and the answer is to leave the screen alone.
  *
- * Vertical only. A horizontal rail scrolled with `inline: 'nearest'` is not in
- * this class: `nearest` does nothing when the element is already visible, so a
- * rail in a sticky header never moves the page.
+ * Vertical only. A horizontal tab rail goes through `scrollRailTo` below: a
+ * native `scrollIntoView({ inline: 'nearest' })` also brings the element into
+ * view vertically, which can move the window when the page is taller than it.
  */
 import { motionReduced } from './accessibility';
 
@@ -46,8 +46,24 @@ export interface ScrollWithinOptions {
     /** Where in the scroller the element should land. Default `nearest`. */
     block?: ScrollWithinBlock;
     behavior?: ScrollBehavior;
-    /** Breathing room at the edge, in px. */
+    /**
+     * Breathing room at the edge, in px. Added to the element's
+     * `scroll-margin` and the scroller's `scroll-padding`, which are read from
+     * the stylesheet the way native `scrollIntoView` reads them. Used by
+     * `start` and `nearest`; `center` centres on the whole scroller.
+     */
     padding?: number;
+}
+
+/**
+ * A resolved `scroll-margin-*` / `scroll-padding-*` in px; `auto` and unset are
+ * 0. A percentage (allowed for `scroll-padding`) is of the scrollport's height.
+ */
+function px(value: string | undefined, basis = 0): number {
+    const raw = value ?? '';
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return 0;
+    return raw.trim().endsWith('%') ? (n / 100) * basis : n;
 }
 
 /** True when this element declares a vertical scroll AND has room to use it. */
@@ -99,16 +115,23 @@ export function scrollIntoViewWithin(
     const top = box.top - frame.top + scroller.scrollTop;
     const view = scroller.clientHeight;
     const limit = scroller.scrollHeight - view;
+    // A pinned header over the scroller is cleared the CSS way: the element's
+    // `scroll-margin-top`, the scroller's `scroll-padding-top` (the feed sets
+    // both). Ignoring them put the next card under the feed's header.
+    const own = getComputedStyle(el);
+    const frameStyle = getComputedStyle(scroller);
+    const above = padding + px(own.scrollMarginTop) + px(frameStyle.scrollPaddingTop, view);
+    const below = padding + px(own.scrollMarginBottom) + px(frameStyle.scrollPaddingBottom, view);
 
     let target: number;
     if (block === 'start') {
-        target = top - padding;
+        target = top - above;
     } else if (block === 'center') {
         target = top - (view - box.height) / 2;
     } else {
         const from = scroller.scrollTop;
-        if (top >= from + padding && top + box.height <= from + view - padding) return true;
-        target = top < from + padding ? top - padding : top + box.height - view + padding;
+        if (top >= from + above && top + box.height <= from + view - below) return true;
+        target = top < from + above ? top - above : top + box.height - view + below;
     }
 
     const next = Math.max(0, Math.min(target, limit));
@@ -117,4 +140,48 @@ export function scrollIntoViewWithin(
     // reduced motion is honoured here, once, for every caller.
     scroller.scrollTo({ top: next, behavior: motionReduced() ? 'auto' : behavior });
     return true;
+}
+
+/**
+ * Bring a tab into view inside its horizontal rail, and move nothing else.
+ *
+ * Native `scrollIntoView({ inline: 'nearest', block: 'nearest' })` also
+ * scrolls vertically, up to the window, whenever the rail is not on screen
+ * (a page scrolled for any reason), so the tab rails in the header move the
+ * rail alone, by the distance the tab sticks out past either edge. Read from
+ * the two rects, so a right-to-left rail (negative `scrollLeft`) needs no
+ * case of its own: a positive delta always moves the view towards the right.
+ *
+ * @returns whether the rail was moved.
+ */
+export function scrollRailTo(el: HTMLElement | null | undefined, rail: HTMLElement | null): boolean {
+    if (!el || !rail || !rail.contains(el) || rail.scrollWidth - rail.clientWidth <= 1) return false;
+    const box = el.getBoundingClientRect();
+    const frame = rail.getBoundingClientRect();
+    let delta = 0;
+    if (box.left < frame.left) delta = box.left - frame.left;
+    else if (box.right > frame.right) delta = box.right - frame.right;
+    if (Math.abs(delta) < 1) return false;
+    rail.scrollBy({ left: delta, behavior: 'auto' });
+    return true;
+}
+
+/**
+ * The fallback for a list with no scroller of its own (a phone, where the
+ * stream IS the page): move the window and nothing else. Native
+ * `scrollIntoView` would also scroll every box on the way up, `overflow:
+ * hidden` ones included, so the desktop frame could shift whenever the list
+ * merely had nothing to scroll. Honours the element's `scroll-margin-top`
+ * for `start`, as the native call does.
+ */
+export function scrollPageTo(
+    el: HTMLElement | null | undefined,
+    { block = 'start', behavior = 'auto' }: { block?: 'start' | 'center'; behavior?: ScrollBehavior } = {},
+): void {
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const top = block === 'center'
+        ? box.top + window.scrollY - (window.innerHeight - box.height) / 2
+        : box.top + window.scrollY - px(getComputedStyle(el).scrollMarginTop);
+    window.scrollTo({ top: Math.max(0, top), behavior: motionReduced() ? 'auto' : behavior });
 }
