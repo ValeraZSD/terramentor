@@ -55,9 +55,54 @@ says so in a comment. Some limits worth knowing when reading a score:
   removed, killed after 30 s. Node 24's permission model does not fence
   outbound network.
 
+## The hard suite
+
+Strong models score close to full marks on the cases above, so they tell
+strong models apart poorly. `--suite hard` runs a second set of 100 cases in
+`cases-hard/`, built so that guessing, or always giving the same verdict,
+scores close to nothing:
+
+| category | cases | what it asks |
+|---|---|---|
+| math | 14 | eight close values to order (roots, probabilities, counts, huge powers, areas), exact counts, residues and calendar sums |
+| science | 12 | eight tabulated quantities to order, some pairs within one or two per cent |
+| code | 10 | what Python and JavaScript code prints or evaluates to, and four audits of a reference solution |
+| language | 14 | Dutch, Russian, Ukrainian and English grammar, spelling and stress, six of them the Dutch forms of English loan verbs |
+| knowledge | 19 | eight rulers, works, places or sizes a few years or per cent apart, put in order |
+| unsound | 8 | questions an expert must refuse: two right options, none, a false premise, an item that does not belong |
+| grading | 8 | pairs: a right answer that looks wrong and a wrong one that looks right |
+| audit | 8 | pairs: a sound lesson segment and the same segment with one planted error |
+| paper | 7 | marking by the rubric's rules: other valid methods, missing working, carried errors |
+
+- **Solve cases** (math to knowledge) go through the answer-key checker
+  (`feedQuality.verifyQuestion`). The model never sees the key: it solves the
+  question cold and the checker compares its answer with the TRUE key, so a
+  case passes exactly when the model solved it. Multiple choice has six options whose
+  distractors are what the usual mistake leads to; most orderings have eight
+  items, and one wrong pair fails the case. Calling a sound question broken,
+  or answering "unsure", fails.
+- **Unsound cases** pass only on the verdict "broken"; picking an answer that
+  differs from the key is a guess, not a refusal.
+- **Pairs** (the four code audits, grading, audit) run the model twice and
+  pass only when both verdicts are right.
+- Each family's setup checks that no option reads as the key under the app's
+  own answer comparison (`sameAnswer`), so a distractor is never scored as a
+  right answer, and that no two items of an ordering read as one
+  (`sameOption`), so a swapped pair is never scored as the right order.
+
+Every key was computed, run or looked up, not recalled: the numbers by
+script, the snippet outputs by running them (Python 3.11, Node 24), the buggy
+reference solutions against a brute-force reference, the Dutch verb forms
+from the Woordenlijst Nederlandse Taal, and the tabulated values and dates
+from reference lists, written into each family's header comment. A case
+stays only if one key is defensible under every current standard: where
+dictionaries or exam lists disagree (Russian stress varies between them),
+the case is left out.
+The vision cases have no hard counterpart, so every model takes all 100.
+
 ## Checking the scorers
 
-    node tools/model-bench/mutate.mjs [-v] [--family grading]
+    node tools/model-bench/mutate.mjs [-v] [--family grading] [--suite hard]
 
 Every case carries a `golden` reply (what a sound model could answer) and
 `mutants` (replies broken by hand: a wrong verdict, broken JSON, the wrong
@@ -65,14 +110,14 @@ language, a planted error let through). The check serves each in place of the
 model, through the same app code, and requires the golden to pass and every
 mutant to fail. Some cases also carry `variants`, other sound replies (a
 different but correct phrasing) that must pass too. It also probes the
-code-running child's permission fence. `npm test` runs it as
+code-running child's permission fence. `npm test` runs it for both suites as
 `tools/model-bench-gates.mjs`.
 
 ## Running it against models
 
     OPENROUTER_API_KEY=... node tools/model-bench/run.mjs --models free --out <dir>
-    node tools/model-bench/run.mjs --models some/model,other/model --out <dir>
-    node tools/model-bench/report.mjs --out <dir> [--noise repeat]
+    node tools/model-bench/run.mjs --models some/model,other/model --out <dir> [--suite hard]
+    node tools/model-bench/report.mjs --out <dir> [--noise repeat] [--suite hard]
 
 Set the key from a launcher, not a shell history line. `--models free` reads
 the live OpenRouter list and takes every model priced at zero with text in and
