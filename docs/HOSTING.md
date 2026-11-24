@@ -251,18 +251,6 @@ back.
 
 ## The model and its cost
 
-**Pick a model whose provider watermarks the text it writes.** In the EU,
-Article 50(2) of the AI Act asks that AI-written text be marked in a
-machine-readable way. The app shows "Written by AI" on a model's lessons,
-questions and cards and names the model in exports, but a lesson copied out of
-the app keeps neither; a watermark from the model provider is what stays with
-that copy. Anthropic watermarks the text of its current Claude models on its
-own API and when they are served through AWS, Google Cloud or Microsoft Foundry
-([How Claude marks AI-generated content](https://support.claude.com/en/articles/16266773-how-claude-marks-ai-generated-content)).
-OpenRouter serves Claude only from those, so `hosted/example.env` starts with
-`anthropic/claude-sonnet-5.5`. A model with no watermark, such as most open
-models, leaves copied text unmarked.
-
 Every copy uses the model in `hosted/.env` (`AI_PROVIDER`, `AI_BASE_URL`,
 `AI_MODEL`) with a key of its own, so one person's use cannot spend another's
 budget and a leaked key is one key. With OpenRouter, a **management key**
@@ -301,3 +289,17 @@ the limit fails at OpenRouter; the copy shows it as a failed model call and
 keeps working otherwise. OpenRouter's documentation is ambiguous about whether
 that failure is a 402 or a 403, so check what the copy shows once before
 relying on the wording.
+
+**Pick a model whose provider watermarks the text it writes.** A learner on a
+hosted copy cannot change the model, so `AI_MODEL` decides it for everyone. In
+the EU, Article 50(2) of the AI Act asks that AI-written text be marked in a
+machine-readable way. The app shows "Written by AI" on a model's lessons,
+questions and cards and names the model in exports, but a lesson copied out of
+the app keeps neither; a watermark from the model provider is what stays with
+that copy. Anthropic watermarks the text of its current Claude models on its
+own API and when they are served through AWS, Google Cloud or Microsoft Foundry
+([How Claude marks AI-generated content](https://support.claude.com/en/articles/16266773-how-claude-marks-ai-generated-content)).
+OpenRouter serves Claude only from those, so `hosted/example.env` starts with
+`anthropic/claude-sonnet-5.5`. A model with no watermark, such as most open
+models, leaves copied text unmarked. Sonnet costs more per token than most of
+those, so size each key's limit for it.
