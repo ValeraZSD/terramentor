@@ -22,9 +22,9 @@
  * markup on a narrow screen, where the page does the scrolling for everything —
  * there is nothing to scroll and the answer is to leave the screen alone.
  *
- * Vertical only. A horizontal rail scrolled with `inline: 'nearest'` is not in
- * this class: `nearest` does nothing when the element is already visible, so a
- * rail in a sticky header never moves the page.
+ * Vertical only. A horizontal tab rail goes through `scrollRailTo` below: a
+ * native `scrollIntoView({ inline: 'nearest' })` also brings the element into
+ * view vertically, which can move the window when the page is taller than it.
  */
 import { motionReduced } from './accessibility';
 
@@ -49,15 +49,21 @@ export interface ScrollWithinOptions {
     /**
      * Breathing room at the edge, in px. Added to the element's
      * `scroll-margin` and the scroller's `scroll-padding`, which are read from
-     * the stylesheet the way native `scrollIntoView` reads them.
+     * the stylesheet the way native `scrollIntoView` reads them. Used by
+     * `start` and `nearest`; `center` centres on the whole scroller.
      */
     padding?: number;
 }
 
-/** A resolved `scroll-margin-*` / `scroll-padding-*` in px; `auto` and unset are 0. */
-function px(value: string | undefined): number {
-    const n = parseFloat(value ?? '');
-    return Number.isFinite(n) ? n : 0;
+/**
+ * A resolved `scroll-margin-*` / `scroll-padding-*` in px; `auto` and unset are
+ * 0. A percentage (allowed for `scroll-padding`) is of the scrollport's height.
+ */
+function px(value: string | undefined, basis = 0): number {
+    const raw = value ?? '';
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return 0;
+    return raw.trim().endsWith('%') ? (n / 100) * basis : n;
 }
 
 /** True when this element declares a vertical scroll AND has room to use it. */
@@ -114,8 +120,8 @@ export function scrollIntoViewWithin(
     // both). Ignoring them put the next card under the feed's header.
     const own = getComputedStyle(el);
     const frameStyle = getComputedStyle(scroller);
-    const above = padding + px(own.scrollMarginTop) + px(frameStyle.scrollPaddingTop);
-    const below = padding + px(own.scrollMarginBottom) + px(frameStyle.scrollPaddingBottom);
+    const above = padding + px(own.scrollMarginTop) + px(frameStyle.scrollPaddingTop, view);
+    const below = padding + px(own.scrollMarginBottom) + px(frameStyle.scrollPaddingBottom, view);
 
     let target: number;
     if (block === 'start') {

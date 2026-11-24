@@ -199,6 +199,13 @@ console.log('\nscrollIntoViewWithin — where the row lands');
 }
 {
     const { list, row } = tree(true);
+    list.style.scrollPaddingTop = '10%'; // of the 700px scrollport: 70px, not 10px
+    scrollIntoViewWithin(row, { boundary: list, block: 'start' });
+    check('a percentage scroll-padding is of the scroller\'s height', list.scrollTop === 1100 - 70,
+        `landed at ${list.scrollTop}`);
+}
+{
+    const { list, row } = tree(true);
     list.scrollTop = 1000;
     row.top = 1150; // 50px into the view: visible, but under an 80px header
     list.style.scrollPaddingTop = '80px';

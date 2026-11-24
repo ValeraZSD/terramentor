@@ -17,7 +17,7 @@
  * the pane that clipped it sat at the foot of the assistant's list, the page
  * was 907px tall, and the feed's "Got it, continue" scrolled the window 107px.
  *
- * Three halves, at 1280x800 and 1024x700, in the desktop Layout frame:
+ * Three parts, at 1280x800 and 1024x700, in the desktop Layout frame:
  *
  *  1. Every screen: `document.scrollingElement.scrollHeight <= innerHeight`.
  *     A failure names the elements past the window's foot that no box clips.

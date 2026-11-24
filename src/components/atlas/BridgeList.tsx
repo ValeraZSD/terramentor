@@ -103,7 +103,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                     type="button"
                     data-row
                     onClick={() => openProjectNode(b.b.projectId, b.b.id)}
-                    className={`relative flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
+                    className={`flex-1 min-w-0 text-start rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="block text-sm font-medium text-slate-900 dark:text-white truncate"><OwnLine>{b.b.title}</OwnLine></span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate"><OwnLine>{b.b.projectName}</OwnLine></span>
