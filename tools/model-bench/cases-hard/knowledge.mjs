@@ -94,7 +94,7 @@ export default family('knowledge', 'Exact knowledge, put in order', [
         'Order these discoveries by when they were made, earliest first.',
         ['X-rays (Röntgen)', 'radioactivity (Becquerel)', 'the electron (J. J. Thomson)', 'the atomic nucleus (Rutherford)', 'the neutron (Chadwick)', 'the positron (Anderson)', 'the muon (Anderson and Neddermeyer)', 'nuclear fission (Hahn and Strassmann)'], 4),
     ask('know-ru-novels', 'Русская литература XIX века',
-        'Расположите романы в порядке их первой публикации, начиная с самого раннего.',
+        'Расположите произведения в порядке их первой публикации, начиная с самого раннего.',
         ['«Капитанская дочка» Пушкина', '«Герой нашего времени» Лермонтова', '«Мёртвые души» Гоголя', '«Бедные люди» Достоевского', '«Обломов» Гончарова', '«Накануне» Тургенева', '«Отцы и дети» Тургенева', '«Что делать?» Чернышевского'], 4),
     ask('know-country-areas', 'Countries of the world',
         'Order these countries by total area, largest first.',

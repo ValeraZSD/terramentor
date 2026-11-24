@@ -1,16 +1,15 @@
 /**
  * Grammar, spelling and stress in the languages the app teaches, solved cold,
  * six options each with exactly one right under the current standard
- * (Woordenlijst Nederlandse Taal, Russian orthoepic dictionaries, the
- * Ukrainian orthography of 2019). Every distractor is the error a fluent
- * speaker actually makes: "Word je broer" by the jij-rule when "je" is a
- * possessive, "geskyped" by 't kofschip, "по приезду" by analogy with
- * "по прибытию", "дОчка" by Russian stress, "хворіє грипом" as a calque.
+ * (Woordenlijst Nederlandse Taal, the Russian orthoepic list of the ФИПИ).
+ * Every distractor is the error a fluent speaker actually makes: "Word je
+ * broer" by the jij-rule when "je" is a possessive, "geskyped" by 't
+ * kofschip, "по приезду" by analogy with "по прибытию".
  *
- * Six cases ask for an English loan verb's form. Each key is the only form
+ * Eight cases ask for an English loan verb's form. Each key is the only form
  * the Woordenlijst gives (woordenlijst.org, 24 Nov 2026), and no distractor
  * is a form of the verb it lists: gedeletet, geskypet, geüpgraded, gestyled,
- * outsourcete, gechild. The rule is 't kofschip on the sound of the English
+ * outsourcete, gechild, gecrasht, gebarbecued. The rule is 't kofschip on the sound of the English
  * stem, not its spelling, so "skype" ends in [p] (geskypet) and "upgrade"
  * in [d] (geüpgraded).
  *
@@ -39,6 +38,10 @@ export default family('language', 'Grammar and spelling, solved cold', [
         ['outsourcete', 'outsourcede', 'outsourcte', 'outsourcde', 'outsourcdete', 'outsourcette'], 'outsourcete', 'outsourcede'),
     loan('lang-nl-gechild', 'We hebben het hele weekend op het strand ___.',
         ['gechild', 'gechilld', 'gechillt', 'gechilt', 'gechillde', 'gechilled'], 'gechild', 'gechilld'),
+    loan('lang-nl-gecrasht', 'Mijn laptop is vannacht twee keer ___.',
+        ['gecrasht', 'gecrashed', 'gecrashd', 'gecrashet', 'gecrasjt', 'gecrashte'], 'gecrasht', 'gecrashed'),
+    loan('lang-nl-gebarbecued', 'We hebben gisteren met de buren in de tuin ___.',
+        ['gebarbecued', 'gebarbecuet', 'gebarbecueëd', 'gebarbequed', 'gebarbecuëd', 'gebarbecuete'], 'gebarbecued', 'gebarbecuet'),
     solve('lang-nl-tussen-n', 'Tussenklanken in samenstellingen',
         mc('Welk woord is gespeld volgens de Woordenlijst Nederlandse Taal?',
             ['ruggengraat', 'pannekoek', 'paardebloem', 'zonnenschijn', 'kippesoep', 'hondehok'], 'ruggengraat'), 'paardebloem'),
@@ -49,13 +52,6 @@ export default family('language', 'Grammar and spelling, solved cold', [
     solve('lang-ru-stress-krasivee', 'Орфоэпические нормы',
         mc('В каком слове ударение (заглавная буква) поставлено по литературной норме?',
             ['красИвее', 'звОнит', 'тортЫ', 'катАлог', 'щАвель', 'дОговор'], 'красИвее'), 'дОговор'),
-    solve('lang-uk-stress', 'Наголос',
-        mc('У якому слові наголос (велика літера) поставлено правильно?',
-            ['завдАння', 'дОчка', 'кропИва', 'центнЕр', 'зАвжди', 'тОнкий'], 'завдАння'), 'зАвжди'),
-    solve('lang-uk-calques', 'Культура мовлення',
-        mc('Яке речення відповідає нормам української літературної мови?',
-            ['Він хворіє на грип.', 'Він хворіє грипом.', 'Ми зустрілися згідно графіка.', 'Він являється директором школи.', 'Прийміть міри негайно.', 'Дякую вас за допомогу.'],
-            'Він хворіє на грип.'), 'Він хворіє грипом.'),
     solve('lang-en-neither-nor', 'Agreement',
         mc('Which sentence is correct in formal written English?',
             ['Neither the manager nor the employees were aware of the change.', 'Neither the manager nor the employees was aware of the change.', 'Each of the students have their own locker.', 'Between you and I, the plan was a failure.', 'Less people came to the meeting than we expected.', 'Whom should I say is calling?'],

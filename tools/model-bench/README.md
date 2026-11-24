@@ -67,7 +67,7 @@ scores close to nothing:
 | math | 14 | eight close values to order (roots, probabilities, counts, huge powers, areas), exact counts, residues and calendar sums |
 | science | 12 | eight tabulated quantities to order, some pairs within one or two per cent |
 | code | 10 | what Python and JavaScript code prints or evaluates to, and four audits of a reference solution |
-| language | 14 | Dutch, Russian, Ukrainian and English grammar, spelling and stress, six of them the Dutch forms of English loan verbs |
+| language | 14 | Dutch, Russian and English grammar, spelling and stress, eight of them the Dutch forms of English loan verbs |
 | knowledge | 19 | eight rulers, works, places or sizes a few years or per cent apart, put in order |
 | unsound | 8 | questions an expert must refuse: two right options, none, a false premise, an item that does not belong |
 | grading | 8 | pairs: a right answer that looks wrong and a wrong one that looks right |

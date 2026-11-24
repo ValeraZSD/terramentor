@@ -70,7 +70,7 @@ Banks often quote a yearly rate but compound monthly, paying one twelfth of the 
 
 The more often interest is compounded, the higher the effective rate, but the gain shrinks quickly: even compounding continuously only gives $e^{0.05} - 1 \approx 5.13$ %.`;
 
-const KOFSCHIP = String.raw`Voor de verleden tijd van zwakke werkwoorden kijk je naar de laatste letter van de stam. Is dat een van de medeklinkers uit 't kofschip (t, k, f, s, ch, p), dan krijgt de verleden tijd -te of -ten en het voltooid deelwoord een t. Anders wordt het -de of -den en een d.
+const KOFSCHIP = String.raw`Voor de verleden tijd van zwakke werkwoorden kijk je naar de laatste letter van de stam (op één uitzondering na, hieronder). Is dat een van de medeklinkers uit 't kofschip (t, k, f, s, ch, p), dan krijgt de verleden tijd -te of -ten en het voltooid deelwoord een t. Anders wordt het -de of -den en een d.
 
 Zo wordt werken: werkte, gewerkt; fietsen: fietste, gefietst; missen: miste, gemist. Bij horen is de stam hoor, en dat geeft hoorde, gehoord.
 
@@ -80,11 +80,11 @@ Leenwoorden volgen dezelfde regel, op de klank van de stam: faxen geeft faxte, w
 
 const RU_STRESS = String.raw`Ударение в русском языке подвижное и на письме не обозначается, поэтому в словах, где часто ошибаются, его нужно запоминать.
 
-В глаголе «звонить» в личных формах ударение падает на окончание: звонИт, звонЯт, позвонИшь. Так же ведут себя «включИт» и «вручИт».
+В глаголе «звонить» в личных формах ударение падает на окончание: звонИт, звонЯт, звонИшь. Так же ведут себя «включИт» и «вручИт».
 
 В существительных ударение часто остаётся на одном и том же слоге во всех формах: тОрт — тОрты — тОртов, бАнт — бАнты. В словах «каталОг», «договОр» и «щавЕль» ударение падает на последний слог.`;
 
-const UK_VOCATIVE = String.raw`Кличний відмінок уживаємо, коли до когось звертаємося. У чоловічих іменах твердої групи закінчення -е: Іван — Іване, Петро — Петре. У жіночих іменах на -а закінчення -о: Ольга — Ольго, Олена — Олено, а в іменах на -ія закінчення -є: Марія — Маріє, Наталія — Наталіє.
+const UK_VOCATIVE = String.raw`Кличний відмінок уживаємо, коли до когось звертаємося. У більшості чоловічих імен твердої групи закінчення -е: Іван — Іване, Петро — Петре. У жіночих іменах на -а закінчення -о: Ольга — Ольго, Олена — Олено, а в іменах на -ія закінчення -є: Марія — Маріє, Наталія — Наталіє.
 
 Звертаючись до людини на ім'я та по батькові, ставимо в кличний відмінок обидва слова: Іване Петровичу, Олено Іванівно. Так само змінюється й слово «пан»: пане Іване. Слово «пані» не змінюється: пані Олено.`;
 

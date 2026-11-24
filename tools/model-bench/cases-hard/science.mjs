@@ -13,7 +13,7 @@
  *     Mg −2.37, Ni −0.257, Sn −0.138, Pb −0.126;
  *   surface escape velocity, km/s: Europa 2.025, Moon 2.38, Callisto 2.440,
  *     Io 2.558, Titan 2.639, Ganymede 2.741, Mercury 4.25, Mars 5.03;
- *   diploid chromosome number: mouse 40, rat 42, rabbit 44, human 46,
+ *   diploid chromosome number: mouse 40, rat 42, European rabbit 44, human 46,
  *     chimpanzee 48, sheep 54, donkey 62, horse 64;
  *   mass, MeV/c²: muon 105.66, π⁰ 134.98, π± 139.57, K± 493.68, K⁰ 497.61,
  *     η 547.86, proton 938.27, neutron 939.57;
@@ -54,8 +54,8 @@ export default family('science', 'Science, solved cold', [
         ['Europa', 'the Moon', 'Callisto', 'Io', 'Titan', 'Ganymede', 'Mercury', 'Mars'], 1),
     order('sci-chromosome-numbers', 'Genetics',
         'Order these species by the number of chromosomes in a normal body cell (the diploid number), lowest first.',
-        ['horse', 'human', 'brown rat', 'sheep', 'house mouse', 'chimpanzee', 'donkey', 'rabbit'],
-        ['house mouse', 'brown rat', 'rabbit', 'human', 'chimpanzee', 'sheep', 'donkey', 'horse'], 1),
+        ['horse', 'human', 'brown rat', 'sheep', 'house mouse', 'chimpanzee', 'donkey', 'European rabbit'],
+        ['house mouse', 'brown rat', 'European rabbit', 'human', 'chimpanzee', 'sheep', 'donkey', 'horse'], 1),
     order('sci-particle-masses', 'Particle physics',
         'Order these particles by rest mass, lightest first.',
         ['eta meson', 'neutron', 'charged pion', 'muon', 'neutral kaon', 'proton', 'neutral pion', 'charged kaon'],
