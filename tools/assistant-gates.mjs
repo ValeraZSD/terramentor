@@ -551,7 +551,22 @@ section('the log reads like a page: the question goes up once, the answer never 
         entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
         bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
     });
-    const { roomFor, scrollTargetFor, textBelow, pageStep } = await import(pathToFileURL(outScroll).href);
+    const { roomFor, scrollTargetFor, textBelow, pageStep, newestStoredQuestion, storedCopyOf } = await import(pathToFileURL(outScroll).href);
+    // The provisional question is swapped for its stored copy, or taken off by
+    // a failed turn. Words alone matched the same words asked earlier, so a
+    // failed repeat kept the room under the older question.
+    const log = [
+        { id: 7, role: 'user', content: 'Hello' }, { id: 8, role: 'assistant', content: 'Hi.' },
+    ];
+    const placedHello = { id: -100, content: 'Hello', after: newestStoredQuestion(log) };
+    check('the newest stored question is the highest stored question id, 0 for none',
+        placedHello.after === 7 && newestStoredQuestion([{ id: -5, role: 'user', content: 'x' }, { id: 9, role: 'assistant', content: 'y' }]) === 0);
+    check('a failed repeat of an earlier question is not its stored copy', storedCopyOf(placedHello, log) === null);
+    check('the stored copy of a question sent here is found',
+        storedCopyOf(placedHello, [...log, { id: 9, role: 'user', content: 'Hello' }, { id: 10, role: 'assistant', content: 'Hi again.' }]) === 9);
+    check('a newer stored question with other words is not its copy',
+        storedCopyOf(placedHello, [...log, { id: 9, role: 'user', content: 'Something else' }]) === null);
+    check('a stored question is never retargeted again', storedCopyOf({ id: 9, content: 'Hello', after: 7 }, [...log, { id: 11, role: 'user', content: 'Hello' }]) === null);
     // A log that does not follow the stream must say when the reply runs past
     // its bottom edge: strangers read a still screen as a reply that stopped.
     // Scroller box ends at y=900 with 16 px padding, so text is seen down to 884.
@@ -616,7 +631,14 @@ section('the log reads like a page: the question goes up once, the answer never 
         /if \(lastQuestionId == null \|\| lastQuestionId >= 0 \|\| lastQuestionId === placedRef\.current\?\.id\) return;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
         && /const userId = -Date\.now\(\);/.test(drawerSrc));
     check('a question swapped for its stored copy keeps the place; one taken off drops the room',
-        /if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\.id\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc));
+        /const stored = storedCopyOf\(placed, messages\);\s*if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc)
+        && /after: storedBefore \}/.test(drawerSrc));
+    // A question sent while the first open still reads the history: the
+    // load's end re-ran "open at the newest message" and threw the question's
+    // place away, mid-answer.
+    check('a history load that ends after a question was sent here leaves it at the top',
+        /loadRef\.current = loadingHistory \? \{ placed: placedRef\.current \} : null;/.test(drawerSrc)
+        && /else if \(!loadingHistory && load && placedRef\.current && placedRef\.current !== load\.placed\) return;\s*else scroll\.toBottom\(\);/.test(drawerSrc));
     // \r?\n: a Windows checkout has CRLF line ends.
     const reset = drawerSrc.match(/const resetView = \(\) => \{\r?\n([\s\S]*?)\r?\n    \};/);
     check('a new empty chat drops the room left under the last question', !!reset && /scroll\.toTop\(\);/.test(reset[1]));

@@ -54,6 +54,37 @@ export function pageStep(hidden: number, view: number, covered = 0): number {
 }
 
 /**
+ * The question a log was put under: its row's id, its words, and the newest
+ * stored question in the log at the time (`after`, 0 for none).
+ */
+export type PlacedQuestion = { id: number; content: string; after: number };
+
+type ChatRow = { id: number; role: string; content: string };
+
+/** The newest stored (positive id) question in a log, 0 for none. */
+export function newestStoredQuestion(rows: readonly ChatRow[]): number {
+    let newest = 0;
+    for (const m of rows) if (m.role === 'user' && m.id > newest) newest = m.id;
+    return newest;
+}
+
+/**
+ * The stored row a provisional question was swapped for, or null: the newest
+ * stored question, if it has the same words AND was stored after the question
+ * was placed. Words alone would take a turn that failed (its question taken
+ * off) for the same words asked earlier, and keep the room under that one.
+ */
+export function storedCopyOf(placed: PlacedQuestion, rows: readonly ChatRow[]): number | null {
+    if (placed.id >= 0) return null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const m = rows[i];
+        if (m.role !== 'user' || m.id <= 0) continue;
+        return m.id > placed.after && m.content === placed.content ? m.id : null;
+    }
+    return null;
+}
+
+/**
  * How a chat log scrolls while a model writes into it: like a page being
  * written, not like a terminal.
  *

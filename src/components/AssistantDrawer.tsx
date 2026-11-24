@@ -34,7 +34,7 @@ import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
 import { splitTurnTimeline } from '../utils/turnTimeline';
 import { useAutoGrow } from '../hooks/useAutoGrow';
-import { useReadingScroll } from '../hooks/useReadingScroll';
+import { newestStoredQuestion, storedCopyOf, useReadingScroll, type PlacedQuestion } from '../hooks/useReadingScroll';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
@@ -692,10 +692,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // because the first open paints an empty box and *then* fills it — sticking
     // only on `open` would scroll a list that has no rows yet. The conversation
     // list shares the scroll box and opens at its top, newest first; leaving it
-    // lands on the newest message again.
+    // lands on the newest message again. A question sent while the history was
+    // still loading outdates that load, so its end does not take the question
+    // off the top for the bottom.
+    /** The question the view was last put under, at the top of the log. */
+    const placedRef = useRef<PlacedQuestion | null>(null);
+    /** What `placedRef` held when the running history load began. */
+    const loadRef = useRef<{ placed: PlacedQuestion | null } | null>(null);
     useEffect(() => {
-        if (!open) return;
+        if (!open) { loadRef.current = null; return; }
+        const load = loadRef.current;
+        loadRef.current = loadingHistory ? { placed: placedRef.current } : null;
         if (showList) scroll.toTop();
+        else if (!loadingHistory && load && placedRef.current && placedRef.current !== load.placed) return;
         else scroll.toBottom();
     }, [open, loadingHistory, showList, scroll]);
 
@@ -709,13 +718,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const lastRow = messages[messages.length - 1];
     const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
     const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
-    /** The question the view was last put under, at the top of the log. */
-    const placedRef = useRef<{ id: number; content: string } | null>(null);
+    const storedBefore = newestStoredQuestion(messages);
     useEffect(() => {
         if (lastQuestionId == null || lastQuestionId >= 0 || lastQuestionId === placedRef.current?.id) return;
-        placedRef.current = { id: lastQuestionId, content: lastQuestionText ?? '' };
+        placedRef.current = { id: lastQuestionId, content: lastQuestionText ?? '', after: storedBefore };
         scroll.anchor(lastQuestionId);
-    }, [lastQuestionId, lastQuestionText, scroll]);
+    }, [lastQuestionId, lastQuestionText, storedBefore, scroll]);
 
     // The question the view was put under, followed when its row changes: its
     // provisional copy swapped for the stored one keeps the place (the room
@@ -725,13 +733,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     useEffect(() => {
         const placed = placedRef.current;
         if (!placed || messages.some(m => m.id === placed.id)) return;
-        // The NEWEST stored question with that text: the same words asked
-        // earlier in the conversation (a second "continue") sit higher up.
-        const lastStored = [...messages].reverse().find(m => m.role === 'user' && m.id > 0);
-        const stored = placed.id < 0 && lastStored?.content === placed.content ? lastStored : undefined;
+        const stored = storedCopyOf(placed, messages);
         if (stored) {
-            placedRef.current = { id: stored.id, content: stored.content };
-            scroll.retarget(stored.id);
+            placedRef.current = { ...placed, id: stored };
+            scroll.retarget(stored);
         } else {
             placedRef.current = null;
             scroll.release();
