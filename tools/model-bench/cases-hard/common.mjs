@@ -31,7 +31,7 @@ export const seq = (question, shown, order) => {
 const verify = (title, q) => (fx, app) => app.server('feedQuality.js').then(m => m.verifyQuestion(title, q));
 
 /** Pass only when the checker gave a verdict and agreed with the true key. */
-export const solved = (r) => {
+const solved = (r) => {
     if (!r || typeof r !== 'object') return { pass: false, why: 'no result' };
     if (!r.available) return { pass: false, why: `no verdict: ${r.reason}` };
     return r.ok ? { pass: true, why: 'solved' } : { pass: false, why: String(r.reason).slice(0, 120) };
@@ -40,7 +40,7 @@ export const solved = (r) => {
 const DISPUTE = /^(answer key|order|arrangement) disputed/;
 
 /** Pass only on the verdict "broken" (a dispute is a different answer, not a refusal). */
-export const refused = (r) => {
+const refused = (r) => {
     if (!r || typeof r !== 'object') return { pass: false, why: 'no result' };
     if (!r.available) return { pass: false, why: `no verdict: ${r.reason}` };
     if (r.ok) return { pass: false, why: 'answered an unsound question' };
@@ -78,6 +78,12 @@ export function order(id, title, question, shown, key, i) {
     return solve(id, title, seq(question, shown, key), lure);
 }
 
+/** The order the learner sees: a fixed derangement of an eight-item key. */
+const SHOWN = [5, 2, 7, 0, 3, 6, 1, 4];
+
+/** An eight-item ordering shown in the SHOWN derangement of its key. */
+export const ask = (id, title, question, key, i) => order(id, title, question, SHOWN.map(k => key[k]), key, i);
+
 /** An unsound question; `pick` is what a model that does not notice answers. */
 export function unsound(id, title, q, pick, why) {
     const isSeq = q.type === 'sequence';
@@ -99,7 +105,7 @@ export function unsound(id, title, q, pick, why) {
  * picks that distractor would be scored as right. Likewise no two items of an
  * ordering may read as one item (sameOption), or a swapped pair would pass.
  */
-export async function checkOptions(app, cases) {
+async function checkOptions(app, cases) {
     const { sameAnswer } = await app.server('feedQuality.js');
     const { sameOption } = await app.server('questionOptions.js');
     for (const c of cases) {

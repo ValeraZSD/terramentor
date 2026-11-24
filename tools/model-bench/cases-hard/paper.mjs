@@ -69,11 +69,11 @@ export async function setup(app) {
 
 const bits = (met) => met.map(m => (m ? 1 : 0)).join('');
 
-const reply = (met, { readable = true, feedback = 'Feedback.' } = {}) => JSON.stringify({
+const reply = (met, { readable = true, feedback = 'Feedback.', said = ['Shown.', 'Not shown.'], next = 'Redo the part you missed.' } = {}) => JSON.stringify({
     readable,
-    rubric_results: readable ? met.map((m, i) => ({ id: `r${i + 1}`, met: m, comment: m ? 'Shown.' : 'Not shown.' })) : [],
+    rubric_results: readable ? met.map((m, i) => ({ id: `r${i + 1}`, met: m, comment: m ? said[0] : said[1] })) : [],
     feedback,
-    next_action: 'Redo the part you missed.',
+    next_action: next,
 });
 
 /** The grade's per-point `met` vector must be exactly `want`. */
@@ -87,10 +87,10 @@ const vector = (want, extra = () => null) => (grade, fx) => {
 };
 
 /** Every one-point flip of the expected vector, plus all met and none met. */
-function wrongVectors(want) {
-    const out = want.map((m, i) => ({ name: `point ${i + 1} flipped`, reply: reply(want.map((x, k) => (k === i ? !x : x))) }));
-    if (want.some(m => !m)) out.push({ name: 'awards everything', reply: reply(want.map(() => true)) });
-    if (want.some(Boolean)) out.push({ name: 'awards nothing', reply: reply(want.map(() => false)) });
+function wrongVectors(want, words = {}) {
+    const out = want.map((m, i) => ({ name: `point ${i + 1} flipped`, reply: reply(want.map((x, k) => (k === i ? !x : x)), words) }));
+    if (want.some(m => !m)) out.push({ name: 'awards everything', reply: reply(want.map(() => true), words) });
+    if (want.some(Boolean)) out.push({ name: 'awards nothing', reply: reply(want.map(() => false), words) });
     out.push({ name: 'no JSON at all', reply: 'Good effort overall.' });
     return out;
 }
@@ -115,6 +115,18 @@ const QUAD_HALF_VERTEX = '(a) x² − 5x + 6 = (x − 2)(x − 3) = 0, so x = 2 
 
 const DISCOUNT_NO_REASON = '€80 − 25% = €60\n€60 − 10% = €54\n€80 − 35% = €52\nDus het is niet hetzelfde, want €54 is meer dan €52.';
 
+const NL_WANT = [true, true, true, false];
+const NL_DUTCH = {
+    feedback: 'De berekeningen kloppen, maar je legt niet uit waarom twee kortingen na elkaar minder opleveren dan een korting van 35 procent.',
+    said: ['Dat staat er goed.', 'Dit ontbreekt nog.'],
+    next: 'Leg uit waarom de tweede korting over een lager bedrag gaat.',
+};
+const NL_ENGLISH = {
+    feedback: 'The calculations are right, but you do not explain why two discounts in a row take off less than one discount of 35 percent.',
+    said: ['This is shown and it is right.', 'This is not there yet.'],
+    next: 'Explain why the second discount is taken from a lower amount.',
+};
+
 // The method and the slip sit on separate lines: the prompt forbids citing one
 // line both as a met point and as another point's error.
 const CAR_CARRIED_SLIP = '(a) a = Δv / t\nΔv = 24 − 0 = 24 m/s and t = 8 s\na = 24 / 8 = 4 m/s²\n\n(b) s = ½ a t²\ns = ½ × 4 × 8² = 2 × 64 = 128 m';
@@ -130,13 +142,21 @@ export default {
         mark('paper-hard-working-under-wrong-part', 'quad', QUAD_WRONG_PLACE, [true, true, false, false]),
         mark('paper-hard-answers-without-working', 'quad', QUAD_ANSWERS_ONLY, [false, true, false, true]),
         mark('paper-hard-vertex-half-given', 'quad', QUAD_HALF_VERTEX, [true, true, true, false]),
-        mark('paper-hard-nl-no-explanation', 'discount', DISCOUNT_NO_REASON, [true, true, true, false], {
-            lang: 'nl',
-            extra: (grade, fx) => {
-                const text = [grade.feedback, grade.nextAction, ...grade.results.map(r => r.comment)].join(' ');
-                return fx.driftedToEnglish(text, fx.nl) ? 'the comments are in English, not Dutch' : null;
-            },
-        }),
+        {
+            ...mark('paper-hard-nl-no-explanation', 'discount', DISCOUNT_NO_REASON, NL_WANT, {
+                lang: 'nl',
+                golden: reply(NL_WANT, NL_DUTCH),
+                extra: (grade, fx) => {
+                    const text = [grade.feedback, grade.nextAction, ...grade.results.map(r => r.comment)].join(' ');
+                    // The app's drift check ignores samples under 60 words;
+                    // repeating the text keeps the ratio and clears the floor.
+                    let padded = text;
+                    while (padded.split(/\s+/).length < 80 && text.trim()) padded += ` ${text}`;
+                    return fx.driftedToEnglish(padded, fx.nl) ? 'the comments are in English, not Dutch' : null;
+                },
+            }),
+            mutants: [...wrongVectors(NL_WANT, NL_DUTCH), { name: 'right points, English comments', reply: reply(NL_WANT, NL_ENGLISH) }],
+        },
         mark('paper-hard-carried-slip', 'car', CAR_CARRIED_SLIP, [true, false, true, false]),
         {
             ...mark('paper-hard-answers-another-question', 'car', CAR_OTHER_QUESTION, [false, false, false, false]),

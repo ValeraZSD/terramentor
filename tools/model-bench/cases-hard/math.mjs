@@ -31,12 +31,9 @@
  *     invertible 4 × 4 0/1 matrices over the reals (20160 over GF(2)),
  *     P(TTHH before HHHT) = 7/12, 20 expected tosses for THTH.
  */
-import { mc, seq, solve, order, family } from './common.mjs';
+import { mc, seq, solve, ask, family } from './common.mjs';
 
 const ASC = 'Put these numbers in increasing order, smallest first.';
-/** The order the learner sees: a fixed derangement of the eight-item key. */
-const SHOWN = [5, 2, 7, 0, 3, 6, 1, 4];
-const ask = (id, title, question, key, i) => order(id, title, question, SHOWN.map(k => key[k]), key, i);
 
 export default family('math', 'Mathematics, solved cold', [
     solve('math-order-near-22-5', 'Comparing real numbers',

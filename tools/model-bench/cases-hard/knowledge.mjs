@@ -53,11 +53,8 @@
  *     Copenhagen 55.68, Vilnius 54.69, Hamburg 53.55, Dublin 53.35,
  *     Berlin 52.52.
  */
-import { order, family } from './common.mjs';
+import { ask, family } from './common.mjs';
 
-/** The order the learner sees: a fixed derangement of the eight-item key. */
-const SHOWN = [5, 2, 7, 0, 3, 6, 1, 4];
-const ask = (id, title, question, key, i) => order(id, title, question, SHOWN.map(k => key[k]), key, i);
 
 export default family('knowledge', 'Exact knowledge, put in order', [
     ask('know-moon-radii', 'Moons of the outer Solar System',
