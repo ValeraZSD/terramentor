@@ -597,9 +597,12 @@ section('the log reads like a page: the question goes up once, the answer never 
     check('only opening, the list, a new chat, a new question and a dropped one move the log',
         JSON.stringify(calls) === JSON.stringify(['scroll.anchor', 'scroll.release', 'scroll.retarget', 'scroll.toBottom', 'scroll.toTop', 'scroll.toTop'])
         && !/\.scrollTop\s*=|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(/.test(drawerSrc), calls.join(', '));
-    check('the anchor waits out a conversation being opened, and a reload of the same question',
-        /if \(loadingHistoryRef\.current\) return;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
-        && /prev\.id < 0 && lastQuestionId > 0 && prev\.content === lastQuestionText\) return;/.test(drawerSrc));
+    // A "was history loading?" flag missed: React renders the rows and the
+    // flag's reset in one pass. What this panel put at the end has a
+    // provisional (negative) id; a stored row never moves the view.
+    check('only a question this panel put at the end moves the view, never a stored row',
+        /if \(lastQuestionId == null \|\| lastQuestionId >= 0 \|\| lastQuestionId === placedRef\.current\?\.id\) return;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
+        && /const userId = -Date\.now\(\);/.test(drawerSrc));
     check('a question swapped for its stored copy keeps the place; one taken off drops the room',
         /if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\.id\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc));
     const reset = drawerSrc.match(/const resetView = \(\) => \{\n([\s\S]*?)\n    \};/);

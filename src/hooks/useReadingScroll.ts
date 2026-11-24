@@ -68,7 +68,7 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
     /** The anchored turn's id, and where it last stood inside the content box. */
     const anchorRef = useRef<{ id: string; offset: number } | null>(null);
     /** Where the reader was, for a scroller rebuilt when the panel docks or undocks. */
-    const topRef = useRef(0);
+    const readerRef = useRef({ top: 0, pastAnchor: 0 });
     /** Whether a scroller was attached before this one (a rebuild, not an opening). */
     const attachedRef = useRef(false);
 
@@ -174,17 +174,22 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
      */
     const [below, setBelow] = useState(false);
     const belowRef = useRef(false);
-    /** Watches the last message, which grows inside the room without the scroller changing size. */
-    const rowsRef = useRef<{ observer: ResizeObserver; row: Element | null } | null>(null);
+    /**
+     * Watches the last message (it grows inside the room without the scroller
+     * changing size) and the content box (an earlier row growing moves the
+     * last one down once the box is past its room).
+     */
+    const rowsRef = useRef<{ observer: ResizeObserver; watched: Element[] } | null>(null);
     // Called on every render of a streaming answer: no setState unless the
     // answer changed, so a stream frame never schedules a render of its own.
     const measure = useCallback(() => {
         const rows = rowsRef.current;
-        const last = contentRef.current?.lastElementChild ?? null;
-        if (rows && rows.row !== last) {
-            if (rows.row) rows.observer.unobserve(rows.row);
-            if (last) rows.observer.observe(last);
-            rows.row = last;
+        const content = contentRef.current;
+        const want = [content, content?.lastElementChild].filter((e): e is NonNullable<typeof e> => !!e);
+        if (rows && (want.length !== rows.watched.length || want.some((e, i) => e !== rows.watched[i]))) {
+            for (const e of rows.watched) rows.observer.unobserve(e);
+            for (const e of want) rows.observer.observe(e);
+            rows.watched = want;
         }
         const b = hiddenBelow() > BELOW_SLACK;
         if (b === belowRef.current) return;
@@ -212,14 +217,24 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
         const rebuilt = attachedRef.current;
         attachedRef.current = true;
         fit();
-        if (rebuilt) {
+        /** The scrollTop that puts the anchored question at the top, or null. */
+        const anchorTop = () => {
             const a = anchorRef.current;
             const row = a && contentRef.current ? target(contentRef.current, a.id) : null;
-            scroller.scrollTop = row
-                ? scrollTargetFor(row.getBoundingClientRect().top, scroller.getBoundingClientRect().top, scroller.scrollTop, padding(scroller).top)
-                : topRef.current;
+            return row ? scrollTargetFor(row.getBoundingClientRect().top, scroller.getBoundingClientRect().top, scroller.scrollTop, padding(scroller).top) : null;
+        };
+        if (rebuilt) {
+            // How far the reader had read past the question, kept across the
+            // rebuild (the text rewraps to the new width, so pixels are close,
+            // not exact); with no question placed, the old position.
+            const at = anchorTop();
+            scroller.scrollTop = at != null ? at + readerRef.current.pastAnchor : readerRef.current.top;
         }
-        const onScroll = () => { topRef.current = scroller.scrollTop; measure(); };
+        const onScroll = () => {
+            const at = anchorTop();
+            readerRef.current = { top: scroller.scrollTop, pastAnchor: at != null ? scroller.scrollTop - at : 0 };
+            measure();
+        };
         scroller.addEventListener('scroll', onScroll, { passive: true });
         if (typeof ResizeObserver === 'undefined') {
             measure();
@@ -227,7 +242,7 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
         }
         const ro = new ResizeObserver(() => { if (anchorRef.current) fit(); measure(); });
         ro.observe(scroller);
-        rowsRef.current = { observer: new ResizeObserver(() => measure()), row: null };
+        rowsRef.current = { observer: new ResizeObserver(() => measure()), watched: [] };
         measure();
         return () => {
             ro.disconnect();

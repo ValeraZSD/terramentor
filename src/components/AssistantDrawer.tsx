@@ -699,28 +699,20 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         else scroll.toBottom();
     }, [open, loadingHistory, showList, scroll]);
 
-    // A question that has just become the last message — sent here, or asked on
-    // another device and followed — goes to the top of the view, and its answer
-    // is written below it. Nothing else a turn does moves the log: the reader
-    // reads down at their own pace (`useReadingScroll`).
+    // A question this panel has just put at the end — sent here, or spliced in
+    // for a turn asked on another device and followed — goes to the top of the
+    // view, and its answer is written below it. Both carry a provisional
+    // (negative) id. A stored row never moves the view: a conversation being
+    // opened lands on its newest message (above), and the stored copy of a
+    // question already placed replaces it in place (below). Nothing else a turn
+    // does moves the log: the reader reads down at their own pace.
     const lastRow = messages[messages.length - 1];
     const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
     const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
-    const anchoredRef = useRef<{ id: number; content: string } | null>(null);
     /** The question the view was last put under, at the top of the log. */
     const placedRef = useRef<{ id: number; content: string } | null>(null);
-    const loadingHistoryRef = useRef(loadingHistory);
-    useEffect(() => { loadingHistoryRef.current = loadingHistory; }, [loadingHistory]);
     useEffect(() => {
-        const prev = anchoredRef.current;
-        anchoredRef.current = lastQuestionId == null ? null : { id: lastQuestionId, content: lastQuestionText ?? '' };
-        if (lastQuestionId == null || lastQuestionId === prev?.id) return;
-        // The stored copy of the question already placed (a reload after a
-        // dropped socket swaps its provisional id for the real one): it is in
-        // place, and moving again would pull a reader who has scrolled on.
-        if (prev && prev.id < 0 && lastQuestionId > 0 && prev.content === lastQuestionText) return;
-        // A conversation being opened lands on its newest message instead (above).
-        if (loadingHistoryRef.current) return;
+        if (lastQuestionId == null || lastQuestionId >= 0 || lastQuestionId === placedRef.current?.id) return;
         placedRef.current = { id: lastQuestionId, content: lastQuestionText ?? '' };
         scroll.anchor(lastQuestionId);
     }, [lastQuestionId, lastQuestionText, scroll]);
@@ -733,9 +725,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     useEffect(() => {
         const placed = placedRef.current;
         if (!placed || messages.some(m => m.id === placed.id)) return;
-        const stored = placed.id < 0
-            ? messages.find(m => m.role === 'user' && m.id > 0 && m.content === placed.content)
-            : undefined;
+        // The NEWEST stored question with that text: the same words asked
+        // earlier in the conversation (a second "continue") sit higher up.
+        const lastStored = [...messages].reverse().find(m => m.role === 'user' && m.id > 0);
+        const stored = placed.id < 0 && lastStored?.content === placed.content ? lastStored : undefined;
         if (stored) {
             placedRef.current = { id: stored.id, content: stored.content };
             scroll.retarget(stored.id);
@@ -1586,7 +1579,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 aria-live="off"
                 aria-label={tr("Conversation")}
                 tabIndex={-1}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 select-text outline-none"
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 select-text outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             >
                 {showList ? (
                     <ConversationList
