@@ -28,6 +28,7 @@ import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
 import { ContentLang } from '../../utils/contentLang';
 import { motionReduced } from '../../utils/accessibility';
+import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import OwnLine from '../ui/OwnLine';
 
 /**
@@ -146,8 +147,13 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         if (!next) return;
         const el = cardRefs.current.get(next.key);
         if (!el) return;
-        const reduced = motionReduced();
-        el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+        const behavior = motionReduced() ? 'auto' : 'smooth';
+        // The feed's own scroller where it has one (a desktop: the stream
+        // scrolls under the header and beside the assistant), so nothing above
+        // it can move; the page only where the stream IS the page (a phone).
+        if (!scrollIntoViewWithin(el, { boundary: document.body, block: 'start', behavior })) {
+            el.scrollIntoView({ behavior, block: 'start' });
+        }
         el.focus({ preventScroll: true });
     }, []);
 

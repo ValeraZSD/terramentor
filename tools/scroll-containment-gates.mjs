@@ -180,7 +180,7 @@ console.log('\nscrollIntoViewWithin — where the row lands');
 console.log('\nno surface goes back to a forcing scrollIntoView');
 {
     const allowed = new Map([
-        ['src/components/feed/FeedView.tsx', 'advancing the feed is a page scroll by design — the card stream IS the page'],
+        ['src/components/feed/FeedView.tsx', 'advancing the feed where the card stream IS the page (a phone); its own scroller first'],
         ['src/components/deck/DeckStages.tsx', 'jumping to a section on page three of a page-length list'],
     ]);
     const files = [];
@@ -222,6 +222,16 @@ for (const rel of ['src/components/AtlasView.tsx', 'src/hooks/useScrollToSelecte
     check(`${rel} scrolls within a boundary`,
         /scrollIntoViewWithin\(/.test(src) && /boundary:/.test(src));
     check(`${rel} does not also call scrollIntoView`, !/\.scrollIntoView\(/.test(src));
+}
+
+// The feed's "continue" scrolled the WINDOW on a desktop when anything made the
+// page taller than it (an assistant reply's hidden text twin did, by 107px), and
+// the app's header left the screen. Its own scroller first; the page only when
+// it has none.
+{
+    const src = readFileSync(join(root, 'src/components/feed/FeedView.tsx'), 'utf8');
+    check('the feed advances inside its own scroller first, the page only as the fallback',
+        /if \(!scrollIntoViewWithin\([^)]*boundary:[^)]*\)\)\s*\{\s*el\.scrollIntoView\(/.test(src));
 }
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }
