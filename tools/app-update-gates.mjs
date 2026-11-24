@@ -904,8 +904,16 @@ function runUpdater({ proofless = false, timeoutMs = 15_000, channels, app = app
 /** Stop the fake app the updater started. After a refused update the updater
  *  starts the old version without waiting for it, so wait for its pid first. */
 const killApp = async () => {
-    for (let i = 0; i < 50 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
-    try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* gone */ }
+    // The app creates the file before it writes its pid, so a busy machine can
+    // show it empty: that reads as pid 0, and killing pid 0 ends this process
+    // (Windows) or its whole process group. Wait for a real pid.
+    let pid = 0;
+    for (let i = 0; i < 50; i++) {
+        try { pid = Number(readFileSync(pidFile, 'utf8')); } catch { pid = 0; }
+        if (Number.isInteger(pid) && pid > 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+    }
+    if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
     rmSync(pidFile, { force: true });
 };
 const installedVersion = (app = appA) => JSON.parse(readFileSync(join(app, 'package.json'), 'utf8')).version;
