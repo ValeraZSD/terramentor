@@ -985,6 +985,8 @@ export function listReports({ nodeId = null, projectId = null, refs = null, incl
     if (projectId != null) { where.push('project_id = ?'); args.push(projectId); }
     if (keys.length) { where.push(`item_key IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }
     if (!includeSettled) where.push(STANDING);
+    // Not one of a deleted topic or course: its report holds the item's text.
+    where.push('(node_id IS NULL OR node_id IN (SELECT id FROM live_nodes))', '(project_id IS NULL OR project_id IN (SELECT id FROM live_projects))');
     const sql = `SELECT * FROM item_reports ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
     // Its text varies with the number of refs: prepared here, not kept.
     return db.prepare(sql).all(...args, Math.max(1, Math.min(200, Math.max(limit, keys.length)))).map(publicReport);

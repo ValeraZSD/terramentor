@@ -36,9 +36,13 @@ const handlePaperImage = (req, res, next) =>
         return res.status(400).json(errorBody(err, 400));
     });
 
-/** Load a practice feed_item and its authored exercise, or null. */
+let liveTopicStmt = null;
+const isLiveTopic = (nodeId) => !!(liveTopicStmt ??= db.prepare('SELECT 1 FROM live_nodes WHERE id = ?')).get(nodeId);
+
+/** Load a practice feed_item and its authored exercise, or null. Only one of a live topic. */
 function loadPracticeItem(feedItemId) {
-    const row = db.prepare(`SELECT * FROM feed_items WHERE id = ? AND kind = 'practice'`).get(feedItemId);
+    const row = db.prepare(`SELECT f.* FROM feed_items f JOIN live_nodes n ON n.id = f.node_id
+        WHERE f.id = ? AND f.kind = 'practice'`).get(feedItemId);
     if (!row) return null;
     let exercise = null;
     try { exercise = JSON.parse(row.content); } catch { return null; }
@@ -138,12 +142,17 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
             feedItemId,
             exercise: item.exercise,
             imageBuffer: req.file.buffer,
-            claim: (grade) => !consumeFeedItem({
+            // Its topic deleted while the model had the photo: nothing is written.
+            claim: (grade) => isLiveTopic(item.row.node_id) && !consumeFeedItem({
                 key: `fi-${feedItemId}`, kind: 'practice', feedItemId,
                 nodeId: item.row.node_id,
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
+        // Its topic deleted during marking: nothing was written, whatever the model said.
+        if (!isLiveTopic(item.row.node_id)) {
+            return res.status(404).json(keyed('Practice item not found'));
+        }
         // A photo that could not be marked asks for a retake, unless the
         // exercise went while the model had it: then the retake has nothing to
         // go to, and the learner is told that instead.
@@ -196,7 +205,8 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
 // what the model actually saw when a grade seems wrong.
 app.get('/api/paper/attempts/:id/image', (req, res) => {
     try {
-        const row = db.prepare('SELECT image_hash FROM paper_attempts WHERE id = ?').get(parseInt(req.params.id, 10));
+        const row = db.prepare(`SELECT a.image_hash FROM paper_attempts a JOIN live_nodes n ON n.id = a.node_id
+            WHERE a.id = ?`).get(parseInt(req.params.id, 10));
         if (!row?.image_hash) return res.status(404).json(keyed('No image stored for this attempt'));
         // A vault under a dot folder is still ours to serve (Express 5 checks every segment).
         res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash), { dotfiles: 'allow' });
