@@ -158,7 +158,12 @@ try {
         g.fillText(per100 === 0 ? '$0' : `$${per100 < 1 ? per100.toFixed(2) : per100.toFixed(1)}`, x0 + barW + 290, y + 30);
     });
     g.fillStyle = '#4b5563'; g.font = '18px sans-serif';
-    g.fillText('Teal: has a zero-data-retention endpoint.   Blue: has none.   Grey: called on the vendor\'s own API, retention per that account.', 30, H - 22);
+    const legend = [
+        [true, 'Teal: available with zero data retention on OpenRouter.'],
+        [false, 'Blue: no zero-retention route.'],
+        [null, 'Grey: not checked.'],
+    ].filter(([z]) => models.some(m => (m.zdr ?? null) === z)).map(([, text]) => text);
+    g.fillText(legend.join('   '), 30, H - 22);
     writeFileSync(pngOut, cv.toBuffer('image/png'));
     console.log(`chart: ${pngOut}`);
 } catch (e) { console.error(`no chart: ${e.message}`); }

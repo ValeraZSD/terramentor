@@ -97,8 +97,7 @@ else {
     const { data } = needsOpenRouter ? await (await fetch('https://openrouter.ai/api/v1/models')).json() : { data: [] };
     const byId = new Map(data.map(m => [m.id, m]));
     models = wanted.map(id => {
-        // Anthropic's own API: every current Claude model reads pictures. Its
-        // retention is the account's own agreement, so ZDR is left unknown.
+        // Anthropic's own API: every current Claude model reads pictures.
         if (isDirect(id)) {
             if (!hasAnthropicPrice(apiModel(id))) throw new Error(`no Anthropic price for ${apiModel(id)} in harness.mjs`);
             return { id, free: false, vision: true, direct: true };
@@ -108,8 +107,13 @@ else {
         return { id, free: isFree(m), vision: (m.architecture?.input_modalities || []).includes('image') };
     });
 }
-const zdr = needsOpenRouter ? await zdrModelIds() : new Set();
-for (const m of models) m.zdr = m.direct ? null : zdr.has(m.id);
+// A Claude model called on Anthropic's API is flagged by its OpenRouter twin
+// ("claude-opus-5-5" is "anthropic/claude-opus-5.5" there): whether the model
+// can be had with zero retention, not what this account's agreement says.
+const openRouterTwin = (id) => `anthropic/${apiModel(id).replace(/-(\d+)-(\d+)$/, '-$1.$2')}`;
+let zdr = null;
+try { zdr = await zdrModelIds(); } catch (e) { if (needsOpenRouter) throw e; }
+for (const m of models) m.zdr = zdr ? zdr.has(m.direct ? openRouterTwin(m.id) : m.id) : null;
 const metaFile = path.join(OUT, 'models.json');
 const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {};
 for (const m of models) meta[m.id] = { zdr: m.zdr, vision: m.vision, free: m.free, checked: new Date().toISOString() };
