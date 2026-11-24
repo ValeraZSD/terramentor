@@ -74,7 +74,7 @@ const KOFSCHIP = String.raw`Voor de verleden tijd van zwakke werkwoorden kijk je
 
 Zo wordt werken: werkte, gewerkt; fietsen: fietste, gefietst; missen: miste, gemist. Bij horen is de stam hoor, en dat geeft hoorde, gehoord.
 
-Let op bij werkwoorden met een v of z in het hele werkwoord. In de stam schrijf je f of s, maar voor de regel telt de medeklinker uit het hele werkwoord: leven geeft leefde, verhuizen geeft verhuisde en reizen geeft reisde.
+Let op bij werkwoorden met een v of z vlak voor -en, zoals leven en verhuizen. In de stam schrijf je dan f of s, maar voor de regel telt de v of z uit het hele werkwoord: leven geeft leefde, verhuizen geeft verhuisde en reizen geeft reisde.
 
 Leenwoorden volgen dezelfde regel, op de klank van de stam: faxen geeft faxte, want de x klinkt als ks.`;
 
