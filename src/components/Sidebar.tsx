@@ -7,7 +7,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../store';
-import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/tree';
+import { getVisibleNodes, todayStr, isLeafNode, isOneLevelCourse, isReadyToProve } from '../utils/tree';
 import { hexToRgba } from '../utils/color';
 import {
     FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, illegalParent,
@@ -30,6 +30,8 @@ import { IconButton } from './ui/Button';
 interface SidebarRowProps {
     item: FlatItem;
     projectColor: string;
+    /** The course has no phases (`isOneLevelCourse`): its top rows are topics. */
+    oneLevel: boolean;
     isActive: boolean;
     /** Non-null only for the row being dragged: the live projected nesting depth. */
     projectedDepth: number | null;
@@ -39,7 +41,7 @@ interface SidebarRowProps {
     dropParentTitle?: string | null;
 }
 
-function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent, dropParentTitle }: SidebarRowProps) {
+function SidebarRow({ item, projectColor, oneLevel, isActive, projectedDepth, isDropParent, dropParentTitle }: SidebarRowProps) {
     const { t } = useTranslation();
     const { node, depth } = item;
     const expanded = useStore(s => s.expanded);
@@ -87,7 +89,9 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
     const hasChildren = node.children.length > 0;
     const isLeaf = isLeafNode(node);
     const isSelected = selectedNodeId === node.id;
-    const isRoot = shownDepth === 0;
+    // A top row is a phase, drawn with the course badge, tint and percentage,
+    // unless the course has no phases: then it is a topic like any other.
+    const isRoot = shownDepth === 0 && !oneLevel;
     const isNote = !!node.is_note;
 
     const today = todayStr();
@@ -296,6 +300,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
     const project = projects.find(p => p.id === currentProjectId);
     const projectColor = project?.color || '#8B5CF6';
+    const oneLevel = useMemo(() => isOneLevelCourse(tree, project), [tree, project]);
 
     // Keep the sidebar scrolled to whatever node is selected (from any view).
     useScrollToSelected(selectedNodeId, sidebarRef);
@@ -538,6 +543,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
                                 key={item.id}
                                 item={item}
                                 projectColor={projectColor}
+                                oneLevel={oneLevel}
                                 isActive={activeId === item.id}
                                 projectedDepth={activeId === item.id && projection ? projection.depth : null}
                                 isDropParent={dropParentId != null && item.id === dropParentId}

@@ -273,7 +273,22 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
     ORDER BY position ASC
 `).all(projectId);
 
-        const milestones = topCategories.map(cat => {
+        // A course with no phases has no phase progress to show: every row at
+        // its top is a topic (a short course, or any course whose topics all
+        // sit at the top), and listing each as a phase read "0 of 1 topic
+        // finished" four times. A course still being written in phases keeps
+        // its rows, since its phases start out empty. Mirrors
+        // `isOneLevelCourse` in src/utils/tree.ts, which the sidebar uses.
+        const hasPhase = db.prepare(`
+    SELECT EXISTS (
+        SELECT 1 FROM live_nodes c JOIN live_nodes par ON par.id = c.parent_id
+        WHERE par.project_id = ? AND par.parent_id IS NULL AND par.is_note = 0 AND c.is_note = 0
+    )
+`).pluck().get(projectId);
+        const buildingPhases = !!project.ai_generating && project.made_from == null;
+        const oneLevel = topCategories.length > 0 && !hasPhase && !buildingPhases;
+
+        const milestones = oneLevel ? [] : topCategories.map(cat => {
             // 1. Fetch the category and all its descendants
             const allSubNodes = db.prepare(`
         WITH RECURSIVE descendants AS (
