@@ -886,6 +886,20 @@ export function sameAnswer(a, b) {
 }
 
 /**
+ * The verify prompt lists an ordering's items as "1. Serve", "2. Boil", and a
+ * verifier may copy that number along with the text. The number is dropped
+ * only when it is the one the item was listed under and the text left is that
+ * item; an answer that already reads as a shown item is kept whole.
+ */
+function withoutListNumber(answer, items) {
+    const shown = Array.isArray(items) ? items : [];
+    if (shown.some(item => sameOption(answer, item))) return answer;
+    const m = /^(\d+)[.)]\s+(.+)$/s.exec(answer);
+    const listed = m ? shown[Number(m[1]) - 1] : undefined;
+    return listed !== undefined && sameOption(m[2], listed) ? m[2] : answer;
+}
+
+/**
  * Independent second opinion on a question's answer key.
  *
  * The verifier never sees the intended answer — it solves the question cold, so
@@ -915,20 +929,6 @@ export function sameAnswer(a, b) {
  * that text cannot be answered and is deleted as unsound. The key is still
  * never shown.
  */
-/**
- * The verify prompt lists an ordering's items as "1. Serve", "2. Boil", and a
- * verifier may copy that number along with the text. The number is dropped
- * only when it is the one the item was listed under and the text left is that
- * item; an item whose own text starts with a number is kept whole.
- */
-function withoutListNumber(answer, items) {
-    const shown = Array.isArray(items) ? items : [];
-    if (shown.some(item => sameOption(answer, item))) return answer;
-    const m = /^(\d+)[.)]\s+(.+)$/s.exec(answer);
-    const listed = m ? shown[Number(m[1]) - 1] : undefined;
-    return listed !== undefined && sameOption(m[2], listed) ? m[2] : answer;
-}
-
 export async function verifyQuestion(nodeTitle, question, { signal, source = '' } = {}) {
     try {
         const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question, { source });

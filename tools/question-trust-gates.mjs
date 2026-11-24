@@ -71,7 +71,7 @@ const stub = createServer((req, res) => {
         const user = msgs.find(m => m.role === 'user')?.content || '';
         let content;
         if (/checking a question before it is shown|checking an ORDERING question|audit the MODEL ANSWER/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE|LOWERSEQ|NUMSEQ|NUMWRONG|NUMBERED)\w*/) || [])[0] || 'SILENT';
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE|LOWERSEQ|NUMSEQ|NUMWRONG|NUMBADIDX|NUMBERED|NUMGUARD)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
             content = tag === 'WORKING'
                 // Working first, TeX braces and all, then the verdict in a fence.
@@ -82,10 +82,14 @@ const stub = createServer((req, res) => {
                 // The order solved cold, every step written in lower case.
                 : tag.startsWith('LOWERSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['boil', 'cool', 'serve'], reason: 'agrees', eliminable: 0 })
                 // The order solved cold, each step copied with the number the prompt listed it under.
-                : tag.startsWith('NUMSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['2. Boil', '3. Cool', '1. Serve'], reason: 'agrees', eliminable: 0 })
+                : tag.startsWith('NUMSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['2) Boil', '3. Cool', '1. Serve'], reason: 'agrees', eliminable: 0 })
                 : tag.startsWith('NUMWRONG') ? JSON.stringify({ verdict: 'ok', answer: ['3. Cool', '2. Boil', '1. Serve'], reason: 'cool first', eliminable: 0 })
+                // The right steps in the right order, each under a number it was not listed under.
+                : tag.startsWith('NUMBADIDX') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', '2. Cool', '3. Serve'], reason: 'agrees', eliminable: 0 })
                 // Steps whose own text starts with a number, copied exactly.
                 : tag.startsWith('NUMBERED') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', '2. Cool', '3. Serve'], reason: 'agrees', eliminable: 0 })
+                // "1. Boil" is a shown step of its own, and step 1 is "Boil".
+                : tag.startsWith('NUMGUARD') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', 'Boil', 'Cool'], reason: 'agrees', eliminable: 0 })
                 // A word the prompt never offered, with an answer that matches the key.
                 : tag.startsWith('UNSURE') ? JSON.stringify({ verdict: 'unsure', answer: '4', reason: 'not certain', eliminable: 0 })
                 : 'I would rather not say.';
@@ -412,6 +416,12 @@ check('a verifier that copies the list numbers with the steps still agrees with 
 const numberedWrong = await verifyQuestion('Cooking', { ...shownSteps, question: 'NUMWRONG put these steps in order' });
 check('...and a wrong order with the list numbers is still disputed',
     numberedWrong.ok === false && /^order disputed/.test(numberedWrong.reason), JSON.stringify(numberedWrong));
+const badIndex = await verifyQuestion('Cooking', { ...shownSteps, question: 'NUMBADIDX put these steps in order' });
+check('...and a number the step was not listed under is part of the answer, not dropped',
+    badIndex.ok === false && /^order disputed/.test(badIndex.reason), JSON.stringify(badIndex));
+const guard = await verifyQuestion('Cooking', { type: 'sequence', question: 'NUMGUARD put these steps in order', items: ['Boil', '1. Boil', 'Cool'], correct_answer: JSON.stringify(['1. Boil', 'Boil', 'Cool']), explanation: '' });
+check('...and an answer that is a shown step as written is never cut down to another step',
+    guard.ok === true, JSON.stringify(guard));
 const ownNumbers = await verifyQuestion('Cooking', { type: 'sequence', question: 'NUMBERED put these steps in order', items: ['3. Serve', '1. Boil', '2. Cool'], correct_answer: JSON.stringify(['1. Boil', '2. Cool', '3. Serve']), explanation: '' });
 check('...while steps whose own text starts with a number are compared whole',
     ownNumbers.ok === true, JSON.stringify(ownNumbers));
