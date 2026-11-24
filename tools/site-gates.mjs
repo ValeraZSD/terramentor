@@ -56,9 +56,10 @@ const { hashPassword, verifyPassword, needsRehash, passwordShapeProblem, isBreac
 const { makeNote, readNote, NOTE_HEADER } = await import('../server/siteLibrary.js');
 const { openSiteDb } = await import('../server/site/siteDb.js');
 const { createAccounts, networkOf, deviceLabel, WRONG, PASSWORD_OFF_AFTER } = await import('../server/site/accounts.js');
-const { createFrontDesk, COOKIE, CLEAR_SITE_DATA } = await import('../server/site/frontDesk.js');
+const { createFrontDesk, COOKIE, CLEAR_SITE_DATA, routeLabel, codeFrames } = await import('../server/site/frontDesk.js');
 const { siteStartProblem, siteSettings } = await import('../server/site/index.js');
-const { createLibraryPool } = await import('../server/site/libraries.js');
+const { createLibraryPool, failureWord } = await import('../server/site/libraries.js');
+const { createLibraryLog } = await import('../server/site/libraryLog.js');
 
 const scratch = mkdtempSync(join(tmpdir(), 'site-gates-'));
 const CLOSED_MODEL = { AI_PROVIDER: 'openai', AI_BASE_URL: 'http://127.0.0.1:9/v1', AI_MODEL: 'none', SITE_BREACH_CHECK: '0' };
@@ -636,14 +637,37 @@ try {
         const opened = await two.req('GET', '/api/projects', { headers: { cookie: gail.cookie } });
         ok('(the broken library\'s wake failed, at the invite and at the next request)', opened.status === 502, String(opened.status));
 
-        const deskLines = lines.join('\n');        ok('the front desk logged the starts, the failed form and the failed wakes',
+        const deskLines = lines.join('\n');
+        ok('the front desk logged the starts, the failed form and the failed wakes',
             /Started library/.test(deskLines) && /\/site\/invite\//.test(deskLines) && /First start of library/.test(deskLines) && /Could not open library/.test(deskLines), deskLines.slice(0, 600));
         ok('the front desk\'s log never holds the person\'s text', !deskLines.includes(MARKER),
             lines.find((l) => l.includes(MARKER))?.slice(0, 200));
         const leaked = secrets.filter((s) => s && s.length >= 16 && deskLines.includes(s));
         ok(`nor any of the ${secrets.length} tokens and keys it handled (invites, sessions, a library's key)`, leaked.length === 0,
             leaked.map((s) => lines.find((l) => l.includes(s))?.slice(0, 160)).join(' | '));
-        ok('nor a request\'s query', !/\?(?:q|limit)=/.test(deskLines));
+        ok('(every one of them was a real token or key: 3 invites, 3 sessions, 2 library keys)', secrets.length === 8 && secrets.every((s) => typeof s === 'string' && s.length >= 16),
+            secrets.map((s) => String(s).length).join(','));
+        ok('a library that stopped on its own would be said in fixed words',
+            failureWord(Object.assign(new Error(`Could not open "${MARKER}"`), { code: 'ENOENT' })) === 'ENOENT'
+            && failureWord(Object.assign(new Error(MARKER), { status: 413 })) === 'error · status 413'
+            && failureWord(Object.assign(new Error(MARKER), { code: 'FULL' })) === 'every slot in use');
+        ok('a request is named by its shape: no invite token, no session number, no app path, no query',
+            routeLabel(`/site/invite/${frank.token}?x=1`) === '/site/invite/…' && routeLabel('/site/sessions/42/sign-out') === '/site/sessions/N/sign-out'
+            && routeLabel(`/site/${MARKER}`) === '/site/…' && routeLabel(`/api/search?q=${MARKER}`) === 'app' && routeLabel('/site/sign-in?signed-out') === '/site/sign-in');
+        {
+            const forged = new Error(`${MARKER}\n    at forged (file:///${MARKER}.js:1:1)`);
+            const frames = codeFrames(forged);
+            ok('a failure\'s code frames hold no line of its message, even one shaped like a frame', frames.includes('site-gates.mjs') && !frames.includes(MARKER), frames.slice(0, 200));
+        }
+        {
+            const said = [];
+            const realWarn = console.warn;
+            console.warn = (...a) => said.push(a.join(' '));
+            try {
+                await isBreached('a long enough pass phrase', { env: {}, fetchImpl: async (url) => { throw Object.assign(new Error(`refused to fetch ${url}`), { code: 'ECONNREFUSED' }); } });
+            } finally { console.warn = realWarn; }
+            ok('the breached-password warning names the failure\'s kind, not the address with the hash\'s start', said.length === 1 && said[0].includes('ECONNREFUSED') && !said[0].includes('/range/'), said.join(' | '));
+        }
 
         const erinDir = one.desk.pool.libDir(erin.libId);
         const erinLog = libraryLog(erinDir);
@@ -672,8 +696,38 @@ try {
                 await pool.wake(soft);
                 await pool.stop(soft, 'gate');
             }
-            ok(`a library that left a ${soft ? 'hard or symbolic' : 'hard'} link at its log's name still starts, and nothing is written through the link`,
-                readFileSync(target, 'utf8') === 'untouched', readFileSync(target, 'utf8').slice(0, 120));
+            const refusedFor = (libId) => lines.some((l) => l.includes(`Library ${libId.slice(0, 8)}: its server.log is a link`));
+            ok(`a library that left a ${soft ? 'hard or symbolic' : 'hard'} link at its log's name still starts, nothing is written through the link, and the front desk says the log was refused`,
+                readFileSync(target, 'utf8') === 'untouched' && refusedFor(hard) && (!soft || refusedFor(soft)), readFileSync(target, 'utf8').slice(0, 120));
+        }
+
+        // The writer itself: two streams cut mid-line, a line that never ends, a write after close.
+        {
+            const dir = join(scratch, 'writer');
+            mkdirSync(dir);
+            const read = (d) => libraryLog(d).reverse().map((f) => f.text).join('') // server.log.1 first
+                .split('\n').filter(Boolean).map((l) => l.replace(/^\S+ /, ''));
+            const w = createLibraryLog(dir, { maxBytes: 4096, now: () => new Date(0) });
+            const out = w.stream('stdout');
+            out('first half of an out line, ');
+            w.stream('stderr')('an err line\n');
+            out('second half\n');
+            w.close();
+            out('written after close\n');
+            const got = read(dir);
+            ok('each stream keeps its own unfinished line, and nothing is written after close',
+                got.length === 2 && got[0] === 'an err line' && got[1] === 'first half of an out line, second half', JSON.stringify(got));
+            const dir2 = join(scratch, 'writer-long');
+            mkdirSync(dir2);
+            const w2 = createLibraryLog(dir2, { maxBytes: 4096, now: () => new Date(0) });
+            const out2 = w2.stream('stdout');
+            out2('y'.repeat(6000));
+            out2(`${'y'.repeat(100)} end of the long line\nafter the long line\n`);
+            w2.close();
+            const got2 = read(dir2);
+            ok('a line that never ends keeps its start up to the cap, and the rest of it is dropped',
+                got2.length === 2 && /^y+…$/.test(got2[0]) && got2[1] === 'after the long line'
+                && libraryLog(dir2).every((f) => Buffer.byteLength(f.text) <= 4096), JSON.stringify(got2.map((l) => l.slice(0, 30))));
         }
 
         await release();

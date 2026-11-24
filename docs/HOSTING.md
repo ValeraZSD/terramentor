@@ -201,13 +201,14 @@ stores and how it signs people in is in `SECURITY.md`, "Accounts on a site".
 | `SITE_IDLE_MINUTES` | 10 | quiet minutes before a library is stopped; never while a stream is open or a task runs |
 | `SITE_UID_BASE` | 100000 | the first user id given to a library |
 | `SITE_BREACH_CHECK` | on | `0` turns off the breached-password check |
-| `SITE_LIBRARY_LOG_KB` | 1024 | size of a library's `server.log` before it becomes `server.log.1` and a new one starts |
+| `SITE_LIBRARY_LOG_KB` | 1024 | size of a library's `server.log` before it becomes `server.log.1` and a new one starts (at least 4) |
 
 **What the logs hold.** What a library prints (topic titles, a question it wrote, a course's
 name on import) goes to `server.log` in that library's own folder, `libraries/<id>/`, and
 `server.log.1` before it; the older file is dropped at each turn, so a library keeps at most
 twice `SITE_LIBRARY_LOG_KB` of log, and both files go when its folder is deleted (`cli.js
-accounts` names each account's library id). The front desk's own log, the one `docker logs`
+accounts` names each account's library id; `docker exec <container> tail
+/site/libraries/<id>/server.log` reads one). The front desk's own log, the one `docker logs`
 shows, says only that a library started, stopped or failed and the kind of failure, with no
 one's text, no invite or session token and no query string. A front desk older than this
 release copied every library line into its own log; those lines, still on your disk or in your

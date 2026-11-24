@@ -12,7 +12,7 @@
 //   SITE_LIBRARY_MEMORY_MB   resident memory past which an idle library is stopped (400)
 //   SITE_IDLE_MINUTES        quiet minutes before a library is stopped (10)
 //   SITE_UID_BASE            first user id given to a library (100000)
-//   SITE_LIBRARY_LOG_KB      size of a library's server.log before it is rotated (1024);
+//   SITE_LIBRARY_LOG_KB      size of a library's server.log before it is rotated (1024, at least 4);
 //                            two files at most, in the library's own folder
 //   SITE_BREACH_CHECK        0 turns off the breached-password check
 //   AI_*                     the model every library uses (as for a hosted copy)
@@ -77,7 +77,8 @@ if (isMain) {
         memoryMb: num(env.SITE_LIBRARY_MEMORY_MB, 400),
         idleMs: num(env.SITE_IDLE_MINUTES, 10) * 60_000,
         uidBase: num(env.SITE_UID_BASE, 100000),
-        libraryLogBytes: num(env.SITE_LIBRARY_LOG_KB, 1024) * 1024,
+        // At least 4 KB (a smaller value would rotate at every line).
+        libraryLogBytes: Math.max(4, num(env.SITE_LIBRARY_LOG_KB, 1024)) * 1024,
     });
     const port = Number(env.PORT) || 3001;
     desk.server.listen(port, host, () => console.log(`[site] Front desk listening on ${host}:${port}`));

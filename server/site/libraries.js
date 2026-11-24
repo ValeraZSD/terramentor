@@ -175,12 +175,20 @@ export function createLibraryPool({
         children.add(child);
         const short = id.slice(0, 8);
         // Its output, both streams, to its own folder; closed once both have ended.
-        const own = createLibraryLog(libDir(id), { maxBytes: logBytes, ownerUid: separate ? row.uid : null });
-        let open = 2;
-        for (const stream of [child.stdout, child.stderr]) {
-            stream.on('data', (chunk) => own.write(chunk));
-            stream.once('close', () => { if (--open === 0) own.close(); });
+        const own = createLibraryLog(libDir(id), {
+            maxBytes: logBytes, ownerUid: separate ? row.uid : null,
+            onRefused: () => log.error(`[site] Library ${short}: its server.log is a link, a pipe or a file with another name, so its output is not kept this run`),
+        });
+        const streams = [['stdout', child.stdout], ['stderr', child.stderr]].filter(([, s]) => s);
+        let open = streams.length;
+        let drained;
+        const allDrained = new Promise((r) => { drained = r; });
+        for (const [name, stream] of streams) {
+            stream.setEncoding('utf8'); // a character cut at a read is joined, not two U+FFFD
+            stream.on('data', own.stream(name));
+            stream.once('close', () => { if (--open === 0) { own.close(); drained(); } });
         }
+        if (!open) { own.close(); drained(); }
         let exited = null;
         const ended = (code, signal) => {
             exited ??= { code, signal };
@@ -194,10 +202,15 @@ export function createLibraryPool({
         };
         child.once('exit', ended);
         // A process that could not be started at all (EAGAIN, EPERM) emits error, not exit.
-        child.once('error', (e) => { own.write(`could not be started: ${e.message}\n`); ended(failureFacts(e), null); });
+        // `on`, not `once`: a later error (a failed kill) must not throw in the front desk.
+        child.on('error', (e) => { own.stream('spawn')(`could not be started: ${e.message}\n`); ended(failureFacts(e), null); });
         // First answer: the status probe answers as soon as the app is listening.
         for (;;) {
-            if (exited) throw poolError(`library ${short} stopped while starting (${exited.code ?? exited.signal}); its output is in its own log`);
+            if (exited) {
+                // Its last lines are on their way through the pipes: in its log before the failure is told.
+                await Promise.race([allDrained, new Promise((r) => setTimeout(r, 2000).unref())]);
+                throw poolError(`library ${short} stopped while starting (${exited.code ?? exited.signal}); its output is in its own log`);
+            }
             if (performance.now() - started > 60_000) { child.kill('SIGKILL'); throw poolError(`library ${short} did not answer within 60 s`); }
             try {
                 const r = await ask(id, '/api/auth/status', { timeoutMs: 1000 });

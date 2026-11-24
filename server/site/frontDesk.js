@@ -74,7 +74,13 @@ export function routeLabel(url) {
 
 /** Where a failure happened: up to four `at` lines of its stack, never its message. */
 export function codeFrames(err) {
-    const frames = String(err?.stack || '').split('\n')
+    // The stack opens with the message, which may itself hold lines shaped like frames.
+    let stack = String(err?.stack || '');
+    const message = String(err?.message ?? '');
+    const at = message ? stack.indexOf(message) : -1;
+    if (at >= 0) stack = stack.slice(at + message.length);
+    else if (message) return ''; // the stack does not show where its message ends: no frames rather than its text
+    const frames = stack.split('\n')
         .filter((l) => /^\s+at (?:.*\()?(?:file|node):[^\s()]+\)?$/.test(l))
         .slice(0, 4).map((l) => l.trim());
     return frames.length ? ` ${frames.join(' < ')}` : '';
