@@ -148,7 +148,7 @@ scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
-`npm run test:quick` skips the four jsdom harnesses and the three browser suites if you want the fast half.
+`npm test` runs non-browser suites in parallel (override with `--jobs N` or `GATES_JOBS`; `--jobs 1` runs serially) and the four browser suites one at a time, printing the slowest ten at the end. `npm run test:quick` skips the four jsdom harnesses and the four browser suites if you want the fast half.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
 `package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
