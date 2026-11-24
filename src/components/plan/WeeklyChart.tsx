@@ -129,7 +129,7 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
     const neededBelow = close && need < best;
 
     return (
-        <figure className="m-0">
+        <figure className="relative m-0">
             <figcaption className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {unit === 'cards' ? t("New cards you met each week, in all your courses") : t("Topics you closed each week, in all your courses")}
             </figcaption>

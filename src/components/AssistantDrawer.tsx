@@ -1632,7 +1632,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     return (
                     <div key={m.id} className="space-y-4" data-turn-id={m.id}>
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
-                        <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'} data-read-turn>
+                        {/* `relative`: "You said:" / "Assistant said:" are
+                            `sr-only` (absolute); placed against the turn they
+                            stay inside the list's scroller. */}
+                        <div className={m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">

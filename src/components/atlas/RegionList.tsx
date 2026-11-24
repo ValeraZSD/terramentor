@@ -198,7 +198,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                     data-row
                     onClick={() => onSelect(open ? null : region.id)}
                     aria-expanded={open}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
+                    className={`relative w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-lg text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open
                         ? 'bg-accent/10'
                         : 'can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60'}`}
                 >
