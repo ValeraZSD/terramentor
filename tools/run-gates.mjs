@@ -23,8 +23,9 @@
  *     the first screens, and CI holds those times to budgets measured on an
  *     otherwise idle machine. It also builds dist/ when it is stale, so no suite
  *     after it starts a server over a half-written one;
- *   - `dep-gates.mjs` runs next, alone too: it reads every file under tools/,
- *     where other suites create and delete files while they run.
+ *   - `dep-gates.mjs` and `provenance-gates.mjs` run next, alone too: one reads
+ *     every file under tools/ while other suites write there, the other counts
+ *     requests in a window a loaded machine fills (ALONE_SUITES says more).
  * The slowest suites start first, by the times this checkout's last run measured
  * (node_modules/.cache/run-gates-times.json); without them, the harnesses first,
  * then the largest files. `--jobs 1` is the serial run, in name order.
@@ -74,9 +75,13 @@ const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'perf-budget-gat
  * Suites nothing else may run beside, one by one before the pool:
  *   - perf-budget times the machine;
  *   - dep-gates walks tools/ and reads every file it lists, while security-gates
- *     creates and deletes probe files there and the harnesses write their bundles.
+ *     creates and deletes probe files there and the harnesses write their bundles;
+ *   - provenance-gates counts every request its page makes while a fake fetch is
+ *     in place, waiting a fixed number of event-loop turns; on a loaded machine
+ *     other requests from the same page land in that window (2 of 4 side-by-side
+ *     CI jobs failed on it). It passes alone, as it always did in a serial run.
  */
-const ALONE_SUITES = ['perf-budget-gates.mjs', 'dep-gates.mjs'];
+const ALONE_SUITES = ['perf-budget-gates.mjs', 'dep-gates.mjs', 'provenance-gates.mjs'];
 
 const BROWSER_TIMEOUT_MS = 900_000;
 const TIMEOUT_MS = 180_000;
