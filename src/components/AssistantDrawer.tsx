@@ -1868,8 +1868,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             </div>
             {!showList && moreBelow && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                    {/* Filled, not the outline: it floats over the text, and
+                        an outline shows the line under it through the label. */}
                     <Button
                         size="sm"
+                        variant="subtle"
                         icon={<ArrowDown />}
                         onClick={scroll.nextPage}
                         className="pointer-events-auto shadow-md"
