@@ -70,6 +70,12 @@ if (weaken && !['connect', 'same-origin', 'kill', 'memory'].includes(weaken)) {
 }
 
 const scratch = mkdtempSync(join(tmpdir(), 'code-runner-gates-'));
+// Server modules below open the library on import: a scratch one, so this
+// suite never creates the repo's default database while other suites run.
+const dbScratch = mkdtempSync(join(tmpdir(), 'code-runner-gates-db-'));
+process.env.DB_PATH = join(dbScratch, 'test.db');
+process.env.VAULT_ROOT = join(dbScratch, 'vault');
+process.on('exit', () => { try { rmSync(dbScratch, { recursive: true, force: true }); } catch { /* Windows holds the open database */ } });
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
     if (cond) { pass++; console.log(`  ok    ${label}`); }
