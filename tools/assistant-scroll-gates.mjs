@@ -16,7 +16,7 @@
  *    the reader scrolls up to re-read, and does not move when it ends;
  *  - while text runs on below the view, "Still writing below" shows, and
  *    "More below" once the answer is done;
- *  - each press turns one page and skips nothing (the line at the bottom edge
+ *  - each press turns one page and skips nothing (the last line above the button
  *    stays in view); pressed until it goes, the answer's last paragraph is in
  *    view; from the keyboard, focus stays on the button while text is below
  *    and lands on the log, not the page, on the last press;
@@ -180,6 +180,7 @@ const STATE = `(() => {
         answer: content ? content.getBoundingClientRect().height : null,
         view: lr.height,
         button: button ? button.textContent.trim() : null,
+        buttonTop: button ? button.getBoundingClientRect().top - lr.top : null,
         busy: !!document.querySelector('[aria-label="Stop generating"]'),
         focusOnLog: document.activeElement === log,
         room: log.firstElementChild?.style.minHeight ?? null,
@@ -275,21 +276,24 @@ const run = (form) => async (page) => {
     check('"More below" shows once it is done', done.button === 'More below', String(done.button));
     check('...and the end of the answer is out of sight', !done.lastStepShown);
 
-    // Each press turns one page. Nothing may be skipped: the line at the
-    // bottom edge before a press must still be in view after it, so the log
-    // moves on by at most the height of its text area, and by something.
-    /** Press (or Enter), wait for the smooth scroll to stop, return the new state. */
+    // Each press turns one page. Nothing may be skipped: the last line the
+    // reader could see, the one just above the button, must still be in view
+    // after the press, so the log moves on by at most the distance from the
+    // top of its text area to the button's top edge, and by something.
+    /** Press (or Enter), wait for the smooth scroll to start and stop, return the new state. */
     const turn = async (press) => {
         const before = await page.evaluate(STATE);
         await press();
         let s = before;
-        for (let i = 0, still = 0; i < 40 && still < 3; i++) {
+        for (let i = 0, still = 0, started = false; i < 60 && still < 3; i++) {
             await sleep(100);
             const n = await page.evaluate(STATE);
-            still = Math.abs(n.top - s.top) < 1 ? still + 1 : 0;
+            const same = Math.abs(n.top - s.top) < 1;
+            started ||= !same || i >= 20; // a loaded runner may start the scroll late
+            still = started && same ? still + 1 : 0;
             s = n;
         }
-        return { before, after: s, moved: s.top - before.top, text: before.view - before.pad - before.padBottom };
+        return { before, after: s, moved: s.top - before.top, text: (before.buttonTop ?? before.view - before.padBottom) - before.pad };
     };
     const presses = [];
     for (let i = 0; i < 30; i++) {
@@ -298,7 +302,7 @@ const run = (form) => async (page) => {
     }
     const fmt = (ps) => ps.map((p) => `${p.moved.toFixed(0)}/${p.text.toFixed(0)}`).join(', ');
     check('one press turns one page, not straight to the end (it took more than one)', presses.length > 1, `${presses.length} press(es): ${fmt(presses)}`);
-    check('...each moving on, and never past the line that was at the bottom edge',
+    check('...each moving on, and never past the last line in sight above the button',
         presses.length > 0 && presses.every((p) => p.moved > 0 && p.moved <= p.text + 1), fmt(presses));
     const after = presses.at(-1)?.after ?? done;
     check('pressing until it goes brings the answer\'s last paragraph into view', after.lastStepShown && after.button === null,

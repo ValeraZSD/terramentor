@@ -40,12 +40,17 @@ const PAGE_SHARE = 0.8;
 
 /**
  * How far one press of "More below" scrolls: one page, keeping the last fifth
- * of the view (the lines the button sat over) at the top as the place to go
- * on from, and never past the last written line. `hidden` is `textBelow`,
- * `view` the height of the scroller's text area (client height minus padding).
+ * of the view at the top as the place to go on from, and never past the last
+ * written line. `hidden` is `textBelow`, `view` the height of the scroller's
+ * text area (client height minus padding), `covered` how much of its bottom
+ * the button itself hides: on a short view (a phone with its keyboard open)
+ * a fifth is less than that, and the lines under the button must still come
+ * into sight, so the step stops at the button's top edge.
  */
-export function pageStep(hidden: number, view: number): number {
-    return Math.max(0, Math.min(hidden, Math.round(view * PAGE_SHARE)));
+export function pageStep(hidden: number, view: number, covered = 0): number {
+    const page = Math.round(view * PAGE_SHARE);
+    const clear = view - covered;
+    return Math.max(0, Math.min(hidden, clear > 0 ? Math.min(page, clear) : page));
 }
 
 /**
@@ -187,6 +192,8 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
      */
     const [below, setBelow] = useState(false);
     const belowRef = useRef(false);
+    /** The last "More below" press came from the focused button (see `nextPage`). */
+    const focusedPressRef = useRef(false);
     /**
      * Watches the last message (it grows inside the room without the scroller
      * changing size) and the content box (an earlier row growing moves the
@@ -212,25 +219,43 @@ export function useReadingScroll<T extends HTMLElement, C extends HTMLElement = 
 
     /**
      * Turn one page: move on by `pageStep`, so a reader never skips the text
-     * between where they are and the end. The press that reaches the last line
-     * leaves keyboard focus on the log: the control goes away once nothing is
-     * hidden, and focus must not fall back to the page.
+     * between where they are and the end. A press from a focused button is
+     * remembered: when the button goes (nothing left below), focus moves to
+     * the log instead of falling back to the page (the effect below). Decided
+     * when it goes, not at the press: a streaming answer may grow again.
      */
     const nextPage = useCallback((event?: { currentTarget: EventTarget | null }) => {
         const el = ref.current;
         if (!el) return;
         const pad = padding(el);
-        const hidden = hiddenBelow();
-        const step = pageStep(hidden, el.clientHeight - pad.top - pad.bottom);
-        if (step >= hidden - BELOW_SLACK && event?.currentTarget && event.currentTarget === document.activeElement) el.focus({ preventScroll: true });
+        const button = event?.currentTarget instanceof Element ? event.currentTarget : null;
+        const textBottom = el.getBoundingClientRect().bottom - pad.bottom;
+        const covered = button ? Math.max(0, textBottom - button.getBoundingClientRect().top) : 0;
+        const step = pageStep(hiddenBelow(), el.clientHeight - pad.top - pad.bottom, covered);
+        focusedPressRef.current = !!button && button === document.activeElement;
         el.scrollTo({ top: el.scrollTop + step, behavior: motionReduced() ? 'auto' : 'smooth' });
     }, []);
+
+    // The button went while it had focus: put focus on the log, not the page.
+    useEffect(() => {
+        if (below || !focusedPressRef.current) return;
+        focusedPressRef.current = false;
+        const active = document.activeElement;
+        if (!active || active === document.body) ref.current?.focus({ preventScroll: true });
+    }, [below]);
 
     // The scroller resized (the panel dragged, a phone keyboard opened) or was
     // rebuilt (docked or undocked): measure the room again, and put a rebuilt
     // one back where the reader was. Scrolling only changes what is below.
     useEffect(() => {
-        if (!scroller) { attachedRef.current = false; return; }
+        if (!scroller) {
+            // Closed: nothing is below a log that is not there, so a reopened
+            // panel does not flash the button from the last time.
+            attachedRef.current = false;
+            belowRef.current = false;
+            setBelow(false);
+            return;
+        }
         const rebuilt = attachedRef.current;
         attachedRef.current = true;
         fit();

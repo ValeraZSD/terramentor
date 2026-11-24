@@ -562,6 +562,11 @@ section('the log reads like a page: the question goes up once, the answer never 
     check('"More below" moves on one page, never past the last line',
         pageStep(5000, 800) === 640 && pageStep(300, 800) === 300 && pageStep(0, 800) === 0 && pageStep(-40, 800) === 0,
         [pageStep(5000, 800), pageStep(300, 800), pageStep(0, 800), pageStep(-40, 800)].join(' '));
+    // A 200 px view with the button over its bottom 60 px: a fifth (40) is
+    // less than that, so the step stops at the button's top edge (140).
+    check('...and on a short view stops where the button starts, so no line under it is skipped',
+        pageStep(5000, 200, 60) === 140 && pageStep(5000, 800, 60) === 640 && pageStep(5000, 200, 260) === 160,
+        [pageStep(5000, 200, 60), pageStep(5000, 800, 60), pageStep(5000, 200, 260)].join(' '));
     check('the "more below" button shows only while text is below, and turns a page',
         /\{!showList && moreBelow && \(/.test(drawerSrc) && /onClick=\{scroll\.nextPage\}/.test(drawerSrc)
         && /useEffect\(\(\) => \{ scroll\.measure\(\); \}\);/.test(drawerSrc));
@@ -596,12 +601,13 @@ section('the log reads like a page: the question goes up once, the answer never 
     check('the turns carry the id the question is found by again', /data-turn-id=\{m\.id\}/.test(drawerSrc) && /<div ref=\{scroll\.contentRef\}/.test(drawerSrc));
     // The calls that may move the log, and no other: opening (bottom), the
     // list and a new chat (top), a question just asked (anchor), and the
-    // question leaving the list (release; retarget only renames its row). A
+    // question leaving the list (release; retarget only renames its row), and
+    // the reader's own press of "More below" (nextPage, its onClick only). A
     // new call, or any hand-set scrollTop/scrollTo/scrollIntoView, is a new
     // reason for the log to move on its own, and needs its own case here.
-    const calls = (drawerSrc.match(/scroll\.(?:anchor|toTop|toBottom|release|retarget|ref\.current)\b/g) || []).sort();
-    check('only opening, the list, a new chat, a new question and a dropped one move the log',
-        JSON.stringify(calls) === JSON.stringify(['scroll.anchor', 'scroll.release', 'scroll.retarget', 'scroll.toBottom', 'scroll.toTop', 'scroll.toTop'])
+    const calls = (drawerSrc.match(/scroll\.(?:anchor|toTop|toBottom|release|retarget|nextPage|ref\.current)\b/g) || []).sort();
+    check('only opening, the list, a new chat, a new question, a dropped one and the reader\'s press move the log',
+        JSON.stringify(calls) === JSON.stringify(['scroll.anchor', 'scroll.nextPage', 'scroll.release', 'scroll.retarget', 'scroll.toBottom', 'scroll.toTop', 'scroll.toTop'])
         && !/\.scrollTop\s*=|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(/.test(drawerSrc), calls.join(', '));
     // A "was history loading?" flag missed: React renders the rows and the
     // flag's reset in one pass. What this panel put at the end has a
