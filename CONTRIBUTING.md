@@ -151,8 +151,9 @@ Windows, so a byte comparison goes red on a Windows checkout while CI stays gree
 `npm run test:quick` skips the four jsdom harnesses and the four browser suites if you want the fast half.
 
 `npm test` runs the suites side by side, as many at once as the machine has cores: on your own
-machine at most 16, and at idle priority so the desktop stays usable. The browser suites take turns, and `perf-budget-gates` runs first and alone
-because its timings are a budget. `npm test -- --jobs 4` (or `GATES_JOBS=4`) sets the number;
+machine at most 16, and at idle priority so the desktop stays usable. The browser suites take turns.
+`perf-budget-gates` runs first and alone because its timings are a budget, then `dep-gates`
+alone because it reads every file under `tools/` while other suites write there. `npm test -- --jobs 4` (or `GATES_JOBS=4`) sets the number;
 `--jobs 1` runs them one after another in name order, as before. Each suite's output is printed
 whole when it ends, a failing one's under its `FAIL` line, and the run ends with the ten slowest
 suites. A suite that runs past its time limit is stopped together with every process it started.
