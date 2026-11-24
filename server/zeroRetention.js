@@ -15,22 +15,29 @@
 // AI_EXTRA_BODY, so neither can switch them off; an AI_EXTRA_BODY that tries is
 // named at start (`zeroRetentionWarnings`). When no endpoint of the model fits,
 // OpenRouter answers 404 and the call fails with a sentence the operator can
-// act on (`zeroRetentionRefusal`); it is never re-sent without the terms.
+// act on (`zeroRetentionRefusal`); it is never re-sent, to this model or to a
+// backup (aiJobs.js `fallsOver`).
 //
-// Only OpenRouter takes these fields. Another endpoint gets none (a strict API
-// such as OpenAI's refuses an unknown field), and its retention is whatever the
-// operator agreed with that provider, which the start-up warning says.
+// Decided by the HOST the request goes to, never by the stored protocol
+// (`ai_api_format`): a library restored from a desktop copy may carry a forced
+// protocol, and the text still reaches openrouter.ai. Only OpenRouter takes
+// these fields. Another endpoint gets none (a strict API such as OpenAI's
+// refuses an unknown field), and its retention is whatever the operator agreed
+// with that provider, which the start-up warning says.
 import { isHosted } from './hosted.js';
-import { hostWire, wireOf } from './aiWire.js';
+import { isOpenRouterUrl } from './aiWire.js';
+import { k, learnerError } from './clientError.js';
 
 export const ZERO_RETENTION = Object.freeze({ zdr: true, data_collection: 'deny' });
 
-/** Where the operator reads how to pick a model that has a zero-retention endpoint. */
-const HOW_TO_PICK = 'docs/HOSTING.md, "Zero retention"';
+/** The address a library uses when AI_BASE_URL is blank and it stored none
+ *  (ai.js DEFAULT_OPENAI_BASE_URL; this module is loaded by the site's front
+ *  desk, which must not open the app database that ai.js opens). */
+const OPENAI_DEFAULT_BASE = 'https://api.openai.com/v1';
 
 /** Does a request to this endpoint (a getAISettings-shaped object) carry the terms? */
 export function keepsNothing(settings, env = process.env) {
-    return isHosted(env) && wireOf(settings) === 'openrouter';
+    return isHosted(env) && settings?.provider === 'openai' && isOpenRouterUrl(settings.baseUrl);
 }
 
 /** A request body with the terms laid over its `provider` object, whatever was there. */
@@ -42,21 +49,22 @@ export function withZeroRetention(body) {
 
 /* OpenRouter's 404 when no endpoint of the model fits the request's data
  * policy names the policy ("No endpoints found matching your data policy
- * (Zero data retention)"); a 404 for a model it does not know does not. */
-const NO_ENDPOINT_FITS = /data policy|zero data retention|\bzdr\b|guardrail/i;
+ * (Zero data retention)"; an account that enforces it says "ZDR violation");
+ * a 404 for a model it does not know names neither. */
+const NO_ENDPOINT_FITS = /data policy|zero data retention|\bzdr\b/i;
 
 /**
  * The error for a hosted call OpenRouter refused because no zero-retention
- * endpoint serves `model`, or null when this failure is something else. Its
- * message is the whole story, because the operator reads it in a log and the
- * learner in a failure dialog that shows it raw (src/utils/failureCause.ts).
+ * endpoint serves `model`, or null when this failure is something else. It is
+ * a learner-facing keyed error, so a route answers with these words rather
+ * than the generic "check the model name in Settings", which a hosted learner
+ * cannot reach; the same words go to the log for the operator.
  */
 export function zeroRetentionRefusal(settings, status, responseText, model = settings?.model) {
     if (status !== 404 || !keepsNothing(settings) || !NO_ENDPOINT_FITS.test(String(responseText || ''))) return null;
-    return Object.assign(new Error(
-        `No zero-retention endpoint on OpenRouter serves the model "${model}". `
-        + 'This copy sends learners\' text only to endpoints that keep nothing, so the request was not sent anywhere else. '
-        + `The operator of this copy has to choose a model that has one (AI_MODEL; see ${HOW_TO_PICK}).`,
+    return Object.assign(learnerError(
+        k('No zero-retention endpoint on OpenRouter serves the model "{{model}}". This copy sends what learners write only to endpoints that keep nothing, so it was not sent anywhere else. Whoever runs this copy has to choose a model that has one (AI_MODEL; see docs/HOSTING.md, Zero retention).'),
+        { model: String(model || '') },
     ), { zeroRetention: true });
 }
 
@@ -71,30 +79,33 @@ function extraProvider(raw) {
 
 /**
  * What the operator is told at start about where learners' text goes, one line
- * each; empty when there is nothing to say. `hosted` is for a site's front
- * desk, which is not hosted itself but starts every library hosted with its own
- * AI_* variables.
+ * each; empty when there is nothing to say. `settings` is the effective model
+ * settings (getAISettings) of a hosted copy; a site's front desk passes none,
+ * and the AI_* variables it hands every library are read instead, with
+ * `hosted: true` because the desk is not hosted itself but its libraries are.
  */
-export function zeroRetentionWarnings(env = process.env, { hosted = isHosted(env) } = {}) {
-    if (!hosted || env.AI_PROVIDER !== 'openai') return [];
-    const base = String(env.AI_BASE_URL || '').trim();
-    if (!base) return [];
-    if (hostWire(base) !== 'openrouter') {
+export function zeroRetentionWarnings(env = process.env, { hosted = isHosted(env), settings = null } = {}) {
+    if (!hosted) return [];
+    const provider = settings ? settings.provider : env.AI_PROVIDER;
+    if (provider !== 'openai') return [];
+    let base = String((settings ? settings.baseUrl : env.AI_BASE_URL) || '').trim();
+    if (!base) base = OPENAI_DEFAULT_BASE;
+    if (!isOpenRouterUrl(base)) {
         let host = base;
         try { host = new URL(base).host; } catch { /* shown as written */ }
-        return [`learners' text goes to ${host} under that provider's own retention terms. `
-            + 'This app can ask for zero retention only on OpenRouter; anything else is your agreement with the provider.'];
+        return [`learners' text goes to ${host}, and how long it is kept there is up to that endpoint and your terms with it. `
+            + 'This app can ask for zero retention only on OpenRouter.'];
     }
     const out = [];
-    const provider = extraProvider(env.AI_EXTRA_BODY);
-    if (provider === undefined) return out;
-    if (!provider || typeof provider !== 'object' || Array.isArray(provider)) {
+    const extra = extraProvider(env.AI_EXTRA_BODY);
+    if (extra === undefined) return out;
+    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
         out.push('AI_EXTRA_BODY sets "provider" to something other than an object; a hosted copy ignores that value and sends its own provider terms (zdr, data_collection).');
         return out;
     }
     const dropped = [];
-    if ('zdr' in provider && provider.zdr !== true) dropped.push(`zdr: ${JSON.stringify(provider.zdr)}`);
-    if ('data_collection' in provider && provider.data_collection !== 'deny') dropped.push(`data_collection: ${JSON.stringify(provider.data_collection)}`);
+    if ('zdr' in extra && extra.zdr !== true) dropped.push(`zdr: ${JSON.stringify(extra.zdr)}`);
+    if ('data_collection' in extra && extra.data_collection !== 'deny') dropped.push(`data_collection: ${JSON.stringify(extra.data_collection)}`);
     if (dropped.length) {
         out.push(`AI_EXTRA_BODY sets provider ${dropped.join(', ')}; a hosted copy ignores that and asks OpenRouter for zdr: true, data_collection: "deny" on every request. Remove it from AI_EXTRA_BODY.`);
     }

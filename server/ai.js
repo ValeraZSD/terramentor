@@ -527,6 +527,8 @@ export function aiExtraBody() {
  *  all three layers (server/zeroRetention.js); a hosted body built without a
  *  target is refused rather than sent without them. */
 export function openAIBody(fields, routing = {}, target = null) {
+    const hosted = isHosted();
+    if (hosted && !target) throw new Error('openAIBody: a hosted copy must name the endpoint a body is for, to decide its retention terms');
     const extra = aiExtraBody();
     const merged = { ...routing, ...extra };
     for (const key of ['provider', 'reasoning']) {
@@ -536,9 +538,7 @@ export function openAIBody(fields, routing = {}, target = null) {
         }
     }
     const body = { ...merged, ...fields };
-    if (!isHosted()) return JSON.stringify(body);
-    if (!target) throw new Error('openAIBody: a hosted copy must name the endpoint a body is for, to decide its retention terms');
-    return JSON.stringify(keepsNothing(target) ? withZeroRetention(body) : body);
+    return JSON.stringify(hosted && keepsNothing(target) ? withZeroRetention(body) : body);
 }
 
 /* ── transient upstream failures ────────────────────────────────────────────

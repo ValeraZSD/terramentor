@@ -136,6 +136,21 @@ try {
         check('a provider that is not an object is replaced by one with the terms', keepsNothing(chat), `provider = ${show(chat)}`);
     }
 
+    section('decided by where the text goes, not by a stored protocol or the exact host name');
+    {
+        // A library restored from a desktop copy can carry a forced protocol;
+        // its requests still go to openrouter.ai.
+        useEnv();
+        setting.run('ai_api_format', 'qwen');
+        let { chat } = await everyKind();
+        check('a stored ai_api_format does not turn the terms off', keepsNothing(chat), `provider = ${show(chat)}`);
+        db.prepare("DELETE FROM settings WHERE key = 'ai_api_format'").run();
+        useEnv({ base: 'https://eu.openrouter.ai/api/v1' });
+        const sub = await everyKind();
+        check('an OpenRouter subdomain gets them on chat and embeddings', keepsNothing(sub.chat) && keepsNothing(sub.embeddings),
+            `chat ${show(sub.chat)}, embeddings ${show(sub.embeddings)}`);
+    }
+
     section('the start-up warning names an AI_EXTRA_BODY that tries to drop them');
     {
         const { zeroRetentionWarnings } = await import('../server/zeroRetention.js');
@@ -154,6 +169,14 @@ try {
         check('a copy on the learner\'s own computer is never warned', zeroRetentionWarnings({ ...base, TERRAMENTOR_HOSTED: '', AI_EXTRA_BODY: '{"provider":{"zdr":false}}' }).length === 0);
         check('a site\'s front desk (not hosted itself, its libraries are) is warned for them',
             zeroRetentionWarnings({ ...base, TERRAMENTOR_HOSTED: '', AI_EXTRA_BODY: '{"provider":{"zdr":false}}' }, { hosted: true }).length === 1);
+        const blank = zeroRetentionWarnings({ ...base, AI_BASE_URL: '' });
+        check('a blank AI_BASE_URL is read as the address a library then uses, which is not OpenRouter',
+            blank.length === 1 && blank[0].includes(new URL(ai.DEFAULT_OPENAI_BASE_URL).host), JSON.stringify(blank));
+        const effective = zeroRetentionWarnings(base, { settings: { provider: 'openai', baseUrl: 'https://api.example.net/v1' } });
+        check('a hosted copy is judged by its effective settings (a stored address), not only by its env',
+            effective.length === 1 && /api\.example\.net/.test(effective[0]), JSON.stringify(effective));
+        check('an OpenRouter subdomain is OpenRouter, not "another endpoint"',
+            zeroRetentionWarnings({ ...base, AI_BASE_URL: 'https://eu.openrouter.ai/api/v1' }).length === 0);
         const index = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
         const site = readFileSync(new URL('../server/site/index.js', import.meta.url), 'utf8');
         check('server/index.js prints the warnings at start', /zeroRetentionWarnings\(/.test(index));
@@ -174,10 +197,25 @@ try {
         check('…and points the operator at what to change', /operator|AI_MODEL/i.test(err?.message || '') && /HOSTING/i.test(err?.message || ''), err?.message);
         check('it was asked once, not retried', posts.length === 1, `${posts.length} chat POSTs`);
         check('every request that left carried the terms', posts.every(p => keepsNothing(p.body)));
+        check('it is said as a keyed sentence a learner can be shown, not as the endpoint\'s body',
+            err?.expose === true && /^No zero-retention endpoint/.test(err?.messageKey || '') && err?.params?.model === MODEL, `${err?.messageKey} ${JSON.stringify(err?.params)}`);
+        const { publicBody } = await import('../server/clientError.js');
+        const answered = publicBody(err);
+        check('a route answers with that sentence, not "check the model name in Settings" (locked on a hosted copy)',
+            /^No zero-retention endpoint/.test(answered?.messageKey || '') && !/model name in Settings/.test(answered?.error || ''), JSON.stringify(answered));
+        const { fallsOver } = await import('../server/aiJobs.js');
+        const plain404 = Object.assign(new Error('Chat request failed (404): no such model'), { httpStatus: 404 });
+        check('a backup model is never tried after it (the next choice may keep the text)', fallsOver(err) === false && fallsOver(plain404) === true);
+        sent = [];
+        let visErr = null;
+        try { await ai.transcribeImageToText(PNG, {}); } catch (e) { visErr = e; }
+        check('a picture read fails the same way', /^No zero-retention endpoint/.test(visErr?.messageKey || ''), visErr?.message);
         sent = [];
         let embErr = null;
         try { await embedBatch(['a passage']); } catch (e) { embErr = e; }
-        check('embeddings fail the same way, in the same words', /zero.?(data.?)?retention/i.test(embErr?.message || ''), embErr?.message);
+        const { HOSTED_EMBEDDING_DEFAULT } = await import('../server/embeddings.js');
+        check('embeddings fail the same way, naming the embedding model',
+            /^No zero-retention endpoint/.test(embErr?.messageKey || '') && embErr?.params?.model === HOSTED_EMBEDDING_DEFAULT, embErr?.message);
         refuseRetention = false;
 
         // The learner-facing diagnosis must not turn this into "the endpoint

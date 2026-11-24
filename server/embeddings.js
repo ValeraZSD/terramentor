@@ -27,7 +27,7 @@
 import db, { vecAvailable } from './database.js';
 import { getAISettings, normalizeOpenAIBaseUrl, openAIBody, withoutKey } from './ai.js';
 import { zeroRetentionRefusal } from './zeroRetention.js';
-import { wireFetch, wireOf } from './aiWire.js';
+import { isOpenRouterUrl, wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
 // The model used when the learner has not chosen one. These are the only two
@@ -75,10 +75,7 @@ const EMBEDDING_PROVIDERS = ['auto', 'ollama', 'openai'];
 
 /** OpenRouter, recognised by the host of the endpoint embeddings go to. */
 function isOpenRouter(baseUrl) {
-    try {
-        const host = new URL(normalizeOpenAIBaseUrl(baseUrl)).hostname.toLowerCase();
-        return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
-    } catch { return false; }
+    return isOpenRouterUrl(normalizeOpenAIBaseUrl(baseUrl));
 }
 
 /** The model for a learner who has not chosen one, by where embeddings run. */

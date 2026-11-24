@@ -67,6 +67,14 @@ export function hostWire(baseUrl) {
     return 'generic';
 }
 
+/** Does this base URL point at OpenRouter: its own host, or one of its subdomains? */
+export function isOpenRouterUrl(baseUrl) {
+    try {
+        const host = new URL(String(baseUrl)).hostname.toLowerCase();
+        return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
+    } catch { return false; }
+}
+
 /** The protocol behind one settings object (getAISettings / settingsForConnection). */
 export function wireOf(settings) {
     if (settings?.provider !== 'openai') return 'ollama';

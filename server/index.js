@@ -8,6 +8,7 @@ import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
 import { hostedStartProblem, restoreMarkerPath } from './hosted.js';
 import { zeroRetentionWarnings } from './zeroRetention.js';
+import { getAISettings } from './ai.js';
 import { isSiteLibrary, siteLibraryStartProblem, siteSocketPath } from './siteLibrary.js';
 import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
@@ -105,7 +106,11 @@ const SITE_SOCKET = siteSocketPath();
     }
     // Where learners' text goes. A site's front desk says this once for all
     // its libraries, so a library does not repeat it on every wake.
-    if (!isSiteLibrary()) for (const line of zeroRetentionWarnings()) console.warn(`[hosted] ${line}`);
+    if (!isSiteLibrary()) {
+        let settings = null;
+        try { settings = getAISettings(); } catch (e) { console.error(`[hosted] Could not read the model settings: ${e.message}`); }
+        for (const line of zeroRetentionWarnings(process.env, { settings })) console.warn(`[hosted] ${line}`);
+    }
 }
 
 // Refresh the shipped add-on manifests before serving. The user's enabled/
