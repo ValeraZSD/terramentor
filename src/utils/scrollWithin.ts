@@ -135,3 +135,27 @@ export function scrollIntoViewWithin(
     scroller.scrollTo({ top: next, behavior: motionReduced() ? 'auto' : behavior });
     return true;
 }
+
+/**
+ * Bring a tab into view inside its horizontal rail, and move nothing else.
+ *
+ * Native `scrollIntoView({ inline: 'nearest', block: 'nearest' })` also
+ * scrolls vertically, up to the window, whenever the rail is not on screen
+ * (a page scrolled for any reason), so the tab rails in the header move the
+ * rail alone, by the distance the tab sticks out past either edge. Read from
+ * the two rects, so a right-to-left rail (negative `scrollLeft`) needs no
+ * case of its own: a positive delta always moves the view towards the right.
+ *
+ * @returns whether the rail was moved.
+ */
+export function scrollRailTo(el: HTMLElement | null | undefined, rail: HTMLElement | null): boolean {
+    if (!el || !rail || !rail.contains(el) || rail.scrollWidth - rail.clientWidth <= 1) return false;
+    const box = el.getBoundingClientRect();
+    const frame = rail.getBoundingClientRect();
+    let delta = 0;
+    if (box.left < frame.left) delta = box.left - frame.left;
+    else if (box.right > frame.right) delta = box.right - frame.right;
+    if (Math.abs(delta) < 1) return false;
+    rail.scrollBy({ left: delta, behavior: 'auto' });
+    return true;
+}

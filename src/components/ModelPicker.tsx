@@ -16,6 +16,7 @@ import { Select } from './ui/Select';
 import { useBackClose } from '../hooks/dialogHistory';
 import { followVisualViewport, popoverBounds, FLOAT_LAYER } from './ui/Popover';
 import { isRtl } from '../utils/direction';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -199,8 +200,8 @@ export default function ModelPicker({
     // Keep the active row visible without scrolling the page behind the popup.
     useEffect(() => {
         if (!open) return;
-        listRef.current?.querySelector<HTMLElement>('[data-active="true"]')
-            ?.scrollIntoView({ block: 'nearest' });
+        const list = listRef.current;
+        scrollIntoViewWithin(list?.querySelector<HTMLElement>('[data-active="true"]'), { boundary: list, block: 'nearest' });
     }, [active, open]);
 
     useEffect(() => {
