@@ -194,8 +194,9 @@ console.log('\nscrollIntoViewWithin — where the row lands');
 {
     const { list, row } = tree(true);
     list.style.scrollPaddingTop = 'auto';
+    row.style.scrollMarginTop = '24px'; // so a helper that reads neither fails too
     scrollIntoViewWithin(row, { boundary: list, block: 'start' });
-    check('a scroll-padding of auto counts as none', list.scrollTop === 1100, `landed at ${list.scrollTop}`);
+    check('a scroll-padding of auto counts as none', list.scrollTop === 1100 - 24, `landed at ${list.scrollTop}`);
 }
 {
     const { list, row } = tree(true);
@@ -218,13 +219,12 @@ console.log('\nscrollIntoViewWithin — where the row lands');
 // `block: 'start'` and `block: 'center'` force every ancestor to move.
 // `nearest` does not: it does the least work that makes the element visible, so
 // an element already on screen moves nothing. Only the forcing forms are
-// listed, and each one that stays has to be a deliberate PAGE scroll.
+// listed; none is allowed, since a deliberate page scroll goes through
+// `scrollPageTo`, which moves the window alone.
 console.log('\nno surface goes back to a forcing scrollIntoView');
 {
-    const allowed = new Map([
-        ['src/components/feed/FeedView.tsx', 'advancing the feed where the card stream IS the page (a phone); its own scroller first'],
-        ['src/components/deck/DeckStages.tsx', 'jumping to a section where the list IS the page (a phone); its own scroller first'],
-    ]);
+    /** @type {Map<string, string>} file -> why its forcing scroll is allowed */
+    const allowed = new Map();
     const files = [];
     const walk = (dir) => {
         for (const e of require('node:fs').readdirSync(dir, { withFileTypes: true })) {
@@ -272,22 +272,41 @@ for (const rel of ['src/components/AtlasView.tsx', 'src/hooks/useScrollToSelecte
 // it has none.
 {
     const src = readFileSync(join(root, 'src/components/feed/FeedView.tsx'), 'utf8');
-    check('the feed advances inside its own scroller first, the page only as the fallback',
-        /if \(!scrollIntoViewWithin\([^)]*boundary:[^)]*\)\)\s*\{\s*el\.scrollIntoView\(/.test(src));
+    check('the feed advances inside its own scroller first, the window only as the fallback',
+        /if \(!scrollIntoViewWithin\([^)]*boundary:[^)]*\)\)\s*\{\s*scrollPageTo\(el,/.test(src));
 }
 {
     const src = readFileSync(join(root, 'src/components/deck/DeckStages.tsx'), 'utf8');
-    check('a deck section picked on the strip is scrolled to inside its own scroller first, the page only as the fallback',
-        /if \(el && !scrollIntoViewWithin\(el, \{[^}]*boundary:[^}]*\}\)\)\s*\{\s*el\.scrollIntoView\(/.test(src));
+    check('a deck section picked on the strip is scrolled to inside its own scroller first, the window only as the fallback',
+        /if \(el && !scrollIntoViewWithin\(el, \{[^}]*boundary:[^}]*\}\)\)\s*\{\s*scrollPageTo\(el,/.test(src));
+}
+
+// The phone fallback moves the window and nothing else: native scrollIntoView
+// would also scroll an `overflow: hidden` box on the way up, so a desktop list
+// that merely had nothing to scroll could still shift the app frame.
+console.log('\nscrollPageTo — the window moves, nothing else');
+{
+    const { scrollPageTo } = require(out);
+    const calls = [];
+    globalThis.window = { scrollY: 300, innerHeight: 800, scrollTo: (o) => calls.push(o) };
+    const { page, section, list, row } = tree(false);
+    row.style.scrollMarginTop = '78px';
+    scrollPageTo(row, { block: 'start' });
+    check('block:start lands the element below its scroll-margin, in page coordinates',
+        calls.length === 1 && calls[0].top === 1200 + 300 - 78, JSON.stringify(calls));
+    scrollPageTo(row, { block: 'center' });
+    check('block:center centres it in the window', calls[1]?.top === 1200 + 300 - (800 - 60) / 2, JSON.stringify(calls[1]));
+    check('and no box on the way up is scrolled',
+        [page, section, list].every((b) => b.scrolled.length === 0));
+    delete globalThis.window;
 }
 
 // `nearest` cannot force a scroll while the element is on screen, but it still
 // scrolls the page when the element is not (a page already moved by anything),
-// and then the header leaves. So no native call is left anywhere except the
-// two phone fallbacks above, each behind its own scroller's helper.
-console.log('\nno native scrollIntoView outside the phone fallbacks');
+// and then the header leaves. So no native call is left anywhere.
+console.log('\nno native scrollIntoView anywhere');
 {
-    const fallbacks = new Set(['src/components/feed/FeedView.tsx', 'src/components/deck/DeckStages.tsx']);
+    const fallbacks = new Set();
     const natives = [];
     const walk = (dir) => {
         for (const e of require('node:fs').readdirSync(dir, { withFileTypes: true })) {

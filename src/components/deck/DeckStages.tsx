@@ -6,7 +6,7 @@ import DeckStageStrip from './DeckStageStrip';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
-import { scrollIntoViewWithin } from '../../utils/scrollWithin';
+import { scrollIntoViewWithin, scrollPageTo } from '../../utils/scrollWithin';
 
 interface Props {
     stages: DeckStage[];
@@ -58,10 +58,10 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
         // silent no-op in the preview browser, so the jump would land nowhere
         // and look like a dead control. The ring below says where you arrived.
         // The page's own scroller where it has one (a desktop: the workspace
-        // pane under the header), so the header never moves; the page only
+        // pane under the header), so the header never moves; the window only
         // where the list IS the page (a phone).
         if (el && !scrollIntoViewWithin(el, { boundary: document.body, block: 'center' })) {
-            el.scrollIntoView({ block: 'center' });
+            scrollPageTo(el, { block: 'center' });
         }
         const t = setTimeout(() => setJumpTo(null), 2000);
         return () => clearTimeout(t);

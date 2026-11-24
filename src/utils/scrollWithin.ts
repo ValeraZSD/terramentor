@@ -165,3 +165,23 @@ export function scrollRailTo(el: HTMLElement | null | undefined, rail: HTMLEleme
     rail.scrollBy({ left: delta, behavior: 'auto' });
     return true;
 }
+
+/**
+ * The fallback for a list with no scroller of its own (a phone, where the
+ * stream IS the page): move the window and nothing else. Native
+ * `scrollIntoView` would also scroll every box on the way up, `overflow:
+ * hidden` ones included, so the desktop frame could shift whenever the list
+ * merely had nothing to scroll. Honours the element's `scroll-margin-top`
+ * for `start`, as the native call does.
+ */
+export function scrollPageTo(
+    el: HTMLElement | null | undefined,
+    { block = 'start', behavior = 'auto' }: { block?: 'start' | 'center'; behavior?: ScrollBehavior } = {},
+): void {
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const top = block === 'center'
+        ? box.top + window.scrollY - (window.innerHeight - box.height) / 2
+        : box.top + window.scrollY - px(getComputedStyle(el).scrollMarginTop);
+    window.scrollTo({ top: Math.max(0, top), behavior: motionReduced() ? 'auto' : behavior });
+}
