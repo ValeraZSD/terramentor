@@ -548,8 +548,10 @@ loads it. What it does:
   not leave this to its operator. It sends those terms itself on every request to OpenRouter,
   and `AI_EXTRA_BODY` cannot switch either off. When no zero-retention endpoint serves the
   model, the request fails rather than go anywhere else (`server/zeroRetention.js`;
-  `docs/HOSTING.md`, "Zero retention"). To any other endpoint a hosted copy sends neither term,
-  and it says so in the log at start.
+  `docs/HOSTING.md`, "Zero retention"). To any other endpoint a hosted copy adds neither term itself,
+  and it says so in the log at start. The terms are a request: which endpoints count as zero
+  retention also depends on the OpenRouter account's own privacy setting, which the app cannot
+  read, so the start-up log names that setting too.
 - **Choosing a provider in Settings does not change who can read your prompts.** *AI & Models →
   Where the model runs* lists the companies your router says can serve the model, and
   your choice is sent as a *preference*: if the one you picked is busy the router uses another,
