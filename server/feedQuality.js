@@ -915,6 +915,20 @@ export function sameAnswer(a, b) {
  * that text cannot be answered and is deleted as unsound. The key is still
  * never shown.
  */
+/**
+ * The verify prompt lists an ordering's items as "1. Serve", "2. Boil", and a
+ * verifier may copy that number along with the text. The number is dropped
+ * only when it is the one the item was listed under and the text left is that
+ * item; an item whose own text starts with a number is kept whole.
+ */
+function withoutListNumber(answer, items) {
+    const shown = Array.isArray(items) ? items : [];
+    if (shown.some(item => sameOption(answer, item))) return answer;
+    const m = /^(\d+)[.)]\s+(.+)$/s.exec(answer);
+    const listed = m ? shown[Number(m[1]) - 1] : undefined;
+    return listed !== undefined && sameOption(m[2], listed) ? m[2] : answer;
+}
+
 export async function verifyQuestion(nodeTitle, question, { signal, source = '' } = {}) {
     try {
         const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question, { source });
@@ -954,7 +968,7 @@ export async function verifyQuestion(nodeTitle, question, { signal, source = '' 
         // where a disputed key must veto: the verifier orders the same items
         // and the two orders must agree item for item.
         if (question.type === 'sequence') {
-            const theirs = Array.isArray(parsed.answer) ? parsed.answer.map(s => String(s).trim()) : null;
+            const theirs = Array.isArray(parsed.answer) ? parsed.answer.map(s => withoutListNumber(String(s).trim(), question.items)) : null;
             let key = [];
             try { key = JSON.parse(String(question.correct_answer)); } catch { /* defects already caught it */ }
             const agreesInOrder = !!theirs && theirs.length === key.length
