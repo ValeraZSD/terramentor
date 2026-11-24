@@ -306,9 +306,20 @@ let recoveryChain = Promise.resolve();
 // Public: queue a document for background math recovery. Idempotent-ish — the
 // serial chain runs one document at a time. `force` bypasses the settings gate
 // and the "already recovered" guard (used by the manual re-run endpoint).
+// How many runs of each file are queued or running.
+const onChain = new Map();
+
 export function queueRecovery(documentId, { force = false } = {}) {
     if (!force && !recoveryEnabled()) return;
-    recoveryChain = recoveryChain.then(() => runRecovery(documentId, { force })).catch(() => {});
+    const key = Number(documentId);
+    onChain.set(key, (onChain.get(key) ?? 0) + 1);
+    recoveryChain = recoveryChain
+        .then(() => runRecovery(documentId, { force }))
+        .catch(() => {})
+        .finally(() => {
+            const left = onChain.get(key) - 1;
+            if (left > 0) onChain.set(key, left); else onChain.delete(key);
+        });
 }
 
 // The recovery queue lives in memory, so a restart (e.g. after a rebuild) orphans
@@ -320,23 +331,38 @@ export function queueRecovery(documentId, { force = false } = {}) {
 export function resumePendingRecovery() {
     let rows;
     try {
-        rows = db.prepare("SELECT id FROM documents /* with deleted */ WHERE recovery_status IN ('pending', 'running')").all();
+        if (!recoveryEnabled()) {
+            db.prepare("UPDATE documents SET recovery_status = NULL WHERE recovery_status IN ('pending', 'running')").run();
+            return;
+        }
+        // An interrupted 'running' is just an un-started 'pending' now, a
+        // deleted file's too, so its Restore finds it waiting.
+        db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE recovery_status = 'running'").run();
+        // A file of a deleted course or topic waits, pending, for its Restore.
+        rows = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status = 'pending'").all();
     } catch { return; }
     if (!rows.length) return;
-
-    if (!recoveryEnabled()) {
-        db.prepare("UPDATE documents SET recovery_status = NULL WHERE recovery_status IN ('pending', 'running')").run();
-        return;
-    }
-    // An interrupted 'running' is just an un-started 'pending' now.
-    db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE recovery_status = 'running'").run();
     console.log(`[recover] resuming ${rows.length} interrupted document(s) after restart`);
     for (const r of rows) queueRecovery(r.id);
 }
 
+/**
+ * Queue the files a Restore brought back that were waiting for recovery
+ * (routes/deleted.js). A file already queued or running is left to that run.
+ */
+export function resumeRestoredRecovery() {
+    if (!recoveryEnabled()) return;
+    const ids = db.prepare("SELECT id FROM live_documents documents WHERE recovery_status = 'pending'").pluck().all();
+    for (const id of ids) if (!onChain.has(Number(id))) queueRecovery(id);
+}
+
+let liveDocStmt = null;
+const isLiveDoc = (id) => !!(liveDocStmt ??= db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?')).get(id);
+
 async function runRecovery(documentId, { force }) {
+    // Only a live file: one of a deleted course or topic stays pending.
     const doc = db.prepare(
-        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM documents /* with deleted */ WHERE id = ?'
+        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM live_documents documents WHERE id = ?'
     ).get(documentId);
     if (!doc || doc.file_type !== 'pdf' || !doc.file_hash) return;
     if (!force && doc.recovery_status && doc.recovery_status !== 'pending') return;
@@ -352,6 +378,8 @@ async function runRecovery(documentId, { force }) {
     try {
         analysis = await analyzePdfPages(buffer);
     } catch (err) {
+        // Deleted while it was analysed: it stays pending for its Restore.
+        if (!isLiveDoc(documentId)) return;
         db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('failed', documentId);
         console.warn(`[recover] analysis failed for "${doc.title}": ${err.message}`);
         return;
@@ -408,6 +436,7 @@ async function runRecovery(documentId, { force }) {
         let done = 0;
 
         let cancelled = false;
+        let deleted = false;
         try {
             for (const p of analysis.pages) {
                 // cancelRequested is set by the TaskDock cancel hook. (The task's
@@ -415,6 +444,8 @@ async function runRecovery(documentId, { force }) {
                 // cancelTask leaves settling to the owner, i.e. this function.)
                 if (cancelRequested) { cancelled = true; break; }
                 if (!degradedSet.has(p.page)) continue;
+                // Its course or topic was deleted meanwhile: no further page goes out.
+                if (!isLiveDoc(documentId)) { deleted = true; break; }
 
                 done++;
                 handle.update({ phase: 'recover', message: `Page ${p.page} of ${analysis.numPages}`, percent: Math.round((done / total) * 100) });
@@ -425,6 +456,8 @@ async function runRecovery(documentId, { force }) {
 
                 if (vision === 'yes') {
                     await waitForModelIdle();
+                    // The wait can be minutes: check again before the page goes out.
+                    if (!isLiveDoc(documentId)) { deleted = true; break; }
                     try {
                         recovered = await transcribeImageToText(png, { model: visionModel });
                         if (recovered) method = 'vision';
@@ -454,6 +487,18 @@ async function runRecovery(documentId, { force }) {
         } finally {
             await renderDoc.destroy();
             scheduleOcrTeardown();
+        }
+        // Deleted while the last page was read: nothing is written to it.
+        if (!deleted && !isLiveDoc(documentId)) deleted = true;
+
+        if (deleted) {
+            // Left as it was before this run, pending, for its Restore to resume.
+            db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE id = ?").run(documentId);
+            handle.cancelled();
+            // Restored while this run wound down: its Restore left the file to
+            // this run, so queue it again.
+            if (isLiveDoc(documentId)) queueRecovery(documentId);
+            return;
         }
 
         if (cancelled && recoveredCount === 0) {
@@ -517,6 +562,12 @@ async function runRecovery(documentId, { force }) {
         if (cancelled) handle.cancelled(); else handle.finish();
         console.log(`[recover] "${doc.title}": recovered ${recoveredCount}/${total} page(s) via ${method}${cancelled ? ' (cancelled mid-run, partial)' : ''}`);
     } catch (err) {
+        // Deleted during the run: pending for its Restore, like the path above.
+        if (!isLiveDoc(documentId)) {
+            db.prepare("UPDATE documents SET recovery_status = 'pending' WHERE id = ?").run(documentId);
+            try { handle.cancelled(); } catch { /* ignore */ }
+            return;
+        }
         db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('failed', documentId);
         try { handle.fail(err.message); } catch { /* ignore */ }
         console.warn(`[recover] "${doc.title}" failed: ${err.message}`);
