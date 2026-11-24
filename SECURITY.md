@@ -500,12 +500,14 @@ loads it. What it does:
   front desk writes it as root and opens no link, pipe, folder, file with a second name or
   file owned by another user that the library's process may have left at that name; such a
   file gets no lines that run, and the front desk's log says so. A file that cannot be opened
-  for another reason (a full disk) is tried again 30 s later. On Windows libraries run as the
-  front desk's own user and these checks do not apply: there is no such boundary. The front
-  desk's own log says only that a library started, stopped or failed and the failure's kind,
-  an address by its shape (`/site/invite/…`, `app`), never a token, a query string or a
-  library's output; a slow request in any copy of the app is logged by its path, without the
-  query. `tools/site-gates.mjs` §4c checks it, including a scan of every log line in
+  for another reason (too many open files, a folder gone) is tried again when the library
+  next prints, 30 s on; a write that fails (a full disk) loses those lines. On Windows
+  libraries run as the front desk's own user, so the link and owner checks do not apply
+  there and there is no such boundary. The front desk's own log says only that a library
+  started, stopped or failed and the failure's kind, that its log was refused or could not
+  be opened, and an address by its shape (`/site/invite/…`, `app`); never a token, a query
+  string or a library's output. A slow request in any copy of the app is logged by its path,
+  without the query. `tools/site-gates.mjs` §4c checks it, including a scan of every log line in
   `server/site/`.
 - **The breached-password check** is the one outbound call the front desk makes. When someone
   sets a password, the first five characters of its SHA-1 are sent to

@@ -17,8 +17,10 @@
 // another owner (a hard link made to someone else's file). A file that fails a
 // check is not written to for the rest of that run, and `onRefused` is called
 // once: a lost line is better than root writing where a library pointed it.
-// A file that could not be opened for another reason (a full disk) is tried
-// again 30 s later; `onUnopened` names the error code the first time.
+// A file that could not be opened for another reason (too many open files, a
+// folder gone) is tried again with the first output 30 s later; `onUnopened`
+// names the error code the first time. A write that fails (a full disk) loses
+// those lines and says nothing.
 // (On Windows the two flags do not exist; libraries there run as the front
 // desk's own user, so there is no boundary to keep.)
 import fs from 'node:fs';
@@ -89,18 +91,21 @@ export function createLibraryLog(dir, {
     let retryAt = 0;
     let toldUnopened = false;
     let lines = 0; // written this run
+    let lost = false; // a line was dropped because the file was refused or could not be opened
     const partial = new Map(); // stream name -> { text, dropping }
 
+    // Called only with lines to write: a null answer means they are lost.
     const ensure = () => {
-        if (handle || refused) return handle;
-        if (Date.now() < retryAt) return null;
+        if (handle) return handle;
+        if (refused || now().getTime() < retryAt) { lost = true; return null; }
         const r = openSafely(file, ownerUid);
         if ('fd' in r) { handle = r; return handle; }
+        lost = true;
         if (r.refused) {
             refused = true;
             callQuietly(onRefused);
         } else {
-            retryAt = Date.now() + RETRY_MS; // lines until then are lost
+            retryAt = now().getTime() + RETRY_MS; // lines until then are lost
             if (!toldUnopened) { toldUnopened = true; callQuietly(onUnopened, r.code); }
         }
         return null;
@@ -148,6 +153,8 @@ export function createLibraryLog(dir, {
         file,
         /** Lines written to the file this run: 0 means nothing of its output was kept. */
         get lines() { return lines; },
+        /** Whether some of its output was dropped: the file was refused or could not be opened. */
+        get lost() { return lost; },
         stream(name) {
             return (chunk) => {
                 if (closed) return;

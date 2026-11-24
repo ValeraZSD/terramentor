@@ -660,17 +660,23 @@ try {
             // value that holds no person's text. A new log line with an error's message,
             // a URL or a title in it fails here before any run would show it. (cli.js
             // prints to the operator's own terminal on request, not to the log.)
-            const SAFE_VALUE = [/^\w+(?:\.\w+)*\.slice\(0, 8\)$/, /^(?:short|why|code|problem|host|port|sig)$/, /^code \?\? signal$/,
+            // Values are matched by name, not traced to where they came from: a `code`
+            // assigned from a message would pass. The scan catches the usual slips.
+            const SAFE_VALUE = [/^(?:id|libraryId|session\.libraryId|result\.libraryId)\.slice\(0, 8\)$/, /^(?:short|why|code|problem|host|port|sig)$/, /^code \?\? signal$/,
                 /^(?:failureWord|failureFacts|codeFrames)\(e\)$/, /^routeLabel\(req\.url\)$/, /^req\.method$/, /^Math\.round\(wakeMs\)$/];
             const bad = [];
             let calls = 0;
             for (const name of readdirSync(join(repoRoot, 'server', 'site')).filter((n) => n.endsWith('.js') && n !== 'cli.js')) {
-                readFileSync(join(repoRoot, 'server', 'site', name), 'utf8').split('\n').forEach((line, i) => {
+                readFileSync(join(repoRoot, 'server', 'site', name), 'utf8').split('\n').forEach((raw, i) => {
                     const at = `${name}:${i + 1}`;
-                    const starts = line.match(/\b(?:log|console)\.(?:log|error|warn|info)\(/g) || [];
-                    const whole = [...line.matchAll(/\b(?:log|console)\.(?:log|error|warn|info)\((`[^`]*`|'[^']*')\)/g)];
-                    calls += starts.length;
-                    if (whole.length !== starts.length) bad.push(`${at} logs something besides one literal`);
+                    const line = raw.replace(/^\s*(?:\/\/|\*|\/\*).*$/, '').replace(/\s\/\/ .*$/, ''); // comments say "log" too
+                    // Any use of a logger: a call, a method handed on (`.catch(console.error)`),
+                    // `log?.error(`, `log['error']`, or a write to the process's own output.
+                    // (`(?<![.\w])`: a field named log on something else, `w.log.close()`, is not the logger.)
+                    const uses = line.match(/(?<![.\w])(?:log|console)\s*(?:\?\.|\.(?=[a-zA-Z])|\[)|process\.std(?:out|err)\.write/g) || [];
+                    const whole = [...line.matchAll(/(?<![.\w])(?:log|console)\.(?:log|error|warn|info)\((`[^`]*`|'[^']*')\)/g)];
+                    calls += uses.length;
+                    if (whole.length !== uses.length) bad.push(`${at} logs something besides one literal`);
                     for (const [, literal] of whole) {
                         for (const [, value] of literal.matchAll(/\$\{([^}]*)\}/g)) {
                             if (!SAFE_VALUE.some((re) => re.test(value.trim()))) bad.push(`${at} puts \${${value}} in a line`);
@@ -699,7 +705,11 @@ try {
         const erinLog = libraryLog(erinDir);
         ok('the library\'s own log, in its own folder, holds what it printed', erinLog.some((f) => f.text.includes(MARKER)), erinLog.map((f) => f.name).join(', ') || 'no log file');
         const gailLog = libraryLog(two.desk.pool.libDir(gail.libId));
-        ok('a library that failed to start has its output in its own log', gailLog.some((f) => f.text.includes('the last line before the failure')), gailLog.map((f) => f.name).join(', ') || 'no log file');
+        const gail8 = gail.libId.slice(0, 8);
+        ok('a library that failed to start has its output in its own log, and the front desk says where it is',
+            gailLog.some((f) => f.text.includes('the last line before the failure'))
+            && lines.includes(`[site] First start of library ${gail8} failed: library ${gail8} stopped while starting (3); its output is in its own log`),
+            gailLog.map((f) => f.name).join(', ') || lines.filter((l) => l.includes(gail8)).join(' | ') || 'no log file');
         ok(`each log file stays under its cap (${LOG_CAP / 1024} KB), the oldest dropped: two files at most`,
             gailLog.length === 2 && gailLog.every((f) => Buffer.byteLength(f.text) <= LOG_CAP) && !gailLog.some((f) => f.text.includes('filler line 0 ')),
             gailLog.map((f) => `${f.name} ${Buffer.byteLength(f.text)} B`).join(', '));
@@ -783,7 +793,23 @@ try {
             w4.stream('stdout')('two\n');
             w4.close();
             ok('a folder at the log\'s name is refused; a missing folder is told once by its code, not as refused',
-                JSON.stringify(told) === '["refused","ENOENT"]' && w3.lines === 0 && w4.lines === 0 && w.lines === 2, JSON.stringify(told));
+                JSON.stringify(told) === '["refused","ENOENT"]' && w3.lines === 0 && w4.lines === 0 && w.lines === 2
+                && w3.lost && w4.lost && !w.lost, JSON.stringify(told));
+            // ...and once the folder is back, the file opens again 30 s after the failure.
+            let clock = 0;
+            const dir5 = join(scratch, 'writer-later');
+            const w5 = createLibraryLog(dir5, { now: () => new Date(clock), onUnopened: (c) => told.push(c) });
+            const out5 = w5.stream('stdout');
+            out5('lost: no folder\n');
+            mkdirSync(dir5);
+            clock = 10_000;
+            out5('lost: too soon to try again\n');
+            clock = 31_000;
+            out5('kept\n');
+            w5.close();
+            const got5 = read(dir5);
+            ok('an open that failed for a reason the library did not cause is tried again 30 s later',
+                JSON.stringify(got5) === '["kept"]' && w5.lines === 1 && w5.lost, JSON.stringify(got5));
         }
 
         await release();
