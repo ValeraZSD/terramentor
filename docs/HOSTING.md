@@ -268,9 +268,10 @@ switch these off, and one that tries is named in the log at start. A copy on
 someone's own computer is unchanged.
 
 **The model needs a zero-retention endpoint, and so does the embedding model.**
-When none serves it, OpenRouter refuses the request and the copy shows "No
-zero-retention endpoint on OpenRouter serves the model ..."; the request is not
-sent anywhere else. List the endpoints that qualify (no key needed):
+When none serves it, OpenRouter refuses the request and the request is not sent
+anywhere else. For the model, the copy shows "No zero-retention endpoint on
+OpenRouter serves the model ..."; for the embedding model, search and related
+topics quietly go without, and the log says why. List the endpoints that qualify (no key needed):
 
 ```sh
 curl -sS https://openrouter.ai/api/v1/endpoints/zdr \
