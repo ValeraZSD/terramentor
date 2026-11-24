@@ -147,9 +147,11 @@ try {
     models.forEach((m, i) => {
         const y = top + i * rowH;
         g.fillStyle = '#111827'; g.font = '20px sans-serif';
-        g.fillText(m.id.length > 44 ? m.id.slice(0, 43) + '…' : m.id, 30, y + 28);
+        const mark = m.zdr == null ? ' (ZDR?)' : m.zdr ? '' : ' (no ZDR)';
+        const name = m.id.length + mark.length > 44 ? m.id.slice(0, 43 - mark.length) + '…' : m.id;
+        g.fillText(name + mark, 30, y + 28);
         g.fillStyle = '#e5e7eb'; g.fillRect(x0, y + 8, barW, 28);
-        g.fillStyle = m.zdr == null ? '#6b7280' : m.zdr ? '#0f766e' : '#2563eb'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
+        g.fillStyle = '#0f766e'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
         g.fillStyle = '#111827'; g.font = 'bold 20px sans-serif';
         g.fillText(m.score == null ? '–' : String(Math.round(m.score)), x0 + barW + 14, y + 30);
         g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
@@ -158,12 +160,15 @@ try {
         g.fillText(per100 === 0 ? '$0' : `$${per100 < 1 ? per100.toFixed(2) : per100.toFixed(1)}`, x0 + barW + 290, y + 30);
     });
     g.fillStyle = '#4b5563'; g.font = '18px sans-serif';
-    const legend = [
-        [true, 'Teal: available with zero data retention on OpenRouter.'],
-        [false, 'Blue: no zero-retention route.'],
-        [null, 'Grey: not checked.'],
-    ].filter(([z]) => models.some(m => (m.zdr ?? null) === z)).map(([, text]) => text);
-    g.fillText(legend.join('   '), 30, H - 22);
+    const note = !models.length ? ''
+        : models.every(m => m.zdr) ? 'Every model shown can be used with zero data retention (ZDR) on OpenRouter.'
+        : [
+            'ZDR = zero data retention on OpenRouter.',
+            models.some(m => m.zdr) && 'No mark: available with ZDR.',
+            models.some(m => m.zdr === false) && '(no ZDR): no such route.',
+            models.some(m => m.zdr == null) && '(ZDR?): not checked.',
+        ].filter(Boolean).join('   ');
+    g.fillText(note, 30, H - 22);
     writeFileSync(pngOut, cv.toBuffer('image/png'));
     console.log(`chart: ${pngOut}`);
 } catch (e) { console.error(`no chart: ${e.message}`); }
