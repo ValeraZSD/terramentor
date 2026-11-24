@@ -215,7 +215,6 @@ try {
         db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_provider', 'openai')").run();
         process.env.AI_PROVIDER = 'ollama'; process.env.AI_BASE_URL = 'https://api.example.net/v1';
         const routed = openAIEmbeddingBase();
-        process.env.AI_PROVIDER = 'openai';
         db.prepare("DELETE FROM settings WHERE key = 'embedding_provider'").run();
         delete process.env.AI_PROVIDER; delete process.env.AI_BASE_URL;
         check('openAIEmbeddingBase names that endpoint when chat is local and embeddings are routed to it', routed === 'https://api.example.net/v1', String(routed));

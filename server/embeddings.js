@@ -158,7 +158,7 @@ export function openAIEmbeddingBase() {
     const ai = getAISettings();
     const cfg = getEmbeddingConfig();
     const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
-    if (!cfg.enabled || provider !== 'openai') return null;
+    if (!vecAvailable || !cfg.enabled || provider !== 'openai') return null;
     const target = openAIEmbeddingTarget(ai);
     return target.refused ? null : target.base;
 }
