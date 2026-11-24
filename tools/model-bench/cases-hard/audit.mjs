@@ -70,7 +70,7 @@ Banks often quote a yearly rate but compound monthly, paying one twelfth of the 
 
 The more often interest is compounded, the higher the effective rate, but the gain shrinks quickly: even compounding continuously only gives $e^{0.05} - 1 \approx 5.13$ %.`;
 
-const KOFSCHIP = String.raw`Voor de verleden tijd van zwakke werkwoorden kijk je naar de laatste letter van de stam (op één uitzondering na, hieronder). Is dat een van de medeklinkers uit 't kofschip (t, k, f, s, ch, p), dan krijgt de verleden tijd -te of -ten en het voltooid deelwoord een t. Anders wordt het -de of -den en een d.
+const KOFSCHIP = String.raw`Voor de verleden tijd van zwakke werkwoorden kijk je naar de laatste letter van de stam (op de uitzonderingen hieronder na). Is dat een van de medeklinkers uit 't kofschip (t, k, f, s, ch, p), dan krijgt de verleden tijd -te of -ten en het voltooid deelwoord een t. Anders wordt het -de of -den en een d.
 
 Zo wordt werken: werkte, gewerkt; fietsen: fietste, gefietst; missen: miste, gemist. Bij horen is de stam hoor, en dat geeft hoorde, gehoord.
 
