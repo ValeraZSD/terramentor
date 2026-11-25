@@ -2,18 +2,18 @@
 //
 // Run:  node tools/screen-swap-gates.mjs
 //
-// Opening a course used to go: the Projects grid, then an EMPTY page, then the
+// One click must not show the Projects grid, then an EMPTY page, then the
 // course arriving in pieces (the tree, the dashboard's sections, the pace
-// pill), each one moving what was below it. Filmed frame by frame on a large
-// library: six states in half a second, 300 ms of them blank. The same held
-// for every move between screens. Two causes, both asserted here:
+// pill), each one moving what is below it. Filmed frame by frame on a large
+// library, that is six states in half a second, 300 ms of them blank, and the
+// same for every move between screens. Two causes, both asserted here:
 //
-//   * a screen's code was downloaded on its first visit, behind a blank
+//   * a screen's code downloaded on its first visit, behind a blank
 //     fallback. `preloadRouteChunk` fetches it in advance, and a route whose
 //     module is here draws on its FIRST render, with no fallback at all.
 //
-//   * a screen was drawn the moment the address changed, before anything it
-//     shows had been read. `useShownLocation` keeps the old screen (and the
+//   * a screen drawn the moment the address changes, before anything it
+//     shows has been read. `useShownLocation` keeps the old screen (and the
 //     store's route) until `swapScreen` draws the new one inside the browser's
 //     view transition, which holds the old picture until the new screen's
 //     reads are back: the reads it started, not background health checks or
@@ -314,7 +314,8 @@ console.log('\n--- the app is wired to it ---');
     check('the app starts hidden until its first screen is whole', /revealFirstScreen\(\)/.test(src('src/main.tsx')));
     const css = src('src/index.css');
     const rule = css.match(/html\[data-first-screen="pending"\] #root \{([^}]*)\}/);
-    check('...hidden by opacity, so a field can still take focus', !!rule && /opacity:\s*0/.test(rule[1]) && !/visibility/.test(rule[1]), rule?.[1] ?? 'no rule');
+    check('...hidden by opacity alone, so a field can still take focus and a click still lands',
+        !!rule && /opacity:\s*0/.test(rule[1]) && !/visibility|pointer-events|display/.test(rule[1]), rule?.[1] ?? 'no rule');
 }
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'}: ${pass} passed, ${fail} failed`);

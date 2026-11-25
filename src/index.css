@@ -494,11 +494,11 @@ html[data-motion="reduce"]::view-transition-new(root) {
   animation: none;
 }
 /* Starting: the app stays out of sight until its first screen is whole.
-   Transparent rather than `visibility: hidden`, which a field cannot take
-   focus under: the password field's autofocus would be lost. */
+   Transparent, and nothing else: under `visibility: hidden` a field cannot
+   take focus (the password field's autofocus would be lost), and a click or
+   key that comes before the reveal still reaches what it was aimed at. */
 html[data-first-screen="pending"] #root {
   opacity: 0;
-  pointer-events: none;
 }
 
 /* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to

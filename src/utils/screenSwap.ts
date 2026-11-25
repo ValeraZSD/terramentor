@@ -1,12 +1,12 @@
 /**
  * Moving from one screen to the next in ONE step.
  *
- * A route used to be drawn the moment the address changed, before anything it
- * shows had arrived: one click showed the old screen, then an empty page, then
- * the new screen arriving piece by piece (the tree, then the dashboard's
- * sections, then the pace pill), each piece moving the ones below it. Filmed
- * frame by frame, opening a course from the Projects grid went through six
- * states in half a second, 300 ms of them a blank page.
+ * A route drawn the moment the address changes, before anything it shows has
+ * arrived, turns one click into several screens: the old one, an empty page,
+ * then the new one arriving piece by piece (the tree, the dashboard's
+ * sections, the pace pill), each piece moving the ones below it. Filmed frame
+ * by frame, opening a course from the Projects grid that way is six states in
+ * half a second, 300 ms of them a blank page.
  *
  * So a move keeps the OLD screen on view while the new one is drawn and its
  * first reads come in, and swaps when the new screen is whole: no read it
@@ -17,7 +17,7 @@
  * frozen is worse than one still filling in.
  *
  * Where the browser has no view transitions, or the page is hidden, the new
- * screen is drawn at once, as before.
+ * screen is drawn at once.
  */
 
 /** The longest the old screen is held for a new one. Nothing on screen
@@ -45,7 +45,7 @@ const BACKGROUND_READ = /^\/api\/(?:ai\/(?:status|generation-status|models|endpo
 
 /** Count a read while it is open. Only GETs: a screen waits on what it reads. */
 export function trackRead<T>(work: Promise<T>, method?: string, url?: string): Promise<T> {
-    if (method && method.toUpperCase() !== 'GET') return work;
+    if (method && !/^get$/i.test(method)) return work;
     if (url && BACKGROUND_READ.test(url)) return work;
     const id = ++readSeq;
     reads.set(id, performance.now());
