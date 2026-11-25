@@ -223,6 +223,15 @@ line falls, but a near miss can still show; the Windows run is the one that coun
   variable and is per-project, where a fixed palette colour would ignore the learner's choice.
 - **Input capability is not a width breakpoint.** Use the `can-hover:` / `touch:` variants and
   the helpers in `src/utils/platform.ts`. A phone held sideways clears `sm:`.
+- **Interface text is `t("…")`, and its locale entries go in through `tools/i18n-put.mjs`.**
+  The key is the English sentence ([docs/I18N.md](docs/I18N.md#how-it-works-for-people-changing-the-app)).
+  Add or change entries in `src/locales/*.json` with `node tools/i18n-put.mjs <patch.json>`,
+  never by pasting lines into the files: each file is kept sorted (`tools/locale-format-gates.mjs`
+  fails otherwise), so two pull requests adding different sentences change different lines.
+  `node tools/i18n-put.mjs --settle` puts a hand-edited file back in order. Once
+  `npm run setup:worktree` or `node tools/locale-merge.mjs --register` has registered it, a git
+  merge of these files goes key by key and conflicts only on a key both sides changed; without
+  it git merges them line by line.
 - **Dates are `YYYY-MM-DD`, parsed as UTC midnight**, and date maths stays in UTC; the reason
   is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#4-data-model).
 - **A route goes in its area's file in `server/routes/`**, registered as `app.get(...)` on the
