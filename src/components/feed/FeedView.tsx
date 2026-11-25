@@ -28,6 +28,7 @@ import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
 import { ContentLang } from '../../utils/contentLang';
 import { motionReduced } from '../../utils/accessibility';
+import { scrollIntoViewWithin, scrollPageTo } from '../../utils/scrollWithin';
 import OwnLine from '../ui/OwnLine';
 
 /**
@@ -146,8 +147,13 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         if (!next) return;
         const el = cardRefs.current.get(next.key);
         if (!el) return;
-        const reduced = motionReduced();
-        el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+        const behavior = motionReduced() ? 'auto' : 'smooth';
+        // The feed's own scroller where it has one (a desktop: the stream
+        // scrolls under the header and beside the assistant), so nothing above
+        // it can move; the window only where the stream IS the page (a phone).
+        if (!scrollIntoViewWithin(el, { boundary: document.body, block: 'start', behavior })) {
+            scrollPageTo(el, { block: 'start', behavior });
+        }
         el.focus({ preventScroll: true });
     }, []);
 
@@ -513,7 +519,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         ref={setCardRef(card.key)}
                         tabIndex={-1}
                         style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
-                        className="outline-none"
+                        // `relative`: a card's hidden (`sr-only`, absolute)
+                        // lines are placed against the card, inside the feed's
+                        // scroller, never at the page's foot.
+                        className="relative outline-none"
                     >
                         {renderStandalone(card, !!feedDone[card.key], handleDone, openLookBack)}
                     </div>
@@ -531,7 +540,8 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
             ref={setCardRef(group.card.key)}
             tabIndex={-1}
             style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
-            className="outline-none"
+            // `relative`, as the cards above: hidden lines stay inside the feed.
+            className="relative outline-none"
         >
             {group.card.kind === 'lookback'
                 ? renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)
