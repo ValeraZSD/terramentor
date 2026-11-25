@@ -28,6 +28,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pluralCategories } from './lib/i18nKeys.mjs';
+import { serialiseLocale } from './lib/localeJson.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const localesDir = resolve(here, '..', 'src', 'locales');
@@ -203,8 +204,7 @@ for (const code of codes) {
             if (v.trim() === it.english.trim()) { unchanged++; continue; }
             current[it.key] = v.trim();
         }
-        const sorted = Object.fromEntries(Object.keys(current).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, current[k]]));
-        writeFileSync(file, `${JSON.stringify(sorted, null, 2)}\n`);
+        writeFileSync(file, serialiseLocale(current));
         process.stdout.write(`  ${Math.min(i + BATCH, todo.length)}/${todo.length}\r`);
     }
     console.log(`\n${code}: ${Object.keys(current).length} entries now; ${rejected} rejected (placeholder or empty), ${unchanged} left in English`);

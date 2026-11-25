@@ -36,6 +36,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from '
 import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectAppKeys, englishEntries, pluralCategories } from './lib/i18nKeys.mjs';
+import { serialiseLike } from './lib/localeJson.mjs';
 import {
     parseTsx, forEachChild, isStringish, isTemplate, stringText, templateParts, isLogical, isBinaryLike,
     isCall, isPropertyAccess, isElementAccess, isPropertyAssignment, propertyNameText, isJsxElement, jsxExpressionOf,
@@ -138,13 +139,14 @@ if (!dry) {
         if (!f.endsWith('.json') || f === 'en.json') continue;
         const code = f.replace(/\.json$/, '');
         const file = join(srcDir, 'locales', f);
-        const data = JSON.parse(readFileSync(file, 'utf8'));
+        const raw = readFileSync(file, 'utf8');
+        const data = JSON.parse(raw);
         const allowed = new Set(Object.keys(JSON.parse(readFileSync(localeFile, 'utf8'))));
         for (const [key, { plural }] of keys) if (plural) for (const c of pluralCategories(code)) allowed.add(`${key}_${c}`);
         const stale = Object.keys(data).filter((k) => !allowed.has(k));
         if (!stale.length) continue;
         for (const k of stale) delete data[k];
-        writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+        writeFileSync(file, serialiseLike(data, raw));
         process.stdout.write(`${code}.json: dropped ${stale.length} stale ${stale.length === 1 ? 'key' : 'keys'}\n`);
     }
 }
@@ -510,12 +512,12 @@ function transform(source, file) {
 
 /** Write en.json: one entry per key (plural keys get _one/_other), existing values kept. */
 function writeEnglishLocale(file, keys) {
-    const existing = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+    const raw = existsSync(file) ? readFileSync(file, 'utf8') : '{}\n';
+    const existing = JSON.parse(raw);
     const next = {};
     for (const [key, { plural }] of keys) {
         for (const [k, v] of Object.entries(englishEntries(key, plural))) next[k] = k in existing ? existing[k] : v;
     }
-    const sorted = Object.fromEntries(Object.keys(next).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, next[k]]));
-    writeFileSync(file, `${JSON.stringify(sorted, null, 2)}\n`);
-    return Object.keys(sorted).length;
+    writeFileSync(file, serialiseLike(next, raw));
+    return Object.keys(next).length;
 }
