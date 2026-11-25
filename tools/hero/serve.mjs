@@ -93,8 +93,18 @@ Math.random = () => {
 // ---- the film clock ------------------------------------------------------------------------
 // Real time unless --film-clock; then the recorder sets it, and while it says `auto` it runs
 // with real time from the last value it was given.
-const clock = { auto: true, t: Date.now() / 1000, real: Date.now() };
-const filmNow = () => (clock.auto ? clock.t + (Date.now() - clock.real) / 1000 : clock.t);
+const realNow = Date.now;
+const clock = { auto: true, t: realNow() / 1000, real: realNow() };
+const filmNow = () => (clock.auto ? clock.t + (realNow() - clock.real) / 1000 : clock.t);
+if (opt.filmClock) {
+    // The server's own clock follows the film too, so the durations it reports (a stage's
+    // seconds, "Took 11 s") are the film's, not however long each frame took to capture.
+    const RealDate = Date;
+    globalThis.Date = class FilmDate extends RealDate {
+        constructor(...a) { if (a.length) super(...a); else super(Math.round(filmNow() * 1000)); }
+        static now() { return Math.round(filmNow() * 1000); }
+    };
+}
 const waiters = new Set();
 let ticker = null;
 function wake() {
@@ -207,13 +217,13 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
     if (!opt.record) { log({ how: 'refused', key, label }); throw new Error(`replay only: no recording for "${label}"`); }
     realCalls++;
     if (realCalls > maxReal || spent > maxUsd) { log({ how: 'capped', key, label, realCalls, spent }); throw new Error(`cap reached (${realCalls} calls, USD ${spent.toFixed(2)})`); }
-    const t0 = Date.now();
+    const t0 = realNow();
     const res = await realFetch(input, init);
     if (!res.ok || !res.body) { log({ how: 'real-fail', status: res.status, label }); return res; }
     const [mine, theirs] = res.body.tee();
     (async () => {
         const text = await new Response(theirs).text();
-        const ms = Date.now() - t0;
+        const ms = realNow() - t0;
         const u = usageOf(text);
         spent += usd(u);
         const stream = body.stream !== false && /event: /.test(text);
@@ -252,7 +262,7 @@ if (opt.filmClock) {
             const q = new URL(req.url, 'http://x').searchParams;
             clock.auto = q.get('auto') === '1';
             clock.t = Number(q.get('t'));
-            clock.real = Date.now();
+            clock.real = realNow();
             wake();
             // Answered after the replies now due have been handed to the app.
             setImmediate(() => { res.writeHead(204); res.end(); });
