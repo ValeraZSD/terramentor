@@ -37,10 +37,17 @@ function decodeRoute(pathname: string): RouteState {
 
 /** Bridges react-router and the Zustand store: injects `navigate` so store
  *  actions can drive the URL, and reconciles the store to the URL on every
- *  location change. Mount once, high in the tree (inside the Router). */
-export function useRouterStoreSync() {
+ *  location change. Mount once, high in the tree (inside the Router).
+ *
+ *  `pathname` is the SHOWN location's (`useShownLocation`), not the address
+ *  bar's: the store would otherwise empty the old screen (a project's tree,
+ *  its dashboard) while it is still the one on view. Without one, the
+ *  address bar's. */
+export function useRouterStoreSync(shownPathname?: string) {
     const navigate = useNavigate();
-    const { pathname, key } = useLocation();
+    const location = useLocation();
+    const { key } = location;
+    const pathname = shownPathname ?? location.pathname;
     const setNavigate = useStore(s => s.setNavigate);
     const applyRoute = useStore(s => s.applyRoute);
     // The same test App.tsx uses to decide between the lock screen and the app.

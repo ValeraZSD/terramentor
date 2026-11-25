@@ -3,10 +3,11 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useStore } from './store';
 import { setAuthRequiredHandler } from './api';
 import { useRouterStoreSync } from './hooks/useRouterStoreSync';
+import { useShownLocation } from './hooks/useShownLocation';
 import AuthGate from './components/AuthGate';
 import Layout from './components/Layout';
 import { ErrorBoundary, workspaceFallback } from './components/ErrorBoundary';
-import RouteChunk from './components/RouteChunk';
+import RouteChunk, { preloadRouteChunk } from './components/RouteChunk';
 import FeedView from './components/feed/FeedView';
 import UpdatePrompt from './components/UpdatePrompt';
 import { useDesktop } from './hooks/useDesktop';
@@ -39,6 +40,16 @@ const importAtlas = () => import('./components/AtlasView');
 const importWelcome = () => import('./components/welcome/WelcomeFlow');
 const importOpenRouterReturn = () => import('./components/welcome/OpenRouterReturn');
 
+// The screen the app was opened on starts downloading with the app itself,
+// beside the sign-in and settings reads, rather than after them.
+function preloadOpeningRoute(path: string): void {
+    if (path.startsWith('/project/')) void preloadRouteChunk(k("Workspace"), importWorkspace);
+    else if (path === '/projects') void preloadRouteChunk(k("Projects Grid"), importProjectsGrid);
+    else if (path === '/settings') void preloadRouteChunk(k("Settings"), importSettings);
+    else if (path === '/atlas') void preloadRouteChunk(k("Atlas"), importAtlas);
+}
+preloadOpeningRoute(window.location.pathname);
+
 /** Deliberately blank rather than a spinner: a chunk off the local disk arrives
  *  in a few milliseconds, and a spinner that flashes for one frame reads as the
  *  app stuttering. The header and rail are already painted around it. */
@@ -61,9 +72,13 @@ export default function App() {
     const authenticated = useStore(s => s.authenticated);
     const welcome = useStore(s => s.welcome);
 
+    // The page on view trails the address while the next one is drawn, so a
+    // move swaps whole screens (hooks/useShownLocation.ts).
+    const shown = useShownLocation();
+
     // Keep the store's nav state (view / project / workspaceView / selectedNode)
-    // in lockstep with the URL — the URL is the source of truth.
-    useRouterStoreSync();
+    // in lockstep with the URL — the URL is the source of truth — as it is SHOWN.
+    useRouterStoreSync(shown.pathname);
 
     // A desktop install stops itself when its last window closes; this is the
     // window saying it is still here. A no-op everywhere else.
@@ -93,6 +108,27 @@ export default function App() {
         return () => setAuthRequiredHandler(null);
     }, []);
 
+    // Once the first screen is up, the other screens' code is fetched in the
+    // background, so opening one for the first time draws it at once rather
+    // than a blank page while its module arrives (it took 300 ms on loopback).
+    // Not before: the first screen's own code goes first.
+    const inApp = authChecked && (!authEnabled || authenticated) && welcome === 'done';
+    useEffect(() => {
+        if (!inApp) return;
+        const preload = () => {
+            void preloadRouteChunk(k("Workspace"), importWorkspace);
+            void preloadRouteChunk(k("Projects Grid"), importProjectsGrid);
+            void preloadRouteChunk(k("Settings"), importSettings);
+            void preloadRouteChunk(k("Atlas"), importAtlas);
+        };
+        if (typeof window.requestIdleCallback === 'function') {
+            const id = window.requestIdleCallback(preload, { timeout: 2000 });
+            return () => window.cancelIdleCallback(id);
+        }
+        const id = window.setTimeout(preload, 1000);
+        return () => window.clearTimeout(id);
+    }, [inApp]);
+
     // Avoid flashing the app before we know whether a login is required.
     if (!authChecked) return null;
     if (authEnabled && !authenticated) return <AuthGate />;
@@ -113,7 +149,7 @@ export default function App() {
             <UpdatePrompt />
             <Layout>
                 <Suspense fallback={<RouteFallback />}>
-                    <Routes>
+                    <Routes location={shown}>
                         <Route path="/" element={
                             <ErrorBoundary componentName={k("Feed")}>
                                 <FeedView />

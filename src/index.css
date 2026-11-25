@@ -482,6 +482,22 @@ html[data-motion="reduce"] *:not(.drop-flash)::after {
   scroll-behavior: auto !important;
 }
 
+/* Moving between screens (src/utils/screenSwap.ts): the old screen stays on
+   view until the new one is whole, then the two cross-fade, quickly enough to
+   read as one step. With motion reduced, the new screen simply replaces the old. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 120ms;
+}
+html[data-motion="reduce"]::view-transition-old(root),
+html[data-motion="reduce"]::view-transition-new(root) {
+  animation: none;
+}
+/* Starting: the app stays out of sight until its first screen is whole. */
+html[data-first-screen="pending"] #root {
+  visibility: hidden;
+}
+
 /* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
    survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em); no gate
    yet opens a screen at it to look for clipped text. On every

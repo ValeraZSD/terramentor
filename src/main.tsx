@@ -5,11 +5,14 @@ import App from './App';
 import './index.css';
 import { registerSW } from './sw-register';
 import { i18nReady } from './i18n';
+import { revealFirstScreen } from './utils/screenSwap';
 
 // The interface language is applied BEFORE the first render: the cached choice
 // is read synchronously, but a non-English locale is a chunk that has to
 // arrive, and mounting first would paint English and then swap every label.
 void i18nReady.then(() => {
+    // Kept out of sight until the first screen is whole (utils/screenSwap.ts).
+    revealFirstScreen();
     ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.StrictMode>
             <BrowserRouter>
