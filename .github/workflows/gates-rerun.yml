@@ -2,7 +2,8 @@
 # leave a pull request red until someone notices it.
 #
 # Once only: it acts on the first attempt of a run, so a job that fails again
-# on the second attempt stays red. The job summary names the jobs it re-ran.
+# on the second attempt stays red. The job summary names the jobs that failed
+# and says whether they were re-run.
 #
 # A workflow_run workflow runs from the default branch with a token that can
 # write, whoever opened the pull request. So this one checks nothing out and
@@ -13,7 +14,8 @@
 #
 # A pull request's older run is left alone once a newer push has started
 # another: re-running it would join the newer run's concurrency group in
-# gates.yml and cancel it.
+# gates.yml and cancel it. Runs are matched on branch AND repository, since
+# two forks may each have a branch of the same name.
 name: Gates re-run
 
 on:
@@ -39,6 +41,7 @@ jobs:
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN_EVENT: ${{ github.event.workflow_run.event }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
         run: |
           set -euo pipefail
           failed="$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name')"
@@ -47,14 +50,22 @@ jobs:
             echo
             echo "Run: $RUN_URL"
             echo
-            echo "Failed jobs:"
-            printf '%s\n' "$failed" | tr -d '`' | sed 's/.*/- `&`/'
+            if [ -n "$failed" ]; then
+              echo "Failed jobs:"
+              printf '%s\n' "$failed" | tr -d '`' | sed 's/.*/- `&`/'
+            else
+              echo "No job is marked as failed."
+            fi
             echo
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RUN_EVENT" = pull_request ]; then
-            newest="$(gh run list --workflow gates.yml --event pull_request --branch "$HEAD_BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId')"
+            # Newest first; the first run from the same repository and branch.
+            newest="$(gh api -X GET "repos/$GH_REPO/actions/workflows/gates.yml/runs" \
+              -f event=pull_request -f branch="$HEAD_BRANCH" -F per_page=30 \
+              --jq '.workflow_runs[] | "\(.id) \(.head_repository.full_name)"' \
+              | awk -v repo="$HEAD_REPO" '$2 == repo && !found { print $1; found = 1 }')"
             if [ "$newest" != "$RUN_ID" ]; then
-              echo "Not re-run: run $newest is newer on this branch." | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "Not re-run: run ${newest:-?} is the newest on this branch." | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
           fi
