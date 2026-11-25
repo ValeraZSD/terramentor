@@ -305,8 +305,10 @@ To cut a stable release:
    ```
 
    Nothing else joins: a new feature, or a fix for something the last stable already did,
-   waits for the next release on `main`. **Gates** runs on every push to `release/X.Y` as it
-   does on `main`. A `CHANGELOG.md` change goes to `main` and is cherry-picked the same way.
+   waits for the next release on `main`. Never merge `main` into the branch: the stable run
+   refuses a branch that holds `main`'s own commits after the nightly, since they were never
+   tried. **Gates** runs on every push to `release/X.Y` as it does on `main`. A
+   `CHANGELOG.md` change goes to `main` and is cherry-picked the same way.
 6. Run **Nightly** by hand with **stable**, and the tag from step 4 in **nightly**. It
    releases that nightly's commit, or the head of `release/X.Y` when that branch exists (the
    branch has to contain the nightly), never `main`'s head and never whichever nightly is
@@ -317,7 +319,10 @@ To cut a stable release:
    itself (`.github/workflows/release.yml`, `tools/release.mjs`,
    `tools/lib/releaseChannel.mjs`) changed on `main` after the commit it would build, because
    the workflow from `main` would run the older script: cherry-pick that change onto
-   `release/X.Y` (start the branch at the nightly if there is none), then run it again. When
+   `release/X.Y` (start the branch at the nightly if there is none), then run it again. The
+   other scripts the workflow runs (the smoke tests, the desktop build) come from the commit
+   being built; the summary names any that differ from `main`'s, so a step that fails on how
+   it calls one points at the change to cherry-pick. When
    the branch carries fixes, the build waiting for your Approve has not been tried yet: take
    the Windows zip from that run's artifacts and try it with
    `tools/windows-sandbox-check.ps1 -Zip <the zip>` before you press Approve.

@@ -30,7 +30,7 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sig
 import { basename, join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, namedNightly, nightlyBase, nightlyDecision,
-    releaseBranch, versionCore,
+    releaseBranch, versionCore, workflowScripts,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
     draftProblems, gatesPassed, GATES_CHECKS,
 } from './lib/releaseChannel.mjs';
@@ -182,27 +182,37 @@ async function promote() {
     const main = mainRef();
     const onMain = !!nightly && gitOk('merge-base', '--is-ancestor', nightly.sha, main);
     const show = (sha, file) => gitTry('show', `${sha}:${file}`);
-    const nightlyVersion = nightly ? JSON.parse(show(nightly.sha, 'package.json') || '{}').version : null;
+    const nightlyPkgVersion = nightly ? JSON.parse(show(nightly.sha, 'package.json') || '{}').version : null;
     // Its release branch, beside main on the same remote (origin/release/X.Y),
     // when one has been started.
     let line = null;
-    if (nightly && versionCore(nightlyVersion)) {
-        const name = releaseBranch(nightlyVersion);
+    if (nightly && versionCore(nightlyPkgVersion)) {
+        const name = releaseBranch(nightlyPkgVersion);
         const lineSha = gitTry('rev-parse', '--verify', '--quiet', `${main.replace(/main$/, name)}^{commit}`);
         if (lineSha) {
             const containsNightly = gitOk('merge-base', '--is-ancestor', nightly.sha, lineSha);
             const log = containsNightly ? git('log', '--no-merges', '--format=%H%x09%s', `${nightly.sha}..${lineSha}`) : '';
             const commits = log ? log.split('\n').map((l) => { const [sha, ...s] = l.split('\t'); return { sha, subject: s.join('\t') }; }) : [];
-            line = { name, sha: lineSha, containsNightly, commits };
+            // Commits after the nightly that main also has: merged in, not cherry-picked.
+            const after = containsNightly ? git('rev-list', lineSha, `^${nightly.sha}`) : '';
+            const own = containsNightly ? git('rev-list', lineSha, `^${nightly.sha}`, `^${main}`) : '';
+            const ownSet = new Set(own.split('\n').filter(Boolean));
+            const fromMain = after.split('\n').filter((s) => s && !ownSet.has(s));
+            line = { name, sha: lineSha, containsNightly, commits, fromMain };
         }
     }
     const built = line?.containsNightly ? line.sha : nightly?.sha;
     const changed = built ? git('diff', '--name-only', built, main, '--', ...PIPELINE_FILES) : '';
+    // The other scripts main's release.yml runs from the built commit. They may
+    // rightly differ (they build that commit's code), so they are named, not refused.
+    const scripts = workflowScripts(gitTry('show', `${main}:.github/workflows/release.yml`) || '')
+        .filter((f) => !PIPELINE_FILES.includes(f));
+    const scriptsDiffer = built && scripts.length ? git('diff', '--name-only', built, main, '--', ...scripts).split('\n').filter(Boolean) : [];
     const p = promotion({
         requested,
         nightly,
         onMain,
-        nightlyVersion,
+        nightlyVersion: nightlyPkgVersion,
         line,
         packageVersion: built ? JSON.parse(show(built, 'package.json') || '{}').version : null,
         tags,
@@ -213,9 +223,13 @@ async function promote() {
     const fixes = p.fixes.length
         ? `\n\n${p.line} adds ${p.fixes.length} commit${p.fixes.length === 1 ? '' : 's'} after ${p.from}:\n\n${p.fixes.map((c) => `- \`${c.sha.slice(0, 7)}\` ${c.subject}`).join('\n')}\n`
         : p.line ? `\n\n${p.line} adds nothing after ${p.from}.\n` : '';
+    const differ = scriptsDiffer.length
+        ? `\n\nThese scripts the release workflow runs differ from main's; if a build step fails on how it calls one, `
+          + `cherry-pick main's change to it:\n\n${scriptsDiffer.map((f) => `- \`${f}\``).join('\n')}\n`
+        : '';
     answer(
         { publish: true, version: p.version, ref: p.sha, previous: p.from, reason: `Promoting ${from} (${p.sha}) as ${p.tag}.` },
-        `### Stable\n\nPromoting **${p.from}**${p.line ? ` through **${p.line}**` : ''} (\`${p.sha.slice(0, 7)}\`) as **${p.tag}**.${fixes}\n`,
+        `### Stable\n\nPromoting **${p.from}**${p.line ? ` through **${p.line}**` : ''} (\`${p.sha.slice(0, 7)}\`) as **${p.tag}**.${fixes}${differ}\n`,
     );
 }
 

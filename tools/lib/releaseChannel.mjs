@@ -187,6 +187,14 @@ export function promotion({
         throw new Error(`${line.name} does not contain ${nightly.tag}'s commit ${nightly.sha}. A release branch starts at the `
             + 'nightly that was tried; name the nightly it was started from.');
     }
+    // A fix reaches the branch as a cherry-pick, a new commit. A commit that is
+    // also main's arrived by merging main in, and brings untried work with it.
+    if (line?.fromMain?.length) {
+        throw new Error(`${line.name} holds ${line.fromMain.length} commit${line.fromMain.length === 1 ? '' : 's'} of main after `
+            + `${nightly.tag} (${line.fromMain.slice(0, 3).map((s) => s.slice(0, 7)).join(', ')}${line.fromMain.length > 3 ? ', ...' : ''}), `
+            + 'so main was merged into it. A release branch takes cherry-picked fixes only; start it again at the nightly '
+            + 'and cherry-pick the fixes.');
+    }
     const at = line ? `${line.name} (${line.sha.slice(0, 7)})` : nightly.tag;
     // release.yml comes from main, the scripts it runs from the commit being
     // built. They must be the same files, or main's workflow calls an older
@@ -227,6 +235,13 @@ export function releaseBranch(version) {
     const core = versionCore(version);
     if (!core) throw new Error(`"${version}" is not a version`);
     return `release/${core.split('.').slice(0, 2).join('.')}`;
+}
+
+/** The repository scripts a workflow runs, by the paths it names under tools/
+ *  (`tools/x.mjs`, `tools/x.sh`; data files such as `.json` are not scripts). */
+export function workflowScripts(workflowText) {
+    const found = String(workflowText || '').match(/\btools\/[\w./-]+\.(?:mjs|js|cjs|sh|ps1)\b/g) || [];
+    return [...new Set(found)].sort();
 }
 
 /** The published nightly release with this tag, as `{ tag, publishedAt }`, or null. */

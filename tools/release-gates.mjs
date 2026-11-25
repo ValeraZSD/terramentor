@@ -56,7 +56,7 @@ const throwsWith = (name, fn, pattern) => {
 const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
-    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, GATES_CHECKS, releaseBranch, namedNightly,
+    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, GATES_CHECKS, releaseBranch, namedNightly, workflowScripts,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -177,6 +177,12 @@ throwsWith('a named nightly that is not published: refuse', () => promotion({ ..
         () => promotion({ ...good, line, packageVersion: '1.3.0', changelog: '## [1.3.0]\n' }), /release\/1\.2 says 1\.3\.0, which is not a version of that line/);
     throwsWith('the pipeline changed on main since the branch: cherry-pick it onto the branch',
         () => promotion({ ...good, line, pipelineChanged: ['tools/release.mjs'] }), /changed on main since release\/1\.2.*Cherry-pick that change onto release\/1\.2/s);
+    throwsWith('a release branch holding main\'s own commits (main merged in): refuse, naming them',
+        () => promotion({ ...good, line: { ...line, fromMain: ['e'.repeat(40), 'f'.repeat(40)] } }),
+        /release\/1\.2 holds 2 commits of main after v1\.2\.0-nightly\.20261008\.1 \(eeeeeee, fffffff\).*cherry-pick/s);
+    check('the scripts a workflow runs: tools/ scripts by path, once each, not data files',
+        workflowScripts('run: node tools/a.mjs && bash tools/x/b.sh\nrun: node tools/a.mjs tools/budgets.json\nrun: pwsh tools/c.ps1\n'),
+        ['tools/a.mjs', 'tools/c.ps1', 'tools/x/b.sh']);
     check('a patch on the branch (1.2.1 after 1.2.0) promotes as 1.2.1',
         promotion({ ...good, line, tags: [...good.tags, 'v1.2.0'], packageVersion: '1.2.1', changelog: '## [1.2.1]\n\nfix\n\n## [1.2.0]\n' }).tag, 'v1.2.1');
     check('the release branch of a version', [releaseBranch('1.2.0'), releaseBranch('1.10.3'), releaseBranch('2.0.0-nightly.20261008.1')],
@@ -709,6 +715,31 @@ const pickedSha = commit('pipeline change', { 'tools/release.mjs': '// a newer C
 git(repo, 'checkout', '-q', 'main');
 r = promote(['--nightly', NIGHTLY_TAG]);
 ok('…and promotes once the branch carries it', r.status === 0 && r.stdout.includes(`ref=${pickedSha}`), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+// The other scripts main's release.yml runs are named in the summary when the
+// built commit has different ones, never refused: they build that commit's code.
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflow = { '.github/workflows/release.yml': 'steps:\n  - run: bash tools/smoke.sh\n  - run: node tools/perf.json\n' };
+commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo new\n' });
+git(repo, 'checkout', '-q', 'release/1.2');
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflowPicked = commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo old\n' });
+git(repo, 'checkout', '-q', 'main');
+writeFileSync(summaryFile, '');
+r = promote(['--nightly', NIGHTLY_TAG], { GITHUB_STEP_SUMMARY: summaryFile });
+ok('a script release.yml runs that differs on the branch is named in the summary, and the stable still goes ahead',
+    r.status === 0 && r.stdout.includes(`ref=${workflowPicked}`) && /differ from main's[^]*- `tools\/smoke\.sh`/.test(readFileSync(summaryFile, 'utf8'))
+    && !readFileSync(summaryFile, 'utf8').includes('perf.json'), (r.stderr + readFileSync(summaryFile, 'utf8')).trim());
+// main merged into the branch brings its untried commits along: refuse.
+git(repo, 'checkout', '-q', 'release/1.2');
+const merged = git(repo, 'merge', '-q', '--no-edit', '-X', 'ours', 'main');
+git(repo, 'checkout', '-q', 'main');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('a release branch with main merged into it is refused, naming main\'s commits',
+    merged.status === 0 && r.status !== 0 && /release\/1\.2 holds \d+ commits of main after v1\.2\.0-nightly\.20261008\.1.*cherry-pick/s.test(r.stderr),
+    `${merged.stderr}${r.stdout}${r.stderr}`.trim());
+git(repo, 'branch', '-q', '-f', 'release/1.2', workflowPicked);
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('…and goes ahead again once the branch holds only its own commits', r.status === 0, (r.stdout + r.stderr).trim());
 git(repo, 'branch', '-q', '-D', 'release/1.2');
 r = promote(['--nightly', NIGHTLY_TAG]);
 ok('with no release branch, promote refuses when the release pipeline changed on main since the nightly',
