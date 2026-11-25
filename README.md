@@ -55,8 +55,8 @@ the date.
 
 ### Study
 
-The home page is a stream: lessons in short parts, a question after each part, flashcards, and
-questions from earlier topics you are starting to forget. Diagrams, charts and animations are
+The home page is a stream, one course at a time: lessons in short parts, a question after each
+part, flashcards, and questions from earlier topics you are starting to forget. Diagrams, charts and animations are
 written by the model as code and checked before you see them. The assistant, open beside any
 screen, teaches the topic in front of you, answers from your own files, looks at a photo or a
 document you attach, and can change a course for you, with Undo.
@@ -80,7 +80,8 @@ Flashcards come back just before you would forget them (scheduled with FSRS-7, t
 and fitted to your own reviews once there are enough of them).
 Every two weeks or so a course offers a look back: ten questions from across it, and a topic you
 miss comes back as a question the next day you study. In the weeks before an exam whose date cannot
-move, or one you have described, the offer is a full mock exam.
+move, or one you have described, the offer is a full mock exam: the course's own questions on
+screen, or a past paper you add, with an exam clock if you want one.
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)
@@ -154,9 +155,8 @@ outbound connection.
 You can study, review cards and answer questions with only a keyboard, and NVDA reads a card
 review, a quiz and maths. Any list or card you can drag also moves from the keyboard. Settings
 → General → Text & interface size makes everything up to 160% of its usual size, and Settings →
-Accessibility holds
-contrast, motion, text spacing, a reading line, reading aloud, time limits, confirming before
-an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
+Accessibility holds contrast, motion, text spacing, larger text and buttons, a reading line,
+reading aloud, time limits, confirming before an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
 says how that is tested, what does not meet it yet, and how to report a barrier.
 
 ## Install
