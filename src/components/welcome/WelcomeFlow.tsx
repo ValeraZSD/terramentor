@@ -167,7 +167,7 @@ export default function WelcomeFlow() {
                                 <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">{t("Welcome to Terramentor")}</h1>
                                 <p className="mt-1 text-sm font-medium text-accent-fg">{t("AI gets better, so do you.")}</p>
                                 <p className="mt-3 text-base text-slate-600 dark:text-slate-300">
-                                    {t("Tell it what you want to learn. An AI model drafts the course and writes every lesson, diagram and question; the app plans it against your deadline, checks what you have really learned, and brings it back at the right time, so it stays fresh.")}
+                                    {t("Tell it what you want to learn. An AI model drafts the course and writes every lesson, diagram and question; the app plans it against your deadline, checks what you have really learned, and makes sure you remember it.")}
                                 </p>
                                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                                     {t("Four short steps. Everything here can be changed later in Settings.")}
