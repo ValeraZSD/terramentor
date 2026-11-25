@@ -98,6 +98,9 @@ export interface Project {
      *  made from, never its text. NULL for every other course. The strip on
      *  Projects lists the ones still one level deep. */
     made_from?: string | null;
+    /** 0 while a course written in phases has not been finished (a run that
+     *  stopped can be continued), 1 once it has; NULL for a course no run wrote. */
+    creation_finished?: number | null;
     created_at: string;
     updated_at: string;
     node_count?: number;
