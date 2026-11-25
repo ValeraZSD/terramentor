@@ -1,0 +1,392 @@
+{
+ "repo": "ValeraZSD/terramentor",
+ "number": 367,
+ "recorded_at": "2026-11-25T22:24:42.709Z",
+ "book": {
+  "/repos/ValeraZSD/terramentor/pulls/367": {
+   "number": 367,
+   "title": "Keep learner text out of a site operator's log",
+   "draft": false,
+   "state": "open",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "changed_files": 13,
+   "html_url": "https://github.com/ValeraZSD/terramentor/pull/367",
+   "created_at": "2026-11-24T18:29:05Z",
+   "user": {
+    "login": "ValeraZSD"
+   },
+   "labels": [],
+   "head": {
+    "sha": "a69449c4df6c92f2abc705b8ed8370f99c8282b1",
+    "ref": "operator-log-no-learner-text",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   },
+   "base": {
+    "ref": "main",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   }
+  },
+  "/repos/ValeraZSD/terramentor/pulls/367/files?per_page=100&page=1": [
+   {
+    "filename": "SECURITY.md",
+    "status": "modified"
+   },
+   {
+    "filename": "docs/HOSTING.md",
+    "status": "modified"
+   },
+   {
+    "filename": "server/activityLog.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/failureFacts.js",
+    "status": "added"
+   },
+   {
+    "filename": "server/site/frontDesk.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/site/index.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/site/libraries.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/site/libraryLog.js",
+    "status": "added"
+   },
+   {
+    "filename": "server/site/passwords.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/slowLog.js",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/site-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/site-proofs.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/tenancy-gates.mjs",
+    "status": "modified"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/commits/a69449c4df6c92f2abc705b8ed8370f99c8282b1/check-runs?filter=all&per_page=100&page=1": {
+   "check_runs": [
+    {
+     "id": 139234609266,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T13:20:59Z",
+     "completed_at": "2026-11-25T13:29:06Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139208689854,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:20Z",
+     "completed_at": "2026-11-25T11:22:44Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139208612120,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:19Z",
+     "completed_at": "2026-11-25T11:51:10Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139208608272,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T12:35:17Z",
+     "completed_at": "2026-11-25T12:53:29Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139167661177,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:20Z",
+     "completed_at": "2026-11-25T11:22:44Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139167661062,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "failure",
+     "started_at": "2026-11-25T11:19:20Z",
+     "completed_at": "2026-11-25T11:32:27Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139167660638,
+     "name": "signoff",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:19Z",
+     "completed_at": "2026-11-25T11:19:32Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139167660570,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:19Z",
+     "completed_at": "2026-11-25T11:51:10Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139167660470,
+     "name": "check",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:19:20Z",
+     "completed_at": "2026-11-25T11:19:44Z",
+     "app": "github-actions"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/a69449c4df6c92f2abc705b8ed8370f99c8282b1/statuses?per_page=100&page=1": [
+   {
+    "context": "license/cla",
+    "state": "success",
+    "description": "Contributor License Agreement is signed.",
+    "created_at": "2026-11-25T11:19:19Z",
+    "creator": {
+     "login": "ValeraZSD"
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/issues/367/events?per_page=100&page=1": [],
+  "/repos/ValeraZSD/terramentor/pulls/367/commits?per_page=100&page=1": [
+   {
+    "sha": "c6f1fa06766edc9cd10f6d9ae731fe30d150e206",
+    "parents": [
+     {
+      "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b"
+     }
+    ],
+    "commit": {
+     "message": "Move failureFacts to a module with no database\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:28:31Z"
+     }
+    }
+   },
+   {
+    "sha": "6677ad7cad3eab4557258fffaa00febc4e6c5a7f",
+    "parents": [
+     {
+      "sha": "c6f1fa06766edc9cd10f6d9ae731fe30d150e206"
+     }
+    ],
+    "commit": {
+     "message": "Log a slow request by its path, without the query\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:28:31Z"
+     }
+    }
+   },
+   {
+    "sha": "5685a61d63d4d3155b7f8df07ab34a589ad8383d",
+    "parents": [
+     {
+      "sha": "6677ad7cad3eab4557258fffaa00febc4e6c5a7f"
+     }
+    ],
+    "commit": {
+     "message": "Keep a site library's output out of the desk's log\n\nThe front desk copied every line a library printed into its own log,\nwhich outlives the library and an erasure: topic titles, questions with\ntheir answers, a course's name on import. A failed start also put the\nlibrary's last line in the error the desk logged, and the desk's own\nerror line named an invite link with its token.\n\nEach library's output now goes to server.log in its own folder, rotated\nat SITE_LIBRARY_LOG_KB with one older file kept, and opened without\nfollowing a link, a pipe or a second name the library may have left.\nThe desk's lines say only started, stopped or a failure's kind, an\naddress by its shape, and code frames without the error's message.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:28:32Z"
+     }
+    }
+   },
+   {
+    "sha": "86ba394e7420752c21be9034a4773a75109e87bf",
+    "parents": [
+     {
+      "sha": "5685a61d63d4d3155b7f8df07ab34a589ad8383d"
+     }
+    ],
+    "commit": {
+     "message": "Harden the library log writer after review\n\nEach stream keeps its own unfinished line, so a line cut at a pipe read\nis no longer glued to the other stream's; a chunk's lines go to disk in\none write; a refused log file is said once in the front desk's log and\nnot retried; nothing is written or reopened after close; a line that\nnever ends keeps its start and drops the rest; the pipes are read as\nUTF-8. A failed start waits for its last lines before it is reported.\nCode frames skip the error's message even when it is shaped like one.\nSITE_LIBRARY_LOG_KB has a 4 KB floor.\n\nThe gate drops a query check that passed before the change and adds\nchecks for the route labels, failure words, code frames, the breached-\npassword warning, the per-stream lines and the refused-log line.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:36:47Z"
+     }
+    }
+   },
+   {
+    "sha": "544426f6137b23f85d965edce0be3032efee84db",
+    "parents": [
+     {
+      "sha": "86ba394e7420752c21be9034a4773a75109e87bf"
+     }
+    ],
+    "commit": {
+     "message": "Fix library log edge cases found in review\n\nA failed kill of a running library no longer takes it off the books. A\nlog that cannot be opened for a reason the library did not cause (a full\ndisk, a missing folder) is retried instead of refused for the run. A new\nrun waits for the last run's lines before opening the same file, and a\nfailed start only says its output is kept when lines were written. The\nsite gate now scans every front-desk log call for what it interpolates.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:47:32Z"
+     }
+    }
+   },
+   {
+    "sha": "061d5302c78d6d5e1563e3967f1982fb0ad4c763",
+    "parents": [
+     {
+      "sha": "544426f6137b23f85d965edce0be3032efee84db"
+     }
+    ],
+    "commit": {
+     "message": "Close review gaps in the library log and gate\n\nNo library is started once the pool is shutting down. A start failure\nsays its output was not kept when the log was refused or unopened, and\nthe open retry follows the writer's own clock so the gate can test it.\nThe log-call scan now also catches a logger handed on as a function,\noptional or bracket access and writes to the process's own output, and\nan id slice is safe only for a library id.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:54:11Z"
+     }
+    }
+   },
+   {
+    "sha": "a69449c4df6c92f2abc705b8ed8370f99c8282b1",
+    "parents": [
+     {
+      "sha": "061d5302c78d6d5e1563e3967f1982fb0ad4c763"
+     }
+    ],
+    "commit": {
+     "message": "List the library log writer's folder in tenancy\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-25T11:19:08Z"
+     }
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/a69449c4df6c92f2abc705b8ed8370f99c8282b1...main": {
+   "ahead_by": 4,
+   "commits": [
+    {
+     "sha": "624513a68c81bf31833cfb5ebe5c208437426305",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T21:36:34Z"
+      }
+     }
+    },
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T16:55:50Z"
+      }
+     }
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T20:57:20Z"
+      }
+     }
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T21:52:17Z"
+      }
+     }
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/e6f6945f3d649b54bbfebd24bc928d1a3f59f10c": {
+   "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+   "files": [
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/tree.ts"
+    },
+    {
+     "filename": "tools/one-level-course-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/1d894c4a64bd9ea549fa3b437c7a30d22e9c4957": {
+   "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0": {
+   "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+   "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  }
+ }
+}

@@ -1,0 +1,2747 @@
+{
+ "repo": "ValeraZSD/terramentor",
+ "number": 331,
+ "recorded_at": "2026-11-25T22:24:27.527Z",
+ "book": {
+  "/repos/ValeraZSD/terramentor/pulls/331": {
+   "number": 331,
+   "title": "Hosted guard and first-password setup fixes",
+   "draft": false,
+   "state": "open",
+   "mergeable": false,
+   "mergeable_state": "dirty",
+   "changed_files": 8,
+   "html_url": "https://github.com/ValeraZSD/terramentor/pull/331",
+   "created_at": "2026-11-21T14:07:54Z",
+   "user": {
+    "login": "ValeraZSD"
+   },
+   "labels": [],
+   "head": {
+    "sha": "1fb4f9d3ff6a8e21af4c0413850ab68806ac705c",
+    "ref": "fix/hosted-and-device-setup",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   },
+   "base": {
+    "ref": "main",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   }
+  },
+  "/repos/ValeraZSD/terramentor/pulls/331/files?per_page=100&page=1": [
+   {
+    "filename": "server/auth.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/hosted.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/routes/auth.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/routes/system.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/siteLibrary.js",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/device-access-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/hosted-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/security-gates.mjs",
+    "status": "modified"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/commits/1fb4f9d3ff6a8e21af4c0413850ab68806ac705c/check-runs?filter=all&per_page=100&page=1": {
+   "check_runs": [
+    {
+     "id": 136955005005,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T19:16:28Z",
+     "completed_at": "2026-11-21T19:22:10Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 136872218438,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T14:14:16Z",
+     "completed_at": "2026-11-21T14:28:36Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 136872218395,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T14:14:16Z",
+     "completed_at": "2026-11-21T14:40:58Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 136872218190,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T14:14:17Z",
+     "completed_at": "2026-11-21T14:17:23Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 136872217814,
+     "name": "check",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T14:14:16Z",
+     "completed_at": "2026-11-21T14:14:29Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 136872217732,
+     "name": "signoff",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-21T14:14:16Z",
+     "completed_at": "2026-11-21T14:14:26Z",
+     "app": "github-actions"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/1fb4f9d3ff6a8e21af4c0413850ab68806ac705c/statuses?per_page=100&page=1": [
+   {
+    "context": "license/cla",
+    "state": "success",
+    "description": "Contributor License Agreement is signed.",
+    "created_at": "2026-11-21T14:14:15Z",
+    "creator": {
+     "login": "ValeraZSD"
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/issues/331/events?per_page=100&page=1": [],
+  "/repos/ValeraZSD/terramentor/pulls/331/commits?per_page=100&page=1": [
+   {
+    "sha": "b88500a40bf1391d9495c4ff4d2e6c25b21e9027",
+    "parents": [
+     {
+      "sha": "c82ef280039bc8faff9d003984f1ca590e98e04c"
+     }
+    ],
+    "commit": {
+     "message": "Hosted guard: trimmed flag, absolute-form paths\n\nisHosted now trims TERRAMENTOR_HOSTED like the start-up check does, and the site library asks isHosted instead of its own exact test, so a value such as '1 ' no longer starts a copy with every hosted rule off. requestPath reads an absolute-form request line (PUT http://host/api/ai/key) by its pathname and drops a fragment, which is how the router routes both.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-21T14:07:23Z"
+     }
+    }
+   },
+   {
+    "sha": "3a19ca52e7850c92060fd4e4a1dc30958ec2df84",
+    "parents": [
+     {
+      "sha": "b88500a40bf1391d9495c4ff4d2e6c25b21e9027"
+     }
+    ],
+    "commit": {
+     "message": "First-password setup for devices; quieter log\n\nA device this computer already let in (a connected device, the owner's Tailscale) sets the first password without the code from the server log, as this machine does; any other remote request still needs it. The setup code is printed when it is made and then at most once a minute, instead of on every status poll.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-21T14:07:23Z"
+     }
+    }
+   },
+   {
+    "sha": "9566f0d0b29256700d21d774aa7210424db92f9a",
+    "parents": [
+     {
+      "sha": "3a19ca52e7850c92060fd4e4a1dc30958ec2df84"
+     }
+    ],
+    "commit": {
+     "message": "Describe what the health check does\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-21T14:07:24Z"
+     }
+    }
+   },
+   {
+    "sha": "9714dffcdd88a32235c9b1df9a1b3c69765c1187",
+    "parents": [
+     {
+      "sha": "9566f0d0b29256700d21d774aa7210424db92f9a"
+     }
+    ],
+    "commit": {
+     "message": "Guard hosted paths as the router parses them\n\nThe guard now reads the path the router itself parsed (baseUrl + path) instead of the raw request line, so spellings such as http:///api/ai/key, a port out of range or an empty host after @ are refused too.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-21T14:13:58Z"
+     }
+    }
+   },
+   {
+    "sha": "1fb4f9d3ff6a8e21af4c0413850ab68806ac705c",
+    "parents": [
+     {
+      "sha": "9714dffcdd88a32235c9b1df9a1b3c69765c1187"
+     }
+    ],
+    "commit": {
+     "message": "Print the setup code again after a clock step\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-21T14:13:59Z"
+     }
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/1fb4f9d3ff6a8e21af4c0413850ab68806ac705c...main": {
+   "ahead_by": 17,
+   "commits": [
+    {
+     "sha": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+     "commit": {
+      "committer": {
+       "date": "2026-11-21T23:12:00Z"
+      }
+     }
+    },
+    {
+     "sha": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+     "commit": {
+      "committer": {
+       "date": "2026-11-22T13:05:44Z"
+      }
+     }
+    },
+    {
+     "sha": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+     "commit": {
+      "committer": {
+       "date": "2026-11-22T14:02:24Z"
+      }
+     }
+    },
+    {
+     "sha": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+     "commit": {
+      "committer": {
+       "date": "2026-11-22T14:56:39Z"
+      }
+     }
+    },
+    {
+     "sha": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T06:54:46Z"
+      }
+     }
+    },
+    {
+     "sha": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T08:21:45Z"
+      }
+     }
+    },
+    {
+     "sha": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T09:46:34Z"
+      }
+     }
+    },
+    {
+     "sha": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T10:25:38Z"
+      }
+     }
+    },
+    {
+     "sha": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T11:51:05Z"
+      }
+     }
+    },
+    {
+     "sha": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+     "commit": {
+      "committer": {
+       "date": "2026-11-23T14:55:36Z"
+      }
+     }
+    },
+    {
+     "sha": "9d909e16806bca641f196c880565c40013b08b81",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T07:01:23Z"
+      }
+     }
+    },
+    {
+     "sha": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T10:46:18Z"
+      }
+     }
+    },
+    {
+     "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T11:40:23Z"
+      }
+     }
+    },
+    {
+     "sha": "624513a68c81bf31833cfb5ebe5c208437426305",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T21:36:34Z"
+      }
+     }
+    },
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T16:55:50Z"
+      }
+     }
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T20:57:20Z"
+      }
+     }
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T21:52:17Z"
+      }
+     }
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/50d390412069de6c37b4f85aa5fcf8d5bf9fe65e": {
+   "sha": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+   "files": [
+    {
+     "filename": "server/capacity.js"
+    },
+    {
+     "filename": "server/database.js"
+    },
+    {
+     "filename": "server/feed.js"
+    },
+    {
+     "filename": "server/pace.js"
+    },
+    {
+     "filename": "server/paceModel.js"
+    },
+    {
+     "filename": "server/routes/feed.js"
+    },
+    {
+     "filename": "server/routes/projects.js"
+    },
+    {
+     "filename": "server/routes/schedule.js"
+    },
+    {
+     "filename": "src/components/feed/FeedHeader.tsx"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "tools/capacity-gates.mjs"
+    },
+    {
+     "filename": "tools/course-blocks-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b577b669718cd50d072c3bd9ffe2d3a26b7a9226": {
+   "sha": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "SECURITY.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "docs/screenshots/manifest.json"
+    },
+    {
+     "filename": "server/ai.js"
+    },
+    {
+     "filename": "server/aiJobs.js"
+    },
+    {
+     "filename": "server/chatContext.js"
+    },
+    {
+     "filename": "server/courseShape.js"
+    },
+    {
+     "filename": "server/creationEta.js"
+    },
+    {
+     "filename": "server/linkReader.js"
+    },
+    {
+     "filename": "server/routes/createProject.js"
+    },
+    {
+     "filename": "server/routes/shortCourses.js"
+    },
+    {
+     "filename": "server/shortCourses.js"
+    },
+    {
+     "filename": "server/sourceMaterial.js"
+    },
+    {
+     "filename": "server/stagedDocuments.js"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/AssistantProposals.tsx"
+    },
+    {
+     "filename": "src/components/Modal.tsx"
+    },
+    {
+     "filename": "src/components/NewProjectModal.tsx"
+    },
+    {
+     "filename": "src/components/ProjectsGrid.tsx"
+    },
+    {
+     "filename": "src/components/creation/CreationProgress.tsx"
+    },
+    {
+     "filename": "src/components/creation/SourceFiles.tsx"
+    },
+    {
+     "filename": "src/components/creation/creationLog.ts"
+    },
+    {
+     "filename": "src/components/creation/creationRuns.ts"
+    },
+    {
+     "filename": "src/components/projects/RecordCard.tsx"
+    },
+    {
+     "filename": "src/components/shortCourses/ShortCourses.tsx"
+    },
+    {
+     "filename": "src/components/shortCourses/shortCourseTypes.ts"
+    },
+    {
+     "filename": "src/hooks/useDialogFocus.ts"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "tools/a11y-lint-allowlist.json"
+    },
+    {
+     "filename": "tools/axe-gates.mjs"
+    },
+    {
+     "filename": "tools/control-gates.mjs"
+    },
+    {
+     "filename": "tools/creation-run-screen-gates.mjs"
+    },
+    {
+     "filename": "tools/creation-sources-gates.mjs"
+    },
+    {
+     "filename": "tools/dialog-gates.mjs"
+    },
+    {
+     "filename": "tools/docs-shots.mjs"
+    },
+    {
+     "filename": "tools/larger-ui-gates.mjs"
+    },
+    {
+     "filename": "tools/lib/axeScreens.mjs"
+    },
+    {
+     "filename": "tools/new-course-gates.mjs"
+    },
+    {
+     "filename": "tools/short-course-gates.mjs"
+    },
+    {
+     "filename": "tools/short-transcript-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/11a6ce45c8e7e82e361143b4a471d1abeea64ae7": {
+   "sha": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+   "files": [
+    {
+     "filename": "desktop/lib.js"
+    },
+    {
+     "filename": "server/desktop.js"
+    },
+    {
+     "filename": "tools/desktop-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b4c2c0025f502d9b2c0167d598546df8dee0f923": {
+   "sha": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+   "files": [
+    {
+     "filename": "docs/I18N.md"
+    },
+    {
+     "filename": "server/ai.js"
+    },
+    {
+     "filename": "server/aiConnections.js"
+    },
+    {
+     "filename": "server/aiJobs.js"
+    },
+    {
+     "filename": "server/ankiImport.js"
+    },
+    {
+     "filename": "server/app.js"
+    },
+    {
+     "filename": "server/appIcon.js"
+    },
+    {
+     "filename": "server/appUpdate.js"
+    },
+    {
+     "filename": "server/assistantEdits.js"
+    },
+    {
+     "filename": "server/assistantWrites.js"
+    },
+    {
+     "filename": "server/auth.js"
+    },
+    {
+     "filename": "server/bulkGen.js"
+    },
+    {
+     "filename": "server/bundleCourse.js"
+    },
+    {
+     "filename": "server/cardWrite.js"
+    },
+    {
+     "filename": "server/chatAttachments.js"
+    },
+    {
+     "filename": "server/chatgptAuth.js"
+    },
+    {
+     "filename": "server/clientError.js"
+    },
+    {
+     "filename": "server/courseUpdate.js"
+    },
+    {
+     "filename": "server/curriculumSchema.js"
+    },
+    {
+     "filename": "server/desktop.js"
+    },
+    {
+     "filename": "server/hosted.js"
+    },
+    {
+     "filename": "server/itemReports.js"
+    },
+    {
+     "filename": "server/lessonPrompts.js"
+    },
+    {
+     "filename": "server/masteryTransfer.js"
+    },
+    {
+     "filename": "server/mediaDescribe.js"
+    },
+    {
+     "filename": "server/mockExams.js"
+    },
+    {
+     "filename": "server/nodeEmbeddings.js"
+    },
+    {
+     "filename": "server/originGuard.js"
+    },
+    {
+     "filename": "server/paper.js"
+    },
+    {
+     "filename": "server/placement.js"
+    },
+    {
+     "filename": "server/routes/agent.js"
+    },
+    {
+     "filename": "server/routes/anki.js"
+    },
+    {
+     "filename": "server/routes/assistantWrites.js"
+    },
+    {
+     "filename": "server/routes/atlas.js"
+    },
+    {
+     "filename": "server/routes/attachments.js"
+    },
+    {
+     "filename": "server/routes/auth.js"
+    },
+    {
+     "filename": "server/routes/authoring.js"
+    },
+    {
+     "filename": "server/routes/bulkGeneration.js"
+    },
+    {
+     "filename": "server/routes/bundle.js"
+    },
+    {
+     "filename": "server/routes/catalog.js"
+    },
+    {
+     "filename": "server/routes/chat.js"
+    },
+    {
+     "filename": "server/routes/completion.js"
+    },
+    {
+     "filename": "server/routes/connections.js"
+    },
+    {
+     "filename": "server/routes/courseUpdates.js"
+    },
+    {
+     "filename": "server/routes/createProject.js"
+    },
+    {
+     "filename": "server/routes/decks.js"
+    },
+    {
+     "filename": "server/routes/devices.js"
+    },
+    {
+     "filename": "server/routes/documents.js"
+    },
+    {
+     "filename": "server/routes/embeddings.js"
+    },
+    {
+     "filename": "server/routes/feed.js"
+    },
+    {
+     "filename": "server/routes/flashcards.js"
+    },
+    {
+     "filename": "server/routes/importExport.js"
+    },
+    {
+     "filename": "server/routes/insights.js"
+    },
+    {
+     "filename": "server/routes/itemReports.js"
+    },
+    {
+     "filename": "server/routes/mastery.js"
+    },
+    {
+     "filename": "server/routes/media.js"
+    },
+    {
+     "filename": "server/routes/mockExams.js"
+    },
+    {
+     "filename": "server/routes/nodes.js"
+    },
+    {
+     "filename": "server/routes/optimizers.js"
+    },
+    {
+     "filename": "server/routes/paper.js"
+    },
+    {
+     "filename": "server/routes/placement.js"
+    },
+    {
+     "filename": "server/routes/projectRows.js"
+    },
+    {
+     "filename": "server/routes/projects.js"
+    },
+    {
+     "filename": "server/routes/providers.js"
+    },
+    {
+     "filename": "server/routes/quizzes.js"
+    },
+    {
+     "filename": "server/routes/schedule.js"
+    },
+    {
+     "filename": "server/routes/search.js"
+    },
+    {
+     "filename": "server/routes/settings.js"
+    },
+    {
+     "filename": "server/routes/shortCourses.js"
+    },
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "server/routes/studyTime.js"
+    },
+    {
+     "filename": "server/routes/system.js"
+    },
+    {
+     "filename": "server/routes/taskStream.js"
+    },
+    {
+     "filename": "server/routes/tasks.js"
+    },
+    {
+     "filename": "server/routes/today.js"
+    },
+    {
+     "filename": "server/routes/visuals.js"
+    },
+    {
+     "filename": "server/scheduling.js"
+    },
+    {
+     "filename": "server/searchBackends.js"
+    },
+    {
+     "filename": "server/searchProviders.js"
+    },
+    {
+     "filename": "server/secrets.js"
+    },
+    {
+     "filename": "server/settingsSchema.js"
+    },
+    {
+     "filename": "server/shortCourses.js"
+    },
+    {
+     "filename": "server/site/accounts.js"
+    },
+    {
+     "filename": "server/site/frontDesk.js"
+    },
+    {
+     "filename": "server/siteLibrary.js"
+    },
+    {
+     "filename": "server/stagedDocuments.js"
+    },
+    {
+     "filename": "server/studyMaterial.js"
+    },
+    {
+     "filename": "server/tasks.js"
+    },
+    {
+     "filename": "server/today.js"
+    },
+    {
+     "filename": "server/uploadGuard.js"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/creation/SourceFiles.tsx"
+    },
+    {
+     "filename": "src/components/feed/PracticeCard.tsx"
+    },
+    {
+     "filename": "src/components/settings/AISettings.tsx"
+    },
+    {
+     "filename": "src/components/settings/WebAnswersSection.tsx"
+    },
+    {
+     "filename": "src/components/welcome/ConnectModel.tsx"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/utils/aiStatus.ts"
+    },
+    {
+     "filename": "src/utils/serverText.ts"
+    },
+    {
+     "filename": "tools/error-detail-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-extract.mjs"
+    },
+    {
+     "filename": "tools/i18n-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-plural-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-source-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-sync-en.mjs"
+    },
+    {
+     "filename": "tools/lib/i18nKeys.mjs"
+    },
+    {
+     "filename": "tools/server-text-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/de57110570a9e65b484a1dbfaf5a91bd40e3ea21": {
+   "sha": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+   "files": [
+    {
+     "filename": "server/activityLog.js"
+    },
+    {
+     "filename": "server/agentReads.js"
+    },
+    {
+     "filename": "server/agentSittings.js"
+    },
+    {
+     "filename": "server/ai.js"
+    },
+    {
+     "filename": "server/ankiExport.js"
+    },
+    {
+     "filename": "server/ankiImport.js"
+    },
+    {
+     "filename": "server/app.js"
+    },
+    {
+     "filename": "server/assistantEdits.js"
+    },
+    {
+     "filename": "server/assistantWrites.js"
+    },
+    {
+     "filename": "server/atlas.js"
+    },
+    {
+     "filename": "server/bulkGen.js"
+    },
+    {
+     "filename": "server/capacity.js"
+    },
+    {
+     "filename": "server/cardEvidence.js"
+    },
+    {
+     "filename": "server/cardWrite.js"
+    },
+    {
+     "filename": "server/chatConversations.js"
+    },
+    {
+     "filename": "server/chatTurn.js"
+    },
+    {
+     "filename": "server/claims.js"
+    },
+    {
+     "filename": "server/completion.js"
+    },
+    {
+     "filename": "server/courseContext.js"
+    },
+    {
+     "filename": "server/courseFiles.js"
+    },
+    {
+     "filename": "server/courseUpdate.js"
+    },
+    {
+     "filename": "server/creationStages.js"
+    },
+    {
+     "filename": "server/dailyPlan.js"
+    },
+    {
+     "filename": "server/database.js"
+    },
+    {
+     "filename": "server/decks.js"
+    },
+    {
+     "filename": "server/embeddings.js"
+    },
+    {
+     "filename": "server/evidenceTrail.js"
+    },
+    {
+     "filename": "server/feed.js"
+    },
+    {
+     "filename": "server/feedGen.js"
+    },
+    {
+     "filename": "server/feedQuality.js"
+    },
+    {
+     "filename": "server/headStart.js"
+    },
+    {
+     "filename": "server/hostedCli.js"
+    },
+    {
+     "filename": "server/itemReports.js"
+    },
+    {
+     "filename": "server/language.js"
+    },
+    {
+     "filename": "server/lessonPrompts.js"
+    },
+    {
+     "filename": "server/lessonSources.js"
+    },
+    {
+     "filename": "server/libraryReads.js"
+    },
+    {
+     "filename": "server/lookBack.js"
+    },
+    {
+     "filename": "server/mastery.js"
+    },
+    {
+     "filename": "server/masteryCheck.js"
+    },
+    {
+     "filename": "server/masteryTransfer.js"
+    },
+    {
+     "filename": "server/mediaContext.js"
+    },
+    {
+     "filename": "server/mockExams.js"
+    },
+    {
+     "filename": "server/nodeEmbeddings.js"
+    },
+    {
+     "filename": "server/nodeRole.js"
+    },
+    {
+     "filename": "server/pace.js"
+    },
+    {
+     "filename": "server/pageContext.js"
+    },
+    {
+     "filename": "server/pdfRecovery.js"
+    },
+    {
+     "filename": "server/placement.js"
+    },
+    {
+     "filename": "server/progress.js"
+    },
+    {
+     "filename": "server/projectSettings.js"
+    },
+    {
+     "filename": "server/projectState.js"
+    },
+    {
+     "filename": "server/projectSummary.js"
+    },
+    {
+     "filename": "server/questionLog.js"
+    },
+    {
+     "filename": "server/questionTrust.js"
+    },
+    {
+     "filename": "server/readyToProve.js"
+    },
+    {
+     "filename": "server/regionNaming.js"
+    },
+    {
+     "filename": "server/reviewLog.js"
+    },
+    {
+     "filename": "server/routes/authoring.js"
+    },
+    {
+     "filename": "server/routes/bundle.js"
+    },
+    {
+     "filename": "server/routes/chat.js"
+    },
+    {
+     "filename": "server/routes/courseUpdates.js"
+    },
+    {
+     "filename": "server/routes/createProject.js"
+    },
+    {
+     "filename": "server/routes/deleted.js"
+    },
+    {
+     "filename": "server/routes/documents.js"
+    },
+    {
+     "filename": "server/routes/feed.js"
+    },
+    {
+     "filename": "server/routes/flashcards.js"
+    },
+    {
+     "filename": "server/routes/importExport.js"
+    },
+    {
+     "filename": "server/routes/insights.js"
+    },
+    {
+     "filename": "server/routes/mastery.js"
+    },
+    {
+     "filename": "server/routes/nodes.js"
+    },
+    {
+     "filename": "server/routes/onboarding.js"
+    },
+    {
+     "filename": "server/routes/placement.js"
+    },
+    {
+     "filename": "server/routes/projectRows.js"
+    },
+    {
+     "filename": "server/routes/projects.js"
+    },
+    {
+     "filename": "server/routes/quizzes.js"
+    },
+    {
+     "filename": "server/routes/schedule.js"
+    },
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "server/routes/taskStream.js"
+    },
+    {
+     "filename": "server/routes/today.js"
+    },
+    {
+     "filename": "server/scheduling.js"
+    },
+    {
+     "filename": "server/search.js"
+    },
+    {
+     "filename": "server/searchWords.js"
+    },
+    {
+     "filename": "server/shortCourses.js"
+    },
+    {
+     "filename": "server/sittingReview.js"
+    },
+    {
+     "filename": "server/softDelete.js"
+    },
+    {
+     "filename": "server/studyMaterial.js"
+    },
+    {
+     "filename": "server/studySummary.js"
+    },
+    {
+     "filename": "server/studyTime.js"
+    },
+    {
+     "filename": "server/syncTables.js"
+    },
+    {
+     "filename": "server/today.js"
+    },
+    {
+     "filename": "server/topicDates.js"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/AnkiImportModal.tsx"
+    },
+    {
+     "filename": "src/components/CategoryCard.tsx"
+    },
+    {
+     "filename": "src/components/FlashcardEditor.tsx"
+    },
+    {
+     "filename": "src/components/ProjectCard.tsx"
+    },
+    {
+     "filename": "src/components/TreeItemRow.tsx"
+    },
+    {
+     "filename": "src/components/projects/RecordCard.tsx"
+    },
+    {
+     "filename": "src/components/settings/LibrarySettings.tsx"
+    },
+    {
+     "filename": "src/components/settings/RecentlyDeletedSection.tsx"
+    },
+    {
+     "filename": "src/components/shortCourses/ShortCourses.tsx"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "tools/ai-tools-gates.mjs"
+    },
+    {
+     "filename": "tools/anki-export-gates.mjs"
+    },
+    {
+     "filename": "tools/anki-harness/run.mjs"
+    },
+    {
+     "filename": "tools/assistant-edits-gates.mjs"
+    },
+    {
+     "filename": "tools/course-update-gates.mjs"
+    },
+    {
+     "filename": "tools/creation-continue-gates.mjs"
+    },
+    {
+     "filename": "tools/item-report-gates.mjs"
+    },
+    {
+     "filename": "tools/progress-scope-gates.mjs"
+    },
+    {
+     "filename": "tools/soft-delete-gates.mjs"
+    },
+    {
+     "filename": "tools/sync-identity-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/dfdecdf336096bd11b103e75c4dad773b7cd7ea5": {
+   "sha": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+   "files": [
+    {
+     "filename": "CoreIdea.md"
+    },
+    {
+     "filename": "TECHNICAL_DOCUMENTATION.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/WHY_IT_WORKS.md"
+    },
+    {
+     "filename": "docs/screenshots/manifest.json"
+    },
+    {
+     "filename": "docs/screenshots/prove.webp"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/DetailPanel.tsx"
+    },
+    {
+     "filename": "src/components/FlashcardView.tsx"
+    },
+    {
+     "filename": "src/components/ProjectQuizzesList.tsx"
+    },
+    {
+     "filename": "src/components/QuizView.tsx"
+    },
+    {
+     "filename": "src/components/StudyDashboard.tsx"
+    },
+    {
+     "filename": "src/components/StudyTools.tsx"
+    },
+    {
+     "filename": "src/components/feed/InlineQuestion.tsx"
+    },
+    {
+     "filename": "src/components/flashcards/RatingButton.tsx"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/srs.ts"
+    },
+    {
+     "filename": "tools/answer-format-gates.mjs"
+    },
+    {
+     "filename": "tools/axe-gates.mjs"
+    },
+    {
+     "filename": "tools/evidence-integrity-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-plural-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-source-gates.mjs"
+    },
+    {
+     "filename": "tools/item-report-gates.mjs"
+    },
+    {
+     "filename": "tools/lib/axeScreens.mjs"
+    },
+    {
+     "filename": "tools/screen-reader-run.mjs"
+    },
+    {
+     "filename": "tools/sitting-review-gates.mjs"
+    },
+    {
+     "filename": "tools/study-time-gates.mjs"
+    },
+    {
+     "filename": "tools/tolerant-grading-gates.mjs"
+    },
+    {
+     "filename": "tools/topic-questions-gates.mjs"
+    },
+    {
+     "filename": "tools/unverified-question-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/2f8c559a994d6dd84423068f4ac13bddf1f1e09f": {
+   "sha": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+   "files": [
+    {
+     "filename": "server/descriptionCheck.js"
+    },
+    {
+     "filename": "server/mediaDescribe.js"
+    },
+    {
+     "filename": "server/routes/media.js"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "tools/alt-text-gates.mjs"
+    },
+    {
+     "filename": "tools/model-bench/cases/vision.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4": {
+   "sha": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+   "files": [
+    {
+     "filename": "src/components/ExternalAuthoring.tsx"
+    },
+    {
+     "filename": "src/components/Modal.tsx"
+    },
+    {
+     "filename": "src/components/ModelPicker.tsx"
+    },
+    {
+     "filename": "src/components/NewProjectModal.tsx"
+    },
+    {
+     "filename": "src/components/TaskDetailModal.tsx"
+    },
+    {
+     "filename": "src/components/creation/SourceFiles.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/AddPaperDialog.tsx"
+    },
+    {
+     "filename": "src/components/settings/ImageDescriptionsDialog.tsx"
+    },
+    {
+     "filename": "src/components/ui/Popover.tsx"
+    },
+    {
+     "filename": "src/components/ui/Select.tsx"
+    },
+    {
+     "filename": "src/hooks/dialogHistory.ts"
+    },
+    {
+     "filename": "src/hooks/useConfirmDiscard.ts"
+    },
+    {
+     "filename": "src/hooks/useDialogFocus.ts"
+    },
+    {
+     "filename": "src/hooks/useRouterStoreSync.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "tools/dialog-back-gates.mjs"
+    },
+    {
+     "filename": "tools/mock-exam-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/2126d2f1ff5213e2b5a9507d0984889ade86aadb": {
+   "sha": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+   "files": [
+    {
+     "filename": "TECHNICAL_DOCUMENTATION.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "server/mockExams.js"
+    },
+    {
+     "filename": "server/routes/mockExams.js"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/mockExam/AddPaperDialog.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/CourseMock.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/ExamFrame.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/MockExamView.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/MockSittingScreen.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/PractiseWeakest.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/mockClock.ts"
+    },
+    {
+     "filename": "src/components/mockExam/mockExamTypes.ts"
+    },
+    {
+     "filename": "src/components/mockExam/mockFormat.ts"
+    },
+    {
+     "filename": "src/components/settings/AccessibilitySettings.tsx"
+    },
+    {
+     "filename": "src/i18n/enPlurals.ts"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "tools/mock-draw-gates.mjs"
+    },
+    {
+     "filename": "tools/mock-exam-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/95a401ffefdab9c5a59a14a627a010686c2b4ea8": {
+   "sha": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/I18N.md"
+    },
+    {
+     "filename": "docs/INSTALL.md"
+    },
+    {
+     "filename": "public/lang-boot.js"
+    },
+    {
+     "filename": "server/ai.js"
+    },
+    {
+     "filename": "src/components/AnkiImportModal.tsx"
+    },
+    {
+     "filename": "src/components/AssistantDrawer.tsx"
+    },
+    {
+     "filename": "src/components/AssistantProposals.tsx"
+    },
+    {
+     "filename": "src/components/AtlasView.tsx"
+    },
+    {
+     "filename": "src/components/BulkGenerateModal.tsx"
+    },
+    {
+     "filename": "src/components/CardFace.tsx"
+    },
+    {
+     "filename": "src/components/CategoryCard.tsx"
+    },
+    {
+     "filename": "src/components/CourseUpdateChanges.tsx"
+    },
+    {
+     "filename": "src/components/DetailPanel.tsx"
+    },
+    {
+     "filename": "src/components/ExposedBanner.tsx"
+    },
+    {
+     "filename": "src/components/ExternalAuthoring.tsx"
+    },
+    {
+     "filename": "src/components/ExternalSearchButton.tsx"
+    },
+    {
+     "filename": "src/components/FlashcardEditor.tsx"
+    },
+    {
+     "filename": "src/components/FlashcardView.tsx"
+    },
+    {
+     "filename": "src/components/GlobalFlashcardReview.tsx"
+    },
+    {
+     "filename": "src/components/Layout.tsx"
+    },
+    {
+     "filename": "src/components/Markdown.tsx"
+    },
+    {
+     "filename": "src/components/MasteryGateModal.tsx"
+    },
+    {
+     "filename": "src/components/Modal.tsx"
+    },
+    {
+     "filename": "src/components/ModelPicker.tsx"
+    },
+    {
+     "filename": "src/components/NewProjectModal.tsx"
+    },
+    {
+     "filename": "src/components/NodeTree.tsx"
+    },
+    {
+     "filename": "src/components/OtherDevices.tsx"
+    },
+    {
+     "filename": "src/components/PlacementModal.tsx"
+    },
+    {
+     "filename": "src/components/ProjectCard.tsx"
+    },
+    {
+     "filename": "src/components/ProjectFormFields.tsx"
+    },
+    {
+     "filename": "src/components/ProjectImportZone.tsx"
+    },
+    {
+     "filename": "src/components/ReasoningPanel.tsx"
+    },
+    {
+     "filename": "src/components/ReportProblemDialog.tsx"
+    },
+    {
+     "filename": "src/components/ResourceList.tsx"
+    },
+    {
+     "filename": "src/components/ScheduleModal.tsx"
+    },
+    {
+     "filename": "src/components/SearchBar.tsx"
+    },
+    {
+     "filename": "src/components/SearchProvidersPanel.tsx"
+    },
+    {
+     "filename": "src/components/Settings.tsx"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/components/SourceList.tsx"
+    },
+    {
+     "filename": "src/components/StudyDashboard.tsx"
+    },
+    {
+     "filename": "src/components/StudyTools.tsx"
+    },
+    {
+     "filename": "src/components/TaskDetailModal.tsx"
+    },
+    {
+     "filename": "src/components/TaskDock.tsx"
+    },
+    {
+     "filename": "src/components/TaskFailureModal.tsx"
+    },
+    {
+     "filename": "src/components/Timeline.tsx"
+    },
+    {
+     "filename": "src/components/Toast.tsx"
+    },
+    {
+     "filename": "src/components/TreeItemRow.tsx"
+    },
+    {
+     "filename": "src/components/UpdatePrompt.tsx"
+    },
+    {
+     "filename": "src/components/VaultPanel.tsx"
+    },
+    {
+     "filename": "src/components/Workspace.tsx"
+    },
+    {
+     "filename": "src/components/answer/AnswerKey.tsx"
+    },
+    {
+     "filename": "src/components/answer/AnswerReviewItem.tsx"
+    },
+    {
+     "filename": "src/components/answer/AssembleInput.tsx"
+    },
+    {
+     "filename": "src/components/answer/ChoiceInput.tsx"
+    },
+    {
+     "filename": "src/components/answer/CodeRunPanel.tsx"
+    },
+    {
+     "filename": "src/components/answer/NumericInput.tsx"
+    },
+    {
+     "filename": "src/components/answer/SequenceInput.tsx"
+    },
+    {
+     "filename": "src/components/answer/formats.ts"
+    },
+    {
+     "filename": "src/components/atlas/AtlasCard.tsx"
+    },
+    {
+     "filename": "src/components/atlas/AtlasSettingsModal.tsx"
+    },
+    {
+     "filename": "src/components/atlas/BridgeList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/CourseList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/MapControls.tsx"
+    },
+    {
+     "filename": "src/components/atlas/MapOverlay.tsx"
+    },
+    {
+     "filename": "src/components/atlas/RegionList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/StudyNext.tsx"
+    },
+    {
+     "filename": "src/components/atlas/TopicRow.tsx"
+    },
+    {
+     "filename": "src/components/atlas/TracePanel.tsx"
+    },
+    {
+     "filename": "src/components/attachments/AttachmentChips.tsx"
+    },
+    {
+     "filename": "src/components/attachments/AttachmentFigure.tsx"
+    },
+    {
+     "filename": "src/components/attachments/ImageViewer.tsx"
+    },
+    {
+     "filename": "src/components/attachments/MarkedImage.tsx"
+    },
+    {
+     "filename": "src/components/attachments/MessageAttachments.tsx"
+    },
+    {
+     "filename": "src/components/completion/CompletionSummary.tsx"
+    },
+    {
+     "filename": "src/components/creation/CreationRunParts.tsx"
+    },
+    {
+     "filename": "src/components/creation/SourceFiles.tsx"
+    },
+    {
+     "filename": "src/components/dashboard/DashboardSection.tsx"
+    },
+    {
+     "filename": "src/components/dashboard/PhaseProgress.tsx"
+    },
+    {
+     "filename": "src/components/deck/CardsPanel.tsx"
+    },
+    {
+     "filename": "src/components/deck/DeckDashboard.tsx"
+    },
+    {
+     "filename": "src/components/deck/DeckStages.tsx"
+    },
+    {
+     "filename": "src/components/deck/RetentionTarget.tsx"
+    },
+    {
+     "filename": "src/components/drills/DrillLauncher.tsx"
+    },
+    {
+     "filename": "src/components/drills/DrillModal.tsx"
+    },
+    {
+     "filename": "src/components/drills/DrillPlayer.tsx"
+    },
+    {
+     "filename": "src/components/evidence/EstimateChart.tsx"
+    },
+    {
+     "filename": "src/components/evidence/TopicEvidence.tsx"
+    },
+    {
+     "filename": "src/components/feed/AiSetupCard.tsx"
+    },
+    {
+     "filename": "src/components/feed/ChapterGroup.tsx"
+    },
+    {
+     "filename": "src/components/feed/CourseBlock.tsx"
+    },
+    {
+     "filename": "src/components/feed/FeedCardShell.tsx"
+    },
+    {
+     "filename": "src/components/feed/FeedHeader.tsx"
+    },
+    {
+     "filename": "src/components/feed/FeedView.tsx"
+    },
+    {
+     "filename": "src/components/feed/FlashcardFeedCard.tsx"
+    },
+    {
+     "filename": "src/components/feed/InlineQuestion.tsx"
+    },
+    {
+     "filename": "src/components/feed/LessonCard.tsx"
+    },
+    {
+     "filename": "src/components/feed/LessonPrompts.tsx"
+    },
+    {
+     "filename": "src/components/feed/OnboardingCard.tsx"
+    },
+    {
+     "filename": "src/components/feed/PracticeCard.tsx"
+    },
+    {
+     "filename": "src/components/feed/TodayActivityModal.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/AddPaperDialog.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/CourseMock.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/ExamFrame.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/MockExamView.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/MockSittingScreen.tsx"
+    },
+    {
+     "filename": "src/components/mockExam/PractiseWeakest.tsx"
+    },
+    {
+     "filename": "src/components/plan/WeeklyChart.tsx"
+    },
+    {
+     "filename": "src/components/plan/verdict.tsx"
+    },
+    {
+     "filename": "src/components/projects/CompactCard.tsx"
+    },
+    {
+     "filename": "src/components/schedule/ProjectDates.tsx"
+    },
+    {
+     "filename": "src/components/settings/AISettings.tsx"
+    },
+    {
+     "filename": "src/components/settings/ActivityLogPanel.tsx"
+    },
+    {
+     "filename": "src/components/settings/AppearanceControls.tsx"
+    },
+    {
+     "filename": "src/components/settings/JobModelsSection.tsx"
+    },
+    {
+     "filename": "src/components/settings/LibrarySettings.tsx"
+    },
+    {
+     "filename": "src/components/settings/ModelJobsSection.tsx"
+    },
+    {
+     "filename": "src/components/settings/RecentlyDeletedSection.tsx"
+    },
+    {
+     "filename": "src/components/settings/ServingEndpointsPicker.tsx"
+    },
+    {
+     "filename": "src/components/settings/SrsTuningPanel.tsx"
+    },
+    {
+     "filename": "src/components/settings/VisualKindsPanel.tsx"
+    },
+    {
+     "filename": "src/components/settings/connections/AddConnectionDialog.tsx"
+    },
+    {
+     "filename": "src/components/settings/connections/ConnectionsPanel.tsx"
+    },
+    {
+     "filename": "src/components/settings/connections/ProviderTile.tsx"
+    },
+    {
+     "filename": "src/components/settings/tuningParts.tsx"
+    },
+    {
+     "filename": "src/components/studyTime/StudyTime.tsx"
+    },
+    {
+     "filename": "src/components/ui/Button.tsx"
+    },
+    {
+     "filename": "src/components/ui/ColorField.tsx"
+    },
+    {
+     "filename": "src/components/ui/Dialog.tsx"
+    },
+    {
+     "filename": "src/components/ui/Disclosure.tsx"
+    },
+    {
+     "filename": "src/components/ui/Field.tsx"
+    },
+    {
+     "filename": "src/components/ui/OwnLine.tsx"
+    },
+    {
+     "filename": "src/components/ui/Popover.tsx"
+    },
+    {
+     "filename": "src/components/ui/ReportItem.tsx"
+    },
+    {
+     "filename": "src/components/ui/SegmentedControl.tsx"
+    },
+    {
+     "filename": "src/components/ui/Select.tsx"
+    },
+    {
+     "filename": "src/components/ui/Sheet.tsx"
+    },
+    {
+     "filename": "src/components/ui/Stepper.tsx"
+    },
+    {
+     "filename": "src/components/ui/Switch.tsx"
+    },
+    {
+     "filename": "src/components/ui/useRovingGrid.ts"
+    },
+    {
+     "filename": "src/components/update/AppPlacementNotice.tsx"
+    },
+    {
+     "filename": "src/components/update/ReleaseNotes.tsx"
+    },
+    {
+     "filename": "src/components/update/UpdateControl.tsx"
+    },
+    {
+     "filename": "src/components/update/UpdateDialog.tsx"
+    },
+    {
+     "filename": "src/components/update/UpdateHoverCard.tsx"
+    },
+    {
+     "filename": "src/components/update/UpdateNotice.tsx"
+    },
+    {
+     "filename": "src/components/update/WhatsNewDialog.tsx"
+    },
+    {
+     "filename": "src/components/visuals/ExportVisualModal.tsx"
+    },
+    {
+     "filename": "src/components/visuals/VisualBlock.tsx"
+    },
+    {
+     "filename": "src/components/welcome/WelcomeFlow.tsx"
+    },
+    {
+     "filename": "src/i18n/index.ts"
+    },
+    {
+     "filename": "src/index.css"
+    },
+    {
+     "filename": "src/locales/ar.json"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/tr.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/utils/assistantSettings.ts"
+    },
+    {
+     "filename": "src/utils/direction.ts"
+    },
+    {
+     "filename": "tailwind.config.js"
+    },
+    {
+     "filename": "tools/a11y-lint-gates.mjs"
+    },
+    {
+     "filename": "tools/accessibility-settings-gates.mjs"
+    },
+    {
+     "filename": "tools/ai-connections-gates.mjs"
+    },
+    {
+     "filename": "tools/atlas-world-gates.mjs"
+    },
+    {
+     "filename": "tools/control-gates.mjs"
+    },
+    {
+     "filename": "tools/dialog-gates.mjs"
+    },
+    {
+     "filename": "tools/drag-order-gates.mjs"
+    },
+    {
+     "filename": "tools/drop-flash-gates.mjs"
+    },
+    {
+     "filename": "tools/freshness-gates.mjs"
+    },
+    {
+     "filename": "tools/header-fit-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-audit.mjs"
+    },
+    {
+     "filename": "tools/i18n-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-plural-gates.mjs"
+    },
+    {
+     "filename": "tools/i18n-translate.mjs"
+    },
+    {
+     "filename": "tools/mock-exam-gates.mjs"
+    },
+    {
+     "filename": "tools/report-link-gates.mjs"
+    },
+    {
+     "filename": "tools/rtl-gates.mjs"
+    },
+    {
+     "filename": "tools/safe-area-gates.mjs"
+    },
+    {
+     "filename": "tools/study-doors-gates.mjs"
+    },
+    {
+     "filename": "tools/study-time-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/9d909e16806bca641f196c880565c40013b08b81": {
+   "sha": "9d909e16806bca641f196c880565c40013b08b81",
+   "files": [
+    {
+     "filename": "src/components/answer/AnswerReviewItem.tsx"
+    },
+    {
+     "filename": "src/components/answer/SpellingNote.tsx"
+    },
+    {
+     "filename": "src/components/answer/SpellingOffer.tsx"
+    },
+    {
+     "filename": "src/components/answer/formats.ts"
+    },
+    {
+     "filename": "src/components/feed/InlineQuestion.tsx"
+    },
+    {
+     "filename": "src/locales/ar.json"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/tr.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "tools/tolerant-grading-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/998c88641c40b287dbedcaa3a31aa3d852ba7793": {
+   "sha": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+   "files": [
+    {
+     "filename": "server/courseFiles.js"
+    },
+    {
+     "filename": "server/embeddings.js"
+    },
+    {
+     "filename": "server/itemReports.js"
+    },
+    {
+     "filename": "server/liveMedia.js"
+    },
+    {
+     "filename": "server/mediaDescribe.js"
+    },
+    {
+     "filename": "server/mockExams.js"
+    },
+    {
+     "filename": "server/pdfRecovery.js"
+    },
+    {
+     "filename": "server/placement.js"
+    },
+    {
+     "filename": "server/routes/deleted.js"
+    },
+    {
+     "filename": "server/routes/documents.js"
+    },
+    {
+     "filename": "server/routes/media.js"
+    },
+    {
+     "filename": "server/routes/paper.js"
+    },
+    {
+     "filename": "server/routes/placement.js"
+    },
+    {
+     "filename": "tools/ai-jobs-gates.mjs"
+    },
+    {
+     "filename": "tools/alt-text-gates.mjs"
+    },
+    {
+     "filename": "tools/model-bench/cases/vision.mjs"
+    },
+    {
+     "filename": "tools/soft-delete-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/c378d6e03fe760bf0b1f62c2d4457e55727ed11b": {
+   "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+   "files": [
+    {
+     "filename": "docs/screenshots/manifest.json"
+    },
+    {
+     "filename": "server/ankiAiTag.js"
+    },
+    {
+     "filename": "server/ankiExport.js"
+    },
+    {
+     "filename": "server/ankiImport.js"
+    },
+    {
+     "filename": "server/ankiNotes.js"
+    },
+    {
+     "filename": "server/courseFiles.js"
+    },
+    {
+     "filename": "server/courseUpdate.js"
+    },
+    {
+     "filename": "server/curriculumSchema.js"
+    },
+    {
+     "filename": "server/itemReports.js"
+    },
+    {
+     "filename": "server/placement.js"
+    },
+    {
+     "filename": "server/routes/bundle.js"
+    },
+    {
+     "filename": "server/routes/importExport.js"
+    },
+    {
+     "filename": "server/routes/itemReports.js"
+    },
+    {
+     "filename": "src/api.ts"
+    },
+    {
+     "filename": "src/components/CourseUpdateModal.tsx"
+    },
+    {
+     "filename": "src/components/GlobalFlashcardReview.tsx"
+    },
+    {
+     "filename": "src/components/drills/DrillPlayer.tsx"
+    },
+    {
+     "filename": "src/components/ui/ReportItem.tsx"
+    },
+    {
+     "filename": "src/locales/ar.json"
+    },
+    {
+     "filename": "src/locales/de.json"
+    },
+    {
+     "filename": "src/locales/en.json"
+    },
+    {
+     "filename": "src/locales/es.json"
+    },
+    {
+     "filename": "src/locales/fr.json"
+    },
+    {
+     "filename": "src/locales/it.json"
+    },
+    {
+     "filename": "src/locales/ja.json"
+    },
+    {
+     "filename": "src/locales/nl.json"
+    },
+    {
+     "filename": "src/locales/pl.json"
+    },
+    {
+     "filename": "src/locales/pt.json"
+    },
+    {
+     "filename": "src/locales/ru.json"
+    },
+    {
+     "filename": "src/locales/tr.json"
+    },
+    {
+     "filename": "src/locales/uk.json"
+    },
+    {
+     "filename": "src/locales/zh.json"
+    },
+    {
+     "filename": "src/utils/itemReportStore.ts"
+    },
+    {
+     "filename": "src/utils/itemReports.ts"
+    },
+    {
+     "filename": "tools/course-update-gates.mjs"
+    },
+    {
+     "filename": "tools/import-gates.mjs"
+    },
+    {
+     "filename": "tools/provenance-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/624513a68c81bf31833cfb5ebe5c208437426305": {
+   "sha": "624513a68c81bf31833cfb5ebe5c208437426305",
+   "files": [
+    {
+     "filename": "src/components/AssistantDrawer.tsx"
+    },
+    {
+     "filename": "src/components/Layout.tsx"
+    },
+    {
+     "filename": "src/components/Markdown.tsx"
+    },
+    {
+     "filename": "src/components/ModelPicker.tsx"
+    },
+    {
+     "filename": "src/components/SearchBar.tsx"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/components/TreeItemRow.tsx"
+    },
+    {
+     "filename": "src/components/Workspace.tsx"
+    },
+    {
+     "filename": "src/components/answer/CodeRunPanel.tsx"
+    },
+    {
+     "filename": "src/components/atlas/BridgeList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/CourseList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/RegionList.tsx"
+    },
+    {
+     "filename": "src/components/atlas/TopicRow.tsx"
+    },
+    {
+     "filename": "src/components/deck/DeckStages.tsx"
+    },
+    {
+     "filename": "src/components/evidence/EstimateChart.tsx"
+    },
+    {
+     "filename": "src/components/feed/ChapterGroup.tsx"
+    },
+    {
+     "filename": "src/components/feed/FeedView.tsx"
+    },
+    {
+     "filename": "src/components/plan/WeeklyChart.tsx"
+    },
+    {
+     "filename": "src/components/schedule/ProjectDates.tsx"
+    },
+    {
+     "filename": "src/components/settings/ServingEndpointsPicker.tsx"
+    },
+    {
+     "filename": "src/components/ui/ReportItem.tsx"
+    },
+    {
+     "filename": "src/components/visuals/VisualBlock.tsx"
+    },
+    {
+     "filename": "src/utils/scrollWithin.ts"
+    },
+    {
+     "filename": "tools/page-scroll-gates.mjs"
+    },
+    {
+     "filename": "tools/run-gates.mjs"
+    },
+    {
+     "filename": "tools/scroll-containment-gates.mjs"
+    },
+    {
+     "filename": "tools/visual-block-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/e6f6945f3d649b54bbfebd24bc928d1a3f59f10c": {
+   "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+   "files": [
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/tree.ts"
+    },
+    {
+     "filename": "tools/one-level-course-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/1d894c4a64bd9ea549fa3b437c7a30d22e9c4957": {
+   "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0": {
+   "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+   "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  }
+ }
+}

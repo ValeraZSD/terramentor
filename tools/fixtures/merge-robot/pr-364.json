@@ -1,0 +1,506 @@
+{
+ "repo": "ValeraZSD/terramentor",
+ "number": 364,
+ "recorded_at": "2026-11-25T22:27:21.407Z",
+ "book": {
+  "/repos/ValeraZSD/terramentor/pulls/364": {
+   "number": 364,
+   "title": "Keep the assistant still while an answer streams",
+   "draft": false,
+   "state": "open",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "changed_files": 21,
+   "html_url": "https://github.com/ValeraZSD/terramentor/pull/364",
+   "created_at": "2026-11-24T15:55:56Z",
+   "user": {
+    "login": "ValeraZSD"
+   },
+   "labels": [
+    {
+     "name": "visual-seen"
+    }
+   ],
+   "head": {
+    "sha": "007e35c50280b3b05773592799d7c85054332bf3",
+    "ref": "assistant-read-like-a-book",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   },
+   "base": {
+    "ref": "main",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   }
+  },
+  "/repos/ValeraZSD/terramentor/pulls/364/files?per_page=100&page=1": [
+   {
+    "filename": "src/components/AssistantDrawer.tsx",
+    "status": "modified"
+   },
+   {
+    "filename": "src/hooks/useReadingScroll.ts",
+    "status": "added"
+   },
+   {
+    "filename": "src/hooks/useStickToBottom.ts",
+    "status": "removed"
+   },
+   {
+    "filename": "src/locales/ar.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/de.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/en.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/es.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/fr.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/it.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/ja.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/nl.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/pl.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/pt.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/ru.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/tr.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/uk.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/zh.json",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/accessibility-settings-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/assistant-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/assistant-scroll-gates.mjs",
+    "status": "added"
+   },
+   {
+    "filename": "tools/run-gates.mjs",
+    "status": "modified"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/commits/007e35c50280b3b05773592799d7c85054332bf3/check-runs?filter=all&per_page=100&page=1": {
+   "check_runs": [
+    {
+     "id": 139272282132,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T14:22:43Z",
+     "completed_at": "2026-11-25T14:27:48Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139235759609,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "neutral",
+     "started_at": "2026-11-25T13:22:55Z",
+     "completed_at": "2026-11-25T13:22:55Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139181125959,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "neutral",
+     "started_at": "2026-11-25T11:44:28Z",
+     "completed_at": "2026-11-25T11:44:28Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139181039464,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T12:02:31Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181039461,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:47:37Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181039013,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T12:18:06Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181038770,
+     "name": "signoff",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:44:34Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181038708,
+     "name": "check",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:44:39Z",
+     "app": "github-actions"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/007e35c50280b3b05773592799d7c85054332bf3/statuses?per_page=100&page=1": [
+   {
+    "context": "license/cla",
+    "state": "success",
+    "description": "Contributor License Agreement is signed.",
+    "created_at": "2026-11-25T11:44:17Z",
+    "creator": {
+     "login": "ValeraZSD"
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/issues/364/events?per_page=100&page=1": [
+   {
+    "event": "labeled",
+    "label": {
+     "name": "visual-seen"
+    },
+    "created_at": "2026-11-25T11:48:51Z"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/pulls/364/commits?per_page=100&page=1": [
+   {
+    "sha": "f36e1bd528640f9a8a103551aefee828b7330da3",
+    "parents": [
+     {
+      "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b"
+     }
+    ],
+    "commit": {
+     "message": "Keep the assistant still while an answer streams\n\nThe assistant's log followed every streamed token, so the line being\nread moved up the screen several times a second. Now Send scrolls the\nquestion to the top of the log once, the answer is written below it,\nand the log never moves on its own while the reply arrives.\n\nuseReadingScroll replaces useStickToBottom: the content box gets a\nmin-height so a short answer still leaves room for the question to sit\nat the top, measured again when the panel resizes, docks or undocks.\nOpening the panel or a conversation still lands on the newest message;\na reload that only swaps a question's provisional id does not move it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T15:17:25Z"
+     }
+    }
+   },
+   {
+    "sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210",
+    "parents": [
+     {
+      "sha": "f36e1bd528640f9a8a103551aefee828b7330da3"
+     }
+    ],
+    "commit": {
+     "message": "Show when the answer continues below\n\nA small button at the foot of the log says the answer goes on below (or is still being written there) and scrolls to its end when pressed. It shows only while text is hidden below the visible part.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T15:55:35Z"
+     }
+    }
+   },
+   {
+    "sha": "49a4961f43b6da240c09b78735236e05c2e11db0",
+    "parents": [
+     {
+      "sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210"
+     }
+    ],
+    "commit": {
+     "message": "Keep the log still when More below appears\n\nThe scroll object the panel's effects depend on carried the 'text below' flag, so the open effect re-ran and sent the log to the bottom whenever the flag changed. The flag now comes back beside a stable object. Also: the room under a question follows its stored copy and goes when a failed turn removes it, a rebuilt log (docking) keeps its place, the last message is watched for growth outside a render, and a keyboard press leaves focus on the log.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T16:18:50Z"
+     }
+    }
+   },
+   {
+    "sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443",
+    "parents": [
+     {
+      "sha": "49a4961f43b6da240c09b78735236e05c2e11db0"
+     }
+    ],
+    "commit": {
+     "message": "Measure the still assistant log in a browser\n\nassistant-scroll-gates.mjs streams a long answer from a stub model into the built app at desktop and phone size and asserts the question goes to the top, the log does not move while or after it is written, and the More below button shows and works by mouse and keyboard. It fails on the previous commit.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T16:18:51Z"
+     }
+    }
+   },
+   {
+    "sha": "2a5c036fdc53ad4c51c53984a72876c3618b521d",
+    "parents": [
+     {
+      "sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443"
+     }
+    ],
+    "commit": {
+     "message": "Move the view only for a question sent here\n\nA stored row no longer moves the log, so opening a conversation whose last row is a question lands on it instead of anchoring (a loading flag could not tell, since React renders the rows and the flag's reset together). The stored copy of a placed question is the newest stored question with its text, never an earlier one with the same words. A rebuilt log keeps how far the reader had read past the question, the content box is watched for growth as well as the last message, and the log shows a focus ring when it takes focus.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T16:51:20Z"
+     }
+    }
+   },
+   {
+    "sha": "4b510bbf69cf088097f44a57acc672368e0882b6",
+    "parents": [
+     {
+      "sha": "2a5c036fdc53ad4c51c53984a72876c3618b521d"
+     }
+    ],
+    "commit": {
+     "message": "Cover re-reading, reopening and refusals\n\nThe browser gate now also scrolls up mid-answer, closes and reopens the panel, presses More below from the keyboard, finds the answer's last paragraph by its words rather than the hook's measure, and has the model refuse a question. Waits are on what the page shows; --only runs one size.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T16:51:20Z"
+     }
+    }
+   },
+   {
+    "sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2",
+    "parents": [
+     {
+      "sha": "4b510bbf69cf088097f44a57acc672368e0882b6"
+     }
+    ],
+    "commit": {
+     "message": "Turn one page per More below press\n\nA press moved straight to the last line, so a reader halfway down a long\nanswer skipped everything between. It now moves on by four fifths of the\nview, keeping the lines the button sat over in sight, and keyboard focus\nstays on the button until the last press.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T17:48:13Z"
+     }
+    }
+   },
+   {
+    "sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89",
+    "parents": [
+     {
+      "sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2"
+     }
+    ],
+    "commit": {
+     "message": "Stop a page turn at the button, focus on leave\n\nOn a short view a fifth of the page is less than the button covers, so\nthe step now stops at the button's top edge. Focus moves to the log when\nthe button goes, not at a press judged to be the last: a streaming answer\ncan grow again. A closed panel forgets the button, and the call list and\nthe browser walk pin the page turn.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T17:57:45Z"
+     }
+    }
+   },
+   {
+    "sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa",
+    "parents": [
+     {
+      "sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89"
+     }
+    ],
+    "commit": {
+     "message": "Fill the More below button\n\nThe outline look has no fill, so the line under the floating button showed\nthrough its label. The filled subtle look hides it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:05:04Z"
+     }
+    }
+   },
+   {
+    "sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6",
+    "parents": [
+     {
+      "sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa"
+     }
+    ],
+    "commit": {
+     "message": "Match CRLF in the new-chat scroll check\n\nA Windows checkout has CRLF line ends, so the regex that finds the reset\nfunction's body found nothing there.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:32:42Z"
+     }
+    }
+   },
+   {
+    "sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6",
+    "parents": [
+     {
+      "sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6"
+     }
+    ],
+    "commit": {
+     "message": "Keep the place through a load or a failed repeat\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T19:29:34Z"
+     }
+    }
+   },
+   {
+    "sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec",
+    "parents": [
+     {
+      "sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6"
+     },
+     {
+      "sha": "624513a68c81bf31833cfb5ebe5c208437426305"
+     }
+    ],
+    "commit": {
+     "message": "Merge main into assistant-read-like-a-book\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T21:38:41Z"
+     }
+    }
+   },
+   {
+    "sha": "007e35c50280b3b05773592799d7c85054332bf3",
+    "parents": [
+     {
+      "sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec"
+     }
+    ],
+    "commit": {
+     "message": "Leave the view for another device's failed turn\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-25T11:44:06Z"
+     }
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/007e35c50280b3b05773592799d7c85054332bf3...main": {
+   "ahead_by": 3,
+   "commits": [
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T16:55:50Z"
+      }
+     }
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T20:57:20Z"
+      }
+     }
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T21:52:17Z"
+      }
+     }
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/e6f6945f3d649b54bbfebd24bc928d1a3f59f10c": {
+   "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+   "files": [
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/tree.ts"
+    },
+    {
+     "filename": "tools/one-level-course-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/1d894c4a64bd9ea549fa3b437c7a30d22e9c4957": {
+   "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0": {
+   "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+   "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  }
+ }
+}

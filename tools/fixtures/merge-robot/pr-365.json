@@ -1,0 +1,493 @@
+{
+ "repo": "ValeraZSD/terramentor",
+ "number": 365,
+ "recorded_at": "2026-11-25T22:24:38.653Z",
+ "book": {
+  "/repos/ValeraZSD/terramentor/pulls/365": {
+   "number": 365,
+   "title": "Hosted copies ask OpenRouter for zero retention",
+   "draft": false,
+   "state": "open",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "changed_files": 19,
+   "html_url": "https://github.com/ValeraZSD/terramentor/pull/365",
+   "created_at": "2026-11-24T18:23:10Z",
+   "user": {
+    "login": "ValeraZSD"
+   },
+   "labels": [
+    {
+     "name": "visual-seen"
+    }
+   ],
+   "head": {
+    "sha": "680b9cb0918e44c1595226fe50b1e0c1714d4829",
+    "ref": "hosted-zero-retention",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   },
+   "base": {
+    "ref": "main",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   }
+  },
+  "/repos/ValeraZSD/terramentor/pulls/365/files?per_page=100&page=1": [
+   {
+    "filename": ".env.example",
+    "status": "modified"
+   },
+   {
+    "filename": "SECURITY.md",
+    "status": "modified"
+   },
+   {
+    "filename": "docs/HOSTING.md",
+    "status": "modified"
+   },
+   {
+    "filename": "hosted/example.env",
+    "status": "modified"
+   },
+   {
+    "filename": "server/ai.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/aiJobs.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/aiWire.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/embeddings.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/feedGen.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/index.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/routes/createProject.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/site/index.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/tasks.js",
+    "status": "modified"
+   },
+   {
+    "filename": "server/zeroRetention.js",
+    "status": "added"
+   },
+   {
+    "filename": "src/locales/en.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/nl.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/types.ts",
+    "status": "modified"
+   },
+   {
+    "filename": "src/utils/failureCause.ts",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/zero-retention-gates.mjs",
+    "status": "added"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/commits/680b9cb0918e44c1595226fe50b1e0c1714d4829/check-runs?filter=all&per_page=100&page=1": {
+   "check_runs": [
+    {
+     "id": 138821553373,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T22:22:29Z",
+     "completed_at": "2026-11-24T22:26:25Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 138815594493,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:49Z",
+     "completed_at": "2026-11-24T21:40:55Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138815539297,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:49Z",
+     "completed_at": "2026-11-24T22:11:32Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138815537395,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T22:11:49Z",
+     "completed_at": "2026-11-24T22:26:46Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138796170853,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "neutral",
+     "started_at": "2026-11-24T21:37:58Z",
+     "completed_at": "2026-11-24T21:37:58Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 138796046581,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "failure",
+     "started_at": "2026-11-24T21:37:48Z",
+     "completed_at": "2026-11-24T21:51:12Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138796046373,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:49Z",
+     "completed_at": "2026-11-24T21:40:55Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138796046007,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:49Z",
+     "completed_at": "2026-11-24T22:11:32Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138796045703,
+     "name": "signoff",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:48Z",
+     "completed_at": "2026-11-24T21:38:01Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 138796045480,
+     "name": "check",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-24T21:37:48Z",
+     "completed_at": "2026-11-24T21:38:04Z",
+     "app": "github-actions"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/680b9cb0918e44c1595226fe50b1e0c1714d4829/statuses?per_page=100&page=1": [
+   {
+    "context": "license/cla",
+    "state": "success",
+    "description": "Contributor License Agreement is signed.",
+    "created_at": "2026-11-24T21:37:46Z",
+    "creator": {
+     "login": "ValeraZSD"
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/issues/365/events?per_page=100&page=1": [
+   {
+    "event": "labeled",
+    "label": {
+     "name": "visual-seen"
+    },
+    "created_at": "2026-11-25T12:33:06Z"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/pulls/365/commits?per_page=100&page=1": [
+   {
+    "sha": "4f91dab36b51879a3c8f18e88b247bc3092d5c20",
+    "parents": [
+     {
+      "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b"
+     }
+    ],
+    "commit": {
+     "message": "Gate: hosted OpenRouter calls ask for zero retention\n\nA new suite drives the chat, stream, vision and embeddings calls of a\nhosted copy against a recorded openrouter.ai and reads the bodies that\nleft. It fails on the current code: no provider terms are sent unless\nAI_EXTRA_BODY adds them, and AI_EXTRA_BODY can switch them off.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:22:56Z"
+     }
+    }
+   },
+   {
+    "sha": "bd4787df55e1153eef5c3f4008d8ec3ef4a75e74",
+    "parents": [
+     {
+      "sha": "4f91dab36b51879a3c8f18e88b247bc3092d5c20"
+     }
+    ],
+    "commit": {
+     "message": "Ask OpenRouter for zero retention when hosted\n\nA hosted copy, and every library of a site, now lays provider.zdr and\ndata_collection: deny over every chat, vision and embeddings body it\nsends to OpenRouter. They go on last, so neither a learner's routing\npreference nor AI_EXTRA_BODY can switch them off, and a hosted body\nbuilt without knowing its endpoint is refused instead of sent bare.\n\nWhen no zero-retention endpoint serves the model, OpenRouter's 404 is\nreported in words an operator can act on, and the failure dialog shows\nit as written rather than calling the model unknown. At start the copy\n(or a site's front desk, once for its libraries) names an AI_EXTRA_BODY\nthat tries to drop the terms, and a model endpoint that is not\nOpenRouter, where the terms cannot be asked for.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:27:09Z"
+     }
+    }
+   },
+   {
+    "sha": "a3e105307d88af726ca55eccb09a492fa8b0f3c7",
+    "parents": [
+     {
+      "sha": "bd4787df55e1153eef5c3f4008d8ec3ef4a75e74"
+     }
+    ],
+    "commit": {
+     "message": "Explain zero retention to hosted operators\n\nHOSTING.md gets a section on the terms a hosted copy sends, how to\ncheck that a model and the embedding model have zero-retention\nendpoints, and the account setting that keeps out Safety Retention\nendpoints. example.env points at it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:27:10Z"
+     }
+    }
+   },
+   {
+    "sha": "249048ef7daca1338fba231a4c5a7402175641fb",
+    "parents": [
+     {
+      "sha": "a3e105307d88af726ca55eccb09a492fa8b0f3c7"
+     }
+    ],
+    "commit": {
+     "message": "Fail closed on OpenRouter ZDR refusals\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:37:09Z"
+     }
+    }
+   },
+   {
+    "sha": "e2171d916bf15123035fbcb259f399ab73ee9458",
+    "parents": [
+     {
+      "sha": "249048ef7daca1338fba231a4c5a7402175641fb"
+     }
+    ],
+    "commit": {
+     "message": "Reword the hosted retention note in SECURITY.md\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:38:03Z"
+     }
+    }
+   },
+   {
+    "sha": "977d9f60c537690d9d457a483e1f36cff403a47e",
+    "parents": [
+     {
+      "sha": "e2171d916bf15123035fbcb259f399ab73ee9458"
+     }
+    ],
+    "commit": {
+     "message": "Close review gaps in hosted zero retention\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:48:03Z"
+     }
+    }
+   },
+   {
+    "sha": "8d11a533489baf30c10f3103fc14dd26103749b6",
+    "parents": [
+     {
+      "sha": "977d9f60c537690d9d457a483e1f36cff403a47e"
+     }
+    ],
+    "commit": {
+     "message": "Name the ZDR account setting in the docs\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:48:03Z"
+     }
+    }
+   },
+   {
+    "sha": "2f9a8213bb464236cd59e156e16330d33e129f20",
+    "parents": [
+     {
+      "sha": "8d11a533489baf30c10f3103fc14dd26103749b6"
+     }
+    ],
+    "commit": {
+     "message": "Treat ZDR refusals as no model available\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:55:09Z"
+     }
+    }
+   },
+   {
+    "sha": "4c30f6486cc73a4b8f021b5b37a521c0e9fbec4a",
+    "parents": [
+     {
+      "sha": "2f9a8213bb464236cd59e156e16330d33e129f20"
+     }
+    ],
+    "commit": {
+     "message": "Say ZDR needs the account setting too\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T18:55:09Z"
+     }
+    }
+   },
+   {
+    "sha": "7c69f27dd8aac57d63d8c24cb98e068a496bfdbb",
+    "parents": [
+     {
+      "sha": "4c30f6486cc73a4b8f021b5b37a521c0e9fbec4a"
+     }
+    ],
+    "commit": {
+     "message": "Stop on an empty 404, warn for embeddings\n\nA hosted OpenRouter 404 with no body is taken as the zero-retention\nrefusal: a failed body read arrives empty, and an ordinary failure would\nlet the job chain move the text to a backup endpoint. The start-up\nwarning now also follows document chunks sent for embeddings when chat\nruns on a local model, and the feed writer hands its task the error so\nthe task record keeps the refusal flag.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T21:35:52Z"
+     }
+    }
+   },
+   {
+    "sha": "680b9cb0918e44c1595226fe50b1e0c1714d4829",
+    "parents": [
+     {
+      "sha": "7c69f27dd8aac57d63d8c24cb98e068a496bfdbb"
+     }
+    ],
+    "commit": {
+     "message": "Warn for embeddings only when vectors run\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "committer": {
+      "date": "2026-11-24T21:37:33Z"
+     }
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/680b9cb0918e44c1595226fe50b1e0c1714d4829...main": {
+   "ahead_by": 4,
+   "commits": [
+    {
+     "sha": "624513a68c81bf31833cfb5ebe5c208437426305",
+     "commit": {
+      "committer": {
+       "date": "2026-11-24T21:36:34Z"
+      }
+     }
+    },
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T16:55:50Z"
+      }
+     }
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T20:57:20Z"
+      }
+     }
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+     "commit": {
+      "committer": {
+       "date": "2026-11-25T21:52:17Z"
+      }
+     }
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/e6f6945f3d649b54bbfebd24bc928d1a3f59f10c": {
+   "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+   "files": [
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/tree.ts"
+    },
+    {
+     "filename": "tools/one-level-course-gates.mjs"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/1d894c4a64bd9ea549fa3b437c7a30d22e9c4957": {
+   "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+   "files": [
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  },
+  "/repos/ValeraZSD/terramentor/commits/b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0": {
+   "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+   "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    }
+   ],
+   "author": {
+    "login": "ValeraZSD"
+   }
+  }
+ }
+}

@@ -35,6 +35,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # A merge made with a workflow's own token (tools/merge-robot.mjs) pushes to
+  # main without starting this workflow; the robot dispatches it on main instead.
+  workflow_dispatch:
 
 # These jobs only read and run the suite; nothing here publishes.
 permissions:
