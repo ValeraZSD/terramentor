@@ -33,8 +33,11 @@ name: Gates
 
 on:
   pull_request:
+  # A release branch (release/X.Y, CONTRIBUTING.md "Releasing") is tested on
+  # every push like main: its head is what that version's stable is built from,
+  # and the release workflow takes a push run that passed as its own.
   push:
-    branches: [main]
+    branches: [main, 'release/**']
 
 # These jobs only read and run the suite; nothing here publishes.
 permissions:
