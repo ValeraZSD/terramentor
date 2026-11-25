@@ -79,8 +79,9 @@ Elsewhere in the app:
 - Settings → AI & Models → Describe card pictures lists every card picture beside its
   description, so a description a model wrote can be checked and corrected. A description
   a model writes is refused, and the picture keeps waiting for one, when it is a refusal, only
-  names the kind of picture ("A bar chart."), or is in English or another script instead of
-  the course's language.
+  names the kind of picture ("A bar chart."), or is in another script than the course's
+  language, or reads as English in a course that is not: at least two words only English
+  uses, such as "the" or "with", making up 15% or more of its words.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
   dashboard) sets its own page title, each screen has one main heading, and moving to another screen is announced.
 - Back (a phone's Back button, the browser's Back, a mouse's back key) closes the topmost

@@ -116,7 +116,8 @@ under two weeks of your record. Once it has four weeks of your record it can nam
 likely finish dates, never a single one, because a pace that comes in bursts cannot honestly give
 one. From two weeks on, courses with dates share your weekly pace (topics and cards counted
 apart), the nearest date first; a course that cannot make its date takes the rest of the week,
-and later or undated courses wait. A paused course takes no share.
+and later or undated courses counted the same way (topics, or cards) wait. A paused course
+takes no share.
 
 **Open plan** shows that verdict with a chart of your weeks and what you can do about it:
 
