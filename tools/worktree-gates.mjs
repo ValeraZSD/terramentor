@@ -260,8 +260,8 @@ try {
         // compare two spellings of one file and exit 0 having done nothing — no
         // install, no .env. A run that does nothing must fail here.
         for (const dir of [w1, main]) {
-            mkdirSync(join(dir, 'tools'), { recursive: true });
-            for (const f of ['worktree-setup.mjs', 'dev-ports.mjs']) {
+            mkdirSync(join(dir, 'tools', 'lib'), { recursive: true });
+            for (const f of ['worktree-setup.mjs', 'dev-ports.mjs', 'locale-merge.mjs', 'lib/localeJson.mjs']) {
                 writeFileSync(join(dir, 'tools', f), readFileSync(join(repoRoot, 'tools', f)));
             }
         }
