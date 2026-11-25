@@ -123,10 +123,10 @@ const CUT = `(() => {
         const text = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
         return el.tagName.toLowerCase() + (cls ? '.' + cls : '') + (text ? ' "' + text + '"' : '');
     };
-    /** The first box between el and the page that clips el sideways, and by how much. */
-    const cutBy = (el, rect) => {
+    /** The first box from 'from' up to the page that clips the rect sideways, and by how much. */
+    const cutBy = (from, rect) => {
         if (rect.width < 1 || rect.height < 1) return null;
-        for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+        for (let a = from; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
             const s = getComputedStyle(a);
             if (s.overflowX === 'visible') continue;
             if (s.textOverflow === 'ellipsis') return null;
@@ -149,7 +149,7 @@ const CUT = `(() => {
     const CONTROLS = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="checkbox"], [role="switch"]';
     for (const el of document.querySelectorAll(CONTROLS)) {
         if (skip(el) || !el.getClientRects().length || hiddenTwin(el)) continue;
-        const c = cutBy(el, el.getBoundingClientRect());
+        const c = cutBy(el.parentElement, el.getBoundingClientRect());
         if (c) note(el, name(el), c);
     }
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -159,6 +159,7 @@ const CUT = `(() => {
         if (!n.data.trim() || skip(el) || !el.getClientRects().length || el.closest('svg, math, .katex-mathml, script, style') || hiddenTwin(el)) continue;
         range.selectNodeContents(n);
         for (const r of range.getClientRects()) {
+            // From the text's own element: a 'truncate' line clips its own text.
             const c = cutBy(el, r);
             if (c) { note(el, 'text "' + n.data.trim().replace(/\\s+/g, ' ').slice(0, 40) + '"', c); break; }
         }
