@@ -276,7 +276,12 @@ function SidebarRow({ item, projectColor, oneLevel, isActive, projectedDepth, is
     );
 }
 
-export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
+/**
+ * `width` is the width it is drawn at (the stored one, or less when the row
+ * has no room for it: utils/workspaceFit); `maxWidth` the widest a drag may
+ * make it while the columns beside it keep their minimums.
+ */
+export default function Sidebar({ isDrawer = false, width, maxWidth }: { isDrawer?: boolean; width?: number; maxWidth?: number }) {
     const { t } = useTranslation();
     const tree = useStore(s => s.tree);
     const expanded = useStore(s => s.expanded);
@@ -289,6 +294,8 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const toggleAllExpanded = useStore(s => s.toggleAllExpanded);
     const sidebarWidth = useStore(s => s.sidebarWidth);
     const setSidebarWidth = useStore(s => s.setSidebarWidth);
+    const maxWidthRef = useRef(maxWidth);
+    maxWidthRef.current = maxWidth;
     const moveNode = useStore(s => s.moveNode);
     const projects = useStore(s => s.projects);
     const currentProjectId = useStore(s => s.currentProjectId);
@@ -398,7 +405,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!resizing.current) return;
-            setSidebarWidth(fromInlineStart(e.clientX));
+            const most = maxWidthRef.current;
+            const wanted = fromInlineStart(e.clientX);
+            setSidebarWidth(most != null && most > 0 ? Math.min(wanted, most) : wanted);
         };
 
         const handleMouseUp = () => {
@@ -521,7 +530,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             ref={sidebarRef}
             data-course-sidebar={isDrawer ? undefined : ''}
             className={`bg-white dark:bg-slate-800 border-e border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
-            style={isDrawer ? undefined : { width: sidebarWidth }}
+            style={isDrawer ? undefined : { width: width ?? sidebarWidth }}
             tabIndex={0}
         >
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">

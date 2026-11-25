@@ -35,7 +35,7 @@ const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 const quick = process.argv.includes('--quick');
 
 /** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
-const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'page-scroll-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
+const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'page-scroll-gates.mjs', 'panel-fit-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
 
 const self = 'run-gates.mjs'; // this file matches the glob it defines — skip it, or it recurses
 

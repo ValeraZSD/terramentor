@@ -108,6 +108,18 @@ export default function Layout({ children }: { children: ReactNode }) {
     // stays an overlay.
     // An exam hides the assistant, so nothing makes room for it then.
     const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen && !examFocus;
+    // A width dragged in a wide window is kept, but drawn no wider than the
+    // drag itself allows in THIS window (60%): a 1024px window must not lose
+    // 800px of itself to a width set at 1920.
+    const [windowWidth, setWindowWidth] = useState(() => typeof window === 'undefined' ? 0 : window.innerWidth);
+    useEffect(() => {
+        const onResize = () => setWindowWidth(window.innerWidth);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+    const drawnAssistantWidth = windowWidth
+        ? Math.max(MIN_WIDTH, Math.min(assistantWidth, Math.round(windowWidth * 0.6)))
+        : assistantWidth;
 
     const resizeAssistant = (px: number) => {
         setAssistantWidth(px);
@@ -118,9 +130,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     // to know a column was carved out of the right of the screen, so the width is
     // published as a CSS variable and those two offset themselves by it.
     useEffect(() => {
-        const px = assistantDocked ? `${assistantWidth}px` : '0px';
+        const px = assistantDocked ? `${drawnAssistantWidth}px` : '0px';
         document.documentElement.style.setProperty('--assistant-w', px);
-    }, [assistantDocked, assistantWidth]);
+    }, [assistantDocked, drawnAssistantWidth]);
 
     // Only name a key on a device that has keys.
     const hasKeyboard = usePhysicalKeyboard();
@@ -692,7 +704,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             open={assistantOpen && !examFocus}
             onClose={closeAssistant}
             docked={assistantDocked}
-            width={assistantWidth}
+            width={drawnAssistantWidth}
             onResize={resizeAssistant}
         />
         </div>
