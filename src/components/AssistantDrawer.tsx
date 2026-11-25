@@ -34,7 +34,7 @@ import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
 import { splitTurnTimeline } from '../utils/turnTimeline';
 import { useAutoGrow } from '../hooks/useAutoGrow';
-import { newestStoredQuestion, storedCopyOf, useReadingScroll, type PlacedQuestion } from '../hooks/useReadingScroll';
+import { anchorsView, newestStoredQuestion, storedCopyOf, useReadingScroll, type PlacedQuestion } from '../hooks/useReadingScroll';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
@@ -708,20 +708,28 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         else scroll.toBottom();
     }, [open, loadingHistory, showList, scroll]);
 
-    // A question this panel has just put at the end — sent here, or spliced in
-    // for a turn asked on another device and followed — goes to the top of the
-    // view, and its answer is written below it. Both carry a provisional
-    // (negative) id. A stored row never moves the view: a conversation being
-    // opened lands on its newest message (above), and the stored copy of a
-    // question already placed replaces it in place (below). Nothing else a turn
-    // does moves the log: the reader reads down at their own pace.
+    // A question sent from this panel goes to the top of the view, and its
+    // answer is written below it; it carries a provisional (negative) id. The
+    // question of a failed turn put back beside its error card carries one too
+    // (`splicedUserIdsRef`): it keeps the top only when it is the question
+    // sent here (the server dropped it), never for a turn from another device.
+    // A stored row never moves the view: a conversation being opened lands on
+    // its newest message (above), and the stored copy of a question already
+    // placed replaces it in place (below). Nothing else a turn does moves the
+    // log: the reader reads down at their own pace.
     const lastRow = messages[messages.length - 1];
     const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
     const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
     const storedBefore = newestStoredQuestion(messages);
+    /** The words of the last question sent here, until its stored copy arrives. */
+    const sentRef = useRef<string | null>(null);
     useEffect(() => {
-        if (lastQuestionId == null || lastQuestionId >= 0 || lastQuestionId === placedRef.current?.id) return;
-        placedRef.current = { id: lastQuestionId, content: lastQuestionText ?? '', after: storedBefore };
+        if (lastQuestionId == null || lastQuestionId === placedRef.current?.id) return;
+        const content = lastQuestionText ?? '';
+        const putBack = splicedUserIdsRef.current.has(lastQuestionId);
+        if (!anchorsView(lastQuestionId, putBack, content, sentRef.current)) return;
+        sentRef.current = putBack ? null : content;
+        placedRef.current = { id: lastQuestionId, content, after: storedBefore };
         scroll.anchor(lastQuestionId);
     }, [lastQuestionId, lastQuestionText, storedBefore, scroll]);
 
@@ -735,6 +743,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (!placed || messages.some(m => m.id === placed.id)) return;
         const stored = storedCopyOf(placed, messages);
         if (stored) {
+            sentRef.current = null;
             placedRef.current = { ...placed, id: stored };
             scroll.retarget(stored);
         } else {

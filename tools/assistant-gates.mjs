@@ -551,7 +551,7 @@ section('the log reads like a page: the question goes up once, the answer never 
         entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
         bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
     });
-    const { roomFor, scrollTargetFor, textBelow, pageStep, newestStoredQuestion, storedCopyOf } = await import(pathToFileURL(outScroll).href);
+    const { roomFor, scrollTargetFor, textBelow, pageStep, newestStoredQuestion, storedCopyOf, anchorsView } = await import(pathToFileURL(outScroll).href);
     // The provisional question is swapped for its stored copy, or taken off by
     // a failed turn. Words alone matched the same words asked earlier, so a
     // failed repeat kept the room under the older question.
@@ -627,9 +627,22 @@ section('the log reads like a page: the question goes up once, the answer never 
     // A "was history loading?" flag missed: React renders the rows and the
     // flag's reset in one pass. What this panel put at the end has a
     // provisional (negative) id; a stored row never moves the view.
-    check('only a question this panel put at the end moves the view, never a stored row',
-        /if \(lastQuestionId == null \|\| lastQuestionId >= 0 \|\| lastQuestionId === placedRef\.current\?\.id\) return;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
-        && /const userId = -Date\.now\(\);/.test(drawerSrc));
+    // A failed turn's question put back beside its card also has a negative
+    // id. Put back for a turn from another device, it moved the view while the
+    // learner read an earlier answer; put back for the question sent here (the
+    // server dropped it), it must keep the top (the browser suite's refused
+    // turn).
+    check('a question sent here goes to the top; a stored row does not', anchorsView(-5, false, 'Hi', null) && !anchorsView(12, false, 'Hi', null));
+    check('a failed turn from another device put back does not move the view',
+        !anchorsView(-6, true, 'Hello', null) && !anchorsView(-6, true, 'Hello', 'Something else'));
+    check('the question sent here, dropped and put back, keeps the top', anchorsView(-6, true, 'Hello', 'Hello'));
+    const bubbles = drawerSrc.match(/const bubbleId = -Date\.now\(\) - 2;\s*splicedUserIdsRef\.current\.set\(bubbleId, /g) || [];
+    const userRows = drawerSrc.match(/id: \w+, role: 'user'/g) || [];
+    check('the drawer asks anchorsView for every question it adds, put-back bubbles marked',
+        /const putBack = splicedUserIdsRef\.current\.has\(lastQuestionId\);\s*if \(!anchorsView\(lastQuestionId, putBack, content, sentRef\.current\)\) return;\s*sentRef\.current = putBack \? null : content;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
+        && /if \(stored\) \{\s*sentRef\.current = null;/.test(drawerSrc)
+        && /const userId = -Date\.now\(\);/.test(drawerSrc)
+        && bubbles.length === 2 && userRows.length === 3, `bubbles ${bubbles.length}, user rows added ${userRows.length}`);
     check('a question swapped for its stored copy keeps the place; one taken off drops the room',
         /const stored = storedCopyOf\(placed, messages\);\s*if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc)
         && /after: storedBefore \}/.test(drawerSrc));

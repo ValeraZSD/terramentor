@@ -61,6 +61,19 @@ export type PlacedQuestion = { id: number; content: string; after: number };
 
 type ChatRow = { id: number; role: string; content: string };
 
+/**
+ * Whether a question just put at the end of the log goes to the top of the
+ * view. Only a provisional (negative id) row can: one sent from this panel,
+ * or a failed turn's question put back beside its error card (`putBack`)
+ * when it is the question sent here (`sent`, its words) that the server
+ * dropped. A failed turn from another device is put back without moving
+ * the view.
+ */
+export function anchorsView(id: number, putBack: boolean, content: string, sent: string | null): boolean {
+    if (id >= 0) return false;
+    return !putBack || content === sent;
+}
+
 /** The newest stored (positive id) question in a log, 0 for none. */
 export function newestStoredQuestion(rows: readonly ChatRow[]): number {
     let newest = 0;
