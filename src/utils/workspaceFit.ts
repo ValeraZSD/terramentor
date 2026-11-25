@@ -23,8 +23,14 @@
 export const SIDEBAR_MIN = 200;
 /** The narrowest a topic's panel is drawn beside the middle view (the store's lower clamp). */
 export const PANEL_MIN = 300;
-/** The narrowest the middle view is drawn, in rem: it follows the interface scale. */
+/** The narrowest the middle view is drawn, in rem: it follows the interface scale... */
 export const CENTER_MIN_REM = 20;
+/** ...or this share of the row, when that is less. The same share the larger
+ *  interface leaves the course tree (index.css): at 160% on an 800px window the
+ *  outline keeps ~260px beside the tree and a topic, as it did before. A docked
+ *  assistant at 1280 leaves a 760px row, whose 30% (228px) does not fit beside
+ *  the tree and the panel, so there the panel takes the middle view's place. */
+export const CENTER_MIN_SHARE = 0.3;
 
 export interface FitInput {
     /** The row's width in px; 0 = not measured yet. */
@@ -35,7 +41,8 @@ export interface FitInput {
     /** Whether the sidebar and a panel are on this screen at all. */
     showSidebar: boolean;
     showPanel: boolean;
-    /** The middle view's minimum, px. */
+    /** The middle view's minimum in px (CENTER_MIN_REM at the current scale);
+     *  CENTER_MIN_SHARE of the row lowers it. */
     centerMin: number;
     /** The sidebar's minimum, px, when the page sets one above SIDEBAR_MIN
      *  ("Larger text and buttons" gives it a CSS floor of its own). */
@@ -53,7 +60,8 @@ export interface Fit {
     panelMax: number;
 }
 
-export function fitColumns({ room, sidebar: storedSidebar, panel, showSidebar, showPanel, centerMin, sidebarMin: floor = 0 }: FitInput): Fit {
+export function fitColumns({ room, sidebar: storedSidebar, panel, showSidebar, showPanel, centerMin: centerRem, sidebarMin: floor = 0 }: FitInput): Fit {
+    const centerMin = Math.min(centerRem, Math.floor(CENTER_MIN_SHARE * room));
     // The sidebar is never drawn under its floor, whatever is stored: the
     // arithmetic below must count what the page will really draw.
     const SIDEBAR_FLOOR = Math.max(SIDEBAR_MIN, floor);

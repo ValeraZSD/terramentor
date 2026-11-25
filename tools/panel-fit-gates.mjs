@@ -8,6 +8,7 @@
  *   node tools/panel-fit-gates.mjs --only 1280     only the cases whose name contains "1280"
  *   node tools/panel-fit-gates.mjs --browser <p>   a Chromium-based browser (default: Edge or Chrome)
  *   node tools/panel-fit-gates.mjs --shots <dir>   also a screenshot of every case
+ *   node tools/panel-fit-gates.mjs --theme dark    the same cases in the dark theme
  *
  * WHY. The topic panel was drawn at its stored width (300-600px) inside a row
  * that clips, beside the course sidebar and the view in the middle. With the
@@ -27,7 +28,8 @@
  *     a line cut with an ellipsis on purpose (`truncate`).
  *  2. With a topic open, its Close button is inside the window and is what a
  *     pointer at its centre would press.
- *  3. With a topic open, the middle view is either at least 20rem wide or not
+ *  3. With a topic open, the middle view is either at least 20rem wide (or 30%
+ *     of the row, when that is less) or not
  *     drawn at all: never a strip.
  *
  * The data is the invented course from tools/docs-fixture.mjs in a scratch
@@ -46,6 +48,7 @@ const args = process.argv.slice(2);
 const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const only = value('--only');
 const shots = value('--shots');
+const theme = value('--theme') ?? 'light';
 if (shots) mkdirSync(shots, { recursive: true });
 
 let pass = 0, fail = 0;
@@ -184,7 +187,9 @@ const COLUMNS = `(() => {
     const sidebar = document.querySelector('[data-course-sidebar]');
     const middle = document.querySelector('[data-workspace-center]') ?? (panel ? panel.previousElementSibling : null);
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    return { panel: w(panel), sidebar: w(sidebar), middle: w(middle), rem };
+    const row = panel?.parentElement?.clientWidth ?? 0;
+    // Its minimum: 20rem, or 30% of the row when that is less (src/utils/workspaceFit.ts).
+    return { panel: w(panel), sidebar: w(sidebar), middle: w(middle), rem, least: Math.min(20 * rem, Math.floor(0.3 * row)) };
 })()`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -206,6 +211,7 @@ function reachCase({ panel = 420, sidebar = 256, assistant = false, assistantWid
         await page.setting('detailPanelWidth', String(panel));
         await page.setting('sidebarWidth', String(sidebar));
         await page.setting('ui_language', lang);
+        await page.setting('theme', theme);
         // "Larger text and buttons" at 160%: the sidebar then has a floor of its own (index.css).
         await page.setting('larger_ui', larger ? 'true' : 'false');
         if (larger) await page.setting('ui_scale', 160);
@@ -299,8 +305,8 @@ for (const size of SIZES) {
                     check(`${label}: the topic's Close is in the window and pressable`, close.found && close.inside && close.pressable,
                         `        ${JSON.stringify(close)}`);
                     const col = await page.evaluate(COLUMNS);
-                    check(`${label}: the middle view is 20rem or more, or not drawn (${col.middle}px; panel ${col.panel}, sidebar ${col.sidebar})`,
-                        col.middle === 0 || col.middle >= 20 * col.rem - 1);
+                    check(`${label}: the middle view is at least min(20rem, 30% of the row) = ${col.least}px, or not drawn (${col.middle}px; panel ${col.panel}, sidebar ${col.sidebar})`,
+                        col.middle === 0 || col.middle >= col.least - 1);
                     // With room for all three at their stored widths, nothing gives way.
                     const stored = { panel: s.c.panel ?? 420, sidebar: s.c.sidebar ?? 256 };
                     if (!s.c.assistant && !s.c.larger && !s.drag && size.width - stored.sidebar - 20 * col.rem >= stored.panel) {
