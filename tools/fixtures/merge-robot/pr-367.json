@@ -1,7 +1,7 @@
 {
  "repo": "ValeraZSD/terramentor",
  "number": 367,
- "recorded_at": "2026-11-25T22:24:42.709Z",
+ "recorded_at": "2026-11-25T22:45:59.456Z",
  "book": {
   "/repos/ValeraZSD/terramentor/pulls/367": {
    "number": 367,
@@ -181,7 +181,12 @@
     }
    }
   ],
-  "/repos/ValeraZSD/terramentor/issues/367/events?per_page=100&page=1": [],
+  "/repos/ValeraZSD/terramentor/issues/367/events?per_page=100&page=1": [
+   {
+    "event": "ready_for_review",
+    "created_at": "2026-11-25T13:20:28Z"
+   }
+  ],
   "/repos/ValeraZSD/terramentor/pulls/367/commits?per_page=100&page=1": [
    {
     "sha": "c6f1fa06766edc9cd10f6d9ae731fe30d150e206",
@@ -282,46 +287,771 @@
     }
    }
   ],
-  "/repos/ValeraZSD/terramentor/compare/a69449c4df6c92f2abc705b8ed8370f99c8282b1...main": {
-   "ahead_by": 4,
-   "commits": [
+  "/repos/ValeraZSD/terramentor/actions/runs?event=pull_request&branch=operator-log-no-learner-text&per_page=100&page=1": {
+   "workflow_runs": [
     {
-     "sha": "624513a68c81bf31833cfb5ebe5c208437426305",
-     "commit": {
-      "committer": {
-       "date": "2026-11-24T21:36:34Z"
-      }
-     }
+     "id": 45603333951,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "a69449c4df6c92f2abc705b8ed8370f99c8282b1",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:19:16Z"
     },
     {
-     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
-     "commit": {
-      "committer": {
-       "date": "2026-11-25T16:55:50Z"
-      }
-     }
+     "id": 45603333992,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "a69449c4df6c92f2abc705b8ed8370f99c8282b1",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:19:16Z"
     },
     {
-     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
-     "commit": {
-      "committer": {
-       "date": "2026-11-25T20:57:20Z"
-      }
-     }
+     "id": 45603333963,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "a69449c4df6c92f2abc705b8ed8370f99c8282b1",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:19:16Z"
     },
     {
-     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
-     "commit": {
-      "committer": {
-       "date": "2026-11-25T21:52:17Z"
-      }
-     }
+     "id": 45464516636,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "061d5302c78d6d5e1563e3967f1982fb0ad4c763",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:54:21Z"
+    },
+    {
+     "id": 45464516917,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "061d5302c78d6d5e1563e3967f1982fb0ad4c763",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:54:21Z"
+    },
+    {
+     "id": 45464516794,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "061d5302c78d6d5e1563e3967f1982fb0ad4c763",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:54:21Z"
+    },
+    {
+     "id": 45463339179,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "544426f6137b23f85d965edce0be3032efee84db",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:47:41Z"
+    },
+    {
+     "id": 45463339111,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "544426f6137b23f85d965edce0be3032efee84db",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:47:41Z"
+    },
+    {
+     "id": 45463339116,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "544426f6137b23f85d965edce0be3032efee84db",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:47:41Z"
+    },
+    {
+     "id": 45461437361,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "86ba394e7420752c21be9034a4773a75109e87bf",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:36:55Z"
+    },
+    {
+     "id": 45461437512,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "86ba394e7420752c21be9034a4773a75109e87bf",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:36:55Z"
+    },
+    {
+     "id": 45461437496,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "86ba394e7420752c21be9034a4773a75109e87bf",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:36:55Z"
+    },
+    {
+     "id": 45460043268,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "5685a61d63d4d3155b7f8df07ab34a589ad8383d",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:29:11Z"
+    },
+    {
+     "id": 45460041170,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "5685a61d63d4d3155b7f8df07ab34a589ad8383d",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:29:10Z"
+    },
+    {
+     "id": 45460041026,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "5685a61d63d4d3155b7f8df07ab34a589ad8383d",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:29:10Z"
     }
    ]
   },
-  "/repos/ValeraZSD/terramentor/commits/e6f6945f3d649b54bbfebd24bc928d1a3f59f10c": {
-   "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+  "/repos/ValeraZSD/terramentor/activity?ref=refs/heads/main&per_page=100": [
+   {
+    "before": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+    "after": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+    "timestamp": "2026-11-25T21:52:18Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+    "after": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+    "timestamp": "2026-11-25T20:57:20Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "624513a68c81bf31833cfb5ebe5c208437426305",
+    "after": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+    "timestamp": "2026-11-25T16:55:51Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+    "after": "624513a68c81bf31833cfb5ebe5c208437426305",
+    "timestamp": "2026-11-24T21:36:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+    "after": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+    "timestamp": "2026-11-24T11:40:24Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9d909e16806bca641f196c880565c40013b08b81",
+    "after": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+    "timestamp": "2026-11-24T10:46:19Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+    "after": "9d909e16806bca641f196c880565c40013b08b81",
+    "timestamp": "2026-11-24T07:01:24Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+    "after": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+    "timestamp": "2026-11-23T14:55:36Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+    "after": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+    "timestamp": "2026-11-23T11:51:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+    "after": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+    "timestamp": "2026-11-23T10:25:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+    "after": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+    "timestamp": "2026-11-23T09:46:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+    "after": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+    "timestamp": "2026-11-23T08:21:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+    "after": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+    "timestamp": "2026-11-23T06:54:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+    "after": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+    "timestamp": "2026-11-22T14:56:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+    "after": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+    "timestamp": "2026-11-22T14:02:25Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+    "after": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+    "timestamp": "2026-11-22T13:05:45Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "c82ef280039bc8faff9d003984f1ca590e98e04c",
+    "after": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+    "timestamp": "2026-11-21T23:12:00Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9b284d303ce602e1554a6c09aebc8660e522b064",
+    "after": "c82ef280039bc8faff9d003984f1ca590e98e04c",
+    "timestamp": "2026-11-21T13:01:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f92d5632a16533f161b391ffc3b51876507cd5af",
+    "after": "9b284d303ce602e1554a6c09aebc8660e522b064",
+    "timestamp": "2026-11-20T22:28:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7dfed1e9cf4ad3a45433f6ab1d4958a23954bdd8",
+    "after": "f92d5632a16533f161b391ffc3b51876507cd5af",
+    "timestamp": "2026-11-20T21:12:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "967abed53125722f83151a925bc8aaf571fbcca8",
+    "after": "7dfed1e9cf4ad3a45433f6ab1d4958a23954bdd8",
+    "timestamp": "2026-11-20T20:40:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7956f0326a8e9b2ea1513b538bd96d89529a0427",
+    "after": "967abed53125722f83151a925bc8aaf571fbcca8",
+    "timestamp": "2026-11-20T19:54:15Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7087fbd554af75606fc56113431418ad10858a53",
+    "after": "7956f0326a8e9b2ea1513b538bd96d89529a0427",
+    "timestamp": "2026-11-20T19:25:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "95502365012d87a5b0d24a5d9bec7e5c3f8f7892",
+    "after": "7087fbd554af75606fc56113431418ad10858a53",
+    "timestamp": "2026-11-20T18:59:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "fa556b2e1c8fd9253b47be79abb4ee93d509c0dd",
+    "after": "95502365012d87a5b0d24a5d9bec7e5c3f8f7892",
+    "timestamp": "2026-11-20T18:33:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bee39d10f5dd08e64a363d69f153d1fa07d624bb",
+    "after": "fa556b2e1c8fd9253b47be79abb4ee93d509c0dd",
+    "timestamp": "2026-11-20T18:27:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e4a09ef619e05b58f477acc8d589b3a69c2be4ce",
+    "after": "bee39d10f5dd08e64a363d69f153d1fa07d624bb",
+    "timestamp": "2026-11-20T17:05:27Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "be2af5f8cb4f685e0fadf5208fe11ca77206e790",
+    "after": "e4a09ef619e05b58f477acc8d589b3a69c2be4ce",
+    "timestamp": "2026-11-20T15:23:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0972e506381c08c17b9cac85af13fae0f7bae48c",
+    "after": "be2af5f8cb4f685e0fadf5208fe11ca77206e790",
+    "timestamp": "2026-11-20T14:58:49Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3f4598954dae5423baded0ba2b5bf71f2188d75d",
+    "after": "0972e506381c08c17b9cac85af13fae0f7bae48c",
+    "timestamp": "2026-11-20T14:27:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5614f6e6b3a6d033eb709f7224c996303f59a522",
+    "after": "3f4598954dae5423baded0ba2b5bf71f2188d75d",
+    "timestamp": "2026-11-20T13:20:18Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dba8f114f6223cea418f007d90c717b9b9d77d26",
+    "after": "5614f6e6b3a6d033eb709f7224c996303f59a522",
+    "timestamp": "2026-11-20T10:48:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "380c181d3b2e7773aa3002d3834c401ee59e8015",
+    "after": "dba8f114f6223cea418f007d90c717b9b9d77d26",
+    "timestamp": "2026-11-20T10:16:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5f2e2a4254e16fd8f447d6a49d17a0eda512bc94",
+    "after": "380c181d3b2e7773aa3002d3834c401ee59e8015",
+    "timestamp": "2026-11-19T23:13:40Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bbce304fd34d6bf4906eb20d602fb43b631a4f62",
+    "after": "5f2e2a4254e16fd8f447d6a49d17a0eda512bc94",
+    "timestamp": "2026-11-19T22:17:17Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9a42dabb84bea06824692976b85663673c1e128e",
+    "after": "bbce304fd34d6bf4906eb20d602fb43b631a4f62",
+    "timestamp": "2026-11-19T22:17:12Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "908cd3cc8f9096400e1bff05cd642e595073c7f0",
+    "after": "9a42dabb84bea06824692976b85663673c1e128e",
+    "timestamp": "2026-11-19T22:17:08Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0e83cf98b9450b5a62d76795f28e7f30b39fe728",
+    "after": "908cd3cc8f9096400e1bff05cd642e595073c7f0",
+    "timestamp": "2026-11-19T22:17:03Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2afd666ee7f1a89779e0457c42b63617c1b05b48",
+    "after": "0e83cf98b9450b5a62d76795f28e7f30b39fe728",
+    "timestamp": "2026-11-19T22:16:58Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0a45200437a347e2fdb765a760ef7a22a6b177c7",
+    "after": "2afd666ee7f1a89779e0457c42b63617c1b05b48",
+    "timestamp": "2026-11-19T21:28:33Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dd16c1d6bdb111a7be6e7ef9e98f0bbd6a4b04ce",
+    "after": "0a45200437a347e2fdb765a760ef7a22a6b177c7",
+    "timestamp": "2026-11-19T19:49:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b038638018cb120d9aa2bda23aa1de1fb9b79873",
+    "after": "dd16c1d6bdb111a7be6e7ef9e98f0bbd6a4b04ce",
+    "timestamp": "2026-11-19T17:24:56Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7fb934933564928e2e0578c67a1ab566355de9cf",
+    "after": "b038638018cb120d9aa2bda23aa1de1fb9b79873",
+    "timestamp": "2026-11-19T17:20:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3e92385ff6985479f7a69984dc62ce1a67cfaebd",
+    "after": "7fb934933564928e2e0578c67a1ab566355de9cf",
+    "timestamp": "2026-11-19T16:35:59Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5ee6d3a45d0471c5c73a7d9646695bf9b27ea84b",
+    "after": "3e92385ff6985479f7a69984dc62ce1a67cfaebd",
+    "timestamp": "2026-11-19T16:25:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4bd131fb594dffd5b86ad1f8d14748fb76f0025f",
+    "after": "5ee6d3a45d0471c5c73a7d9646695bf9b27ea84b",
+    "timestamp": "2026-11-19T12:51:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bddfffa7c4751a157fa5e282e168ad9510747a95",
+    "after": "4bd131fb594dffd5b86ad1f8d14748fb76f0025f",
+    "timestamp": "2026-11-19T11:02:33Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "215dc8a5f185511d52de84f562108338f2577312",
+    "after": "bddfffa7c4751a157fa5e282e168ad9510747a95",
+    "timestamp": "2026-11-18T23:42:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "395e76b1b0edea7dc6176339909da2b5f8eba6ce",
+    "after": "215dc8a5f185511d52de84f562108338f2577312",
+    "timestamp": "2026-11-18T22:20:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9b18b50e6a3a9af163fae2a37679f505a28c64e2",
+    "after": "395e76b1b0edea7dc6176339909da2b5f8eba6ce",
+    "timestamp": "2026-11-18T22:20:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "99d10110189108927b6425e5fb37aaa497f02446",
+    "after": "9b18b50e6a3a9af163fae2a37679f505a28c64e2",
+    "timestamp": "2026-11-18T21:30:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3a0a48115bef763d1d1d4e0c3db53a92c7e44754",
+    "after": "99d10110189108927b6425e5fb37aaa497f02446",
+    "timestamp": "2026-11-18T21:24:26Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "6f96df189e6ec4aaf0331c5d4ab60136c8851a8a",
+    "after": "3a0a48115bef763d1d1d4e0c3db53a92c7e44754",
+    "timestamp": "2026-11-18T21:19:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "88b7f98c9a1288b57bac985f052d75ba78ea88bd",
+    "after": "6f96df189e6ec4aaf0331c5d4ab60136c8851a8a",
+    "timestamp": "2026-11-18T20:04:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "d84782b2d6e3f44689f23827780257a90346a916",
+    "after": "88b7f98c9a1288b57bac985f052d75ba78ea88bd",
+    "timestamp": "2026-11-18T19:10:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "ece4b2aec5b9da9907b8cd9f7e95f5b5d001667c",
+    "after": "d84782b2d6e3f44689f23827780257a90346a916",
+    "timestamp": "2026-11-18T15:45:38Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f2526e2c9f83f399dc761d7bbf8d21517c4c621d",
+    "after": "ece4b2aec5b9da9907b8cd9f7e95f5b5d001667c",
+    "timestamp": "2026-11-18T13:35:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "eaac1a6d45e11488cbb9f7d6df1c7f29ebaa61f2",
+    "after": "f2526e2c9f83f399dc761d7bbf8d21517c4c621d",
+    "timestamp": "2026-11-18T13:02:56Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "a2bbb0d9df25910ac67c6f0da765b73c9130e640",
+    "after": "eaac1a6d45e11488cbb9f7d6df1c7f29ebaa61f2",
+    "timestamp": "2026-11-18T11:33:45Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "265eecfbcf160d88315770e0c02550339b3510e2",
+    "after": "a2bbb0d9df25910ac67c6f0da765b73c9130e640",
+    "timestamp": "2026-11-18T11:33:08Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bff0a4836cec177842f7efcb013a1e1e682db583",
+    "after": "265eecfbcf160d88315770e0c02550339b3510e2",
+    "timestamp": "2026-11-18T11:06:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "73c259937d7a742cc85014d6ea59711a419576c5",
+    "after": "bff0a4836cec177842f7efcb013a1e1e682db583",
+    "timestamp": "2026-11-18T11:06:16Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f9ca6c62fa90d48affebf5043a7b14f22336b65c",
+    "after": "73c259937d7a742cc85014d6ea59711a419576c5",
+    "timestamp": "2026-11-18T11:05:43Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "729e2567ede4179bf48297d9a1c4740abd2449e2",
+    "after": "f9ca6c62fa90d48affebf5043a7b14f22336b65c",
+    "timestamp": "2026-11-18T11:05:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "27ef69a3391f5e551006d6affe321621dbc260f9",
+    "after": "729e2567ede4179bf48297d9a1c4740abd2449e2",
+    "timestamp": "2026-11-18T11:04:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "96af2e3b3753d0123ba39ca8971a88af789b96b1",
+    "after": "27ef69a3391f5e551006d6affe321621dbc260f9",
+    "timestamp": "2026-11-18T10:19:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0fb44c30bc79304d863a628f2e3adeea6f08c73d",
+    "after": "96af2e3b3753d0123ba39ca8971a88af789b96b1",
+    "timestamp": "2026-11-18T10:18:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2ab691e90b58fe093687a22cb2774ce31bf5582f",
+    "after": "0fb44c30bc79304d863a628f2e3adeea6f08c73d",
+    "timestamp": "2026-11-18T10:15:58Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0a73a0bff4e7c68fd24aa888602e54401d72044a",
+    "after": "2ab691e90b58fe093687a22cb2774ce31bf5582f",
+    "timestamp": "2026-11-18T10:14:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "451ea8e1ed3128b464dcc90d9793ab2685b46932",
+    "after": "0a73a0bff4e7c68fd24aa888602e54401d72044a",
+    "timestamp": "2026-11-18T10:12:57Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "70bf07144feb173b2f49bbcaafc69c0969828e71",
+    "after": "451ea8e1ed3128b464dcc90d9793ab2685b46932",
+    "timestamp": "2026-11-18T10:12:25Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "ec4d527e5f7465402e3112591513d1a4a083e36b",
+    "after": "70bf07144feb173b2f49bbcaafc69c0969828e71",
+    "timestamp": "2026-11-18T10:11:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "126d0ad07e6a486f3ff393ed261b59f2c1495276",
+    "after": "ec4d527e5f7465402e3112591513d1a4a083e36b",
+    "timestamp": "2026-11-18T10:10:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5ddb8b08fc82e5153c9491f8ba45fb508a859a91",
+    "after": "126d0ad07e6a486f3ff393ed261b59f2c1495276",
+    "timestamp": "2026-11-18T10:10:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "1cb6f551e9ba3e543ffb369685832466fda694ed",
+    "after": "5ddb8b08fc82e5153c9491f8ba45fb508a859a91",
+    "timestamp": "2026-11-18T10:09:38Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e1da1fcea818e2afad589ff6064fb37545febc7e",
+    "after": "1cb6f551e9ba3e543ffb369685832466fda694ed",
+    "timestamp": "2026-11-18T09:41:30Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "1976a3621c646178dc620bdb6031f45cda5a1dcf",
+    "after": "e1da1fcea818e2afad589ff6064fb37545febc7e",
+    "timestamp": "2026-11-18T08:44:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "65ce05f3f23644273eac3cd63df4a57ddb263484",
+    "after": "1976a3621c646178dc620bdb6031f45cda5a1dcf",
+    "timestamp": "2026-11-17T19:45:51Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7e814779daf8162541f1e7e58f429e9962783858",
+    "after": "65ce05f3f23644273eac3cd63df4a57ddb263484",
+    "timestamp": "2026-11-17T19:45:19Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4ac1836ffc21198ab34ece7dc77530398eb3c25e",
+    "after": "7e814779daf8162541f1e7e58f429e9962783858",
+    "timestamp": "2026-11-17T19:44:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9288550e6e4f38045edf2771bac8d06353244e21",
+    "after": "4ac1836ffc21198ab34ece7dc77530398eb3c25e",
+    "timestamp": "2026-11-17T18:26:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5f3cfbee3d6607bee0919c8538e0d8a4550b131e",
+    "after": "9288550e6e4f38045edf2771bac8d06353244e21",
+    "timestamp": "2026-11-17T18:26:03Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "431052fac56a991bafe450537913604d188d77e2",
+    "after": "5f3cfbee3d6607bee0919c8538e0d8a4550b131e",
+    "timestamp": "2026-11-17T18:24:55Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b44e79210c676d9ef7562f239d76e3baf0a4d0ba",
+    "after": "431052fac56a991bafe450537913604d188d77e2",
+    "timestamp": "2026-11-17T17:51:17Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "41e122b9023f380b1255413eb638bc7c372fae08",
+    "after": "b44e79210c676d9ef7562f239d76e3baf0a4d0ba",
+    "timestamp": "2026-11-17T17:50:43Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4a79046ffff9bc8f9b857936acb40e2d9b8c9b19",
+    "after": "41e122b9023f380b1255413eb638bc7c372fae08",
+    "timestamp": "2026-11-17T17:50:10Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "cab107a0c5a47990f84d045529e10a5a3480453e",
+    "after": "4a79046ffff9bc8f9b857936acb40e2d9b8c9b19",
+    "timestamp": "2026-11-17T17:41:26Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bbba7b150da96eb703c4af92b584a6729effc346",
+    "after": "cab107a0c5a47990f84d045529e10a5a3480453e",
+    "timestamp": "2026-11-17T17:40:54Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dd2a0f1535dbaea9b7cef54093f1a76b26da653a",
+    "after": "bbba7b150da96eb703c4af92b584a6729effc346",
+    "timestamp": "2026-11-17T17:40:20Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "01c6eb95a6e1a704c38c89a8fe052885c90a695f",
+    "after": "dd2a0f1535dbaea9b7cef54093f1a76b26da653a",
+    "timestamp": "2026-11-17T17:39:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2cfd050c7bec74ed5cd0bf715cbf18ec896cd523",
+    "after": "01c6eb95a6e1a704c38c89a8fe052885c90a695f",
+    "timestamp": "2026-11-17T17:39:14Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7c7da9093effb9d14c8db36ec5cfc30c9f8662e0",
+    "after": "2cfd050c7bec74ed5cd0bf715cbf18ec896cd523",
+    "timestamp": "2026-11-17T17:38:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4c36848914ff0eff3515a4add3ca707e73a715ac",
+    "after": "7c7da9093effb9d14c8db36ec5cfc30c9f8662e0",
+    "timestamp": "2026-11-17T17:38:07Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bd3f6b9b147cf81606c86e72bd16ecc15f6f3dd6",
+    "after": "4c36848914ff0eff3515a4add3ca707e73a715ac",
+    "timestamp": "2026-11-17T17:37:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "76f578b9e0319539ec23b8c14640629371a8aa40",
+    "after": "bd3f6b9b147cf81606c86e72bd16ecc15f6f3dd6",
+    "timestamp": "2026-11-17T17:37:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "43516cf7eae67d9a5bc36e6e2a150b0fb8da9d32",
+    "after": "76f578b9e0319539ec23b8c14640629371a8aa40",
+    "timestamp": "2026-11-17T17:36:28Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e98c0faddf46a8f5b07831607d6fc5277f19ff4f",
+    "after": "43516cf7eae67d9a5bc36e6e2a150b0fb8da9d32",
+    "timestamp": "2026-11-17T17:35:31Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f3560c3e82ca264da05391282416f680fdb4d6b2",
+    "after": "e98c0faddf46a8f5b07831607d6fc5277f19ff4f",
+    "timestamp": "2026-11-17T17:34:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f429eb3f8d87cbe3ceb584fa22e7a4f796c90ee8",
+    "after": "f3560c3e82ca264da05391282416f680fdb4d6b2",
+    "timestamp": "2026-11-17T17:18:02Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "58b768b5672f40b2d8348f82dd59df00f6e0ed5a",
+    "after": "f429eb3f8d87cbe3ceb584fa22e7a4f796c90ee8",
+    "timestamp": "2026-11-17T16:07:18Z",
+    "activity_type": "pr_merge"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/624513a68c81bf31833cfb5ebe5c208437426305...main": {
+   "status": "ahead",
+   "ahead_by": 3,
+   "commits": [
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c"
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957"
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0"
+    }
+   ],
    "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    },
     {
      "filename": "server/routes/studyDashboard.js"
     },
@@ -337,56 +1067,7 @@
     {
      "filename": "tools/one-level-course-gates.mjs"
     }
-   ],
-   "author": {
-    "login": "ValeraZSD"
-   }
-  },
-  "/repos/ValeraZSD/terramentor/commits/1d894c4a64bd9ea549fa3b437c7a30d22e9c4957": {
-   "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
-   "files": [
-    {
-     "filename": "README.md"
-    },
-    {
-     "filename": "docs/ACCESSIBILITY.md"
-    },
-    {
-     "filename": "docs/ARCHITECTURE.md"
-    },
-    {
-     "filename": "docs/GETTING_STARTED.md"
-    },
-    {
-     "filename": "docs/screenshots/hero.webp"
-    }
-   ],
-   "author": {
-    "login": "ValeraZSD"
-   }
-  },
-  "/repos/ValeraZSD/terramentor/commits/b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0": {
-   "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
-   "files": [
-    {
-     "filename": "CHANGELOG.md"
-    },
-    {
-     "filename": "docs/ACCESSIBILITY.md"
-    },
-    {
-     "filename": "docs/screenshots/hero.webp"
-    },
-    {
-     "filename": "package-lock.json"
-    },
-    {
-     "filename": "package.json"
-    }
-   ],
-   "author": {
-    "login": "ValeraZSD"
-   }
+   ]
   }
  }
 }

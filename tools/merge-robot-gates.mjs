@@ -25,6 +25,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     CONFIG, collect, decide, replaying, makeApi, main, globRe, matchesAny, signoffs, commitMessage, labelState, latestRuns,
+    mainSince, pushTimes,
 } from './merge-robot.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -43,11 +44,11 @@ const text = (v) => v.reasons.map((r) => r.text).join(' | ');
 // ---------------------------------------------------------------- part one: recordings
 console.log('recorded pull requests');
 {
-    // #331: no labels; GitHub says dirty; no ai-review status; main commit b4c2c00
-    // (after CI started on 21 Nov 14:14) rewrote server/auth.js and server/hosted.js, both in the PR.
+    // #331: no labels; GitHub says dirty; no ai-review status; its head was pushed on 21 Nov and
+    // main has since taken 17 merges that change 300+ files, more than GitHub lists in one comparison.
     const v = decide(await factsOf(331));
     check('#331 skips for label, review, conflict and main', same(codes(v), ['no-label', 'review', 'conflict', 'main']), codes(v).join(','));
-    check('#331 names b4c2c00 and a file it shares', /b4c2c00/.test(text(v)) && /server\/(auth|hosted)\.js/.test(text(v)), text(v));
+    check('#331 cannot list what main changed, so it asks for main', /300 or more files/.test(text(v)), text(v));
     check('#331 is not steered by labels (no automerge)', !v.addLabels.length && !v.removeLabels.length);
 }
 {
@@ -62,18 +63,18 @@ console.log('recorded pull requests');
 }
 {
     // #364: changes AssistantDrawer.tsx and en.json; `visual-seen` went on at 11:48:51, after its last
-    // commit (11:44:06); main's later commits do not touch its files. Only the label and review miss.
+    // push (first run 11:44:17); main's merges since (e6f6945, 1d894c4, b5839f2) do not touch its
+    // files. Only the label and review miss.
     const v = decide(await factsOf(364));
     check('#364 skips only for label and review', same(codes(v), ['no-label', 'review']), codes(v).join(','));
 }
 {
-    // #365: visual (en.json) and seen; Node ubuntu failed once and passed on a re-run;
-    // main commit e6f6945 (25 Nov, after CI on 24 Nov) changed src/types.ts, which the PR also changes.
-    // 624513a landed at 21:36:34, before CI started at 21:37:48, so it does not count.
+    // #365: visual (en.json) and seen; Node ubuntu failed once and passed on a re-run; head pushed
+    // 24 Nov 21:37:45. Main's merges after that (e6f6945 on 25 Nov changed src/types.ts, which the
+    // PR also changes) count; so does 624513a, merged 70 s before the push, inside the 2-minute margin.
     const v = decide(await factsOf(365));
     check('#365 skips for label, review and main', same(codes(v), ['no-label', 'review', 'main']), codes(v).join(','));
-    check('#365 names e6f6945 and src/types.ts', /e6f6945/.test(text(v)) && /src\/types\.ts/.test(text(v)), text(v));
-    check('#365 does not name 624513a (before CI)', !/624513a/.test(text(v)));
+    check('#365 names src/types.ts and starts from 624513a', /src\/types\.ts/.test(text(v)) && /\(624513a, e6f6945/.test(text(v)), text(v));
     check('#365 takes the re-run of Node ubuntu, not the failed attempt', !v.reasons.some((r) => r.code === 'checks'));
 }
 {
@@ -93,6 +94,7 @@ const green = () => {
     f.statuses.push(structuredClone(AI_OK));
     return f;
 };
+const addFile = (f, filename, extra = {}) => { f.files.push({ filename, status: 'modified', ...extra }); f.pull.changed_files += 1; };
 const only = (name, mutate, expect) => {
     const f = green();
     mutate(f);
@@ -128,29 +130,37 @@ only('GitHub saying conflict stops it', (f) => { f.pull.mergeable = false; f.pul
 only('mergeability not worked out yet waits', (f) => { f.pull.mergeable = null; }, 'mergeable');
 only('a blocked merge waits', (f) => { f.pull.mergeable_state = 'blocked'; }, 'mergeable');
 
-const mainCommit = (files, extra = {}) => ({ sha: 'f'.repeat(40), date: '2026-11-25T23:00:00Z', files, truncated: false, ...extra });
+const mainFiles = (files) => (f) => { f.mainMoved = { known: true, before: 'b'.repeat(40), commits: ['f'.repeat(40)], files }; };
 {
-    const v = only('main changing one of its files after CI stops it', (f) => f.mainAfterCi.push(mainCommit(['server/slowLog.js'])), 'main');
+    const v = only('main changing one of its files after CI stops it', mainFiles(['server/slowLog.js']), 'main');
     check('and asks for needs-main-merge', same(v.addLabels, ['needs-main-merge']), JSON.stringify(v.addLabels));
 }
-only('main changing other files after CI is fine', (f) => f.mainAfterCi.push(mainCommit(['src/components/Sidebar.tsx'])), 'MERGE');
-only('a main commit listing 300+ files stops it', (f) => f.mainAfterCi.push(mainCommit(['README.md'], { truncated: true })), 'main');
-only('main further ahead than GitHub lists stops it', (f) => { f.mainAhead = 300; f.mainListed = 250; }, 'main');
-only('no required check ever started stops it', (f) => { f.ciStart = null; }, 'main');
+only('main changing other files after CI is fine', mainFiles(['src/components/Sidebar.tsx']), 'MERGE');
+only('main changing the old name of a file it renames stops it', (f) => {
+    f.files[0].previous_filename = 'server/oldName.js'; mainFiles(['server/oldName.js'])(f);
+}, 'main');
+only('main unknown since CI stops it', (f) => { f.mainMoved = { known: false, why: 'main was rewritten after CI started' }; }, 'main');
 {
     const v = only('a stale needs-main-merge label comes off', (f) => f.pull.labels.push({ name: 'needs-main-merge' }), 'MERGE');
     check('removeLabels says so', same(v.removeLabels, ['needs-main-merge']), JSON.stringify(v.removeLabels));
 }
+only('a pull request into another branch is not merged', (f) => { f.pull.base.ref = 'feat/photo-courses'; }, 'base');
+only('a lock file change is merged by hand', (f) => { mainFiles([])(f); addFile(f, 'package-lock.json'); }, 'by-hand');
 {
-    // collect() itself: a main commit dated before CI started is not read at all.
+    // collect() itself, from the recording: the head's push time is its first run; main's
+    // merges are read from the activity log after that time less the margin.
     const fx = load(367);
     const facts = await collect(replaying(fx.book), fx.repo, fx.number);
-    check('collect reads only main commits after CI started', same(facts.mainAfterCi.map((c) => c.sha.slice(0, 7)), ['e6f6945', '1d894c4', 'b5839f2']),
-        facts.mainAfterCi.map((c) => c.sha.slice(0, 7)).join(','));
-    check('collect dates CI from the first required attempt (11:19:19)', facts.ciStart === '2026-11-25T11:19:19Z', facts.ciStart);
+    check('collect dates CI from the first run on the head (11:19:16)', facts.ciStart === '2026-11-25T11:19:16Z', facts.ciStart);
+    check('collect lists the merges after it (e6f6945, 1d894c4, b5839f2) from 624513a',
+        facts.mainMoved.known && facts.mainMoved.before.startsWith('624513a')
+        && same(facts.mainMoved.commits.map((c) => c.slice(0, 7)), ['e6f6945', '1d894c4', 'b5839f2']), JSON.stringify(facts.mainMoved));
+    const noRuns = structuredClone(fx.book);
+    for (const k of Object.keys(noRuns)) if (/\/actions\/runs\?/.test(k)) noRuns[k] = { workflow_runs: [] };
+    const blind = await collect(replaying(noRuns), fx.repo, fx.number);
+    check('no run on the head: what CI tested is unknown', !blind.mainMoved.known && decide(blind).reasons.some((r) => r.code === 'main'));
 }
 
-const addFile = (f, filename, extra = {}) => { f.files.push({ filename, status: 'modified', ...extra }); f.pull.changed_files += 1; };
 {
     const v = only('a component change without visual-seen stops it', (f) => addFile(f, 'src/components/Foo.tsx'), 'visual');
     check('and asks for needs-visual-seen', same(v.addLabels, ['needs-visual-seen']), JSON.stringify(v.addLabels));
@@ -189,8 +199,8 @@ only('the robot\'s own tests are not machinery', (f) => addFile(f, 'tools/merge-
 only('a title like "Release 1.7.0" is a release', (f) => { f.pull.title = 'Release 1.7.0'; }, 'release');
 only('a title like "v1.7.0" is a release', (f) => { f.pull.title = 'v1.7.0 notes'; }, 'release');
 // main's release commit b5839f2 (after CI) changed package.json, so these start from a main that did not.
-only('a package.json "version" change is a release', (f) => (f.mainAfterCi = []) && addFile(f, 'package.json', { patch: '@@ -2,3 +2,3 @@\n-  "version": "1.6.0",\n+  "version": "1.7.0",' }), 'release');
-only('a package.json dependency change is not', (f) => (f.mainAfterCi = []) && addFile(f, 'package.json', { patch: '@@ -20,3 +20,3 @@\n-    "zod": "^4.1.0",\n+    "zod": "^4.2.0",' }), 'MERGE');
+only('a package.json "version" change is a release', (f) => mainFiles([])(f) || addFile(f, 'package.json', { patch: '@@ -2,3 +2,3 @@\n-  "version": "1.6.0",\n+  "version": "1.7.0",' }), 'release');
+only('a package.json dependency change is not', (f) => mainFiles([])(f) || addFile(f, 'package.json', { patch: '@@ -20,3 +20,3 @@\n-    "zod": "^4.1.0",\n+    "zod": "^4.2.0",' }), 'MERGE');
 only('a 50-character title fits', (f) => { f.pull.title = 'x'.repeat(50); }, 'MERGE');
 only('a 51-character title does not', (f) => { f.pull.title = 'x'.repeat(51); }, 'title');
 // The squash body is only the Signed-off-by lines, so the title is the one way an attribution line could get in.
@@ -201,10 +211,83 @@ only('a commit trailer does not reach the squash message', (f) => {
 only('more files than GitHub listed stops it', (f) => { f.pull.changed_files = 3001; }, 'files');
 {
     const f = green();
-    f.pull.labels = []; f.mainAfterCi.push(mainCommit(['server/slowLog.js'])); addFile(f, 'src/components/Foo.tsx');
+    f.pull.labels = []; mainFiles(['server/slowLog.js'])(f); addFile(f, 'src/components/Foo.tsx');
     const v = decide(f);
     check('without automerge no labels are steered', !v.addLabels.length && !v.removeLabels.length, JSON.stringify(v));
     check('every reason is listed, not only the first', same(codes(v), ['no-label', 'visual', 'main']), codes(v).join(','));
+}
+
+// ---------------------------------------------------------------- collect(): visual-seen against push times
+console.log('visual-seen against push times (from #364)');
+{
+    // #364 as recorded: visual-seen at 11:48:51, its head 007e35c first run at 11:44:17.
+    const fx = load(364);
+    const key = (re) => Object.keys(fx.book).find((k) => re.test(k));
+    const head = fx.book[key(/\/pulls\/364$/)].head.sha;
+    const variant = (edit) => { const b = structuredClone(fx.book); edit(b); return collect(replaying(b), fx.repo, 364); };
+    const asIs = await variant(() => {});
+    check('as recorded, nothing was pushed after visual-seen', asIs.afterSeen.length === 0 && !asIs.seenUnknown);
+
+    // The label went on at 11:40, before the head's push at 11:44:17. The head's commit date is moved
+    // to 11:00, so only the push time can tell that it went up after the label.
+    const late = await variant((b) => {
+        b[key(/\/issues\/364\/events/)] = [{ event: 'labeled', label: { name: 'visual-seen' }, created_at: '2026-11-25T11:40:00Z' }];
+        b[key(/\/pulls\/364\/commits/)].at(-1).commit.committer.date = '2026-11-25T11:00:00Z';
+        b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
+    });
+    check('a commit dated before the label but pushed after it is read', late.afterSeen.map((c) => c.sha).join() === head, JSON.stringify(late.afterSeen));
+    check('and makes the visual change stale', decide(late).reasons.some((r) => r.code === 'visual' && /changed after/.test(r.text)), text(decide(late)));
+
+    // 100 other events on the first page, the label on the second: both pages are read.
+    const paged = await variant((b) => {
+        delete b[key(/\/issues\/364\/events/)];
+        b[`/repos/${fx.repo}/issues/364/events?per_page=100&page=1`] = Array.from({ length: 100 }, () => ({ event: 'head_ref_force_pushed', created_at: '2026-11-25T11:00:00Z' }));
+        b[`/repos/${fx.repo}/issues/364/events?per_page=100&page=2`] = [{ event: 'labeled', label: { name: 'visual-seen' }, created_at: '2026-11-25T11:40:00Z' }];
+        b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
+    });
+    check('the label event on the second page of events is found', paged.events.length === 101 && paged.afterSeen.length === 1, `${paged.events.length} events`);
+
+    // Labelled, but no record of when: every commit counts as after it.
+    const noRecord = await variant((b) => {
+        b[key(/\/issues\/364\/events/)] = [];
+        for (const c of b[key(/\/pulls\/364\/commits/)]) b[`/repos/${fx.repo}/commits/${c.sha}`] = { sha: c.sha, files: [{ filename: 'src/hooks/useStickToBottom.ts' }] };
+        b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
+    });
+    check('a label with no event on record does not excuse anything', decide(noRecord).reasons.some((r) => r.code === 'visual'), text(decide(noRecord)));
+}
+check('pushTimes keeps the first pull_request run of each head', (() => {
+    const at = pushTimes([
+        { head_sha: 'a', event: 'pull_request', created_at: '2026-11-25T10:05:00Z' },
+        { head_sha: 'a', event: 'pull_request', created_at: '2026-11-25T10:00:00Z' },
+        { head_sha: 'a', event: 'push', created_at: '2026-11-25T09:00:00Z' },
+    ]);
+    return at.get('a') === '2026-11-25T10:00:00Z' && !at.has('b');
+})());
+
+// ---------------------------------------------------------------- mainSince(): the activity log
+console.log('what landed on main, from the activity log');
+{
+    const R = 'o/r';
+    const act = (ts, before, after) => ({ timestamp: ts, before, after, activity_type: 'pr_merge' });
+    const book = (acts, cmp) => ({
+        [`/repos/${R}/activity?ref=refs/heads/main&per_page=100`]: acts,
+        ...(cmp ? { [`/repos/${R}/compare/${cmp.from}...main`]: cmp.body } : {}),
+    });
+    const since = Date.parse('2026-11-25T12:00:00Z');
+    const quiet = await mainSince(replaying(book([act('2026-11-25T11:00:00Z', 'a'.repeat(40), 'b'.repeat(40))])), R, 'main', since);
+    check('nothing after the time: known, no files', quiet.known && quiet.files.length === 0);
+    const two = await mainSince(replaying(book(
+        [act('2026-11-25T11:00:00Z', 'a'.repeat(40), 'b'.repeat(40)), act('2026-11-25T14:00:00Z', 'c'.repeat(40), 'd'.repeat(40)), act('2026-11-25T13:00:00Z', 'b'.repeat(40), 'c'.repeat(40))],
+        { from: 'b'.repeat(40), body: { status: 'ahead', commits: [{ sha: 'c'.repeat(40) }, { sha: 'd'.repeat(40) }], files: [{ filename: 'x.js' }, { filename: 'new.js', previous_filename: 'old.js' }] } })), R, 'main', since);
+    check('compares from the state before the first landing after the time', two.known && two.before === 'b'.repeat(40) && same(two.files, ['x.js', 'new.js', 'old.js']), JSON.stringify(two));
+    const all = await mainSince(replaying(book(Array.from({ length: 100 }, (_, i) => act(`2026-11-26T${String(i % 24).padStart(2, '0')}:00:00Z`, 'a'.repeat(40), 'b'.repeat(40))))), R, 'main', since);
+    check('100 landings all after the time: unknown', !all.known && /100 or more/.test(all.why));
+    const rewritten = await mainSince(replaying(book([act('2026-11-25T13:00:00Z', 'b'.repeat(40), 'c'.repeat(40)), act('2026-11-25T11:00:00Z', 'a'.repeat(40), 'b'.repeat(40))],
+        { from: 'b'.repeat(40), body: { status: 'diverged', commits: [], files: [] } })), R, 'main', since);
+    check('a force-push since (diverged): unknown', !rewritten.known && /rewritten/.test(rewritten.why));
+    const wide = await mainSince(replaying(book([act('2026-11-25T13:00:00Z', 'b'.repeat(40), 'c'.repeat(40)), act('2026-11-25T11:00:00Z', 'a'.repeat(40), 'b'.repeat(40))],
+        { from: 'b'.repeat(40), body: { status: 'ahead', commits: [], files: Array.from({ length: 300 }, (_, i) => ({ filename: `f${i}` })) } })), R, 'main', since);
+    check('300 files since: unknown', !wide.known && /300 or more/.test(wide.why));
 }
 
 // ---------------------------------------------------------------- helpers
