@@ -574,6 +574,12 @@ ok('a tag that is already published is refused, and nothing is deleted',
     ok('…false when the green checks came from a pull request run', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
     g = await askGates(() => [403, { message: 'Resource not accessible by integration' }]);
     ok('…false, exiting 0, when GitHub refuses to answer', g.status === 0 && /^passed=false$/m.test(g.stdout) && /403/.test(g.stdout), g.stdout.trim());
+    g = await askGates((url) => {
+        const [status, json] = green(url);
+        return url.includes('windows-latest') ? [status, { ...json, total_count: 101 }] : [status, json];
+    });
+    ok('…false when a check name has more runs than one page holds (the newest may be on the next)',
+        g.status === 0 && /^passed=false$/m.test(g.stdout) && /101/.test(g.stdout), g.stdout.trim());
 }
 
 // The plan, image and release jobs run tools/release.mjs straight after the

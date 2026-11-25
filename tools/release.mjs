@@ -81,6 +81,7 @@ async function github(path, { method = 'GET', body } = {}) {
             ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`GitHub answered ${res.status} to ${method} ${path}`);
     return res.status === 204 ? null : res.json();
@@ -213,7 +214,12 @@ async function gatesPassedCmd() {
         const checkRuns = [];
         for (const name of GATES_CHECKS) {
             const body = await github(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
-            checkRuns.push(...(body?.check_runs || []));
+            const page = body?.check_runs || [];
+            // The newest check must be among those read; past one page it may not be.
+            if ((body?.total_count ?? page.length) > page.length) {
+                throw new Error(`${body.total_count} "${name}" checks, more than one page`);
+            }
+            checkRuns.push(...page);
         }
         const runsBySuite = {};
         const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
