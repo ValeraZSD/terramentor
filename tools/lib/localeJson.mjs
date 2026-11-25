@@ -35,6 +35,16 @@ export function roundTrips(text) {
     return sameShape(serialiseLocale(data), text);
 }
 
+/**
+ * Does every entry line of this flat file survive JSON.parse? A key written
+ * twice parses to ONE key holding the last value, so a rewrite would drop the
+ * other without a word. Counts `"key":` at the start of a line, any indent;
+ * a file not written one entry per line counts as not.
+ */
+export function oneLinePerKey(text, data) {
+    return (text.match(/^\s*"(?:[^"\\]|\\.)*"\s*:/gm) || []).length === Object.keys(data).length;
+}
+
 /** `serialiseLocale`, in the line ending `like` already uses. */
 export function serialiseLike(obj, like) {
     return withEol(serialiseLocale(obj), eolOf(like));

@@ -25,7 +25,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { roundTrips, serialiseLike } from './lib/localeJson.mjs';
+import { oneLinePerKey, roundTrips, serialiseLike } from './lib/localeJson.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const localesDir = resolve(here, '..', 'src', 'locales');
@@ -34,19 +34,23 @@ const patchPath = process.argv[2];
 if (!patchPath) { process.stdout.write('usage: node tools/i18n-put.mjs <patch.json> | --settle\n'); process.exit(2); }
 
 // --settle: rewrite every locale file that does not round-trip, keys and values
-// unchanged, so the patch mode can edit it. Refuses a file whose rewrite would
-// lose an entry: JSON.parse keeps only the last of two equal keys, and the
-// files are flat, one `  "key": "value"` line per entry.
+// unchanged, so the patch mode can edit it. Refuses a file that is not JSON,
+// and one whose rewrite would lose an entry: JSON.parse keeps only the last of
+// two equal keys.
 if (patchPath === '--settle') {
     let refused = 0;
     for (const f of readdirSync(localesDir).filter((n) => n.endsWith('.json')).sort()) {
         const file = join(localesDir, f);
         const before = readFileSync(file, 'utf8');
         if (roundTrips(before)) continue;
-        const data = JSON.parse(before);
-        const lines = before.split(/\r?\n/).filter((l) => /^ {2}"/.test(l)).length;
-        if (lines !== Object.keys(data).length) {
-            process.stdout.write(`FAIL  ${f}  ${lines} entry lines but ${Object.keys(data).length} keys: a key appears twice, settle it by hand\n`);
+        let data;
+        try { data = JSON.parse(before); } catch (err) {
+            process.stdout.write(`FAIL  ${f}  not JSON (${err.message}): settle it by hand\n`);
+            refused++;
+            continue;
+        }
+        if (!oneLinePerKey(before, data)) {
+            process.stdout.write(`FAIL  ${f}  a key appears twice, or entries are not one per line: settle it by hand\n`);
             refused++;
             continue;
         }
