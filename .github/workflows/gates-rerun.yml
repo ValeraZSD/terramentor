@@ -1,0 +1,62 @@
+# Re-runs the failed jobs of a Gates run once, so one flaky suite does not
+# leave a pull request red until someone notices it.
+#
+# Once only: it acts on the first attempt of a run, so a job that fails again
+# on the second attempt stays red. The job summary names the jobs it re-ran.
+#
+# A workflow_run workflow runs from the default branch with a token that can
+# write, whoever opened the pull request. So this one checks nothing out and
+# runs no code from the run it looks at: it reads the run's jobs and asks for
+# a re-run, and its token can do nothing else (`actions: write` only). Values
+# from the event reach the script as environment variables, never pasted into
+# it.
+#
+# A pull request's older run is left alone once a newer push has started
+# another: re-running it would join the newer run's concurrency group in
+# gates.yml and cancel it.
+name: Gates re-run
+
+on:
+  workflow_run:
+    workflows: [Gates]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  rerun:
+    name: Re-run failed Gates jobs once
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run the failed jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          failed="$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name')"
+          {
+            echo "### Gates run $RUN_ID failed on its first attempt"
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "Failed jobs:"
+            printf '%s\n' "$failed" | tr -d '`' | sed 's/.*/- `&`/'
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RUN_EVENT" = pull_request ]; then
+            newest="$(gh run list --workflow gates.yml --event pull_request --branch "$HEAD_BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId')"
+            if [ "$newest" != "$RUN_ID" ]; then
+              echo "Not re-run: run $newest is newer on this branch." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          gh run rerun "$RUN_ID" --failed
+          echo "Re-ran the failed jobs once (attempt 2). A failure there stays red." | tee -a "$GITHUB_STEP_SUMMARY"
