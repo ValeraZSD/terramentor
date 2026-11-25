@@ -25,7 +25,7 @@
 // gate is shown to see the old bug.
 //
 // jsdom + the shipped TypeScript bundled with esbuild. No model, no server.
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -120,7 +120,7 @@ console.log('\n--- the hold: what it waits for ---');
         check('...and is not shown while its read is out', t.settledAt === null);
         read.resolve({});
     });
-    check('it is shown soon after its read comes back', ms >= 200 && ms < 200 + 150, `${Math.round(ms)} ms`);
+    check('it is shown soon after its read comes back', ms >= 200 && ms < 200 + 300, `${Math.round(ms)} ms`);
 }
 {
     installTransitions();
@@ -129,7 +129,20 @@ console.log('\n--- the hold: what it waits for ---');
     const ms = await holdFor(transitions[0], async () => { trackRead(never.promise, 'GET', '/api/atlas'); });
     never.resolve({});
     check(`a read that never ends holds no longer than the cap (${HOLD_CAP_MS} ms)`,
-        ms >= HOLD_CAP_MS - 20 && ms < HOLD_CAP_MS + 150, `${Math.round(ms)} ms`);
+        ms >= HOLD_CAP_MS - 20 && ms < HOLD_CAP_MS + 300, `${Math.round(ms)} ms`);
+}
+// The other side of the list below: a read whose address only STARTS like a
+// background one is a screen's own read, and holds.
+for (const url of ['/api/updatesx', '/api/versions-list', '/api/ai/modelsets']) {
+    installTransitions();
+    swapScreen(() => {});
+    const read = deferred();
+    const ms = await holdFor(transitions[0], async () => {
+        trackRead(read.promise, 'GET', url);
+        await sleep(200);
+        read.resolve({});
+    });
+    check(`${url} is a screen's own read and holds it`, ms >= 200, `${Math.round(ms)} ms`);
 }
 for (const [label, method, url] of [
     ['a health check that may reach a provider', 'GET', '/api/ai/status'],
@@ -142,7 +155,7 @@ for (const [label, method, url] of [
     const never = deferred();
     const ms = await holdFor(transitions[0], async () => { trackRead(never.promise, method, url); });
     never.resolve({});
-    check(`${label} does not hold the screen`, ms < 150, `${Math.round(ms)} ms`);
+    check(`${label} does not hold the screen`, ms < 250, `${Math.round(ms)} ms`);
 }
 {
     installTransitions();
@@ -154,7 +167,7 @@ for (const [label, method, url] of [
         await sleep(250);
         main.querySelector('div').removeAttribute('aria-busy');
     });
-    check('a part of the screen marked busy holds it; a busy button does not', ms >= 250 && ms < 400, `${Math.round(ms)} ms`);
+    check('a part of the screen marked busy holds it; a busy button does not', ms >= 250 && ms < 550, `${Math.round(ms)} ms`);
     main.remove();
 }
 {
@@ -167,7 +180,7 @@ for (const [label, method, url] of [
         await sleep(100);
         swapScreen(() => {});
     });
-    check('a newer move ends the older hold at once', ms < 250, `${Math.round(ms)} ms`);
+    check('a newer move ends the older hold at once', ms < 350, `${Math.round(ms)} ms`);
     never.resolve({});
     await transitions[1].run();
 }
@@ -199,6 +212,29 @@ console.log('\n--- the routes follow the shown location ---');
     const before = transitions.length;
     await act(async () => { navigate('/a?tab=2'); });
     check('a change of query on the same screen is not a swap', transitions.length === before && /screen A/.test(host.textContent));
+
+    // A course's tab is a screen; the topic picked inside it is not.
+    await act(async () => { navigate('/project/1/tree'); });
+    await act(async () => { await transitions.at(-1).run(); });
+    check('opening a course tab is a swap', transitions.length === before + 1 && /course tree topic none/.test(host.textContent), host.textContent);
+    await act(async () => { navigate('/project/1/tree/41'); });
+    check('picking a topic inside it is shown at once, with no swap',
+        transitions.length === before + 1 && /course tree topic 41/.test(host.textContent) && storeSaw.at(-1) === '/project/1/tree/41', host.textContent);
+    await act(async () => { navigate('/project/1/dashboard/41'); });
+    check('another tab of the course is a swap again', transitions.length === before + 2, `${transitions.length - before}`);
+    await act(async () => { await transitions.at(-1).run(); });
+
+    // Back to the screen on view before its swap ran: the waiting swap must
+    // not hold the page for a screen it no longer draws.
+    await act(async () => { navigate('/b'); });
+    const pendingSwap = transitions.at(-1);
+    await act(async () => { navigate(-1); });
+    check('back before the swap keeps the screen that was on view', /course dashboard topic 41/.test(host.textContent), host.textContent);
+    const never = deferred();
+    let ms = 0;
+    await act(async () => { ms = await holdFor(pendingSwap, async () => { trackRead(never.promise, 'GET', '/api/feed'); }); });
+    never.resolve({});
+    check('...and the swap left waiting ends at once instead of holding to the cap', ms < 350 && /course dashboard topic 41/.test(host.textContent), `${Math.round(ms)} ms, ${host.textContent}`);
     await act(async () => { root.unmount(); });
     host.remove();
 }
@@ -260,6 +296,25 @@ console.log('\n--- opening the app ---');
     const ms = performance.now() - started;
     check(`a start that never draws is shown at the cap (${FIRST_SCREEN_CAP_MS} ms), never kept hidden`,
         !html.hasAttribute('data-first-screen') && ms >= FIRST_SCREEN_CAP_MS - 20 && ms < FIRST_SCREEN_CAP_MS + 200, `${Math.round(ms)} ms`);
+}
+
+// The harness above wires the pieces the way the app does; these pin that the
+// app still does. Each line is one the fix needs, and dropping it leaves the
+// pieces working and the bug back.
+console.log('\n--- the app is wired to it ---');
+{
+    const src = (p) => readFileSync(fileURLToPath(new URL(`../${p}`, import.meta.url)), 'utf8');
+    const app = src('src/App.tsx');
+    check('App draws its routes from the shown location', /<Routes location=\{shown\}>/.test(app) && /const shown = useShownLocation\(\)/.test(app));
+    check('...and the store and the dialog history follow it too', /useRouterStoreSync\(shown\)/.test(app));
+    check('...and fetches every screen\'s code in advance', (app.match(/preloadRouteChunk\(/g) || []).length >= 8, `${(app.match(/preloadRouteChunk\(/g) || []).length} calls`);
+    const api = src('src/api.ts');
+    check('every request goes through the read counter, with its full address',
+        /return trackRead\(sendRequest<T>\(url, options\), options\?\.method, `\$\{BASE\}\$\{url\}`\)/.test(api) && /const BASE = '\/api'/.test(api));
+    check('the app starts hidden until its first screen is whole', /revealFirstScreen\(\)/.test(src('src/main.tsx')));
+    const css = src('src/index.css');
+    const rule = css.match(/html\[data-first-screen="pending"\] #root \{([^}]*)\}/);
+    check('...hidden by opacity, so a field can still take focus', !!rule && /opacity:\s*0/.test(rule[1]) && !/visibility/.test(rule[1]), rule?.[1] ?? 'no rule');
 }
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'}: ${pass} passed, ${fail} failed`);

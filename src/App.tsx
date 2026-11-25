@@ -78,7 +78,7 @@ export default function App() {
 
     // Keep the store's nav state (view / project / workspaceView / selectedNode)
     // in lockstep with the URL — the URL is the source of truth — as it is SHOWN.
-    useRouterStoreSync(shown.pathname);
+    useRouterStoreSync(shown);
 
     // A desktop install stops itself when its last window closes; this is the
     // window saying it is still here. A no-op everywhere else.

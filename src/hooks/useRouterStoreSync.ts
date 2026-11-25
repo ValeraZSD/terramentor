@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLocation, useNavigate, matchPath } from 'react-router-dom';
+import { useLocation, useNavigate, matchPath, type Location } from 'react-router-dom';
 import { useStore, RouteState, WorkspaceView } from '../store';
 import { dialogHistoryRouteChanged } from './dialogHistory';
 
@@ -39,15 +39,15 @@ function decodeRoute(pathname: string): RouteState {
  *  actions can drive the URL, and reconciles the store to the URL on every
  *  location change. Mount once, high in the tree (inside the Router).
  *
- *  `pathname` is the SHOWN location's (`useShownLocation`), not the address
+ *  It follows the SHOWN location (`useShownLocation`), not the address
  *  bar's: the store would otherwise empty the old screen (a project's tree,
- *  its dashboard) while it is still the one on view. Without one, the
+ *  its dashboard) while it is still the one on view, and a dialog still open
+ *  on it would be given a Back entry on the new page. Without one, the
  *  address bar's. */
-export function useRouterStoreSync(shownPathname?: string) {
+export function useRouterStoreSync(shown?: Pick<Location, 'pathname' | 'key'>) {
     const navigate = useNavigate();
     const location = useLocation();
-    const { key } = location;
-    const pathname = shownPathname ?? location.pathname;
+    const { key, pathname } = shown ?? location;
     const setNavigate = useStore(s => s.setNavigate);
     const applyRoute = useStore(s => s.applyRoute);
     // The same test App.tsx uses to decide between the lock screen and the app.

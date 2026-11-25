@@ -41,7 +41,7 @@ let readSeq = 0;
  * and the report marks on items, which add a small badge. Waiting on these
  * held every visit to the home page and to Settings to the cap.
  */
-const BACKGROUND_READ = /^\/api\/(ai\/(status|generation-status|models|endpoints|efforts|model-facts|connections\/\d+\/models)|embeddings\/(status|models)|media-descriptions\/status|update|build|version|item-reports)/;
+const BACKGROUND_READ = /^\/api\/(?:ai\/(?:status|generation-status|models|endpoints|efforts|model-facts|connections\/\d+\/models)|embeddings\/(?:status|models)|media-descriptions\/status|updates|build|version|item-reports)(?:[/?]|$)/;
 
 /** Count a read while it is open. Only GETs: a screen waits on what it reads. */
 export function trackRead<T>(work: Promise<T>, method?: string, url?: string): Promise<T> {
@@ -67,6 +67,11 @@ function screenBusy(): boolean {
 }
 
 let swapSeq = 0;
+
+/** The screen on view changed without a swap (a move back to it, or within
+ *  it): a swap still waiting must not hold the page for a screen it no longer
+ *  draws. */
+export function endHold(): void { swapSeq++; }
 
 /** Resolves once the screen drawn after `since` is whole, or at the cap, or
  *  when a newer move takes over. */
