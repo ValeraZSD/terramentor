@@ -106,7 +106,7 @@ if (sources > built) {
  * and content past its side is just as cut for a reader, so it counts.
  */
 const CUT = `(() => {
-    const assistant = document.querySelector('aside[aria-label="Assistant"]');
+    const assistant = document.querySelector('[role="separator"][aria-valuenow]')?.closest('aside');
     const skip = (el) => !el || (assistant && assistant.contains(el));
     const rail = (a) => typeof a.className === 'string' && /(^|\\s)(overflow-x-(auto|scroll)|overflow-auto)(\\s|$)/.test(a.className) && a.scrollWidth > a.clientWidth + 1;
     const hiddenTwin = (el) => {
@@ -193,26 +193,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The cases.
 // ---------------------------------------------------------------------------
 
-const ASSISTANT_BUTTON = `document.querySelector('button[title^="Ask the assistant"]')`;
-const ASSISTANT = `document.querySelector('aside[aria-label="Assistant"]')`;
+// In any language: the docked assistant is the aside holding the resize
+// separator, and the `a` key opens it (its button's title is translated).
+const ASSISTANT = `document.querySelector('[role="separator"][aria-valuenow]')?.closest('aside')`;
 
 /**
  * One case: the stored widths and language, a course screen, the assistant.
  * `assistantWidth` is what a drag would have left in the browser's storage.
  */
-function reachCase({ panel = 420, sidebar = 256, assistant = false, assistantWidth = null, topic = true, lang = 'en' }) {
+function reachCase({ panel = 420, sidebar = 256, assistant = false, assistantWidth = null, topic = true, lang = 'en', larger = false }) {
     return async (page, ctx) => {
         await page.setting('detailPanelWidth', String(panel));
         await page.setting('sidebarWidth', String(sidebar));
         await page.setting('ui_language', lang);
+        // "Larger text and buttons" at 160%: the sidebar then has a floor of its own (index.css).
+        await page.setting('larger_ui', larger ? 'true' : 'false');
+        if (larger) await page.setting('ui_scale', 160);
         await page.evaluate(`(() => { ${assistantWidth == null ? "localStorage.removeItem('assistant.width')" : `localStorage.setItem('assistant.width', '${assistantWidth}')`}; return 1; })()`);
         const path = `/project/${ctx.ids.project}/dashboard${topic ? `/${ctx.ids.study}` : ''}`;
         await page.go(path, null);
         await page.waitFor(topic ? `document.querySelector('[data-close]')` : `document.querySelector('[data-course-sidebar]')`, topic ? 'the topic panel' : 'the course sidebar');
         if (assistant) {
-            await page.waitFor(ASSISTANT_BUTTON, 'the assistant button');
-            await page.evaluate(`(${ASSISTANT_BUTTON}).click(), 1`);
-            await page.waitFor(ASSISTANT, 'the assistant');
+            await page.evaluate('document.activeElement?.blur(), 1');
+            for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: 'a', code: 'KeyA', text: type === 'keyDown' ? 'a' : undefined, windowsVirtualKeyCode: 65 });
+            await page.waitFor(ASSISTANT, 'the docked assistant');
         }
         await sleep(1500);
     };
@@ -230,6 +234,10 @@ for (const size of SIZES) {
     at('assistant docked, panel 420, sidebar 600', { assistant: true, panel: 420, sidebar: 600 });
     at('assistant dragged to 800, panel 420', { assistant: true, panel: 420, assistantWidth: 800 });
 }
+// Larger text and buttons at 160%: the sidebar's floor is 17.5rem or 30% of the row.
+CASES['1280 larger text, assistant docked, panel 420, sidebar 200'] = { size: SIZES[2], c: { assistant: true, panel: 420, sidebar: 200, larger: true } };
+CASES['1440 larger text, assistant closed, panel 600, sidebar 200'] = { size: SIZES[3], c: { panel: 600, sidebar: 200, larger: true } };
+CASES['1440 larger text, assistant docked, panel 600, sidebar 200'] = { size: SIZES[3], c: { assistant: true, panel: 600, sidebar: 200, larger: true } };
 // Right to left: the panel docks at the other side; the same room rules hold.
 CASES['1280 right to left, assistant docked, panel 600'] = { size: SIZES[2], c: { assistant: true, panel: 600, lang: 'ar' } };
 CASES['1440 right to left, assistant closed, panel 600'] = { size: SIZES[3], c: { panel: 600, lang: 'ar' } };
@@ -293,11 +301,24 @@ for (const size of SIZES) {
                     const col = await page.evaluate(COLUMNS);
                     check(`${label}: the middle view is 20rem or more, or not drawn (${col.middle}px; panel ${col.panel}, sidebar ${col.sidebar})`,
                         col.middle === 0 || col.middle >= 20 * col.rem - 1);
+                    // With room for all three at their stored widths, nothing gives way.
+                    const stored = { panel: s.c.panel ?? 420, sidebar: s.c.sidebar ?? 256 };
+                    if (!s.c.assistant && !s.c.larger && !s.drag && size.width - stored.sidebar - 20 * col.rem >= stored.panel) {
+                        check(`${label}: with room to spare the panel and sidebar keep their stored widths (${col.panel}, ${col.sidebar})`,
+                            Math.abs(col.panel - stored.panel) <= 1 && Math.abs(col.sidebar - stored.sidebar) <= 1);
+                    }
+                }
+                if (!s.drag) {
+                    // Opening the assistant, or a narrow room, never rewrites the learner's widths.
+                    const saved = await page.evaluate(`fetch('/api/settings').then((r) => r.json()).then((x) => [x.detailPanelWidth, x.sidebarWidth])`);
+                    check(`${label}: the stored widths are untouched (${saved.join(', ')})`,
+                        Number(saved[0]) === (s.c.panel ?? 420) && Number(saved[1]) === (s.c.sidebar ?? 256));
                 }
             } catch (err) {
                 check(`${label}: reached and measured`, false, `        ${err.message.split('\n')[0]}`);
             } finally {
                 await page.setting('ui_language', 'en').catch(() => { });
+                await page.setting('larger_ui', 'false').catch(() => { });
             }
         };
     }

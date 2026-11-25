@@ -111,15 +111,18 @@ export default function Layout({ children }: { children: ReactNode }) {
     // A width dragged in a wide window is kept, but drawn no wider than the
     // drag itself allows in THIS window (60%): a 1024px window must not lose
     // 800px of itself to a width set at 1920.
-    const [windowWidth, setWindowWidth] = useState(() => typeof window === 'undefined' ? 0 : window.innerWidth);
+    // Only the drawn width is state, so a window being resized re-renders the
+    // frame only while the cap actually bites, not on every resize event.
+    const drawnFor = (stored: number) => typeof window === 'undefined'
+        ? stored
+        : Math.max(MIN_WIDTH, Math.min(stored, Math.round(window.innerWidth * 0.6)));
+    const [drawnAssistantWidth, setDrawnAssistantWidth] = useState(() => drawnFor(assistantWidth));
     useEffect(() => {
-        const onResize = () => setWindowWidth(window.innerWidth);
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, []);
-    const drawnAssistantWidth = windowWidth
-        ? Math.max(MIN_WIDTH, Math.min(assistantWidth, Math.round(windowWidth * 0.6)))
-        : assistantWidth;
+        const update = () => setDrawnAssistantWidth(drawnFor(assistantWidth));
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, [assistantWidth]);
 
     const resizeAssistant = (px: number) => {
         setAssistantWidth(px);

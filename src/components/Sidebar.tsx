@@ -406,8 +406,8 @@ export default function Sidebar({ isDrawer = false, width, maxWidth }: { isDrawe
         const handleMouseMove = (e: MouseEvent) => {
             if (!resizing.current) return;
             const most = maxWidthRef.current;
-            const wanted = fromInlineStart(e.clientX);
-            setSidebarWidth(most != null && most > 0 ? Math.min(wanted, most) : wanted);
+            const wanted = Math.round(fromInlineStart(e.clientX));
+            setSidebarWidth(most != null && most > 0 ? Math.min(wanted, Math.floor(most)) : wanted);
         };
 
         const handleMouseUp = () => {

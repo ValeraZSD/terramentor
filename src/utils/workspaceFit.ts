@@ -13,7 +13,9 @@
  *  2. the sidebar, from its stored width down to its minimum;
  *  3. the middle view, which is not drawn at all once it cannot have its
  *     minimum: the panel takes its place (a strip of a dashboard helps nobody,
- *     and the topic is what the learner just opened);
+ *     and the topic is what the learner just opened). With the middle view
+ *     gone the sidebar gets its stored width back and the panel takes all the
+ *     rest, past its stored width if need be: the row is never left empty;
  *  4. the sidebar, when even the panel's minimum does not fit beside it.
  */
 
@@ -35,6 +37,9 @@ export interface FitInput {
     showPanel: boolean;
     /** The middle view's minimum, px. */
     centerMin: number;
+    /** The sidebar's minimum, px, when the page sets one above SIDEBAR_MIN
+     *  ("Larger text and buttons" gives it a CSS floor of its own). */
+    sidebarMin?: number;
 }
 
 export interface Fit {
@@ -48,7 +53,11 @@ export interface Fit {
     panelMax: number;
 }
 
-export function fitColumns({ room, sidebar, panel, showSidebar, showPanel, centerMin }: FitInput): Fit {
+export function fitColumns({ room, sidebar: storedSidebar, panel, showSidebar, showPanel, centerMin, sidebarMin: floor = 0 }: FitInput): Fit {
+    // The sidebar is never drawn under its floor, whatever is stored: the
+    // arithmetic below must count what the page will really draw.
+    const SIDEBAR_FLOOR = Math.max(SIDEBAR_MIN, floor);
+    const sidebar = Math.max(storedSidebar, SIDEBAR_FLOOR);
     if (room <= 0) {
         return {
             sidebar: showSidebar ? sidebar : 0, panel: showPanel ? panel : 0, center: true,
@@ -56,13 +65,13 @@ export function fitColumns({ room, sidebar, panel, showSidebar, showPanel, cente
         };
     }
     if (!showPanel) {
-        const most = Math.max(SIDEBAR_MIN, room - centerMin);
+        const most = Math.max(SIDEBAR_FLOOR, room - centerMin);
         return {
             sidebar: showSidebar ? Math.min(sidebar, most) : 0, panel: 0, center: true,
             sidebarMax: showSidebar ? most : 0, panelMax: 0,
         };
     }
-    const sidebarMin = showSidebar ? SIDEBAR_MIN : 0;
+    const sidebarMin = showSidebar ? SIDEBAR_FLOOR : 0;
     if (sidebarMin + centerMin + PANEL_MIN <= room) {
         const sidebarMax = showSidebar ? room - centerMin - PANEL_MIN : 0;
         const drawnSidebar = showSidebar ? Math.min(sidebar, sidebarMax) : 0;
@@ -76,7 +85,7 @@ export function fitColumns({ room, sidebar, panel, showSidebar, showPanel, cente
         };
     }
     // The middle view does not fit: the panel stands in its place.
-    if (showSidebar && room - SIDEBAR_MIN >= PANEL_MIN) {
+    if (showSidebar && room - SIDEBAR_FLOOR >= PANEL_MIN) {
         const drawnSidebar = Math.min(sidebar, room - PANEL_MIN);
         return { sidebar: drawnSidebar, panel: room - drawnSidebar, center: false, sidebarMax: room - PANEL_MIN, panelMax: 0 };
     }

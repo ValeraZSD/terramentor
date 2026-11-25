@@ -454,7 +454,10 @@ const MEASURE = `(() => {
     const header = headerOf();
     // The page between the course tree and the details pane.
     const side = document.querySelector('[data-course-sidebar]');
-    const main = side && [...side.parentElement.children].find((c) => c !== side && c.tagName === 'DIV');
+    // The first column drawn beside the tree: the page, or the details pane
+    // standing in its place when the row has no room for both
+    // (src/utils/workspaceFit.ts). A hidden page would measure 0 in both modes.
+    const main = side && [...side.parentElement.children].find((c) => c !== side && /^(DIV|ASIDE)$/.test(c.tagName) && c.getClientRects().length);
     const centre = main ? { w: Math.round(main.getBoundingClientRect().width), row: side.parentElement.clientWidth } : null;
     return { attr: document.documentElement.hasAttribute('data-larger-ui'), rem, targets, text, mins, probe, cut, titles, centre, ticks, header, examined: { controls, text: textRuns } };
 })()`;

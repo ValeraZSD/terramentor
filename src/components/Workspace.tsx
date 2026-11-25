@@ -101,6 +101,10 @@ export default function Workspace() {
     const room = useElementWidth(rowRef);
     const rootPx = useRootFontSize();
     const sidebarWidth = useStore(s => s.sidebarWidth);
+    // "Larger text and buttons" gives the sidebar a floor in CSS (index.css,
+    // `[data-course-sidebar]`): min(17.5rem, 30% of this row). Counted here
+    // too, or the panel would be sized for a sidebar narrower than drawn.
+    const largerUi = useStore(s => s.a11y.largerUi);
     const showSidebar = !isMobile && !studyView && !examFocus;
     const showPanel = !!selectedNodeId && !examFocus && !isMobile;
     const fit = fitColumns({
@@ -110,6 +114,7 @@ export default function Workspace() {
         showSidebar,
         showPanel,
         centerMin: CENTER_MIN_REM * rootPx,
+        sidebarMin: largerUi ? Math.ceil(Math.min(17.5 * rootPx, 0.3 * room)) : 0,
     });
     const panelMax = useRef(fit.panelMax);
     panelMax.current = fit.panelMax;
@@ -130,7 +135,7 @@ export default function Workspace() {
             const wanted = isRtl() ? e.clientX - r.left : r.right - e.clientX;
             // What you drag is what you get: never wider than the room the
             // middle view leaves, so the stored width is the width you saw.
-            setDetailPanelWidth(Math.max(PANEL_MIN, Math.min(wanted, panelMax.current)));
+            setDetailPanelWidth(Math.max(PANEL_MIN, Math.min(Math.round(wanted), Math.floor(panelMax.current))));
         };
 
         const handleMouseUp = () => {
@@ -397,8 +402,10 @@ export default function Workspace() {
                 )}
 
                 {/* Center content based on view */}
-                {/* Not drawn (but kept, with its state) while a topic's panel
-                    needs its room: a sliver of a dashboard helps nobody. */}
+                {/* Not drawn while a topic's panel needs its room: a sliver of
+                    a dashboard helps nobody. Kept mounted, so its React state
+                    (loaded data, open sections) survives; a scroll position
+                    inside it does not, as with any display:none box. */}
                 <div data-workspace-center="" className={`flex-1 ${fit.center ? 'flex' : 'hidden'} flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 min-w-0`}>
                     {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard paceInHeader={paceFull !== false} />)}
                     {workspaceView === 'tree' && <NodeTree />}
