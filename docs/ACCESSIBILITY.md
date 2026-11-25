@@ -78,14 +78,19 @@ Elsewhere in the app:
   scripts written without spaces (Chinese, Japanese, Thai) are never forgiven.
 - Settings → AI & Models → Describe card pictures lists every card picture beside its
   description, so a description a model wrote can be checked and corrected. A description
-  a model writes is refused, and the picture keeps waiting for one, when it is a refusal, only
-  names the kind of picture ("A bar chart."), or is in another script than the course's
-  language, or reads as English in a course that is not: at least two words only English
-  uses, such as "the" or "with", making up 15% or more of its words.
+  a model writes is refused, and the picture keeps waiting for one, when it is a refusal,
+  when it only names the kind of picture ("A bar chart.") in words the check lists for some
+  languages, or when it is in the wrong script: Latin letters with next to nothing in the
+  script of a course written in another script, or mostly another script in a course
+  written in Latin letters. In a Latin-script course other than English it is also refused
+  when it reads as English: at least two words only English uses, such as "the" or "with",
+  making up 15% or more of its words. These checks are deliberately narrow and catch the
+  common mistakes, not every wrong description: correcting one by hand is always possible.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
   dashboard) sets its own page title, each screen has one main heading, and moving to another screen is announced.
 - Back (a phone's Back button, the browser's Back, a mouse's back key) closes the topmost
-  dialog, as Escape does, before it leaves the screen.
+  dialog, as Escape does, before it leaves the screen. In a dialog of steps, such as New
+  course, Back goes to the previous step instead; Escape still closes the dialog.
 - In Arabic the page is laid out right to left: the page's direction is set with its
   language, before the first screen is drawn.
 - In a card review session, each new card and, on Reveal answer, its answer are read out
