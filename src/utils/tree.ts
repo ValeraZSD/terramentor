@@ -33,6 +33,29 @@ export function isWorkLeaf(node: TreeNode): boolean {
 }
 
 /**
+ * A course with no phases: every row at its top is a topic. A short course is
+ * one, and so is any course whose topics all sit at the top. Its top rows are
+ * topics, so nothing may draw them as phases (the sidebar's course badge and
+ * tint, the dashboard's Phase progress). A course written in phases is not
+ * one while it is written, nor after a run that stopped before its sections
+ * (`creation_finished` 0): its phases start out empty. Mirrors `oneLevel` in
+ * server/routes/studyDashboard.js.
+ */
+export function isOneLevelCourse(
+    tree: TreeNode[],
+    project?: {
+        ai_generating?: number | boolean | null;
+        creation_finished?: number | null;
+        made_from?: string | null;
+    } | null,
+): boolean {
+    const tops = tree.filter(n => !n.is_note);
+    if (tops.length === 0) return false;
+    if (project?.made_from == null && (project?.ai_generating || project?.creation_finished === 0)) return false;
+    return tops.every(isLeafNode);
+}
+
+/**
  * How much of one topic is done, 0–1. Mirrors `topicFraction` in
  * server/progress.js, and must keep mirroring it: a closed topic is 1, a topic
  * whose content is cards is the share of them met, anything else is 0.
