@@ -56,7 +56,7 @@ const throwsWith = (name, fn, pattern) => {
 const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
-    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS,
+    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, GATES_CHECKS,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -209,6 +209,40 @@ check('a pull request publishes nothing (and is not on main, which is fine for a
 throwsWith('an unknown channel is refused',
     () => releasePlan({ event: 'workflow_dispatch', sha: SHA40, onMain: true, input: { channel: 'beta', version: '1.0.0', ref: SHA40 } }), /channel/);
 throwsWith('a tag that is not a version is refused', () => fromTag('vbanana'), /not a version/);
+
+console.log('\n--- verify skips the suites only when Gates passed this very commit ---');
+{
+    const sha = 'a'.repeat(40);
+    // The two checks the Gates workflow's matrix makes (gates.yml): written out
+    // here, not taken from GATES_CHECKS, so a rename on one side shows.
+    const linux = 'Node 24 on ubuntu-latest', windows = 'Node 24 on windows-latest';
+    const pushRun = { event: 'push', path: '.github/workflows/gates.yml', head_sha: sha };
+    const prRun = { event: 'pull_request', path: '.github/workflows/gates.yml', head_sha: sha };
+    const cr = (id, name, suite, status = 'completed', conclusion = 'success', extra = {}) =>
+        ({ id, name, head_sha: sha, status, conclusion, app: { slug: 'github-actions' }, check_suite: { id: suite }, ...extra });
+    const both = [cr(1, linux, 10), cr(2, windows, 10)];
+    const verdict = (checkRuns, runsBySuite = { 10: pushRun }, s = sha) => gatesPassed({ sha: s, checkRuns, runsBySuite }).passed;
+    check('the names it looks for are the two Gates jobs', [...GATES_CHECKS], [linux, windows]);
+    check('both checks green from Gates on a push of the commit: skip', verdict(both), true);
+    check('only Linux has finished: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'in_progress', null)]), false);
+    check('Windows failed: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'failure')]), false);
+    check('Windows cancelled: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'cancelled')]), false);
+    check('Windows missing: run the suites', verdict([cr(1, linux, 10)]), false);
+    check('no checks at all: run the suites', verdict([]), false);
+    check('a failed attempt re-run green: the newest attempt counts, skip',
+        verdict([...both, cr(0, windows, 10, 'completed', 'failure')]), true);
+    check('a green attempt re-run and now failing: the newest attempt counts, run the suites',
+        verdict([...both, cr(3, windows, 10, 'completed', 'failure')]), false);
+    check('green from a PULL REQUEST run (it tested a merge commit): run the suites', verdict(both, { 10: prRun }), false);
+    check('green from another workflow with the same job names: run the suites',
+        verdict(both, { 10: { ...pushRun, path: '.github/workflows/other.yml' } }), false);
+    check('green from a run of another commit: run the suites', verdict(both, { 10: { ...pushRun, head_sha: 'b'.repeat(40) } }), false);
+    check('a check not made by GitHub Actions: run the suites',
+        verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { app: { slug: 'some-app' } })]), false);
+    check('a check on another commit: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { head_sha: 'b'.repeat(40) })]), false);
+    check('the run behind a suite unknown: run the suites', verdict(both, {}), false);
+    check('not a commit: run the suites', verdict(both, { 10: pushRun }, 'main'), false);
+}
 
 console.log('\n--- a draft is published only when its files are the ones built ---');
 const built = [
@@ -500,6 +534,48 @@ pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', 'v1.0.0']);
 ok('a tag that is already published is refused, and nothing is deleted',
     pub.status !== 0 && !pub.seen.some((s) => s.startsWith('DELETE')));
 
+// `gates-passed` asks GitHub the way verify does: Gates' two checks on the
+// commit by name, then the workflow run behind each check suite. Anything it
+// cannot read answers false, and exits 0: the suites then run as before.
+{
+    const sha = 'a'.repeat(40);
+    const checkRun = (id, name) => ({ id, name, head_sha: sha, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, check_suite: { id: 77 } });
+    const askGates = async (respond) => {
+        const seen = [];
+        const server = createServer((req, res) => {
+            seen.push(`${req.method} ${req.url}`);
+            const [status, json] = respond(req.url);
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(json));
+        });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        try {
+            const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'gates-passed', '--sha', sha], {
+                env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`, GITHUB_REPOSITORY: 'o/r', GITHUB_TOKEN: 'x', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
+            });
+            let stdout = '';
+            child.stdout.on('data', (d) => { stdout += d; });
+            const status = await new Promise((resolve) => child.on('close', resolve));
+            return { status, stdout, seen };
+        } finally {
+            server.closeAllConnections();
+            await new Promise((resolve) => server.close(resolve));
+        }
+    };
+    const green = (url) => {
+        if (url.startsWith(`/repos/o/r/commits/${sha}/check-runs?check_name=Node%2024%20on%20ubuntu-latest&`)) return [200, { check_runs: [checkRun(1, 'Node 24 on ubuntu-latest')] }];
+        if (url.startsWith(`/repos/o/r/commits/${sha}/check-runs?check_name=Node%2024%20on%20windows-latest&`)) return [200, { check_runs: [checkRun(2, 'Node 24 on windows-latest')] }];
+        if (url.startsWith('/repos/o/r/actions/runs?check_suite_id=77&')) return [200, { workflow_runs: [{ event: 'push', path: '.github/workflows/gates.yml', head_sha: sha }] }];
+        return [404, {}];
+    };
+    let g = await askGates(green);
+    ok('gates-passed answers true when Gates passed the commit on its push', g.status === 0 && /^passed=true$/m.test(g.stdout), g.stdout.trim() || g.seen.join(' | '));
+    g = await askGates((url) => (url.includes('/actions/runs') ? [200, { workflow_runs: [{ event: 'pull_request', path: '.github/workflows/gates.yml', head_sha: sha }] }] : green(url)));
+    ok('…false when the green checks came from a pull request run', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+    g = await askGates(() => [403, { message: 'Resource not accessible by integration' }]);
+    ok('…false, exiting 0, when GitHub refuses to answer', g.status === 0 && /^passed=false$/m.test(g.stdout) && /403/.test(g.stdout), g.stdout.trim());
+}
+
 // The plan, image and release jobs run tools/release.mjs straight after the
 // checkout, with no `npm ci`: everything it imports must be Node's own or
 // another file of this set. A package import there fails only on GitHub.
@@ -644,12 +720,14 @@ ok('a published release attests its zips\' build provenance, in a job of its own
     && jobPermissions(attestJob)['id-token'] === 'write' && jobPermissions(attestJob).attestations === 'write', attestJob);
 ok('…and the signing job holds no OIDC token', !jobPermissions(releaseJob)['id-token'], JSON.stringify(jobPermissions(releaseJob)));
 // nightly.yml calls release.yml; a caller must grant every permission the
-// called jobs ask for, or the nightly fails before it starts.
+// called jobs ask for, read as well as write, or the nightly fails before it
+// starts.
 const callerJob = nightlyYml.slice(nightlyYml.indexOf('\n  release:'), nightlyYml.indexOf('uses: ./.github/workflows/release.yml'));
 const granted = jobPermissions(callerJob);
 const asked = [...releaseYml.split(/\n(?=  [a-z-]+:\n)/)].flatMap((job) => Object.entries(jobPermissions(job)));
-const ungranted = asked.filter(([scope, level]) => level === 'write' && granted[scope] !== 'write').map(([s]) => s);
-ok('nightly grants the release workflow every write permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
+const covers = (have, want) => have === 'write' || (have === 'read' && want === 'read');
+const ungranted = [...new Set(asked.filter(([scope, level]) => !covers(granted[scope], level)).map(([s, l]) => `${s}: ${l}`))];
+ok('nightly grants the release workflow every permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
 // A called workflow's environment secret reads as '' unless the caller passes
 // its secrets on (actions/runner#4453); seven nightlies failed at signing so.
 // The calling job is the file's last, so it runs to the end.
@@ -665,9 +743,58 @@ ok('…after the drafts a failed attempt left are cleared',
 ok('…and published by the step that checks its files, with Latest from the plan',
     /tools\/release\.mjs publish --dir release --version "\$VERSION" --ref "\$REF" --release-id "\$RELEASE_ID" --latest "\$LATEST"/.test(releaseYml)
     && /LATEST: \$\{\{ needs\.plan\.outputs\.latest \}\}/.test(releaseYml));
+// The image: one native build per architecture, pushed by digest with no tag,
+// then joined under the exact version and nothing else.
+const archJob = releaseYml.slice(releaseYml.indexOf('\n  image-arch:'), releaseYml.indexOf('\n  image:'));
 const imageJob = releaseYml.slice(releaseYml.indexOf('\n  image:'), releaseYml.indexOf('\n  desktop:'));
-ok('the image build pushes only its exact version', /tags: \|\n\s*type=raw,value=\$\{\{ needs\.plan\.outputs\.version \}\}\n\n/.test(imageJob)
-    && !/value=latest|value=nightly/.test(imageJob));
+ok('each architecture builds on a runner of its own kind, none under emulation',
+    /- arch: amd64\n\s+runner: ubuntu-24\.04\n/.test(archJob) && /- arch: arm64\n\s+runner: ubuntu-24\.04-arm\n/.test(archJob)
+    && /runs-on: \$\{\{ matrix\.runner \}\}/.test(archJob) && /platforms: linux\/\$\{\{ matrix\.arch \}\}/.test(archJob)
+    && !/setup-qemu/.test(releaseYml), archJob.slice(0, 400));
+ok('…a real release pushes each one by digest only, a dry run loads it and pushes nothing',
+    archJob.includes("outputs: ${{ needs.plan.outputs.publish == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.name.outputs.image) || '' }}")
+    && archJob.includes("load: ${{ needs.plan.outputs.publish != 'true' }}")
+    && archJob.includes("tags: ${{ needs.plan.outputs.publish != 'true' && steps.meta.outputs.tags || '' }}")
+    && !/\n\s+push: /.test(archJob));
+ok('…each one is started and its first visit checked before its digest is handed on',
+    archJob.indexOf('tools/first-visit-smoke.sh') > archJob.indexOf('id: build')
+    && archJob.indexOf('name: image-digest-${{ matrix.arch }}') > archJob.indexOf('tools/first-visit-smoke.sh'));
+ok('the joined image is tagged with its exact version only, from both digests, and hands its digest on',
+    /needs: \[plan, image-arch\]/.test(imageJob)
+    && /docker buildx imagetools create -t "\$image:\$VERSION" "\$\{sources\[@\]\}"/.test(imageJob)
+    && /"\$\{#sources\[@\]\}" != 2/.test(imageJob)
+    && /digest: \$\{\{ steps\.join\.outputs\.digest \}\}/.test(imageJob)
+    && (imageJob.match(/ -t /g) || []).length === 1
+    && !/value=latest|value=nightly|:latest|:nightly/.test(archJob + imageJob), imageJob.slice(0, 400));
+// verify: the suites are skipped only on Gates' word for this exact commit,
+// and only in a run that publishes; the version check always runs.
+const verifyJob = releaseYml.slice(releaseYml.indexOf('\n  verify:'), releaseYml.indexOf('\n  image-arch:'));
+const verifySteps = verifyJob.split('\n      - ').slice(1);
+const gatesStep = verifySteps.find((s) => s.includes('tools/release.mjs gates-passed'));
+ok('verify asks whether Gates passed the planned commit, and only when it publishes',
+    !!gatesStep && /^id: gates\n/.test(gatesStep) && gatesStep.includes("if: needs.plan.outputs.publish == 'true'")
+    && gatesStep.includes('REF: ${{ needs.plan.outputs.ref }}') && gatesStep.includes('--sha "$REF"')
+    && jobPermissions(verifyJob).checks === 'read' && jobPermissions(verifyJob).actions === 'read', gatesStep);
+const suiteSteps = ['npm ci', 'npx tsc --noEmit', 'node --check', 'npm test', 'npm run build'].map((cmd) => verifySteps.find((s) => s.includes(cmd)));
+ok('…each step Gates already ran is skipped on that answer alone',
+    suiteSteps.every((s) => s && s.includes("if: steps.gates.outputs.passed != 'true'")), suiteSteps.map((s) => (s || 'MISSING').split('\n')[0]).join(' | '));
+const versionStep = verifySteps.find((s) => s.includes('tools/release.mjs check-version'));
+ok('…and the version check runs whatever Gates said', !!versionStep && !/\n\s+if:/.test(versionStep), versionStep);
+// The names it looks for are the names Gates' jobs carry: a matrix name with
+// its values filled in, or a job named outright.
+{
+    const gatesYml = readYml('gates.yml');
+    const shown = new Set([...gatesYml.matchAll(/\n {4}name: (.+)\n/g)].map((m) => m[1].trim().replace(/^['"]|['"]$/g, '')));
+    const os = (/\n\s+os: \[([^\]]*)\]/.exec(gatesYml)?.[1] || '').split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    const node = (/\n\s+node: \[([^\]]*)\]/.exec(gatesYml)?.[1] || '').split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    for (const name of [...shown]) {
+        if (!name.includes('${{')) continue;
+        for (const o of os) for (const n of node) shown.add(name.replace('${{ matrix.os }}', o).replace('${{ matrix.node }}', n));
+    }
+    const absent = GATES_CHECKS.filter((n) => !shown.has(n));
+    ok('Gates (gates.yml) still makes every check verify takes as its word', absent.length === 0, `absent: ${absent.join(', ')}`);
+    ok('…and runs on pushes to main, so a squash-merged commit is tested as it is', /\n {2}push:\n {4}branches: \[[^\]]*\bmain\b/.test(gatesYml));
+}
 const tagsJob = releaseYml.slice(releaseYml.indexOf('\n  image-tags:'));
 ok('the moving image tags move after the release is published, from the plan',
     /needs: \[plan, image, release\]/.test(tagsJob) && /needs\.release\.result == 'success'/.test(tagsJob)

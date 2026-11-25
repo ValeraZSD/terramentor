@@ -253,6 +253,42 @@ export function draftProblems({ release, files, ref }) {
     return problems;
 }
 
+/** The checks of the Gates workflow (.github/workflows/gates.yml) that run the
+ *  whole guard suite, by the names GitHub shows for them. A rename there
+ *  without one here costs time, never safety: a release that cannot find them
+ *  runs the suite itself. */
+export const GATES_CHECKS = Object.freeze(['Node 24 on ubuntu-latest', 'Node 24 on windows-latest']);
+export const GATES_WORKFLOW = '.github/workflows/gates.yml';
+
+/**
+ * Whether the Gates workflow already passed the guard suite on exactly `sha`,
+ * so a release of that commit can skip running it again: `{ passed, reason }`.
+ *
+ * `checkRuns` are the check runs GitHub holds for `sha`; `runsBySuite` maps a
+ * check suite's id to the workflow run that made it. A check counts only when
+ * GitHub Actions made it, in a run of the Gates workflow started by a PUSH of
+ * that very commit. A pull request's run does not count: it tests a merge
+ * commit and reports on the head, so a check named here can be green on a
+ * commit whose own tree was never tested. Each named check's newest run must
+ * have finished with success; one still running, failed, cancelled or missing
+ * means no.
+ */
+export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GATES_CHECKS }) {
+    if (!/^[0-9a-f]{40}$/.test(sha || '')) return { passed: false, reason: `"${sha}" is not a commit.` };
+    for (const name of names) {
+        const ours = checkRuns.filter((c) => {
+            if (c?.name !== name || c.head_sha !== sha || c.app?.slug !== 'github-actions') return false;
+            const run = runsBySuite[c.check_suite?.id];
+            return !!run && run.event === 'push' && run.path === GATES_WORKFLOW && run.head_sha === sha;
+        });
+        if (!ours.length) return { passed: false, reason: `Gates has no "${name}" check from a push of ${sha.slice(0, 7)}.` };
+        const newest = ours.reduce((a, b) => (b.id > a.id ? b : a));
+        if (newest.status !== 'completed') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} is ${newest.status}, not finished.` };
+        if (newest.conclusion !== 'success') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} concluded ${newest.conclusion}.` };
+    }
+    return { passed: true, reason: `Gates passed ${sha.slice(0, 7)} on its push: ${names.join(', ')}.` };
+}
+
 /** Null when the build may carry `version`; otherwise the reason it may not. */
 export function checkBuildVersion({ channel, version, packageVersion }) {
     if (channel === 'stable') {

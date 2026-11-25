@@ -5,6 +5,7 @@
  *   node tools/release.mjs plan [--force] [--now ISO]      should the schedule publish main now, and as what
  *   node tools/release.mjs promote                         the stable release the latest nightly becomes
  *   node tools/release.mjs resolve                         what release.yml builds (event + inputs from env)
+ *   node tools/release.mjs gates-passed --sha SHA          did the Gates workflow already pass this commit's push
  *   node tools/release.mjs check-version --channel C --version V
  *   node tools/release.mjs stamp <version>                 write the version into package.json + lock
  *   node tools/release.mjs assets --dir release --channel C --version V --commit SHA
@@ -30,7 +31,7 @@ import { basename, join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
-    draftProblems,
+    draftProblems, gatesPassed, GATES_CHECKS,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
@@ -197,6 +198,35 @@ function resolve() {
         onMain: !!candidate && !!main && gitOk('merge-base', '--is-ancestor', candidate, main),
     });
     answer({ ...plan, moving_tags: movingTags.join(' '), built_at: git('show', '-s', '--format=%cI', plan.ref) });
+}
+
+/**
+ * Whether the Gates workflow already ran the guard suite on `--sha` and passed
+ * (gatesPassed in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
+ * answer GitHub cannot give (no permission, no network, an error) is `false`,
+ * and the release runs the suite itself: this only ever saves time.
+ */
+async function gatesPassedCmd() {
+    const sha = String(args.sha || '');
+    let verdict;
+    try {
+        const checkRuns = [];
+        for (const name of GATES_CHECKS) {
+            const body = await github(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
+            checkRuns.push(...(body?.check_runs || []));
+        }
+        const runsBySuite = {};
+        const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
+        for (const id of suites) {
+            const runs = await github(`/actions/runs?check_suite_id=${id}&per_page=1`);
+            if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
+        }
+        verdict = gatesPassed({ sha, checkRuns, runsBySuite });
+    } catch (e) {
+        verdict = { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
+    }
+    const next = verdict.passed ? 'The guard suites are not run again here.' : 'Running the guard suites here.';
+    answer({ passed: verdict.passed, reason: verdict.reason }, `### Gates\n\n${verdict.reason} ${next}\n`);
 }
 
 /** The files a release carries: the zips, SHA256SUMS and manifest.json in `dir`. */
@@ -415,7 +445,7 @@ function notes() {
 // exitCode, never exit(): after a fetch, ending the process while its socket is
 // still closing trips a libuv assertion on Windows and turns a clean refusal
 // into a crash with the wrong exit code.
-const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, sign: signManifest, notes, 'clean-drafts': cleanDrafts, publish };
+const commands = { plan, promote, resolve, 'gates-passed': gatesPassedCmd, 'check-version': checkVersion, stamp, assets, sign: signManifest, notes, 'clean-drafts': cleanDrafts, publish };
 if (!commands[command]) {
     process.stderr.write(`usage: node tools/release.mjs ${Object.keys(commands).join('|')} …\n`);
     process.exitCode = 2;
