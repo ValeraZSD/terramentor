@@ -19,7 +19,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -67,7 +68,7 @@ function fakeFetch({ model, reviews = [], throwModel = false }) {
     const fn = async (url, init = {}) => {
         const method = init.method || 'GET';
         const body = init.body ? JSON.parse(init.body) : undefined;
-        calls.push({ url, method, body, headers: init.headers });
+        calls.push({ url, method, body, headers: init.headers, signal: init.signal });
         const reply = (status, json) => ({ ok: status < 300, status, json: async () => json });
         if (url.startsWith('https://api.anthropic.com/')) {
             if (throwModel) throw new Error('getaddrinfo ENOTFOUND api.anthropic.com');
@@ -201,6 +202,22 @@ console.log('\n--- nothing left to review, and a crash ---');
     check('a crash after "pending" leaves a failure status and fails the job', threw && states.join(',') === 'pending,failure', states.join(','));
 }
 
+{
+    // A binary file shows as one line with no content.
+    const bin = 'diff --git a/server/x.wasm b/server/x.wasm\nindex 1111111..2222222 100644\nBinary files a/server/x.wasm and b/server/x.wasm differ\n';
+    const r = await run({ git: fakeGit({ diff: DIFF + bin }), model: modelReply({ summary: 's', findings: [] }) });
+    check('a binary change fails without a model call', last(r.statuses).state === 'failure'
+        && /binary change, not reviewable \(server\/x\.wasm\)/.test(last(r.statuses).description) && r.modelCalls.length === 0, JSON.stringify(r.statuses));
+    const added = 'diff --git a/brand/new.png b/brand/new.png\nnew file mode 100644\nindex 0000000..2222222\nBinary files /dev/null and b/brand/new.png differ\n';
+    const r2 = await run({ git: fakeGit({ diff: added }), model: modelReply({ summary: 's', findings: [] }) });
+    check('so does an added binary file', last(r2.statuses).state === 'failure' && /brand\/new\.png/.test(last(r2.statuses).description)
+        && r2.modelCalls.length === 0, JSON.stringify(r2.statuses));
+}
+{
+    const r = await run({ model: modelReply({ summary: 's', findings: [] }) });
+    check('the model call carries a time limit', r.modelCalls[0]?.signal instanceof AbortSignal);
+}
+
 console.log('\n--- reuse of an earlier green review ---');
 {
     // The marker an earlier run of this workflow wrote, taken from a real run of the code.
@@ -286,6 +303,24 @@ console.log('\n--- the rules file and the real git ---');
     } else {
         console.log(`  note  ${sha} is not in this clone; the real-git checks need full history`);
     }
+}
+
+// The head's own .gitattributes cannot hide its lines: attributes come from the base side.
+{
+    const dir = mkdtempSync(join(tmpdir(), 'ai-review-attr-'));
+    const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+        g('init', '-q'); g('config', 'user.email', 'gate@example.test'); g('config', 'user.name', 'gate');
+        writeFileSync(join(dir, 'f.js'), 'ok();\n'); g('add', '.'); g('commit', '-qm', 'base');
+        const from = g('rev-parse', 'HEAD').trim();
+        writeFileSync(join(dir, 'f.js'), 'ok();\nevil();\n'); writeFileSync(join(dir, '.gitattributes'), '* -diff\n');
+        g('add', '.'); g('commit', '-qm', 'head');
+        const to = g('rev-parse', 'HEAD').trim();
+        const plain = g('diff', from, to);
+        const diff = realGit(dir).diff(from, to, []);
+        check("git alone hides the line behind the head's -diff", /Binary files/.test(plain) && !/evil/.test(plain), plain);
+        check("the review's diff shows it", /^\+evil\(\);$/m.test(diff) && !/Binary files/.test(diff), diff);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -44,6 +44,8 @@ export const RULE_FILES = ['.coderabbit.yaml'];
 export const MAX_DIFF_CHARS = 250_000;
 /** Title and description are context; capped so a description cannot crowd out the diff. */
 export const MAX_BODY_CHARS = 4_000;
+/** The job stops at 15 minutes; the model call gives up at 10, so a failure status still gets posted. */
+export const MODEL_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
 export const DEFAULT_EFFORT = 'medium';
 /** USD per million tokens, input and output: only for the cost line in the review. */
@@ -130,8 +132,10 @@ export function realGit(cwd = process.cwd()) {
         show: (sha, path) => {
             try { return run(['show', `${sha}:${path}`]); } catch { return null; }
         },
-        diff: (from, to, excludes) => run(['diff', '--no-color', '--no-ext-diff', '--find-renames', from, to, '--', '.',
-            ...excludes.map((p) => `:(exclude,glob)${p}`)]),
+        // Attributes come from `from` (on main), never from the head: a pull request's own
+        // .gitattributes could otherwise mark its files `-diff` and hide every line.
+        diff: (from, to, excludes) => run([`--attr-source=${from}`, 'diff', '--no-color', '--no-ext-diff', '--no-textconv',
+            '--find-renames', from, to, '--', '.', ...excludes.map((p) => `:(exclude,glob)${p}`)]),
     };
 }
 
@@ -304,6 +308,11 @@ async function reviewHead({ env, fetch, git, gh, finish, log, repo, number, head
     const excludes = excludedPatterns(git.show(base, '.coderabbit.yaml') || '');
     const mergeBase = git.mergeBase(base, head);
     const diff = git.diff(mergeBase, head, excludes);
+    // A binary change shows as one line with no content: nothing a reviewer can read.
+    const binary = [...diff.matchAll(/^Binary files (?:a\/|\/dev\/null)(?:.*?) and (?:b\/)?(.+?) differ$/gm)].map((m) => m[1]);
+    if (binary.length) {
+        return { ...(await finish('failure', `binary change, not reviewable (${binary.slice(0, 2).join(', ')}): merge by hand`)), called: false };
+    }
     const patchId = patchHash(diff);
 
     // Reuse: an earlier head of this pull request reviewed green, by this workflow, with the same diff and rules.
@@ -343,6 +352,8 @@ async function reviewHead({ env, fetch, git, gh, finish, log, repo, number, head
     try {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
+            // A hung call ends as a failed review, well inside the job's own time limit.
+            signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
             headers: {
                 'x-api-key': env.ANTHROPIC_API_KEY,
                 'anthropic-version': '2026-10-21',
