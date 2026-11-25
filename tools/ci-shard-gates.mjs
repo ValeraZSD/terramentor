@@ -144,11 +144,26 @@ for (const p of PLATFORMS) {
     const guard = steps.filter((s) => s.name === 'Guard suites');
     check(`${p.job}: the suites run with --shard on every shard`,
         guard.length === 1 && !guard[0].if && /run: npm test -- --shard "\$\{\{ matrix\.shard \}\}"/.test(guard[0].text), guard.map((s) => s.text).join('\n'));
+    const where = {};
     for (const name of [...ONCE, ...p.once]) {
         const found = steps.filter((s) => s.name === name);
         const on = found.length === 1 ? shardsRunning(found[0].if, matrixShards) : null;
+        where[name] = on?.length === 1 ? { shard: on[0], at: steps.indexOf(found[0]) } : null;
         check(`${p.job}: "${name}" runs on exactly one shard`, on?.length === 1, found.map((s) => `if: ${s.if}`).join('\n') || 'no such step');
     }
+    // The perf table is the file perf-budget-gates writes: it is on the runner that ran that suite or nowhere.
+    const perfShard = Object.keys(byShard).find((s) => byShard[s].includes('tools/perf-budget-gates.mjs'));
+    const perfRunner = matrixShards.find((v) => v.split(',').includes(perfShard));
+    check(`${p.job}: the performance table is printed on the runner that ran perf-budget-gates (${perfRunner})`,
+        Boolean(perfRunner) && where['Performance numbers']?.shard === perfRunner, JSON.stringify(where['Performance numbers']));
+    // What uses the build runs after it, on its runner.
+    const build = where['Frontend builds'];
+    for (const name of p.once) {
+        check(`${p.job}: "${name}" runs after the build, on the same runner`,
+            Boolean(build) && where[name]?.shard === build.shard && where[name].at > build.at, JSON.stringify({ build, [name]: where[name] }));
+    }
+    // A shard that may fail without failing its job would hand the check a green it did not earn.
+    check(`${p.job}: no shard or step may fail without failing its job`, !/continue-on-error/.test(job) && !/\n {4}if:/.test(job));
 }
 
 for (const p of PLATFORMS) {
@@ -178,7 +193,9 @@ check('only a first attempt that failed is re-run', /\n {4}if: github\.event\.wo
 check('it re-runs the failed jobs only', /gh run rerun "\$RUN_ID" --failed\n/.test(rerun));
 const script = rerun.slice(rerun.indexOf('        run: |'));
 check('event values reach the script through the environment, never pasted into it', script.length > 20 && !script.includes('${{'), script);
-check('a pull request\'s older run is not re-run once a newer one exists', /if \[ "\$newest" != "\$RUN_ID" \]/.test(script));
+check('a pull request\'s older run is not re-run once a newer one exists, matched on branch and repository',
+    /if \[ "\$newest" != "\$RUN_ID" \]/.test(script) && /-f branch="\$HEAD_BRANCH"/.test(script)
+    && /HEAD_REPO: \$\{\{ github\.event\.workflow_run\.head_repository\.full_name \}\}/.test(rerun) && /\$2 == repo/.test(script), script);
 check('the job summary names the failed jobs', /select\(\.conclusion == "failure"\) \| \.name/.test(script) && /GITHUB_STEP_SUMMARY/.test(script));
 
 // =============================================================================================
