@@ -35,28 +35,33 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serialiseLike } from './lib/localeJson.mjs';
+import { oneLinePerKey, serialiseLike } from './lib/localeJson.mjs';
 
 export const DRIVER = 'locale-json';
 
 /**
  * The command git runs. The checkout git merges in may predate this file (an
- * old branch), so the command falls back to git's own line merge when the
- * script is not there rather than failing every merge of a locale file.
+ * old branch), and the shell git starts may have no `node` (a GUI client), so
+ * the command falls back to git's own line merge when either is missing. A
+ * failed start would leave %A as our side alone, marked conflicted but with
+ * no markers, and resolving that by `git add` would drop the other side.
  */
-export const DRIVER_COMMAND = 'if test -f tools/locale-merge.mjs; then node tools/locale-merge.mjs %O %A %B %P; '
+export const DRIVER_COMMAND = 'if test -f tools/locale-merge.mjs && command -v node >/dev/null 2>&1; '
+    + 'then node tools/locale-merge.mjs %O %A %B %P; '
     + 'else git merge-file -L ours -L base -L theirs %A %O %B; fi';
 
 const same = (a, b) => a === b;
 
-/** Parse one version: a flat object of strings, or null. An empty base is an
- *  empty object (both sides added the file). */
+/** Parse one version: a flat object of strings, one entry per line, or null.
+ *  An empty base is an empty object (both sides added the file). A key that
+ *  appears twice is null too: JSON.parse would keep only the last value. */
 export function parseLocale(text, { emptyIsObject = false } = {}) {
     if (emptyIsObject && text.trim() === '') return {};
     let data;
     try { data = JSON.parse(text); } catch { return null; }
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-    return Object.values(data).every((v) => typeof v === 'string') ? data : null;
+    if (!Object.values(data).every((v) => typeof v === 'string')) return null;
+    return oneLinePerKey(text, data) ? data : null;
 }
 
 /**
@@ -139,7 +144,7 @@ export function registerLocaleMergeDriver(root) {
     const get = spawnSync('git', ['config', '--get', `merge.${DRIVER}.driver`], { cwd: root, encoding: 'utf8' });
     if (get.status === 0 && get.stdout.replace(/\r?\n$/, '') === DRIVER_COMMAND) return { changed: false };
     for (const [k, v] of [[`merge.${DRIVER}.name`, 'locale files, merged by key'], [`merge.${DRIVER}.driver`, DRIVER_COMMAND]]) {
-        const set = spawnSync('git', ['config', k, v], { cwd: root, encoding: 'utf8' });
+        const set = spawnSync('git', ['config', '--replace-all', k, v], { cwd: root, encoding: 'utf8' });
         if (set.status !== 0) throw new Error(`git config ${k} failed: ${(set.stderr || '').trim()}`);
     }
     return { changed: true };

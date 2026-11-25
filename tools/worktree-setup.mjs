@@ -216,7 +216,10 @@ export async function setupWorktree({ root, refresh = false, installDeps = true,
     // are already in place and the copy can never be what decides them.
     const env = await writeEnv({ root, refresh, isFree, platform });
     const copies = copyIncluded({ root, mainRoot, refresh });
-    const mergeDriver = registerLocaleMergeDriver(root);
+    // Not worth failing the setup over: without it git merges the locale files
+    // line by line, as it always has.
+    let mergeDriver;
+    try { mergeDriver = registerLocaleMergeDriver(root); } catch (err) { mergeDriver = { changed: false, error: err.message }; }
     const deps = installDeps ? install(root) : { ran: false, reason: '--no-install' };
     return { root, mainRoot, copies, env, mergeDriver, deps };
 }
@@ -244,7 +247,9 @@ if (process.argv[1] && real(resolve(process.argv[1])).toLowerCase() === self) {
         if (r.copies.refused.length) console.log(`refused   ${r.copies.refused.join(', ')}`);
         console.log(`ports     api ${r.env.api} · page ${r.env.web}${r.env.written ? (r.env.moved ? ` (moved ${r.env.moved} up: taken)` : '') : ` — ${r.env.reason}`}`);
         console.log(`library   ${r.env.dataDir ?? 'as the .env says'}`);
-        console.log(`merge     locale files merge by key (merge.locale-json.driver ${r.mergeDriver.changed ? 'registered' : 'already registered'})`);
+        console.log(r.mergeDriver.error
+            ? `merge     locale merge driver NOT registered (${r.mergeDriver.error}); git merges locale files by line`
+            : `merge     locale files merge by key (merge.locale-json.driver ${r.mergeDriver.changed ? 'registered' : 'already registered'})`);
         console.log(`install   ${r.deps.ran ? `npm ci ${r.deps.ok ? 'done' : 'FAILED'} in ${minutes(r.deps.seconds)}` : r.deps.reason}`);
         console.log(`\nnpm run dev, then http://localhost:${r.env.web}`);
         if (r.deps.ran && !r.deps.ok) process.exit(1);

@@ -159,6 +159,18 @@ try {
             read(file), '{\n  "A": "1 (edited)",,\n  "B": "2",\n  "C": "3",\n  "D": "4",\n  "E": "5",\n  "F": "6 (edited)"\n}\n');
     }
     {
+        // A key pasted twice on one side: JSON.parse would keep one value and
+        // the driver would drop the other, so the file goes to the line merge.
+        const base = '{\n  "A": "1",\n  "B": "2",\n  "C": "3",\n  "D": "4",\n  "E": "5",\n  "F": "6"\n}\n';
+        const one = '{\n  "A": "1",\n  "A": "1 again",\n  "B": "2",\n  "C": "3",\n  "D": "4",\n  "E": "5",\n  "F": "6"\n}\n';
+        const two = '{\n  "A": "1",\n  "B": "2",\n  "C": "3",\n  "D": "4",\n  "E": "5",\n  "F": "6 (edited)"\n}\n';
+        const { dir, file } = repo(base, one, two);
+        const m = git(dir, 'merge', '--no-edit', 'two');
+        check('a key written twice on one side goes to the line merge', m.status === 0 && /merging by line instead/.test(m.out), m.out);
+        eq('…which keeps both of its lines',
+            read(file), '{\n  "A": "1",\n  "A": "1 again",\n  "B": "2",\n  "C": "3",\n  "D": "4",\n  "E": "5",\n  "F": "6 (edited)"\n}\n');
+    }
+    {
         // A checkout without the driver script (a branch made before it): the
         // registered command runs git's line merge instead of failing.
         const one = '{\n  "Apple": "a",\n  "Banana": "b",\n  "Cherry": "c"\n}\n';
