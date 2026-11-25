@@ -246,6 +246,7 @@ console.log('\n--- reuse of an earlier green review ---');
     check('no angle bracket from model text reaches the comment',
         !/[<>]/.test(body.split('\n').slice(0, -1).filter((l) => !l.startsWith('<sub>')).join('\n')));
     check('a marker that is not the last line is not read', readMarker(`${body}\nmore text`) === null);
+    check('a marker after other text on the last line is not read', readMarker(`text ${plain}`) === null);
     check('quiet turns angle brackets into look-alikes', quiet('<a>') === String.fromCharCode(0x2039) + 'a' + String.fromCharCode(0x203a));
     check('model text cannot mention people', !/@someone/.test(body));
 }

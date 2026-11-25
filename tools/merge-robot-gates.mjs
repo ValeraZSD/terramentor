@@ -254,6 +254,19 @@ console.log('visual-seen against push times (from #364)');
         b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
     });
     check('a label with no event on record does not excuse anything', decide(noRecord).reasons.some((r) => r.code === 'visual'), text(decide(noRecord)));
+
+    // Ten full pages of events, the most the robot reads: the label may have come off later unseen.
+    const capped = await variant((b) => {
+        delete b[key(/\/issues\/364\/events/)];
+        for (let p = 1; p <= 10; p++) {
+            b[`/repos/${fx.repo}/issues/364/events?per_page=100&page=${p}`] = Array.from({ length: 100 }, (_, i) => (p === 1 && i === 0
+                ? { event: 'labeled', label: { name: 'visual-seen' }, created_at: '2026-11-25T11:40:00Z' }
+                : { event: 'head_ref_force_pushed', created_at: '2026-11-25T11:00:00Z' }));
+        }
+        b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
+    });
+    check('a label history longer than the robot reads stops a visual change',
+        decide(capped).reasons.some((r) => r.code === 'visual' && /longer than the robot reads/.test(r.text)), text(decide(capped)));
 }
 check('pushTimes keeps the first pull_request run of each head', (() => {
     const at = pushTimes([
@@ -321,8 +334,9 @@ console.log('main() against a fake GitHub');
 const API = 'https://api.github.com';
 const MERGED_SHA = 'd'.repeat(40);
 /** A GitHub that answers from recorded books, merges, and records every call. */
-function fakeGitHub(books, { mergeStatus = 200, author = 'ValeraZSD' } = {}) {
+function fakeGitHub(books, { mergeStatus = 200, author = 'ValeraZSD', reread = null } = {}) {
     const calls = [];
+    const seen = new Map();
     const all = Object.assign({}, ...books.map((b) => b.book));
     const pulls = books.map((b) => Object.entries(b.book).find(([k]) => /\/pulls\/\d+$/.test(k))[1]);
     const reply = (status, body) => ({ ok: status < 300, status, text: async () => (body == null ? '' : JSON.stringify(body)) });
@@ -332,6 +346,8 @@ function fakeGitHub(books, { mergeStatus = 200, author = 'ValeraZSD' } = {}) {
         if (init.method === 'GET') {
             if (/\/pulls\?state=open/.test(path)) return reply(200, /page=1$/.test(path) ? pulls : []);
             if (path.endsWith(`/commits/${MERGED_SHA}`)) return reply(200, { sha: MERGED_SHA, author: { login: author }, files: [] });
+            seen.set(path, (seen.get(path) || 0) + 1);
+            if (reread && seen.get(path) > 1 && reread.path === path) return reply(200, reread.body(structuredClone(all[path])));
             if (path in all) return reply(200, all[path]);
             return reply(404, { message: `not faked: ${path}` });
         }
@@ -393,6 +409,14 @@ const run = async (env, fake, argv = ['--repo', 'ValeraZSD/terramentor']) => {
     const fake = fakeGitHub([greenBook()], { author: 'github-actions[bot]' });
     const { out } = await run({ MERGE_ROBOT: 'on' }, fake);
     check('live: warns when the author is not the opener', /::warning::the squash commit's author is github-actions\[bot\]/.test(out), out);
+}
+{
+    // `hold` goes on while the robot judges the others: the read just before the merge sees it.
+    const fake = fakeGitHub([greenBook()], { reread: { path: '/repos/ValeraZSD/terramentor/pulls/367',
+        body: (p) => ({ ...p, labels: [...p.labels, { name: 'hold' }] }) } });
+    const { code, out } = await run({ MERGE_ROBOT: 'on' }, fake);
+    check('live: a pull request held after it was judged is not merged',
+        code === 0 && !fake.calls.some((c) => c.method === 'PUT') && /changed while the others were judged/.test(out), out);
 }
 {
     const fake = fakeGitHub([greenBook()], { mergeStatus: 409 });
