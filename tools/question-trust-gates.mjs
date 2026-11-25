@@ -71,7 +71,7 @@ const stub = createServer((req, res) => {
         const user = msgs.find(m => m.role === 'user')?.content || '';
         let content;
         if (/checking a question before it is shown|checking an ORDERING question|audit the MODEL ANSWER/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE|LOWERSEQ)\w*/) || [])[0] || 'SILENT';
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE|LOWERSEQ|NUMSEQ|NUMWRONG|NUMBADIDX|NUMBERED|NUMGUARD)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
             content = tag === 'WORKING'
                 // Working first, TeX braces and all, then the verdict in a fence.
@@ -81,6 +81,15 @@ const stub = createServer((req, res) => {
                 : tag.startsWith('DISPUTE') ? JSON.stringify({ verdict: 'ok', answer: '5', reason: 'the key is wrong', eliminable: 0 })
                 // The order solved cold, every step written in lower case.
                 : tag.startsWith('LOWERSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['boil', 'cool', 'serve'], reason: 'agrees', eliminable: 0 })
+                // The order solved cold, each step copied with the number the prompt listed it under.
+                : tag.startsWith('NUMSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['2) Boil', '3. Cool', '1. Serve'], reason: 'agrees', eliminable: 0 })
+                : tag.startsWith('NUMWRONG') ? JSON.stringify({ verdict: 'ok', answer: ['3. Cool', '2. Boil', '1. Serve'], reason: 'cool first', eliminable: 0 })
+                // The right steps in the right order, each under a number it was not listed under.
+                : tag.startsWith('NUMBADIDX') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', '2. Cool', '3. Serve'], reason: 'agrees', eliminable: 0 })
+                // Steps whose own text starts with a number, copied exactly.
+                : tag.startsWith('NUMBERED') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', '2. Cool', '3. Serve'], reason: 'agrees', eliminable: 0 })
+                // "1. Boil" is a shown step of its own, and step 1 is "Boil".
+                : tag.startsWith('NUMGUARD') ? JSON.stringify({ verdict: 'ok', answer: ['1. Boil', 'Boil', 'Cool'], reason: 'agrees', eliminable: 0 })
                 // A word the prompt never offered, with an answer that matches the key.
                 : tag.startsWith('UNSURE') ? JSON.stringify({ verdict: 'unsure', answer: '4', reason: 'not certain', eliminable: 0 })
                 : 'I would rather not say.';
@@ -397,6 +406,25 @@ const orderQ = { question: 'LOWERSEQ put these steps in order', type: 'sequence'
 const lowerOrder = await verifyQuestion('Cooking', orderQ);
 check('a verifier that writes the steps in lower case still agrees with the order of the key',
     lowerOrder.ok === true && lowerOrder.available === true, JSON.stringify(lowerOrder));
+// The prompt lists the items as "1. Serve", "2. Boil", "3. Cool", and a verifier
+// may copy that number along with the text. The number is the prompt's, not
+// the item's: a right order must still agree, a wrong one must still be disputed.
+const shownSteps = { type: 'sequence', items: ['Serve', 'Boil', 'Cool'], correct_answer: JSON.stringify(['Boil', 'Cool', 'Serve']), explanation: '' };
+const numbered = await verifyQuestion('Cooking', { ...shownSteps, question: 'NUMSEQ put these steps in order' });
+check('a verifier that copies the list numbers with the steps still agrees with the order of the key',
+    numbered.ok === true && numbered.available === true, JSON.stringify(numbered));
+const numberedWrong = await verifyQuestion('Cooking', { ...shownSteps, question: 'NUMWRONG put these steps in order' });
+check('...and a wrong order with the list numbers is still disputed',
+    numberedWrong.ok === false && /^order disputed/.test(numberedWrong.reason), JSON.stringify(numberedWrong));
+const badIndex = await verifyQuestion('Cooking', { ...shownSteps, question: 'NUMBADIDX put these steps in order' });
+check('...and a number the step was not listed under is part of the answer, not dropped',
+    badIndex.ok === false && /^order disputed/.test(badIndex.reason), JSON.stringify(badIndex));
+const guard = await verifyQuestion('Cooking', { type: 'sequence', question: 'NUMGUARD put these steps in order', items: ['Boil', '1. Boil', 'Cool'], correct_answer: JSON.stringify(['1. Boil', 'Boil', 'Cool']), explanation: '' });
+check('...and an answer that is a shown step as written is never cut down to another step',
+    guard.ok === true, JSON.stringify(guard));
+const ownNumbers = await verifyQuestion('Cooking', { type: 'sequence', question: 'NUMBERED put these steps in order', items: ['3. Serve', '1. Boil', '2. Cool'], correct_answer: JSON.stringify(['1. Boil', '2. Cool', '3. Serve']), explanation: '' });
+check('...while steps whose own text starts with a number are compared whole',
+    ownNumbers.ok === true, JSON.stringify(ownNumbers));
 const { checkItemKeys } = await import(B + 'feedQuality.js');
 const echoDrill = { title: 'Symbols', items: [{ prompt: 'Mercury', answer: 'Hg' }, { prompt: 'Sodium', answer: 'Na' }, { prompt: 'Iron', answer: 'Fe' }] };
 const echoCheck = await checkItemKeys('Chemistry', echoDrill);
