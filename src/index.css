@@ -586,10 +586,11 @@ html[data-larger-ui] [data-sidebar-row] > [data-row-progress] {
    tick is 44px each way, and a 100-topic phase no longer fits one row: the
    bar becomes a grid of floor-sized cells that wraps onto as many rows as it
    needs. auto-fit stretches the cells across the row, so a short phase still
-   draws one full-width bar. */
+   draws one full-width bar. A cell is never wider than its bar: in a narrow
+   middle view a floor-sized cell ran past the bar and was cut. */
 html[data-larger-ui] [data-tick-bar] {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--target-floor), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--target-floor), 100%), 1fr));
   grid-auto-rows: var(--target-floor);
   height: auto;
 }

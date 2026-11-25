@@ -249,9 +249,10 @@ CASES['1280 right to left, assistant docked, panel 600'] = { size: SIZES[2], c: 
 CASES['1440 right to left, assistant closed, panel 600'] = { size: SIZES[3], c: { panel: 600, lang: 'ar' } };
 // The handles. With the assistant docked at 1440 the row is 920px: the panel's
 // far edge is the assistant's, not the window's, so a drag to 320 is 320; the
-// sidebar stops where the middle view (20rem) and the panel (300) still fit.
+// sidebar stops where the middle view and the panel (300) still fit: the middle
+// view's minimum is 30% of the 920px row (276px, under 20rem), so 344px.
 CASES['1440 drag the panel to 320, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'panel', to: 320, expect: 320 } };
-CASES['1440 drag the sidebar to 500, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'sidebar', to: 500, expect: 300 } };
+CASES['1440 drag the sidebar to 500, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'sidebar', to: 500, expect: 344 } };
 CASES['1440 right to left, drag the panel to 500'] = { size: SIZES[3], c: { panel: 420, lang: 'ar' }, drag: { handle: 'panel', to: 500, expect: 500 } };
 
 /** The column a handle sizes, and the handle on its edge. */
