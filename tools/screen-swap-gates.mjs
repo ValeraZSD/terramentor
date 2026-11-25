@@ -60,7 +60,7 @@ dom.window.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
 
 await import(pathToFileURL(out).href);
-const { React, createRoot, act, MemoryRouter, Shell, storeSaw, RouteChunk, preloadRouteChunk, swap, navigate } = globalThis.__harness;
+const { React, createRoot, act, MemoryRouter, Shell, storeSaw, RouteChunk, preloadRouteChunk, swap, screenOf, navigate } = globalThis.__harness;
 const { swapScreen, trackRead, revealFirstScreen, HOLD_CAP_MS, FIRST_SCREEN_CAP_MS } = swap;
 
 let pass = 0, fail = 0;
@@ -235,6 +235,29 @@ console.log('\n--- the routes follow the shown location ---');
     await act(async () => { ms = await holdFor(pendingSwap, async () => { trackRead(never.promise, 'GET', '/api/feed'); }); });
     never.resolve({});
     check('...and the swap left waiting ends at once instead of holding to the cap', ms < 350 && /course dashboard topic 41/.test(host.textContent), `${Math.round(ms)} ms, ${host.textContent}`);
+
+    // A page that rewrites its own address as it arrives (a replace on the
+    // same screen) is a move within the NEW screen: its hold goes on.
+    await act(async () => { navigate('/c'); });
+    const arriving = transitions.at(-1);
+    const read = deferred();
+    let held = 0;
+    // The swap draws from the browser's callback here, outside any act().
+    globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+    const settle = holdFor(arriving, async () => {
+        trackRead(read.promise, 'GET', '/api/projects');
+        await sleep(30);
+        navigate('/c?seen=1', { replace: true });
+        await sleep(270);
+        read.resolve({});
+    });
+    held = await settle;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    check('a page rewriting its own address on arrival does not cut its hold short', held >= 280 && /screen C/.test(host.textContent), `${Math.round(held)} ms, ${host.textContent}`);
+
+    check('a course with no tab named is its dashboard, one screen with it',
+        screenOf('/project/3') === screenOf('/project/3/dashboard') && screenOf('/project/3/') === screenOf('/project/3/dashboard/7')
+        && screenOf('/project/3/tree') !== screenOf('/project/3/dashboard') && screenOf('/project/4') !== screenOf('/project/3'));
     await act(async () => { root.unmount(); });
     host.remove();
 }

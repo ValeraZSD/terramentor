@@ -7,13 +7,13 @@ import { createRoot } from 'react-dom/client';
 import { act as domAct } from 'react';
 import { MemoryRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import * as swap from '../../src/utils/screenSwap';
-import { useShownLocation } from '../../src/hooks/useShownLocation';
+import { useShownLocation, screenOf } from '../../src/hooks/useShownLocation';
 import RouteChunk, { preloadRouteChunk } from '../../src/components/RouteChunk';
 
 const act: any = (React as any).act || domAct;
 const h = React.createElement;
 
-let navigateTo: (to: string | number) => void = () => {};
+let navigateTo: (to: string | number, options?: { replace?: boolean }) => void = () => {};
 /** The pathname the store would be told, each time it changes. */
 const storeSaw: string[] = [];
 
@@ -42,6 +42,7 @@ function Course() {
 }
 
 (globalThis as any).__harness = {
-    React, createRoot, act, MemoryRouter, Shell, storeSaw, RouteChunk, preloadRouteChunk, swap,
-    navigate: (to: string | number) => (navigateTo as (to: string | number) => void)(to),
+    React, createRoot, act, MemoryRouter, Shell, storeSaw, RouteChunk, preloadRouteChunk, swap, screenOf,
+    navigate: (to: string | number, options?: { replace?: boolean }) =>
+        (navigateTo as (to: string | number, options?: { replace?: boolean }) => void)(to, options),
 };

@@ -10,8 +10,10 @@ import { endHold, swapScreen } from '../utils/screenSwap';
  * answers at once, as a click inside a page should.
  */
 export function screenOf(pathname: string): string {
-    const parts = pathname.split('/');
-    return parts[1] === 'project' ? parts.slice(0, 4).join('/') : pathname;
+    const parts = pathname.split('/').filter(Boolean);
+    if (parts[0] !== 'project') return `/${parts.join('/')}`;
+    // `/project/3` is the dashboard, as the store reads it.
+    return `/project/${parts[1] ?? ''}/${parts[2] ?? 'dashboard'}`;
 }
 
 /**
@@ -29,16 +31,28 @@ export function useShownLocation(): Location {
     const [shown, setShown] = useState(location);
     // The newest address, for a swap whose turn comes after a later move.
     const latest = useRef(location);
+    // A swap started and not drawn yet: the screen on view is still the old one.
+    const waiting = useRef(false);
 
     useLayoutEffect(() => {
         latest.current = location;
-        if (location.key === shown.key) { endHold(); return; }
-        if (screenOf(location.pathname) === screenOf(shown.pathname)) { endHold(); setShown(location); return; }
+        // Back on, or within, the screen still on view before a waiting swap
+        // drew: that swap would hold the page for nothing. Once it has drawn,
+        // the screen on view is the new one, and a move within it (a page that
+        // rewrites its own address on arrival) must not cut its hold short.
+        if (location.key === shown.key) { if (waiting.current) endHold(); return; }
+        if (screenOf(location.pathname) === screenOf(shown.pathname)) {
+            if (waiting.current) endHold();
+            setShown(location);
+            return;
+        }
         // `draw` runs either now (no view transitions: a plain state update
         // inside this effect) or later from the browser's transition, where it
         // must render before returning so the new screen is what gets shown.
         let now = true;
+        waiting.current = true;
         swapScreen(() => {
+            waiting.current = false;
             if (now) setShown(latest.current);
             else flushSync(() => setShown(latest.current));
         });
