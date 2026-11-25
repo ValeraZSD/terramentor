@@ -69,7 +69,7 @@ export const CONFIG = {
     visualIgnore: ['**/*.test.*', '**/*.spec.*', '**/__tests__/**', 'tools/**', 'server/**'],
     // A change to what decides a merge is merged by a person. So is the lock file:
     // the review leaves it out (.coderabbit.yaml filters it), so no review read it.
-    byHand: ['.github/**', 'tools/merge-robot.mjs', 'tools/ai-review.mjs', 'tools/no-ai-attribution.mjs', '.coderabbit.yaml', 'package-lock.json'],
+    byHand: ['.github/**', 'tools/merge-robot.mjs', 'tools/ai-review.mjs', 'tools/no-ai-attribution.mjs', '.coderabbit.yaml', '.gitattributes', 'package-lock.json'],
     advisoryCheck: (run) => /^coderabbit/i.test(run.app || '') || run.name.toLowerCase() === 'coderabbit',
     baseBranch: 'main',
     maxTitle: 50,
@@ -339,7 +339,8 @@ export function decide(facts, cfg = CONFIG) {
     const reasons = [];
     const addLabels = [], removeLabels = [];
     const why = (code, text) => reasons.push({ code, text });
-    const names = files.map((f) => f.filename);
+    // A rename counts under both names: moving a file away changes the old path too.
+    const names = [...new Set(files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)))];
 
     if (pull.state && pull.state !== 'open') why('closed', `the pull request is ${pull.state}`);
     if (pull.draft) why('draft', 'still a draft');
@@ -357,7 +358,7 @@ export function decide(facts, cfg = CONFIG) {
     const msg = commitMessage(facts);
     if ([msg.title, ...msg.message.split('\n')].some(isAiAttributionLine)) why('attribution', 'the commit message would carry an AI-attribution line');
 
-    if ((pull.changed_files ?? names.length) > names.length) why('files', `GitHub listed ${names.length} of ${pull.changed_files} files`);
+    if ((pull.changed_files ?? files.length) > files.length) why('files', `GitHub listed ${files.length} of ${pull.changed_files} files`);
     const machinery = names.filter((f) => matchesAny(f, cfg.byHand));
     if (machinery.length) why('by-hand', `changes merge machinery (${machinery.slice(0, 3).join(', ')}): merge by hand`);
 
@@ -503,27 +504,41 @@ export async function main(argv = process.argv.slice(2), env = process.env, out 
 
     if (live) {
         for (const v of verdicts.filter((x) => x.addLabels?.length || x.removeLabels?.length)) {
-            if (v.addLabels.length) await api.post(`/repos/${repo}/issues/${v.number}/labels`, { labels: v.addLabels });
-            for (const l of v.removeLabels) await api.del(`/repos/${repo}/issues/${v.number}/labels/${encodeURIComponent(l)}`).catch(() => {});
-        }
-        const first = verdicts.find((v) => v.merge);
-        // Judged again just before the merge: a label, draft or push in the meantime counts.
-        const fresh = first && await collect(api, repo, first.number, cfg);
-        const again = fresh && decide(fresh, cfg);
-        if (first && !(again.merge && again.head === first.head)) {
-            say(`\n#${first.number} changed while the others were judged; the next run looks again.`);
-            if (!again.merge) say(render(again));
-        } else if (first) {
-            let res;
             try {
-                res = await merge(api, fresh);
+                if (v.addLabels.length) await api.post(`/repos/${repo}/issues/${v.number}/labels`, { labels: v.addLabels });
+                for (const l of v.removeLabels) await api.del(`/repos/${repo}/issues/${v.number}/labels/${encodeURIComponent(l)}`).catch(() => {});
+            } catch (e) {
+                out(`::warning::could not label #${v.number}: ${e.message}`);
+            }
+        }
+        // The oldest candidate GitHub accepts is merged; one it refuses does not hold up the rest.
+        let merged = null;
+        for (const first of verdicts.filter((v) => v.merge)) {
+            // Judged again just before the merge: a label, draft or push in the meantime counts.
+            let fresh, again;
+            try {
+                fresh = await collect(api, repo, first.number, cfg);
+                again = decide(fresh, cfg);
+            } catch (e) {
+                say(`\n#${first.number} could not be read again: ${e.message}`);
+                continue;
+            }
+            if (!(again.merge && again.head === first.head)) {
+                say(`\n#${first.number} changed while the others were judged; the next run looks again.`);
+                if (!again.merge) say(render(again));
+                continue;
+            }
+            try {
+                merged = { first, fresh, res: await merge(api, fresh) };
+                break;
             } catch (e) {
                 // 405 not mergeable, 409 the head moved since it was judged: the next run judges it again.
                 if (e.status !== 405 && e.status !== 409) throw e;
                 say(`\nGitHub refused to merge #${first.number}: ${e.message}`);
-                if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
-                return 0;
             }
+        }
+        if (merged) {
+            const { first, fresh, res } = merged;
             say(`\nMerged #${first.number} as ${res.sha}.`);
             // The merge stands whatever happens below; a failure here is a warning, not a failed run.
             try {
@@ -541,7 +556,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, out 
             } catch (e) {
                 out(`::warning::could not start ${cfg.gatesWorkflow} on ${fresh.pull.base.ref}: ${e.message}`);
             }
-        } else say('\nNothing to merge.');
+        } else if (!verdicts.some((v) => v.merge)) say('\nNothing to merge.');
     } else {
         const next = verdicts.find((v) => v.merge);
         say(next ? `\nWould merge #${next.number} now (one per run).` : '\nNothing to merge.');

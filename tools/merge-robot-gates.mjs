@@ -195,6 +195,10 @@ only('visual-seen removed again does not count', (f) => {
 for (const p of ['.github/workflows/gates.yml', '.github/CODEOWNERS', 'tools/merge-robot.mjs', 'tools/ai-review.mjs', 'tools/no-ai-attribution.mjs', '.coderabbit.yaml']) {
     only(`changing ${p} is merged by hand`, (f) => addFile(f, p), 'by-hand');
 }
+only('a .gitattributes change is merged by hand', (f) => addFile(f, '.gitattributes'), 'by-hand');
+only('renaming the review rules away is merged by hand', (f) => addFile(f, 'docs/x.txt', { status: 'renamed', previous_filename: '.coderabbit.yaml' }), 'by-hand');
+only('renaming a workflow away is merged by hand', (f) => addFile(f, 'docs/old.yml', { status: 'renamed', previous_filename: '.github/workflows/gates.yml' }), 'by-hand');
+only('renaming a component out of src is visual', (f) => addFile(f, 'docs/Foo.txt', { status: 'renamed', previous_filename: 'src/components/Foo.tsx' }), 'visual');
 only('the robot\'s own tests are not machinery', (f) => addFile(f, 'tools/merge-robot-gates.mjs'), 'MERGE');
 only('a title like "Release 1.7.0" is a release', (f) => { f.pull.title = 'Release 1.7.0'; }, 'release');
 only('a title like "v1.7.0" is a release', (f) => { f.pull.title = 'v1.7.0 notes'; }, 'release');
@@ -351,7 +355,8 @@ function fakeGitHub(books, { mergeStatus = 200, author = 'ValeraZSD', reread = n
             if (path in all) return reply(200, all[path]);
             return reply(404, { message: `not faked: ${path}` });
         }
-        if (init.method === 'PUT' && /\/merge$/.test(path)) return mergeStatus === 200 ? reply(200, { sha: MERGED_SHA, merged: true }) : reply(mergeStatus, { message: 'Head branch was modified' });
+        const status = typeof mergeStatus === 'function' ? mergeStatus(path) : mergeStatus;
+        if (init.method === 'PUT' && /\/merge$/.test(path)) return status === 200 ? reply(200, { sha: MERGED_SHA, merged: true }) : reply(status, { message: 'Head branch was modified' });
         if (init.method === 'POST' && /\/dispatches$/.test(path)) return reply(204, null);
         if (init.method === 'POST' && /\/labels$/.test(path)) return reply(200, []);
         return reply(404, { message: `not faked: ${init.method} ${path}` });
@@ -417,6 +422,28 @@ const run = async (env, fake, argv = ['--repo', 'ValeraZSD/terramentor']) => {
     const { code, out } = await run({ MERGE_ROBOT: 'on' }, fake);
     check('live: a pull request held after it was judged is not merged',
         code === 0 && !fake.calls.some((c) => c.method === 'PUT') && /changed while the others were judged/.test(out), out);
+}
+{
+    // GitHub refuses the oldest: the next candidate is merged in the same run.
+    const fake = fakeGitHub([greenBook(), greenBook(9367)], { mergeStatus: (p) => (/\/pulls\/367\/merge$/.test(p) ? 405 : 200) });
+    const { code, out } = await run({ MERGE_ROBOT: 'on' }, fake);
+    const puts = fake.calls.filter((c) => c.method === 'PUT').map((c) => c.path);
+    check('live: a refused pull request does not hold up the next one',
+        code === 0 && puts.join() === '/repos/ValeraZSD/terramentor/pulls/367/merge,/repos/ValeraZSD/terramentor/pulls/9367/merge'
+        && /GitHub refused to merge #367/.test(out) && /Merged #9367/.test(out), `${puts.join()} | ${out}`);
+}
+{
+    // A label write GitHub rejects is a warning; the merge still happens.
+    const b = greenBook(); const v = greenBook(9367);
+    Object.entries(v.book).find(([k]) => /\/files\?/.test(k))[1].push({ filename: 'src/components/Foo.tsx', status: 'modified' });
+    Object.entries(v.book).find(([k]) => /\/pulls\/\d+$/.test(k))[1].changed_files += 1;
+    const fake = fakeGitHub([b, v]);
+    const inner = fake.fetch;
+    fake.fetch = async (url, init) => (init.method === 'POST' && /\/labels$/.test(url)
+        ? { ok: false, status: 403, text: async () => JSON.stringify({ message: 'Resource not accessible' }) } : inner(url, init));
+    const { code, out } = await run({ MERGE_ROBOT: 'on' }, fake);
+    check('live: a failed label write warns and the merge goes on',
+        code === 0 && /::warning::could not label #9367/.test(out) && /Merged #367/.test(out), out);
 }
 {
     const fake = fakeGitHub([greenBook()], { mergeStatus: 409 });
