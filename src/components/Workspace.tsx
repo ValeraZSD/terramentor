@@ -17,6 +17,7 @@ import { LayoutGrid, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen }
 import { useTranslation } from 'react-i18next';
 import { countsInCards } from '../utils/projectShape';
 import { fromInlineStart, scrolledFromStart } from '../utils/direction';
+import { scrollRailTo } from '../utils/scrollWithin';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
 
@@ -149,8 +150,9 @@ export default function Workspace() {
         .filter(t => t.when || workspaceView === t.key);
 
     useEffect(() => {
-        const el = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${tabView}"]`);
-        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        // The rail alone: native scrollIntoView would also scroll the page.
+        const rail = tabRailRef.current;
+        scrollRailTo(rail?.querySelector<HTMLElement>(`[data-tab="${tabView}"]`), rail);
     }, [tabView]);
 
     // The pace pill's full form is shown only when it fits beside EVERY tab —

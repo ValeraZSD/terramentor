@@ -146,7 +146,7 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     data-link="drift"
                     onClick={() => setEditing(true)}
                     title={t("Its topics are planned from {{from}} to {{to}}.", { from: pretty(drift.from), to: pretty(drift.to) })}
-                    className="flex items-start gap-1.5 text-start text-sm text-amber-700 dark:text-amber-400 can-hover:hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                    className="relative flex items-start gap-1.5 text-start text-sm text-amber-700 dark:text-amber-400 can-hover:hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
                 >
                     <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
                     <span>
@@ -186,7 +186,8 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     // undated courses read as a wall of grey bars, each as loud as
                     // a real plan. Same box, same height, so setting dates moves
                     // nothing.
-                    className={`group flex items-center gap-2 w-full min-h-10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${hasWindow
+                    // `relative`: its `sr-only` name stays inside the grid's scroller.
+                    className={`group relative flex items-center gap-2 w-full min-h-10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${hasWindow
                         ? 'border border-transparent bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 can-hover:hover:bg-slate-200 dark:can-hover:hover:bg-slate-700'
                         : 'border border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60'}`}
                 >

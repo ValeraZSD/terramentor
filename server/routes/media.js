@@ -4,6 +4,7 @@ import { contentDisposition } from '../httpHeaders.js';
 import { decidePaperVision } from '../paper.js';
 import { findStagedMedia } from '../ankiImport.js';
 import { mediaStorage } from '../vaultStorage.js';
+import { mediaInUse } from '../liveMedia.js';
 import {
     cancelDescribeSweep, describeMedia, describeProgress, describeStats, listDescriptions,
     setLearnerDescription, startDescribeSweep,
@@ -39,8 +40,9 @@ app.get('/api/media/:hash', (req, res) => {
 
     // The registry first, then any live staging record — an import that has been
     // inspected but not committed has its bytes on disk and no row yet, and the
-    // preview screen is exactly the moment those bytes need serving.
-    const row = db.prepare('SELECT mime, kind, filename FROM media_files WHERE hash = ? LIMIT 1').get(hash)
+    // preview screen is exactly the moment those bytes need serving. A file
+    // only deleted cards or banks show is not served (liveMedia.js).
+    const row = (mediaInUse(hash) && db.prepare('SELECT mime, kind, filename FROM media_files WHERE hash = ? LIMIT 1').get(hash))
         || findStagedMedia(hash);
     if (!row) return res.status(404).json(keyed('No such media'));
 
@@ -83,7 +85,7 @@ app.get('/api/media/:hash', (req, res) => {
 app.get('/api/media/:hash/info', (req, res) => {
     const hash = String(req.params.hash || '');
     if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json(keyed('Bad media id'));
-    const row = db.prepare(
+    const row = mediaInUse(hash) && db.prepare(
         'SELECT hash, filename, mime, kind, size, description, described_by, project_id FROM media_files WHERE hash = ? LIMIT 1'
     ).get(hash);
     if (!row) return res.status(404).json(keyed('No such media'));

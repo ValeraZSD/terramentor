@@ -8,7 +8,7 @@
 import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from '../api';
-import type { ItemReport, ScreenItem } from './itemReports';
+import type { ItemReport, ScreenItem, WrittenBy } from './itemReports';
 
 /** How many items the assistant hears about: the one on screen and the ones
  *  before it, or a whole results list (a mastery check asks up to 30). */
@@ -21,6 +21,8 @@ interface ScreenEntry extends ScreenItem { current: boolean }
 interface ItemReportState {
     /** A report standing on the ref, null when it has none (or it was undone). */
     byRef: Record<string, ItemReport | null>;
+    /** Which model wrote the ref's item, null when no model did: asked with the reports, shown by the flag. */
+    written: Record<string, WrittenBy | null>;
     screen: ScreenEntry[];
     setReport: (ref: string, report: ItemReport | null) => void;
     /** `setReport` for an answer asked at `mark` (`reportWriteMark()`): skipped when the ref was written since. */
@@ -30,10 +32,12 @@ interface ItemReportState {
     aside: Record<string, string>;
     /** Set the copy aside for the item `ref`, or clear it with null. */
     setAside: (copy: string, ref: string | null) => void;
-    /** Ask the server which of these refs stand reported; refs already known are skipped. */
+    /** Ask the server which of these refs stand reported and which a model wrote; refs already known are skipped. */
     load: (refs: string[]) => Promise<void>;
     /** Ask again about refs whose report may have changed on the server (a reported card was edited). */
     refresh: (refs: string[]) => Promise<void>;
+    /** Forget who wrote every item (a course update or its undo rewrote them); answers already on their way are dropped. */
+    forgetWriters: () => void;
     /** List an item; `current` (the default) makes it the one the learner is on. */
     showItem: (item: ScreenItem, current?: boolean) => void;
     leaveItem: (ref: string) => void;
@@ -43,8 +47,12 @@ interface ItemReportState {
 // refs asked for in one tick go to the server as one request.
 let queued = new Set<string>();
 let flush: Promise<void> | null = null;
-/** Asked and not answered yet: a second mount meanwhile does not ask again. */
-const asking = new Set<string>();
+/** Asked and not answered yet, by how many asks are out: a second mount
+ *  meanwhile does not ask again, and the first of two overlapping asks to end
+ *  does not hide the other. */
+const asking = new Map<string, number>();
+const askingStart = (r: string) => asking.set(r, (asking.get(r) ?? 0) + 1);
+const askingEnd = (r: string) => { const n = (asking.get(r) ?? 1) - 1; if (n > 0) asking.set(r, n); else asking.delete(r); };
 /** When each ref was last written by `setReport` (a press, an Undo, a preview), by a running count. */
 let writes = 0;
 const writtenAt = new Map<string, number>();
@@ -59,15 +67,22 @@ export function reportWriteMark(): number {
 /** Each list request by a running count, and per ref the count of the answer last applied. */
 let asks = 0;
 const appliedAsk = new Map<string, number>();
+/** Per ref the count of the ask whose answer last set who wrote it. */
+const writerAsk = new Map<string, number>();
 
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
         const part = refs.slice(i, i + REFS_PER_REQUEST);
-        for (const r of part) asking.add(r);
+        for (const r of part) askingStart(r);
         const askedAt = writes;
         const asked = ++asks;
         try {
-            const { reports } = await api.listItemReports({ refs: part });
+            const { reports, written } = await api.listItemReports({ refs: part });
+            // Who wrote an item does not move with reports, so a report pressed
+            // meanwhile does not stale it; only the answer to a later ask does.
+            const writers = part.filter(r => (writerAsk.get(r) ?? -1) < asked);
+            for (const r of writers) writerAsk.set(r, asked);
+            useItemReports.setState(s => ({ written: { ...s.written, ...Object.fromEntries(writers.map(r => [r, written?.[r] ?? null])) } }));
             // The list's answer must not write over a newer report, nor over
             // the answer to a list asked after it (two saves of one card each
             // ask, and the answers can arrive in either order). A newer ask
@@ -79,12 +94,13 @@ async function ask(refs: string[]): Promise<void> {
             for (const r of answer.keys()) appliedAsk.set(r, asked);
             useItemReports.setState(s => ({ byRef: { ...s.byRef, ...Object.fromEntries(answer) } }));
         } catch { /* the flag works without knowing: a second report returns the standing one */ }
-        finally { for (const r of part) asking.delete(r); }
+        finally { for (const r of part) askingEnd(r); }
     }
 }
 
 export const useItemReports = create<ItemReportState>((set, get) => ({
     byRef: {},
+    written: {},
     screen: [],
     setReport: (ref, report) => {
         writtenAt.set(ref, ++writes);
@@ -102,8 +118,10 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         return { aside };
     }),
     load: (refs) => {
-        const known = get().byRef;
-        for (const r of refs) if (r && !(r in known) && !asking.has(r)) queued.add(r);
+        // Known = both answers held: a report set by a press elsewhere (the
+        // assistant's) still leaves who wrote the item to ask.
+        const { byRef: known, written } = get();
+        for (const r of refs) if (r && !(r in known && r in written) && !asking.has(r)) queued.add(r);
         if (!queued.size) return flush ?? Promise.resolve();
         flush ??= Promise.resolve().then(() => {
             const wanted = [...queued];
@@ -114,6 +132,16 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         return flush;
     },
     refresh: (refs) => ask([...new Set(refs.filter(Boolean))]),
+    forgetWriters: () => {
+        // An ask out now predates the rewrite: mark its refs as answered by a
+        // newer ask, so its answer does not set who wrote them.
+        const now = ++asks;
+        const out = [...asking.keys()];
+        for (const r of new Set([...writerAsk.keys(), ...out])) writerAsk.set(r, now);
+        set({ written: {} });
+        // Those refs are not asked again by `load` while their old ask is out: ask now.
+        if (out.length) void ask(out);
+    },
     showItem: (item, current = true) => set(s => {
         const rest = s.screen.filter(e => e.ref !== item.ref);
         if (current) return { screen: [{ ...item, current: true }, ...rest.map(e => ({ ...e, current: false }))].slice(0, SCREEN_ITEMS) };

@@ -21,6 +21,7 @@ import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { useCanHover } from '../utils/platform';
 import { fromInlineStart, inlineArrow, inlineDelta } from '../utils/direction';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import HeadStartMark from './HeadStartMark';
@@ -165,7 +166,10 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
                 {...rowDrag}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${canHover ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
+                // `relative`: the drag handle is `sr-only` (absolute) until
+                // focused; placed against this row it stays inside the list's
+                // scroller, never at the page's foot.
+                className={`relative flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${canHover ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
@@ -416,7 +420,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             const title = sidebarRef.current?.querySelector<HTMLElement>(`[data-node-id="${id}"] [data-row-title]`);
             if (title) {
                 title.focus({ preventScroll: true });
-                title.scrollIntoView({ block: 'nearest' });
+                scrollIntoViewWithin(title, { boundary: sidebarRef.current, block: 'nearest' });
             }
         };
         const handleKeyDown = (e: KeyboardEvent) => {

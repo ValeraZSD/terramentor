@@ -67,9 +67,22 @@ const {
 
 const projectId = db.prepare("INSERT INTO projects (name) VALUES ('Pictures')").run().lastInsertRowid;
 const hash = (c) => c.repeat(64);
-const addFile = (h, name, kind, description = null, by = null, model = null) => db.prepare(
-    'INSERT INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by, generated_by) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)',
-).run(projectId, h, name, kind === 'image' ? 'image/png' : 'audio/mpeg', kind, description, by, model);
+// A file is listed, described and served while a card of its course shows it,
+// so every file here goes on a card.
+const topics = new Map();
+const onCard = (project, h, kind = 'image') => {
+    if (!topics.has(project)) {
+        topics.set(project, db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Pictures')").run(project).lastInsertRowid);
+    }
+    db.prepare("INSERT INTO flashcards (node_id, front, back, media) VALUES (?, 'Front', 'Back', ?)")
+        .run(topics.get(project), JSON.stringify({ front: [{ hash: h, kind, name: 'file' }], back: [] }));
+};
+const addFile = (h, name, kind, description = null, by = null, model = null) => {
+    db.prepare(
+        'INSERT INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by, generated_by) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)',
+    ).run(projectId, h, name, kind === 'image' ? 'image/png' : 'audio/mpeg', kind, description, by, model);
+    onCard(projectId, h, kind);
+};
 const BARE = hash('a');
 const AUTHOR = hash('b');
 const VISION = hash('c');
@@ -141,6 +154,7 @@ section('the file itself');
 const { mediaStorage } = await import(S('vaultStorage.js'));
 const SONG = mediaStorage.put(Buffer.from('0123456789abcdef')).hash;
 db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'klank.mp3', 'audio/mpeg', 'audio', 16)").run(projectId, SONG);
+onCard(projectId, SONG, 'audio');
 const whole = await call(`/api/media/${SONG}`);
 check('a clip is served whole with its type, and says it can be read in ranges',
     whole.status === 200 && whole.headers.get('content-type') === 'audio/mpeg' && whole.headers.get('accept-ranges') === 'bytes'
@@ -154,6 +168,7 @@ check('the file is cached by the browser for good but never by a shared cache',
     /^private,/.test(cacheControl) && /immutable/.test(cacheControl) && !/public/.test(cacheControl), cacheControl);
 check('a file the store lost is a 404 that is not cached', await (async () => {
     db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'weg.mp3', 'audio/mpeg', 'audio', 1)").run(projectId, hash('8'));
+    onCard(projectId, hash('8'), 'audio');
     const lost = await call(`/api/media/${hash('8')}`);
     return lost.status === 404 && !/immutable/.test(lost.headers.get('cache-control') || '');
 })());
@@ -185,6 +200,7 @@ const projectTwo = db.prepare("INSERT INTO projects (name) VALUES ('Pictures aga
 const TWICE = hash('7');
 addFile(TWICE, 'tweemaal.png', 'image');
 db.prepare('INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, ?, ?, 1)').run(projectTwo, TWICE, 'tweemaal.png', 'image/png', 'image');
+onCard(projectTwo, TWICE);
 const after = describeStats();
 check('the counts see one more picture, not two', after.images === before.images + 1 && after.pending === before.pending + 1, JSON.stringify({ before, after }));
 check('the sweep is handed the picture once', pendingDescriptions().filter(p => p.hash === TWICE).length === 1);
@@ -208,6 +224,7 @@ const { mediaStorage: store } = await import(S('vaultStorage.js'));
 const modelRow = (name) => {
     const h = store.put(Buffer.from(`picture ${name}`)).hash;
     db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', 8)").run(projectId, h, name);
+    onCard(projectId, h);
     return h;
 };
 visionSays = 'A​ cat‮ on⁦ a\u0007 mat﻿';
@@ -375,6 +392,7 @@ const dutchProject = db.prepare("INSERT INTO projects (name, content_language) V
 const dutchRow = (name) => {
     const h = store.put(Buffer.from(`plaatje ${name}`)).hash;
     db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', 8)").run(dutchProject, h, name);
+    onCard(dutchProject, h);
     return h;
 };
 const promptOf = () => { try { return JSON.stringify(JSON.parse(visionAsked)); } catch { return visionAsked; } };
@@ -411,6 +429,7 @@ const { sweepOrder } = await import(S('mediaDescribe.js'));
 visionSays = 'Een kat op een mat';
 const sharedHash = modelRow('gedeeld.png');
 db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'gedeeld.png', 'image/png', 'image', 8)").run(dutchProject, sharedHash);
+onCard(dutchProject, sharedHash);
 await describeMedia(sharedHash, { projectId: dutchProject });
 check('a picture in two courses, swept from the Dutch one: Dutch is asked for', promptOf().includes('Write the description in Dutch'), promptOf().slice(0, 200));
 

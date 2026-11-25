@@ -1,4 +1,11 @@
 {
+  "Written by AI": "Написано ИИ",
+  "Written by AI ({{model}})": "Написано ИИ ({{model}})",
+  "Correct, with a spelling slip": "Правильно, с небольшой опечаткой",
+  "It is spelled:": "Правильно пишется:",
+  "Only a letter or two off.": "Ошибка всего в одной-двух буквах.",
+  "Forgive small spelling slips from now on": "Прощать небольшие опечатки с этого момента",
+  "From your next answer on, small spelling slips count as right. You can turn this off in Settings, under Learning.": "Со следующего ответа небольшие опечатки засчитываются как правильные. Это можно отключить в Настройках, в разделе «Обучение».",
   " — stopped early, some pages were not re-read": "— прервано досрочно, некоторые страницы не были перечитаны",
   " ({{answers}} answers)_few": " ({{answers}} ответа)",
   " ({{answers}} answers)_many": " ({{answers}} ответов)",

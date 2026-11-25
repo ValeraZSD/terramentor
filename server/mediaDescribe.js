@@ -40,6 +40,7 @@ import * as tasks from './tasks.js';
 import { catalogLanguage } from './creationLanguage.js';
 import { checkDescription, descriptionLanguage } from './descriptionCheck.js';
 import { k, publicMessage } from './clientError.js';
+import { MEDIA_IN_USE, inUseMediaRow } from './liveMedia.js';
 
 /** Kept short on purpose: this is read aloud and pasted into prompts. */
 const DESCRIBE_PROMPT = `Describe this image in one or two plain sentences, for someone who cannot see it.
@@ -124,6 +125,10 @@ export function setLearnerDescription(hash, value) {
     return { ok: true, description: clean, described_by: 'learner' };
 }
 
+// Only files a live card or question bank of the row's course shows
+// (liveMedia.js): a deleted course's pictures are not listed, counted or swept.
+const IN_USE = '(project_id, hash) IN (SELECT project_id, hash FROM media_in_use)';
+
 /**
  * Pictures with their descriptions, one row per file, for the review list:
  * model-written ones first, since those are the ones to check.
@@ -137,7 +142,7 @@ export function listDescriptions({ projectId = null, offset = 0, limit = 50, aft
     // One whole ROW per file (its first), never columns mixed from several:
     // a file used by two projects has a row each, and an author's text must
     // not be shown under another row's "written by AI".
-    const where = projectId ? `WHERE kind = 'image' AND project_id = ?` : `WHERE kind = 'image'`;
+    const where = projectId ? `WHERE kind = 'image' AND ${IN_USE} AND project_id = ?` : `WHERE kind = 'image' AND ${IN_USE}`;
     const args = projectId ? [projectId] : [];
     const at = /^([01])\.([01])\.(\d+)$/.exec(String(after ?? ''));
     const past = at ? 'WHERE v < ? OR (v = ? AND (e < ? OR (e = ? AND id > ?)))' : '';
@@ -152,6 +157,7 @@ function listDescriptionsStmt(where, past) {
     const key = `${where}|${past}`;
     if (!listStatements.has(key)) {
         listStatements.set(key, db.prepare(`
+            WITH ${MEDIA_IN_USE}
             SELECT * FROM (
                 SELECT id, hash, filename, description, described_by, generated_by,
                        (described_by IS 'vision') AS v, (description IS NULL) AS e
@@ -170,9 +176,10 @@ export function pendingDescriptions(projectId = null) {
     // One row per FILE (its first, as in `listDescriptions`): a picture imported
     // into two projects has a row each, and a description is written to the file,
     // so the second row would only come back as "already described".
-    const where = projectId ? `WHERE kind = ? AND project_id = ?` : `WHERE kind = ?`;
+    const where = projectId ? `WHERE kind = ? AND ${IN_USE} AND project_id = ?` : `WHERE kind = ? AND ${IN_USE}`;
     const args = projectId ? ['image', projectId] : ['image'];
     return db.prepare(`
+        WITH ${MEDIA_IN_USE}
         SELECT hash, filename, mime FROM media_files
         WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
           AND (description IS NULL OR description = '')
@@ -182,9 +189,10 @@ export function pendingDescriptions(projectId = null) {
 
 export function describeStats(projectId = null) {
     // Counted per file, like the review list, not per row.
-    const clause = projectId ? 'WHERE project_id = ?' : '';
+    const clause = projectId ? `WHERE ${IN_USE} AND project_id = ?` : `WHERE ${IN_USE}`;
     const args = projectId ? [projectId] : [];
     const row = db.prepare(`
+        WITH ${MEDIA_IN_USE}
         SELECT
             SUM(kind = 'image') AS images,
             SUM(kind = 'image' AND description IS NOT NULL AND description != '') AS described,
@@ -212,7 +220,9 @@ export function describeStats(projectId = null) {
  * unless that is what was asked for.
  */
 export async function describeMedia(hash, { force = false, model, signal, projectId = null } = {}) {
-    const row = db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash);
+    // A file only deleted cards or banks show is not sent to a model.
+    // The row read is one a live card or bank uses, the swept course's first.
+    const row = inUseMediaRow(hash, projectId);
     if (!row) return { ok: false, reason: k('no such media') };
     if (row.kind !== 'image') return { ok: false, reason: k('only images can be described') };
     // A person's words (the deck author's alt, or the learner's correction)
@@ -228,7 +238,8 @@ export async function describeMedia(hash, { force = false, model, signal, projec
         return { ok: false, reason: k('the file is missing from the media store') };
     }
 
-    const language = describeLanguageFor(hash, projectId);
+    // The language of the course that uses it, not of whichever row is first.
+    const language = describeLanguageFor(hash, row.project_id);
     let text;
     try {
         text = await transcribeImageToText(bytes, {
