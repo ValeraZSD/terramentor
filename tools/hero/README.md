@@ -39,7 +39,7 @@ node tools/hero/film.mjs --recorder <demo.mjs> --cassettes <dir> \
 - `--wait-feed` cuts, after the course is drafted, until every topic's lesson is written, so the
   feed never shows a writer at work. The cut is invisible: the finished run is the same picture
   before and after it.
-- `--until created|opened|answered` stops after that scene (for trying a change quickly).
+- `--until created|opened` stops after that scene (for trying a change quickly).
 - `HERO_NAME`, `HERO_DESCRIPTION` change the course typed in; `LAPSE` and `ANSWER_LAPSE` the
   time-lapse speeds (3 and 4).
 
@@ -63,6 +63,15 @@ ANTHROPIC_API_KEY=... node tools/hero/film.mjs ... --record --max-usd 4 --max-re
 
 `--max-usd` (default 0) and `--max-real` (default 0) cap the spending; the server refuses calls
 past either. Every call is logged in `<work>/library/replay.jsonl` with how it was answered.
+
+`--record` refuses to start without a `--max-usd` above 0. Calls still running count against
+the cap at the average cost of the calls so far, so several calls started together cannot pass
+it together.
+
+`serve.mjs` only opens a library it made itself (it leaves a `.hero-library` file there), so it
+cannot be pointed at a real one. Without `--record` it also refuses every outbound call except to
+this machine. `HERO_FALLBACK_LOG`, `HERO_ORDER_LOGS` and `HERO_NO_FALLBACK` stand in for the
+options of the same names.
 
 A refused call's whole request is saved as `<work>/library/refused/<hash>.json`, and
 `--wait-feed` stops at the first one instead of waiting for the feed. Recordings cover the calls

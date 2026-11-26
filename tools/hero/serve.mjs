@@ -28,7 +28,7 @@
  * that has no recording fails and nothing leaves the machine except to the
  * model host's messages endpoint, which is answered here.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -67,8 +67,12 @@ if (opt.record && !process.env.ANTHROPIC_API_KEY) throw new Error('--record need
 if (!existsSync(opt.cassettes)) throw new Error(`no cassette folder at ${opt.cassettes}`);
 
 // ---- the scratch library, named before any server module is imported --------------------
-for (const key of Object.keys(process.env)) if (/^(AI_|OPENAI_)/.test(key)) delete process.env[key];
+for (const key of Object.keys(process.env)) if (/^(AI_|OPENAI_|SITE_)/.test(key) || key === 'PORT_FALLBACK') delete process.env[key];
+// Only a library this script made: an existing one may hold real connections and real files.
+const MARK = join(opt.library, '.hero-library');
+if (existsSync(join(opt.library, 'library.db')) && !existsSync(MARK)) throw new Error(`refusing: ${opt.library} holds a library this script did not make`);
 mkdirSync(join(opt.library, 'vault'), { recursive: true });
+writeFileSync(MARK, '');
 process.env.DATA_DIR = opt.library;
 process.env.DB_PATH = join(opt.library, 'library.db');
 process.env.VAULT_ROOT = join(opt.library, 'vault');
@@ -99,11 +103,14 @@ const filmNow = () => (clock.auto ? clock.t + (realNow() - clock.real) / 1000 : 
 if (opt.filmClock) {
     // The server's own clock follows the film too, so the durations it reports (a stage's
     // seconds, "Took 11 s") are the film's, not however long each frame took to capture.
+    // A Proxy, not a subclass: `Date()` without `new` still works, and every date is a real Date.
     const RealDate = Date;
-    globalThis.Date = class FilmDate extends RealDate {
-        constructor(...a) { if (a.length) super(...a); else super(Math.round(filmNow() * 1000)); }
-        static now() { return Math.round(filmNow() * 1000); }
-    };
+    const filmMs = () => Math.round(filmNow() * 1000);
+    globalThis.Date = new Proxy(RealDate, {
+        construct: (T, a, nt) => Reflect.construct(T, a.length ? a : [filmMs()], nt === globalThis.Date ? T : nt),
+        apply: () => new RealDate(filmMs()).toString(),
+        get: (T, k) => (k === 'now' ? filmMs : Reflect.get(T, k)),
+    });
 }
 const waiters = new Set();
 let ticker = null;
@@ -115,12 +122,21 @@ function wake() {
 }
 /** Resolve after `ms` of film time (wall time without --film-clock). */
 function filmWait(ms, signal) {
-    if (!opt.filmClock) return new Promise((res, rej) => { const h = setTimeout(res, ms); signal?.addEventListener('abort', () => { clearTimeout(h); rej(signal.reason || new Error('aborted')); }, { once: true }); });
     return new Promise((res, rej) => {
-        const w = { at: filmNow() + ms / 1000, done: res };
-        waiters.add(w);
-        signal?.addEventListener('abort', () => { waiters.delete(w); rej(signal.reason || new Error('aborted')); }, { once: true });
-        wake();
+        if (signal?.aborted) return rej(signal.reason || new Error('aborted'));
+        let cancel;
+        const onAbort = () => { cancel(); rej(signal.reason || new Error('aborted')); };
+        const done = () => { signal?.removeEventListener('abort', onAbort); res(); };
+        if (opt.filmClock) {
+            const w = { at: filmNow() + (Number(ms) || 0) / 1000, done };
+            cancel = () => waiters.delete(w);
+            waiters.add(w);
+        } else {
+            const h = setTimeout(done, Number(ms) || 0);
+            cancel = () => clearTimeout(h);
+        }
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (opt.filmClock) wake();
     });
 }
 
@@ -129,6 +145,8 @@ const logFile = join(opt.library, 'replay.jsonl');
 const log = (entry) => appendFileSync(logFile, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n');
 const usd = (u) => (u.input * PRICE.input + u.cacheWrite * PRICE.cacheWrite + u.cacheRead * PRICE.cacheRead + u.output * PRICE.output) / 1e6;
 let realCalls = 0;
+let running = 0;
+let finished = 0;
 let spent = 0;
 
 const splitEvents = (text) => text.split(/\n\n/).filter((s) => s.trim()).map((s) => s + '\n\n');
@@ -167,7 +185,8 @@ function usageOf(text) {
     }
     return u;
 }
-const readLog = (file) => (file ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+/** A replay.jsonl's entries; a line still being written is skipped. */
+const readLog = (file) => (file ? readFileSync(file, 'utf8').split('\n').flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }) : []);
 
 // Checker prompts shuffle their options, so their hash never repeats: they are served by seat.
 const ORDERED = ['You are a subject expert checking a question before', 'You audit the MODEL ANSWER to an open question'];
@@ -181,17 +200,29 @@ for (const e of String(opt.orderLogs || '').split(',').filter(Boolean).flatMap(r
 const fallback = {};
 const fallbackSeen = {};
 for (const e of readLog(opt.fallbackLog)) {
-    if (e.key && e.label && ['hit', 'real', 'order-hit'].includes(e.how)) (fallback[e.label] ||= []).push(e.how === 'order-hit' ? e.as : e.key);
+    if (e.key && e.label && ['hit', 'real', 'order-hit', 'label-hit'].includes(e.how)) (fallback[e.label] ||= []).push(e.as || e.key);
 }
 const noFallback = opt.noFallback ? new RegExp(opt.noFallback) : null;
 const cassette = (key) => join(opt.cassettes, `${key}.json`);
-const load = (key) => (key && existsSync(cassette(key)) ? JSON.parse(readFileSync(cassette(key), 'utf8')) : null);
+const load = (key) => {
+    if (!key || !existsSync(cassette(key))) return null;
+    try { return JSON.parse(readFileSync(cassette(key), 'utf8')); } catch { return null; }
+};
+// Calls made outside the model host: none in a replay (the film's settings turn web search,
+// resource finding, update checks and embeddings off), so one is refused rather than sent.
+const isLoopback = (u) => ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async function replayFetch(input, init = {}) {
     const url = typeof input === 'string' ? input : input?.url || String(input);
-    if (!url.startsWith(MODEL_HOST)) return realFetch(input, init);
-    if (!url.startsWith(`${MODEL_HOST}/v1/messages`) || typeof init.body !== 'string') {
+    let u;
+    try { u = new URL(url); } catch { return realFetch(input, init); }
+    if (u.origin !== MODEL_HOST) {
+        if (opt.record || isLoopback(u)) return realFetch(input, init);
+        log({ how: 'blocked', origin: u.origin });
+        throw new Error(`replay only: ${u.origin} is not reached`);
+    }
+    if (u.pathname !== '/v1/messages' || typeof init.body !== 'string') {
         if (!opt.record) throw new Error(`replay only: ${url} is not answered`);
         return realFetch(input, init);
     }
@@ -223,21 +254,35 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
         log({ how: 'refused', key, label });
         throw new Error(`replay only: no recording for "${label}"`);
     }
+    // Calls still running are counted at the average cost so far (USD 0.10 before the first
+    // one ends), so several calls started together cannot all pass the cap at once.
+    const guess = finished ? spent / finished : 0.1;
+    if (realCalls + 1 > maxReal || spent + (running + 1) * guess > maxUsd) {
+        log({ how: 'capped', key, label, realCalls, spent, running });
+        throw new Error(`cap reached (${realCalls} calls, USD ${spent.toFixed(2)} spent, ${running} running)`);
+    }
     realCalls++;
-    if (realCalls > maxReal || spent > maxUsd) { log({ how: 'capped', key, label, realCalls, spent }); throw new Error(`cap reached (${realCalls} calls, USD ${spent.toFixed(2)})`); }
+    running++;
     const t0 = realNow();
-    const res = await realFetch(input, init);
-    if (!res.ok || !res.body) { log({ how: 'real-fail', status: res.status, label }); return res; }
+    let res;
+    try { res = await realFetch(input, init); } catch (err) { running--; throw err; }
+    if (!res.ok || !res.body) { running--; log({ how: 'real-fail', status: res.status, label }); return res; }
     const [mine, theirs] = res.body.tee();
     (async () => {
         const text = await new Response(theirs).text();
         const ms = realNow() - t0;
-        const u = usageOf(text);
-        spent += usd(u);
+        const use = usageOf(text);
+        spent += usd(use);
+        finished++;
         const stream = body.stream !== false && /event: /.test(text);
-        if (stream ? /event: message_stop/.test(text) : /"stop_reason"/.test(text)) writeFileSync(cassette(key), JSON.stringify({ ms, label, stream, sse: text }));
-        log({ how: 'real', key, ms, label, ...(seq >= 0 ? { seq } : {}), ...u, spent: +spent.toFixed(4) });
-    })().catch((err) => log({ how: 'real-read-fail', label, err: String(err?.message || err) }));
+        if (stream ? /event: message_stop/.test(text) : /"stop_reason"/.test(text)) {
+            // Written whole, then renamed, so a killed run never leaves half a recording.
+            const tmp = `${cassette(key)}.${process.pid}.tmp`;
+            writeFileSync(tmp, JSON.stringify({ ms, label, stream, sse: text }));
+            renameSync(tmp, cassette(key));
+        }
+        log({ how: 'real', key, ms, label, ...(seq >= 0 ? { seq } : {}), ...use, spent: +spent.toFixed(4) });
+    })().catch((err) => log({ how: 'real-read-fail', label, err: String(err?.message || err) })).finally(() => { running--; });
     return new Response(mine, { status: res.status, headers: res.headers });
 };
 
@@ -268,8 +313,10 @@ if (opt.filmClock) {
     Server.prototype.emit = function (event, req, res, ...rest) {
         if (event === 'request' && req?.url?.startsWith('/__film/clock')) {
             const q = new URL(req.url, 'http://x').searchParams;
+            const t = Number(q.get('t'));
+            if (!Number.isFinite(t)) { res.writeHead(400); res.end(); return true; }
             clock.auto = q.get('auto') === '1';
-            clock.t = Number(q.get('t'));
+            clock.t = t;
             clock.real = realNow();
             wake();
             // Answered after the replies now due have been handed to the app.
@@ -280,5 +327,6 @@ if (opt.filmClock) {
     };
 }
 
-await import(pathToFileURL(join(ROOT, 'server', 'index.js')).href);
-process.stdout.write(`HERO-SERVER-READY ${JSON.stringify({ dbPath: paths.dbPath, fresh, filmClock: !!opt.filmClock })}\n`);
+const { serverReady } = await import(pathToFileURL(join(ROOT, 'server', 'index.js')).href);
+const { port } = await serverReady;
+process.stdout.write(`HERO-SERVER-READY ${JSON.stringify({ dbPath: paths.dbPath, port, fresh, filmClock: !!opt.filmClock })}\n`);

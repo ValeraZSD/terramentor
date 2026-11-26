@@ -13,7 +13,7 @@
  *   --port <n>            the app's port (default 3536)
  *   --stepped             frame-stepped capture: the page and the replayed model run on the film's
  *                         clock, so a busy machine films the same clip, only slower
- *   --until <scene>       stop after a scene: created | opened | answered | end (default end)
+ *   --until <scene>       stop after a scene: created | opened | end (default end)
  *   --wait-feed           after the course is drafted, cut until every topic's lessons are written
  *   --fallback-log, --order-logs, --no-fallback, --record, --max-usd, --max-real: passed to serve.mjs
  *
@@ -44,13 +44,16 @@ const opt = { recorder: process.env.HERO_RECORDER, cassettes: process.env.HERO_C
         else if (k === '--stepped') opt.stepped = true;
         else if (k === '--until') opt.until = v();
         else if (k === '--wait-feed') opt.waitFeed = true;
-        else if (['--fallback-log', '--order-logs', '--no-fallback', '--max-usd', '--max-real'].includes(k)) opt.pass.push(k, v());
+        // Paths are resolved here: the server runs from the repository root, not from here.
+        else if (k === '--fallback-log') opt.pass.push(k, resolve(v()));
+        else if (k === '--order-logs') opt.pass.push(k, v().split(',').filter(Boolean).map((p) => resolve(p)).join(','));
+        else if (['--no-fallback', '--max-usd', '--max-real'].includes(k)) opt.pass.push(k, v());
         else if (k === '--record') opt.pass.push(k);
         else throw new Error(`unknown option ${k}`);
     }
 }
 if (!opt.recorder || !opt.cassettes) throw new Error('usage: film.mjs --recorder <demo.mjs> --cassettes <dir> [options]');
-const SCENES = ['created', 'opened', 'answered', 'end'];
+const SCENES = ['created', 'opened', 'end'];
 if (!SCENES.includes(opt.until)) throw new Error(`--until is one of ${SCENES.join(', ')}`);
 const WORK = resolve(opt.work || mkdtempSync(join(tmpdir(), 'hero-film-')));
 const LIB = join(WORK, 'library');
@@ -84,7 +87,9 @@ const dbq = (sql, ...a) => { const db = new Database(join(LIB, 'library.db'), { 
 // ---- the app -------------------------------------------------------------------------------
 const logPath = join(WORK, 'server.log');
 const serverArgs = [join(ROOT, 'tools', 'hero', 'serve.mjs'), '--library', LIB, '--port', String(opt.port), '--cassettes', resolve(opt.cassettes), ...opt.pass, ...(opt.stepped ? ['--film-clock'] : [])];
-const server = spawn(process.execPath, serverArgs, { cwd: ROOT, stdio: ['ignore', openSync(logPath, 'a'), openSync(logPath, 'a')] });
+// Something already answering the port (an earlier run's server) would be driven instead.
+if (await fetch(`${BASE}/api/build`).then(() => true, () => false)) throw new Error(`port ${opt.port} is already in use; pass another --port`);
+const server = spawn(process.execPath, serverArgs,{ cwd: ROOT, stdio: ['ignore', openSync(logPath, 'a'), openSync(logPath, 'a')] });
 let up = false;
 for (let i = 0; i < 240 && !up; i++) {
     await sleep(500);
@@ -93,7 +98,7 @@ for (let i = 0; i < 240 && !up; i++) {
 }
 if (!up) { server.kill(); throw new Error(`the app did not start; see ${logPath}`); }
 const ready = JSON.parse(readFileSync(logPath, 'utf8').match(/HERO-SERVER-READY (.*)/)[1]);
-if (resolve(ready.dbPath) !== resolve(join(LIB, 'library.db'))) { server.kill(); throw new Error(`port ${opt.port} serves ${ready.dbPath}, not the take's library`); }
+if (resolve(ready.dbPath) !== resolve(join(LIB, 'library.db')) || ready.port !== opt.port) { server.kill(); throw new Error(`the server bound ${ready.port} for ${ready.dbPath}, not ${opt.port} for the take's library`); }
 stamp('serving', LIB);
 // The replayed model follows the film's clock (stepped takes only).
 const onClock = opt.stepped ? (t, auto) => fetch(`${BASE}/__film/clock?t=${t}&auto=${auto ? 1 : 0}`).then(() => { }) : undefined;
@@ -156,7 +161,8 @@ function pickTopic() {
 const refusedCalls = () => {
     const f = join(LIB, 'replay.jsonl');
     if (!existsSync(f)) return [];
-    return readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.how === 'refused');
+    // The server is still appending: a half-written last line is skipped.
+    return readFileSync(f, 'utf8').split('\n').flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }).filter((e) => e.how === 'refused');
 };
 
 // Off camera: wait until every top-level topic has a written lesson and nothing runs for 10 s.
