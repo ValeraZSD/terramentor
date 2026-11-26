@@ -62,7 +62,9 @@ function args(argv) {
 const opt = args(process.argv.slice(2));
 const maxUsd = opt.record ? opt.maxUsd ?? 0 : 0;
 const maxReal = opt.record ? opt.maxReal ?? 0 : 0;
-if (opt.record && !(maxUsd > 0)) throw new Error('--record needs --max-usd above 0');
+if (opt.record && !(Number.isFinite(maxUsd) && maxUsd > 0)) throw new Error('--record needs --max-usd above 0');
+// NaN would pass every `>` check below and turn the call cap off.
+if (opt.record && !(Number.isInteger(maxReal) && maxReal >= 0)) throw new Error('--max-real needs a whole number of 0 or more');
 if (opt.record && !process.env.ANTHROPIC_API_KEY) throw new Error('--record needs ANTHROPIC_API_KEY');
 if (!existsSync(opt.cassettes)) throw new Error(`no cassette folder at ${opt.cassettes}`);
 

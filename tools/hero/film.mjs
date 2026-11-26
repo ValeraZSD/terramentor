@@ -97,7 +97,10 @@ const logPath = join(WORK, 'server.log');
 const serverArgs = [join(ROOT, 'tools', 'hero', 'serve.mjs'), '--library', LIB, '--port', String(opt.port), '--cassettes', resolve(opt.cassettes), ...opt.pass, ...(opt.stepped ? ['--film-clock'] : [])];
 // Something already answering the port (an earlier run's server) would be driven instead.
 if (await fetch(`${BASE}/api/build`, { signal: AbortSignal.timeout(3000) }).then(() => true, (e) => e?.name === 'TimeoutError')) throw new Error(`port ${opt.port} is already in use; pass another --port`);
-const server = spawn(process.execPath, serverArgs, { cwd: ROOT, stdio: ['ignore', openSync(logPath, 'a'), openSync(logPath, 'a')] });
+// A fresh file per take: an earlier take's READY line would be read as this one's.
+// One descriptor for both streams, so they share an offset.
+const logFd = openSync(logPath, 'w');
+const server = spawn(process.execPath, serverArgs, { cwd: ROOT, stdio: ['ignore', logFd, logFd] });
 let up = false;
 for (let i = 0; i < 240 && !up; i++) {
     await sleep(500);

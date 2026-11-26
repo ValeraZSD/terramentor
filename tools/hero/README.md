@@ -17,9 +17,11 @@ without spending anything on the model.
   progress-bar post pass the clip uses. Its path is `--recorder` (or `HERO_RECORDER`).
 - Microsoft Edge or Google Chrome; Python 3 with Pillow and NumPy for the recorder's post pass.
 - A folder of recorded model replies (`--cassettes`), one `<hash>.json` per call:
-  `{ "ms": <how long the real call took>, "label": <first 90 characters of the system prompt>,
-  "stream": true|false, "sse": <the raw reply> }`. The hash is the first 24 hex characters of the
-  SHA-256 of `JSON.stringify({ model, system, messages, tools })`. Recordings are not kept in the
+  `{ "ms": <how long the real call took>, "label": <the system prompt's text (blocks joined with
+  newlines), every run of whitespace made one space, first 90 characters>, "stream": true|false,
+  "sse": <the raw reply> }`. The hash is the first 24 hex characters of the SHA-256 of
+  `JSON.stringify({ model, system, messages, tools: tools || null })`, so a call without tools
+  hashes `"tools":null`. Recordings are not kept in the
   repository; `serve.mjs --record` makes them (see below).
 
 ## Filming
