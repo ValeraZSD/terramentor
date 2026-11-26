@@ -19,17 +19,23 @@
  *      cookie and refuses its own password routes, a cross-site form is
  *      refused, signing out clears the browser's data for the address, and a
  *      library answers nothing without a good note.
+ *   4c. The operator's cli.js: backup copies site.db and every library;
+ *      remove deletes an account, its rows and folder, and the front desk's
+ *      sweep stops it if it runs; a restore of a backup older than an erasure
+ *      leaves the erased library out (and, as the control, brings it back
+ *      without the ledger); a backup missing a library is refused untouched.
  *   5. The solo app is unchanged: no `site` in its status, no site line in its log.
  *
  * Nothing here reaches a model: the model address is a closed port.
  *
  *   node tools/site-gates.mjs
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import Database from 'better-sqlite3';
 import { tmpdir } from 'node:os';
 import vm from 'node:vm';
 import { dirname, join, resolve } from 'node:path';
@@ -529,6 +535,83 @@ try {
             try { createLibraryPool({ ...base, siteDir: join(scratch, 'd'.repeat(120)), separate: false }); } catch (e) { tooLong = e.message; }
             ok('a SITE_DIR too long for a socket path is refused when the pool is made', /SITE_DIR is too long/.test(tooLong), tooLong);
         }
+        await release();
+    }
+
+    // -------------------------------------------------------------------------
+    console.log('--- 4c. the operator removes, backs up and restores (cli.js) ---');
+    {
+        const siteDir = join(scratch, 'ops-site');
+        const cli = (...a) => {
+            const r = spawnSync(process.execPath, [join(repoRoot, 'server', 'site', 'cli.js'), ...a],
+                { env: { ...process.env, SITE_DIR: siteDir }, encoding: 'utf8', windowsHide: true });
+            return { code: r.status, out: `${r.stdout}${r.stderr}`.trim() };
+        };
+        const quiet = { log() {}, error() {}, warn() {} };
+        let db = openSiteDb(siteDir);
+        const pool = createLibraryPool({ db, siteDir, appRoot: repoRoot, env: { ...process.env, ...CLOSED_MODEL }, log: quiet, separate: false });
+        held.push(() => pool.stopAll());
+        const accounts = createAccounts(db, { createLibrary: () => pool.create(), env: { SITE_BREACH_CHECK: '0' } });
+        const join1 = async (email) => (await accounts.acceptInvite(accounts.createInvite(email).token, 'correct horse battery staple', 'UA')).libraryId;
+        const ann = await join1('ann@example.org');
+        const ben = await join1('ben@example.org');
+        await pool.wake(ann); await pool.wake(ben); // each first start makes its database
+        await pool.stopAll();
+        // A mark in each library's own database, as its content.
+        const mark = (id, v) => { const l = new Database(join(pool.libDir(id), 'terramentor.db')); l.exec('CREATE TABLE IF NOT EXISTS gate_mark (v TEXT)'); l.prepare('DELETE FROM gate_mark').run(); l.prepare('INSERT INTO gate_mark VALUES (?)').run(v); l.close(); };
+        const markOf = (id) => { try { const l = new Database(join(pool.libDir(id), 'terramentor.db'), { readonly: true }); const v = l.prepare('SELECT v FROM gate_mark').get()?.v; l.close(); return v; } catch { return null; } };
+        mark(ann, 'ann-1'); mark(ben, 'ben-1');
+
+        const night = join(scratch, 'ops-night');
+        let r = cli('backup', night);
+        ok('backup copies site.db and every library', r.code === 0 && existsSync(join(night, 'site.db'))
+            && existsSync(join(night, 'libraries', ann, 'terramentor.db')) && existsSync(join(night, 'libraries', ben, 'terramentor.db')), r.out);
+        r = cli('backup', join(scratch, 'ops-one'), '--library', ann);
+        ok('backup --library copies that library alone, without site.db', r.code === 0 && existsSync(join(scratch, 'ops-one', 'libraries', ann, 'terramentor.db'))
+            && !existsSync(join(scratch, 'ops-one', 'site.db')) && !existsSync(join(scratch, 'ops-one', 'libraries', ben)), r.out);
+        mark(ben, 'ben-2');
+
+        // Removed while running, with the front desk sweeping as it does every half minute.
+        await pool.wake(ann);
+        const removing = new Promise((res) => {
+            const child = spawn(process.execPath, [join(repoRoot, 'server', 'site', 'cli.js'), 'remove', 'ann@example.org'],
+                { env: { ...process.env, SITE_DIR: siteDir }, windowsHide: true });
+            let out = '';
+            child.stdout.on('data', (c) => { out += c; }); child.stderr.on('data', (c) => { out += c; });
+            child.on('exit', (code) => res({ code, out: out.trim() }));
+        });
+        let stoppedBySweep = false;
+        const sweeping = setInterval(() => { pool.sweep().then(() => { if (!pool.isAwake(ann)) stoppedBySweep = true; }, () => {}); }, 500);
+        r = await removing;
+        clearInterval(sweeping);
+        ok('remove deletes the account, its library row and folder', r.code === 0 && r.out.includes(ann)
+            && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org') && !db.prepare('SELECT 1 FROM libraries WHERE id = ?').get(ann)
+            && !existsSync(pool.libDir(ann)), r.out);
+        await pool.sweep();
+        ok('the front desk\'s sweep stops a removed library that was running', !pool.isAwake(ann) && (stoppedBySweep || process.platform !== 'win32'));
+        await pool.stopAll();
+        db.close();
+
+        // The erasure ledger, as hosted/copy.sh keeps it: SHA-256 of "site:<id>", then times.
+        const ledger = join(scratch, 'ops-erasures');
+        writeFileSync(ledger, `${crypto.createHash('sha256').update(`site:${ann}`).digest('hex')} 20261126T000000Z 20261210T000000Z\n`);
+        r = cli('restore', night, '--erased', ledger);
+        db = openSiteDb(siteDir);
+        ok('a restore of a backup older than an erasure leaves the erased library out: no account, no row, no folder',
+            r.code === 0 && /1 library left out/.test(r.out) && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org')
+            && !db.prepare('SELECT 1 FROM libraries WHERE id = ?').get(ann) && !existsSync(pool.libDir(ann)), r.out);
+        ok('…and puts every other library back as it was that night', markOf(ben) === 'ben-1' && !!db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ben@example.org'));
+        db.close();
+        // The control: the same backup without the ledger brings that library back, so the ledger is what kept it out.
+        r = cli('restore', night);
+        db = openSiteDb(siteDir);
+        ok('the same restore with no ledger brings it back (the ledger is what left it out)', r.code === 0 && markOf(ann) === 'ann-1'
+            && !!db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org'), r.out);
+        db.close();
+        rmSync(join(night, 'libraries', ben), { recursive: true });
+        mark(ben, 'ben-3');
+        r = cli('restore', night);
+        ok('a backup missing a library it lists is refused and the site is untouched', r.code === 1 && /untouched/.test(r.out) && markOf(ben) === 'ben-3', r.out);
         await release();
     }
 

@@ -253,6 +253,8 @@ export function createLibraryPool({
 
     async function sweep(now = Date.now()) {
         for (const [id, entry] of [...awake.entries()]) {
+            // Removed by the operator (`cli.js remove`): stopped now, whatever it is doing.
+            if (!q.get.get(id)) { await stop(id, 'removed'); continue; }
             const tooBig = residentMb(entry.pid) > memoryMb;
             const due = () => tooBig || now - entry.lastActive > idleMs;
             // `due` again after the await: a request that came and went meanwhile made it active.
