@@ -353,11 +353,15 @@ function pageKit(browser, base) {
         png: async (selector, margin = 0) => {
             let clip;
             if (selector) {
-                const r = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, W: innerWidth, H: innerHeight }; })()`);
+                const r = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const b = e.getBoundingClientRect(); const scrolled = [e, ...e.querySelectorAll('*')].some((n) => n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY)); return { x: b.x, y: b.y, w: b.width, h: b.height, W: innerWidth, H: innerHeight, sx: scrollX, sy: scrollY, scrolled }; })()`);
                 if (!r) throw new Error(`nothing to crop to: ${selector}`);
+                // Cut off by the window, or scrolling inside itself, the picture
+                // would show the very cut a crop is for.
+                if (r.scrolled || r.x < 0 || r.y < 0 || r.x + r.w > r.W || r.y + r.h > r.H) throw new Error(`${selector} does not fit the window (${Math.round(r.w)}x${Math.round(r.h)} in ${r.W}x${r.H}${r.scrolled ? ', and part of it scrolls' : ''}): give the picture a larger "viewport"`);
                 const x = Math.max(0, Math.floor(r.x - margin));
                 const y = Math.max(0, Math.floor(r.y - margin));
-                clip = { x, y, width: Math.min(r.W, Math.ceil(r.x + r.w + margin)) - x, height: Math.min(r.H, Math.ceil(r.y + r.h + margin)) - y, scale: 1 };
+                // The clip is in the document's coordinates, the box in the window's.
+                clip = { x: x + r.sx, y: y + r.sy, width: Math.min(r.W, Math.ceil(r.x + r.w + margin)) - x, height: Math.min(r.H, Math.ceil(r.y + r.h + margin)) - y, scale: 1 };
             }
             return Buffer.from((await send('Page.captureScreenshot', { format: 'png', ...(clip ? { clip } : {}) })).data, 'base64');
         },
@@ -759,7 +763,8 @@ export async function visit(mode, dir, entries, viewport, browserPath, onState, 
         for (const entry of entries) {
             // A picture may ask for its own window: a dialog taller than the
             // manifest's window scrolls, and the picture would cut it off.
-            const size = { ...viewport, ...entry.shot.viewport };
+            // (The gates that walk states with this pass entries with no picture.)
+            const size = { ...viewport, ...entry.shot?.viewport };
             await browser.send('Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height, deviceScaleFactor: size.scale, mobile: false });
             for (const state of entry.states) {
                 // Each state starts from a fresh page, and one that runs no study clock: the home
