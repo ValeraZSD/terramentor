@@ -28,8 +28,7 @@
  *     a line cut with an ellipsis on purpose (`truncate`).
  *  2. With a topic open, its Close button is inside the window and is what a
  *     pointer at its centre would press.
- *  3. With a topic open, the middle view is either at least 20rem wide (or 30%
- *     of the row, when that is less) or not
+ *  3. With a topic open, the middle view is either at least 20rem wide or not
  *     drawn at all: never a strip.
  *
  * The data is the invented course from tools/docs-fixture.mjs in a scratch
@@ -188,8 +187,8 @@ const COLUMNS = `(() => {
     const middle = document.querySelector('[data-workspace-center]') ?? (panel ? panel.previousElementSibling : null);
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const row = panel?.parentElement?.clientWidth ?? 0;
-    // Its minimum: 20rem, or 30% of the row when that is less (src/utils/workspaceFit.ts).
-    return { panel: w(panel), sidebar: w(sidebar), middle: w(middle), rem, least: Math.min(20 * rem, Math.floor(0.3 * row)) };
+    // Its minimum (src/utils/workspaceFit.ts).
+    return { panel: w(panel), sidebar: w(sidebar), middle: w(middle), rem, least: 20 * rem };
 })()`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -249,10 +248,9 @@ CASES['1280 right to left, assistant docked, panel 600'] = { size: SIZES[2], c: 
 CASES['1440 right to left, assistant closed, panel 600'] = { size: SIZES[3], c: { panel: 600, lang: 'ar' } };
 // The handles. With the assistant docked at 1440 the row is 920px: the panel's
 // far edge is the assistant's, not the window's, so a drag to 320 is 320; the
-// sidebar stops where the middle view and the panel (300) still fit: the middle
-// view's minimum is 30% of the 920px row (276px, under 20rem), so 344px.
+// sidebar stops where the middle view (20rem) and the panel (300) still fit.
 CASES['1440 drag the panel to 320, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'panel', to: 320, expect: 320 } };
-CASES['1440 drag the sidebar to 500, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'sidebar', to: 500, expect: 344 } };
+CASES['1440 drag the sidebar to 500, assistant docked'] = { size: SIZES[3], c: { assistant: true, panel: 420 }, drag: { handle: 'sidebar', to: 500, expect: 300 } };
 CASES['1440 right to left, drag the panel to 500'] = { size: SIZES[3], c: { panel: 420, lang: 'ar' }, drag: { handle: 'panel', to: 500, expect: 500 } };
 
 /** The column a handle sizes, and the handle on its edge. */
@@ -306,7 +304,7 @@ for (const size of SIZES) {
                     check(`${label}: the topic's Close is in the window and pressable`, close.found && close.inside && close.pressable,
                         `        ${JSON.stringify(close)}`);
                     const col = await page.evaluate(COLUMNS);
-                    check(`${label}: the middle view is at least min(20rem, 30% of the row) = ${col.least}px, or not drawn (${col.middle}px; panel ${col.panel}, sidebar ${col.sidebar})`,
+                    check(`${label}: the middle view is at least 20rem = ${col.least}px, or not drawn (${col.middle}px; panel ${col.panel}, sidebar ${col.sidebar})`,
                         col.middle === 0 || col.middle >= col.least - 1);
                     // With room for all three at their stored widths, nothing gives way.
                     const stored = { panel: s.c.panel ?? 420, sidebar: s.c.sidebar ?? 256 };
