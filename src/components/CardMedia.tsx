@@ -1,12 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Play, Pause, Square, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
+import { currentSpeaker, localVoicesFor, speak, stopSpeaking, subscribeSpeaking, watchVoices } from '../utils/readAloud';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { storedInfo as keptInfo, forgetStoredInfo } from '../utils/mediaDescriptions';
 import type { MediaInfo } from '../types';
 import { imageAltText, needsStoredDescription } from './cardImageAlt';
+import { FOCUS_RING } from './ui/vocabulary';
 
 /**
  * The pictures and audio attached to one side of a flashcard.
@@ -99,6 +101,8 @@ interface AudioEngine {
     items: CardMediaRef[];
     playing: number | null;
     toggle: (index: number) => void;
+    /** Silence every clip: the device's voice is about to speak a line. */
+    stop: () => void;
 }
 
 const AudioCtx = createContext<AudioEngine | null>(null);
@@ -106,18 +110,41 @@ const AudioCtx = createContext<AudioEngine | null>(null);
 /**
  * Owns this side's `<audio>` elements and which clip is playing. Clips play in deck
  * order, as in Anki (the word, then its sentence).
+ *
+ * `lineOf` names the card line a clip belongs to ('' for none). A line may carry
+ * the same words in two voices; the opening sequence says each line ONCE, with
+ * its first clip, and the line's button holds the rest (`LineClipsButton`).
+ *
+ * `replay` are clips with a button on this side that the opening sequence never
+ * plays: the question's recordings on the answer side, heard a moment ago.
  */
-export function CardAudioProvider({ items, autoPlay = false, children }: {
+export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf, children }: {
     items: CardMediaRef[];
+    replay?: CardMediaRef[];
     autoPlay?: boolean;
+    lineOf?: (item: CardMediaRef) => string;
     children: ReactNode;
 }) {
+    const items = replay?.length ? [...own, ...replay] : own;
     const [playing, setPlaying] = useState<number | null>(null);
     const refs = useRef<(HTMLAudioElement | null)[]>([]);
     // Whether this run is the side's opening sequence, which chains clip to clip.
     // A PRESSED clip plays once and stops.
     const chaining = useRef(false);
-    const key = items.map(i => i.hash).join(',');
+    const key = `${own.length}:${items.map(i => i.hash).join(',')}`;
+    // The opening sequence: every clip in deck order, but a line already said is skipped.
+    const sequence = useMemo(() => {
+        const said = new Set<string>();
+        const out: number[] = [];
+        own.forEach((item, i) => {
+            const line = lineOf?.(item) ?? '';
+            if (line && said.has(line)) return;
+            if (line) said.add(line);
+            out.push(i);
+        });
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key]);
 
     const stopAll = () => {
         refs.current.forEach(a => { if (a) { a.pause(); a.currentTime = 0; } });
@@ -129,18 +156,34 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
         refs.current.forEach((a, j) => { if (a && j !== i) { a.pause(); a.currentTime = 0; } });
         const el = refs.current[i];
         if (!el) return;
+        // One sound at a time: a clip silences a line the device was saying.
+        stopSpeaking();
         el.currentTime = 0;
         chaining.current = chain;
         setPlaying(i);
-        // A rejected play() is autoplay policy; the button still works.
-        el.play().catch(() => setPlaying(null));
+        // A rejected play() is autoplay policy, or this clip paused before it
+        // started because another was pressed; the button still works. Only
+        // this clip's state is cleared: the pressed one may be playing now.
+        el.play().catch(() => setPlaying(p => (p === i ? null : p)));
+    };
+
+    // After clip `i`: the next of the opening sequence, but only when THIS run
+    // began as one. Not `autoPlay`, which stays true for the whole card.
+    // A line's other voice stands in for its sequence clip, so its step is the line's.
+    const lineAt = (i: number) => (i < own.length ? lineOf?.(own[i]) ?? '' : '');
+    const advance = (i: number) => {
+        const line = lineAt(i);
+        const step = sequence.findIndex(s => s === i || (!!line && lineAt(s) === line));
+        const next = step >= 0 ? sequence[step + 1] : undefined;
+        if (next !== undefined && chaining.current) play(next, { chain: true });
+        else { chaining.current = false; setPlaying(null); }
     };
 
     // Settings → Accessibility can turn the opening sequence off: sound that
     // starts by itself talks over a screen reader. Every clip keeps its button.
     const autoAllowed = useStore(s => s.a11y.cardAudioAutoplay);
     useEffect(() => {
-        if (autoPlay && autoAllowed && items.length) play(0, { chain: true });
+        if (autoPlay && autoAllowed && sequence.length) play(sequence[0], { chain: true });
         else stopAll();
         return stopAll;
         // Re-runs when the side changes (a new set of hashes), never on re-render.
@@ -151,6 +194,7 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
         items,
         playing,
         toggle: (i) => (playing === i ? stopAll() : play(i)),
+        stop: () => { if (playing !== null) stopAll(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [key, playing]);
 
@@ -162,13 +206,16 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
                     ref={el => { refs.current[i] = el; }}
                     src={srcFor(item.hash)}
                     preload="none"
-                    onEnded={() => {
-                        // Chain only when THIS run began as one. Not `autoPlay`,
-                        // which stays true for the whole card.
-                        if (i + 1 < items.length && chaining.current) play(i + 1, { chain: true });
-                        else { chaining.current = false; setPlaying(null); }
+                    onEnded={() => advance(i)}
+                    // A clip that cannot load does not end the opening sequence:
+                    // the line's next voice says it instead, else the next line.
+                    onError={() => {
+                        if (playing !== i || !chaining.current) { setPlaying(p => (p === i ? null : p)); return; }
+                        const line = lineAt(i);
+                        const other = line ? own.findIndex((_, j) => j > i && lineAt(j) === line) : -1;
+                        if (other >= 0) play(other, { chain: true });
+                        else advance(i);
                     }}
-                    onError={() => setPlaying(p => (p === i ? null : p))}
                 />
             ))}
             {children}
@@ -176,24 +223,25 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
     );
 }
 
+/** Where a clip sits in the engine's list: the same object, else the same file. */
+const clipIndex = (engine: AudioEngine, item: CardMediaRef) => {
+    const index = engine.items.indexOf(item);
+    return index >= 0 ? index : engine.items.findIndex(x => x.hash === item.hash);
+};
+
 /**
- * One clip's button. `label` is what a screen reader hears — the line the clip
- * sits beside when it has one — and `compact` is the inline form used there:
- * icon only, because the words next to it are the label.
+ * One clip's button in the row under the card, for a clip that names no line.
+ * `number` is its place in that row when the row holds more than one; the
+ * engine's list is no guide, it also holds the clips placed beside lines.
  */
-export function AudioClipButton({ item, label, compact = false }: {
-    item: CardMediaRef;
-    label?: string;
-    compact?: boolean;
-}) {
+export function AudioClipButton({ item, number }: { item: CardMediaRef; number?: number }) {
     const { t } = useTranslation();
     const engine = useContext(AudioCtx);
     if (!engine) return null;
-    let index = engine.items.indexOf(item);
-    if (index < 0) index = engine.items.findIndex(x => x.hash === item.hash);
+    const index = clipIndex(engine, item);
     if (index < 0) return null;
     const isPlaying = engine.playing === index;
-    const name = label || item.at || item.name || `Clip ${index + 1}`;
+    const name = item.at || item.name || `Clip ${number ?? 1}`;
     return (
         <button
             type="button"
@@ -204,18 +252,109 @@ export function AudioClipButton({ item, label, compact = false }: {
             onKeyDown={e => { e.stopPropagation(); onActivateKey(() => engine.toggle(index))(e); }}
             aria-label={isPlaying ? t("Stop: {{name}}", { name }) : t("Play: {{name}}", { name })}
             title={item.name || undefined}
-            className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors ${compact
-                ? 'h-8 w-8 align-middle touch:h-11 touch:w-11'
-                : 'px-3 py-2 min-h-[44px]'
-                } ${isPlaying
-                    ? 'bg-accent text-white'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'
-                }`}
+            className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors px-3 py-2 min-h-[44px] ${soundFill(isPlaying)}`}
         >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {!compact && (engine.items.length > 1
-                ? <span>{index + 1}</span>
-                : <Volume2 className="w-4 h-4" aria-hidden="true" />)}
+            {number
+                ? <span>{number}</span>
+                : <Volume2 className="w-4 h-4" aria-hidden="true" />}
+        </button>
+    );
+}
+
+/**
+ * The one button after a card line that carries recordings of itself. `label`
+ * is the line, which is what a screen reader hears. A line recorded in two
+ * voices still has ONE button: each press says it in the next voice, so a
+ * learner hears the same words from more than one speaker, and after the
+ * opening sequence said the line, the first press is the other voice.
+ */
+export function LineClipsButton({ items, label }: { items: CardMediaRef[]; label: string }) {
+    const { t } = useTranslation();
+    const engine = useContext(AudioCtx);
+    const [turn, setTurn] = useState(0);
+    const indexes = engine ? items.map(item => clipIndex(engine, item)).filter(i => i >= 0) : [];
+    const sounding = engine && engine.playing !== null ? indexes.indexOf(engine.playing) : -1;
+    // Whichever of this line's clips was heard last, the next press is the one after it.
+    useEffect(() => {
+        if (sounding >= 0) setTurn(sounding + 1);
+    }, [sounding]);
+    if (!engine || !indexes.length) return null;
+    const isPlaying = sounding >= 0;
+    const press = () => engine.toggle(isPlaying ? indexes[sounding] : indexes[turn % indexes.length]);
+    return (
+        <button
+            type="button"
+            data-media-control
+            onClick={e => { e.stopPropagation(); press(); }}
+            aria-label={isPlaying ? t("Stop: {{name}}", { name: label }) : t("Play: {{name}}", { name: label })}
+            title={isPlaying ? t("Stop: {{name}}", { name: label }) : t("Play: {{name}}", { name: label })}
+            className={lineSoundClass(isPlaying)}
+        >
+            {isPlaying ? <Square className="w-4 h-4" aria-hidden="true" /> : <Volume2 className="w-4 h-4" aria-hidden="true" />}
+        </button>
+    );
+}
+
+const soundFill = (on: boolean) => (on
+    ? 'bg-accent text-white'
+    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600');
+
+/**
+ * The round button after a card line, one look whatever makes the sound: a
+ * recording the card carries, or the device's own voice. A learner hears "this
+ * line, said"; which of the two is behind it is not theirs to tell apart.
+ * It flows inline after the line's last word, so a line that wraps on a
+ * narrow card keeps its button on its own last row, never on a row between
+ * two lines. On touch the press area grows to 44 px through an invisible ring
+ * (`before:`), not the circle: a 44 px circle inside a line of text would push
+ * that row half a line away from the one above it. (With "Larger text and
+ * buttons" on, every button's floor is 44 px, this one too: that setting asks
+ * for bigger targets over a tight line.) A native button with no key handler of
+ * its own: Enter and Space press it, and the card's flip ignores keys pressed
+ * on a control inside it (`onActivateKey`).
+ */
+const lineSoundClass = (on: boolean) =>
+    `relative inline-flex shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors h-8 w-8 align-middle ms-2 [touch-action:manipulation] select-none ${FOCUS_RING} touch:before:absolute touch:before:-inset-1.5 touch:before:content-[''] ${soundFill(on)}`;
+
+/** Whether this device has a voice of its own for `lang`. Follows the voice list, which loads late. */
+export function useHasLocalVoice(lang: string | null | undefined): boolean {
+    return useSyncExternalStore(watchVoices, () => !!lang && localVoicesFor(lang).length > 0, () => false);
+}
+
+/**
+ * The device's own voice saying one line of a language course's card, for a
+ * line the card has no recording of. `text` is what to say (the line's words in
+ * the learned language, `utils/pronunciation.ts`), and also the button's name:
+ * a label before it in another language ("Пример: …") is not said, so it is
+ * not named either. Local voices only, as everywhere in the app
+ * (`utils/readAloud.ts`): the caller shows this only when the device has one
+ * for `lang`.
+ */
+export function SpeakLineButton({ text, lang }: { text: string; lang: string }) {
+    const { t } = useTranslation();
+    const rate = useStore(s => s.a11y.speechRate);
+    const engine = useContext(AudioCtx);
+    const id = useId();
+    const speaking = useSyncExternalStore(subscribeSpeaking, currentSpeaker) === id;
+    // The card moved on: whatever this line was saying ends with it.
+    useEffect(() => () => { if (currentSpeaker() === id) stopSpeaking(); }, [id]);
+    const press = () => {
+        if (speaking) { stopSpeaking(); return; }
+        engine?.stop();
+        speak(id, text, lang, rate);
+    };
+    return (
+        <button
+            type="button"
+            data-media-control
+            data-read-skip
+            onClick={e => { e.stopPropagation(); press(); }}
+            aria-label={speaking ? t("Stop: {{name}}", { name: text }) : t("Play: {{name}}", { name: text })}
+            title={speaking ? t("Stop: {{name}}", { name: text }) : t("Play: {{name}}", { name: text })}
+            className={lineSoundClass(speaking)}
+        >
+            {speaking ? <Square className="w-4 h-4" aria-hidden="true" /> : <Volume2 className="w-4 h-4" aria-hidden="true" />}
         </button>
     );
 }
@@ -260,7 +399,7 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
         <div className={`flex w-full min-w-0 flex-col items-center gap-3 ${className}`}>
             {audio.length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-2 shrink-0">
-                    {audio.map((item, i) => <AudioClipButton key={`${item.hash}-${i}`} item={item} />)}
+                    {audio.map((item, i) => <AudioClipButton key={`${item.hash}-${i}`} item={item} number={audio.length > 1 ? i + 1 : undefined} />)}
                 </div>
             )}
             {images.map((m, i) => <CardImage key={`${m.hash}-${i}`} item={m} size={size} />)}

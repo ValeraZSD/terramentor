@@ -113,7 +113,7 @@ const manifestA = {
                 ],
                 flashcards: [
                     { front: 'de krant', back: 'газета' },
-                    { front: 'listen', back: 'Het boek.', media: { front: [{ name: 'clip.mp3', kind: 'audio', at: 'listen' }] } },
+                    { front: 'listen', back: 'Het boek.', media: { front: [{ name: 'clip.mp3', kind: 'audio', at: 'het boek' }] } },
                     { front: 'picture', back: 'plaatje', media: { back: [{ name: 'pic.png' }] } },
                 ],
             },
@@ -201,7 +201,7 @@ console.log('\n--- one project, out as a .studyvault and back in ---');
         WHERE n.project_id = ? AND f.front = 'listen'`).get(id)?.media || 'null')?.front?.map(c => c.at ?? null);
     let exportedAt = null;
     walk(m.nodes, n => { for (const c of n.flashcards || []) if (c.front === 'listen') exportedAt = c.media?.front?.map(x => x.at ?? null); });
-    same('a clip keeps its line through import, export and import again', [clipAt(A), exportedAt, clipAt(back.body?.id)], [['listen'], ['listen'], ['listen']]);
+    same('a clip keeps its line through import, export and import again', [clipAt(A), exportedAt, clipAt(back.body?.id)], [['het boek'], ['het boek'], ['het boek']]);
     const a = await plain(A), b = await plain(back.body?.id);
     same('...and the course reads the same (topics, questions, cards, links)', b, a);
 }

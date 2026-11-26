@@ -4,8 +4,10 @@ import { splitWordReading, hasRichCardText, contextSentence, stripCardMarkup } f
 /** A line with markup, readings and spacing removed, for telling twins apart. */
 const bareLine = (s: string) => stripCardMarkup(s).replace(/\s+/g, ' ').trim().toLowerCase();
 import CardExtra from './CardExtra';
-import CardMedia, { CardMediaSides, CardAudioProvider, AudioClipButton, type CardMediaRef } from './CardMedia';
-import { useContentLang } from '../utils/contentLang';
+import type { ReactNode } from 'react';
+import CardMedia, { CardMediaSides, CardAudioProvider, LineClipsButton, SpeakLineButton, useHasLocalVoice, type CardMediaRef } from './CardMedia';
+import { useContentLang, useCourseLanguages } from '../utils/contentLang';
+import { spokenLine } from '../utils/pronunciation';
 
 interface Props {
     front: string;
@@ -19,6 +21,9 @@ interface Props {
     media: CardMediaSides;
     /** Play this side's clips as soon as it is shown. See CardMedia. */
     autoPlay?: boolean;
+    /** The question side never spoke by itself here (the feed), so the flip
+     *  says the question's recordings first, then the answer's. */
+    sayQuestion?: boolean;
     size?: 'feed' | 'review';
 }
 
@@ -60,7 +65,7 @@ interface Props {
  * The three review surfaces (session, node panel, feed) all render through here
  * so they cannot drift apart; only the type scale differs.
  */
-export default function CardFace({ front, back, extra, extraFront, flipped, media, autoPlay = false, size = 'review' }: Props) {
+export default function CardFace({ front, back, extra, extraFront, flipped, media, autoPlay = false, sayQuestion = false, size = 'review' }: Props) {
     const review = size === 'review';
     const lang = useContentLang();
     // A review session is read at arm's length for an hour at a time, and
@@ -76,8 +81,15 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     // engine for the whole side (`CardAudioProvider`), so the buttons can be
     // anywhere in the face and autoplay still runs the clips in deck order.
     const sideAudio = sideMedia.filter(m => m.kind === 'audio');
+    // The answer side still shows the question, so the question's recordings
+    // keep their buttons there (as Anki's replay buttons do). The flip does not
+    // play them again where the question side already spoke; with
+    // `sayQuestion` it says them first. Only a clip that names a line can find it.
+    const questionAudio = flipped ? media.front.filter(m => m.kind === 'audio' && m.at) : [];
+    const openingAudio = sayQuestion ? [...questionAudio, ...sideAudio] : sideAudio;
+    const replayAudio = sayQuestion ? [] : questionAudio;
     const anchored = new Map<string, CardMediaRef[]>();
-    for (const clip of sideAudio) {
+    for (const clip of [...sideAudio, ...questionAudio]) {
         const k = clip.at ? bareLine(clip.at) : '';
         if (!k) continue;
         const list = anchored.get(k) ?? [];
@@ -90,9 +102,32 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
         for (const c of list) placed.add(c);
         return list;
     };
-    const inlineClips = (line: string) => clipsFor(line).map((c, i) => (
-        <AudioClipButton key={`${c.hash}-${i}`} item={c} label={line} compact />
-    ));
+    // **A line in the language the course teaches can be said.** Where the
+    // card carries no recording of a line, a speaker beside it says it with
+    // the device's own voice for that language, when the device has one. Which
+    // lines are in that language is `spokenLine`'s call; a recording always
+    // wins over the device's voice.
+    const langs = useCourseLanguages();
+    const voiced = useHasLocalVoice(langs?.learning);
+    const speakerFor = (line: string) => {
+        if (!langs || !voiced) return null;
+        const said = spokenLine(line, langs);
+        // Keyed by what it says: a review screen keeps this face mounted from card
+        // to card, and a button reused for another card's line would carry on
+        // the last card's speech (and, below, its turn between voices).
+        return said ? <SpeakLineButton key={`say:${langs.learning}:${said}`} text={said} lang={langs.learning} /> : null;
+    };
+    // One button per line, however many recordings it carries (two voices
+    // saying the same words share it, see `LineClipsButton`).
+    const lineButton = (line: string): ReactNode => {
+        const clips = clipsFor(line);
+        if (clips.length) return <LineClipsButton key={`clips:${clips.map(c => c.hash).join(',')}`} items={clips} label={stripCardMarkup(line).trim()} />;
+        return speakerFor(line);
+    };
+    const inlineClips = (line: string) => {
+        const button = lineButton(line);
+        return button ? [button] : [];
+    };
 
     // The word's own reading belongs ON the word, not on a loose line under the
     // answer (see `splitWordReading`). Answer side only: on the question side it
@@ -145,22 +180,30 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     const frontClips = inlineClips(front);
     const contextLines = (context ?? '').split('\n').filter(l => l.trim());
     const contextRows = contextLines.map((line, i) => (
-        <p key={i} className={`${review ? 'text-lg sm:text-xl' : 'text-sm'} max-w-lg leading-relaxed text-slate-600 dark:text-slate-300 inline-flex flex-wrap items-center justify-center gap-x-2`}>
+        <p key={i} className={`${review ? 'text-lg sm:text-xl' : 'text-sm'} max-w-lg leading-relaxed text-slate-600 dark:text-slate-300`}>
             <span><CardText content={line} hideReadings={!flipped} /></span>
             {inlineClips(line)}
         </p>
     ));
     const backClips = flipped ? inlineClips(back) : [];
+    // The opening sequence says each DRAWN line once. Clips naming a line that
+    // is not on this side sit in the row under the card, a button each, and
+    // each is played.
+    const drawn = new Set([front, ...contextLines, ...(flipped ? [back, ...(restLines ?? '').split('\n')] : [])].map(bareLine).filter(Boolean));
+    const lineOf = (c: CardMediaRef) => {
+        const k = c.at ? bareLine(c.at) : '';
+        return drawn.has(k) ? k : '';
+    };
 
     return (
-        <CardAudioProvider items={sideAudio} autoPlay={autoPlay}>
+        <CardAudioProvider items={openingAudio} replay={replayAudio} autoPlay={autoPlay} lineOf={lineOf}>
         <div lang={lang} className={`flex w-full min-w-0 flex-col items-center text-center ${review ? 'gap-4' : 'gap-3'}`}>
             {/* The question — on the front as the prompt, on the back as the
                 thing the answer belongs to. On the back, Read aloud skips it
                 and reads only the answer (as Anki and Quizlet do): the learner
                 heard the question a moment ago. `contents` keeps the gap. */}
             <div data-read-skip={flipped || undefined} className="contents">
-            <p dir="auto" className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
+            <p dir="auto" className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''}`}>
                 <span>
                     {rubyWord
                         // The deck's per-kanji form of the word, rendered through the
@@ -178,12 +221,12 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
 
             {flipped && (
                 <>
-                    <p dir="auto" className={`${big} max-w-lg text-accent-fg font-medium ${backClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
+                    <p dir="auto" className={`${big} max-w-lg text-accent-fg font-medium`}>
                         <span><CardText content={back} /></span>
                         {backClips}
                     </p>
                     <hr className="w-16 border-t border-slate-300 dark:border-slate-600" />
-                    <CardExtra text={restLines} size={size} className="max-w-lg text-center" clipsFor={clipsFor} />
+                    <CardExtra text={restLines} size={size} className="max-w-lg text-center" soundFor={lineButton} />
                 </>
             )}
 

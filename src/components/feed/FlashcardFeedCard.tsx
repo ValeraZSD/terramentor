@@ -154,7 +154,9 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                     {/* autoPlay only once the learner has flipped: in the feed a
                         card arrives by SCROLLING, and a page that starts talking
                         because something drifted into view is hostile. The front's
-                        clip has a button and waits to be pressed. */}
+                        clip has a button and waits to be pressed; the flip then
+                        says the question first (`sayQuestion`), since nothing
+                        said it yet. */}
                     <div ref={faceRef} className="contents">
                         <CardFace
                             front={fc.front}
@@ -164,6 +166,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                             flipped={flipped}
                             media={media}
                             autoPlay={flipped}
+                            sayQuestion
                             size="feed"
                         />
                     </div>

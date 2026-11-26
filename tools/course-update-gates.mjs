@@ -717,7 +717,7 @@ if (!OLD) {
     check('commit: the cards name those same hashes',
         [cardMedia('de krant')?.front?.[0]?.hash, cardMedia('lopen')?.back?.[0]?.hash], [hashOf(pngOld), hashOf(pngNew)]);
     check('commit: a file that names the line an item belongs to keeps it, one that names none stores none',
-        [cardMedia('lopen')?.back?.[0]?.at, 'at' in (cardMedia('de krant')?.front?.[0] || {})], ['to walk', false]);
+        [cardMedia('lopen')?.back?.[0]?.at, (m => (m ? 'at' in m : 'no item'))(cardMedia('de krant')?.front?.[0])], ['to walk', false]);
     check('commit: the picture is served', (await call(`/api/media/${hashOf(pngOld)}`)).status, 200);
     const { sweepOrphanMedia } = await import(B + 'ankiImport.js');
     sweepOrphanMedia();

@@ -1,5 +1,5 @@
+import type { ReactNode } from 'react';
 import CardText from './CardText';
-import { AudioClipButton, type CardMediaRef } from './CardMedia';
 
 /**
  * The supporting lines under a card's answer: a word's reading, an example
@@ -17,16 +17,16 @@ import { AudioClipButton, type CardMediaRef } from './CardMedia';
  * `whitespace-pre-line` because the lines arrive newline-separated — a sentence
  * that was itself multi-line in the deck (Anki's `<br>`) keeps its breaks.
  *
- * With `clipsFor`, each line is rendered on its own so the clip the deck wrote
- * on that line can sit right after it: "Hasta luego ▶". The line is the clip's
- * label; nothing else could be.
+ * With `soundFor`, each line is rendered on its own so the sound of that line
+ * can sit right after it: "Hasta luego ▶". The line is the button's label;
+ * nothing else could be.
  */
-export default function CardExtra({ text, size = 'review', className = '', clipsFor }: {
+export default function CardExtra({ text, size = 'review', className = '', soundFor }: {
     text?: string | null;
     size?: 'feed' | 'review';
     className?: string;
-    /** The clips anchored to a given line of text, if any. */
-    clipsFor?: (line: string) => CardMediaRef[];
+    /** The button that says a given line (its recording, or the device's voice), if any. */
+    soundFor?: (line: string) => ReactNode;
 }) {
     const value = (text ?? '').trim();
     if (!value) return null;
@@ -44,7 +44,7 @@ export default function CardExtra({ text, size = 'review', className = '', clips
     const body = size === 'review' ? 'text-lg sm:text-xl' : 'text-sm';
     const base = `w-full min-w-0 ${body} leading-relaxed text-slate-600 dark:text-slate-300 ${className}`;
 
-    if (!clipsFor) {
+    if (!soundFor) {
         return (
             <div className={`whitespace-pre-line ${base}`}>
                 <CardText content={value} />
@@ -56,11 +56,10 @@ export default function CardExtra({ text, size = 'review', className = '', clips
         <div className={base}>
             {value.split('\n').map((line, i) => {
                 if (!line.trim()) return <div key={i} className="h-3" aria-hidden="true" />;
-                const clips = clipsFor(line);
                 return (
-                    <div key={i} className="flex flex-wrap items-center justify-center gap-x-2">
+                    <div key={i}>
                         <span><CardText content={line} /></span>
-                        {clips.map((c, j) => <AudioClipButton key={`${c.hash}-${j}`} item={c} label={line} compact />)}
+                        {soundFor(line)}
                     </div>
                 );
             })}

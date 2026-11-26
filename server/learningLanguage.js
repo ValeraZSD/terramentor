@@ -318,6 +318,20 @@ function readField(text) {
 }
 
 /**
+ * The catalog language one word names, in any catalog language and any of
+ * its forms ("Engels", "English", "английского"), or null. For a label on a
+ * card line ("Engels: mission"), not for a sentence: a name only MENTIONED in
+ * running text says nothing about the language of that text.
+ *
+ * @param {string} word
+ * @returns {string|null}
+ */
+export function languageNamedBy(word) {
+    buildNames();
+    return languageOf(String(word || '').toLowerCase().normalize('NFC'));
+}
+
+/**
  * The language a new course's name and goal say is being LEARNED, and every
  * other catalog language they name.
  *
