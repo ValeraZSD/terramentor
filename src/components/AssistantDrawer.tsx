@@ -34,11 +34,11 @@ import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
 import { splitTurnTimeline } from '../utils/turnTimeline';
 import { useAutoGrow } from '../hooks/useAutoGrow';
-import { useStickToBottom } from '../hooks/useStickToBottom';
+import { anchorsView, newestStoredQuestion, storedCopyOf, useReadingScroll, type PlacedQuestion } from '../hooks/useReadingScroll';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
-import { ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
@@ -441,9 +441,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // Latest messages, read outside the render cycle by persistRepair.
     const messagesRef = useRef<ChatMessage[]>([]);
     const inputRef = useAutoGrow(input, { rows: 5 });
-    // Follow the stream unless the reader scrolled up: a long answer stays
-    // readable while it arrives.
-    const scroll = useStickToBottom<HTMLDivElement>(open);
+    // A sent question goes to the top of the log and its answer is written
+    // under it; the log never moves while a reply arrives.
+    const [scroll, moreBelow] = useReadingScroll<HTMLDivElement>();
     /** Ids already sent to /api/nodes/labels, so re-renders don't re-ask. */
     const askedRef = useRef<Set<number>>(new Set());
     /**
@@ -692,21 +692,70 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // because the first open paints an empty box and *then* fills it — sticking
     // only on `open` would scroll a list that has no rows yet. The conversation
     // list shares the scroll box and opens at its top, newest first; leaving it
-    // lands on the newest message again.
+    // lands on the newest message again. A question sent while the history was
+    // still loading outdates that load, so its end does not take the question
+    // off the top for the bottom.
+    /** The question the view was last put under, at the top of the log. */
+    const placedRef = useRef<PlacedQuestion | null>(null);
+    /** What `placedRef` held when the running history load began. */
+    const loadRef = useRef<{ placed: PlacedQuestion | null } | null>(null);
     useEffect(() => {
-        if (!open) return;
-        if (showList) { if (scroll.ref.current) scroll.ref.current.scrollTop = 0; }
-        else scroll.stick();
+        if (!open) { loadRef.current = null; return; }
+        const load = loadRef.current;
+        loadRef.current = loadingHistory ? { placed: placedRef.current } : null;
+        if (showList) scroll.toTop();
+        else if (!loadingHistory && load && placedRef.current && placedRef.current !== load.placed) return;
+        else scroll.toBottom();
     }, [open, loadingHistory, showList, scroll]);
 
-    // A turn the LEARNER just started re-arms following — you always want to see
-    // the answer to the question you just asked. Everything else respects
-    // whatever the reader has done with the scrollbar since.
+    // A question sent from this panel goes to the top of the view, and its
+    // answer is written below it; it carries a provisional (negative) id. The
+    // question of a failed turn put back beside its error card carries one too
+    // (`splicedUserIdsRef`): it keeps the top only when it is the question
+    // sent here (the server dropped it), never for a turn from another device.
+    // A stored row never moves the view: a conversation being opened lands on
+    // its newest message (above), and the stored copy of a question already
+    // placed replaces it in place (below). Nothing else a turn does moves the
+    // log: the reader reads down at their own pace.
+    const lastRow = messages[messages.length - 1];
+    const lastQuestionId = lastRow?.role === 'user' ? lastRow.id : null;
+    const lastQuestionText = lastRow?.role === 'user' ? lastRow.content : null;
+    const storedBefore = newestStoredQuestion(messages);
+    /** The words of the last question sent here, until its stored copy arrives. */
+    const sentRef = useRef<string | null>(null);
     useEffect(() => {
-        if (messages[messages.length - 1]?.role === 'user') scroll.stick(true);
+        if (lastQuestionId == null || lastQuestionId === placedRef.current?.id) return;
+        const content = lastQuestionText ?? '';
+        const putBack = splicedUserIdsRef.current.has(lastQuestionId);
+        if (!anchorsView(lastQuestionId, putBack, content, sentRef.current)) return;
+        sentRef.current = putBack ? null : content;
+        placedRef.current = { id: lastQuestionId, content, after: storedBefore };
+        scroll.anchor(lastQuestionId);
+    }, [lastQuestionId, lastQuestionText, storedBefore, scroll]);
+
+    // The question the view was put under, followed when its row changes: its
+    // provisional copy swapped for the stored one keeps the place (the room
+    // under it is measured from the new row); a question that left the list
+    // (a failed turn takes its question off) takes the room with it, or a
+    // screen of blank space would stay under the previous answer.
+    useEffect(() => {
+        const placed = placedRef.current;
+        if (!placed || messages.some(m => m.id === placed.id)) return;
+        const stored = storedCopyOf(placed, messages);
+        if (stored) {
+            sentRef.current = null;
+            placedRef.current = { ...placed, id: stored };
+            scroll.retarget(stored);
+        } else {
+            placedRef.current = null;
+            scroll.release();
+        }
     }, [messages, scroll]);
 
-    useEffect(() => { scroll.follow(); }, [streamed, scroll]);
+    // Whether the reply now runs past the bottom edge: after every render,
+    // because a streamed frame, a picture or a lookup row can each make it.
+    // A no-op unless the answer changed (`measure` holds the last one).
+    useEffect(() => { scroll.measure(); });
 
     useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -1269,6 +1318,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setTurnError(null);
         setStoppedPartial(false);
         setShowList(false);
+        scroll.toTop();
     };
 
     const newChat = () => {
@@ -1533,13 +1583,17 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             </header>
 
             <div className="sr-only" aria-live="polite">{spoken}</div>
+            {/* The log and the one control that floats over it: the log does
+                not follow a reply, so text written past its bottom edge needs
+                something on screen that says it is there. */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
             <div
-                ref={scroll.ref}
-                onScroll={scroll.onScroll}
+                ref={scroll.scrollerRef}
                 role="log"
                 aria-live="off"
                 aria-label={tr("Conversation")}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
+                tabIndex={-1}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 select-text outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             >
                 {showList ? (
                     <ConversationList
@@ -1549,7 +1603,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         onOpen={openConversation}
                         onDelete={removeConversation}
                     />
-                ) : (<>
+                ) : (<div ref={scroll.contentRef} className="space-y-4">
                 {loadingHistory && messages.length === 0 && (
                     <div className="flex justify-center py-6">
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
@@ -1585,7 +1639,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
-                    <div key={m.id} className="space-y-4">
+                    <div key={m.id} className="space-y-4" data-turn-id={m.id}>
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
                         {/* `relative`: "You said:" / "Assistant said:" are
                             `sr-only` (absolute); placed against the turn they
@@ -1827,7 +1881,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         </p>
                     </>
                 )}
-                </>)}
+                </div>)}
+            </div>
+            {!showList && moreBelow && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                    {/* Filled, not the outline: it floats over the text, and
+                        an outline shows the line under it through the label. */}
+                    <Button
+                        size="sm"
+                        variant="subtle"
+                        icon={<ArrowDown />}
+                        onClick={scroll.nextPage}
+                        className="pointer-events-auto shadow-md"
+                    >
+                        {streaming ? tr("Still writing below") : tr("More below")}
+                    </Button>
+                </div>
+            )}
             </div>
 
             <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-3 space-y-2 select-none">

@@ -541,6 +541,122 @@ section('the chat draws the timeline, and the terminal frame pairs text with row
     check('the tutor panel is gone, so there is one chat surface', !existsSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url))));
 }
 
+section('the log reads like a page: the question goes up once, the answer never moves it');
+{
+    // Following every token moved the line being read up the screen several
+    // times a second. The only scroll a turn makes is putting the question at
+    // the top; what streams in is written below it (useReadingScroll).
+    const outScroll = join(scratch, 'useReadingScroll.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url))],
+        bundle: true, format: 'esm', platform: 'node', outfile: outScroll, logLevel: 'silent',
+    });
+    const { roomFor, scrollTargetFor, textBelow, pageStep, newestStoredQuestion, storedCopyOf, anchorsView } = await import(pathToFileURL(outScroll).href);
+    // The provisional question is swapped for its stored copy, or taken off by
+    // a failed turn. Words alone matched the same words asked earlier, so a
+    // failed repeat kept the room under the older question.
+    const log = [
+        { id: 7, role: 'user', content: 'Hello' }, { id: 8, role: 'assistant', content: 'Hi.' },
+    ];
+    const placedHello = { id: -100, content: 'Hello', after: newestStoredQuestion(log) };
+    check('the newest stored question is the highest stored question id, 0 for none',
+        placedHello.after === 7 && newestStoredQuestion([{ id: -5, role: 'user', content: 'x' }, { id: 9, role: 'assistant', content: 'y' }]) === 0);
+    check('a failed repeat of an earlier question is not its stored copy', storedCopyOf(placedHello, log) === null);
+    check('the stored copy of a question sent here is found',
+        storedCopyOf(placedHello, [...log, { id: 9, role: 'user', content: 'Hello' }, { id: 10, role: 'assistant', content: 'Hi again.' }]) === 9);
+    check('a newer stored question with other words is not its copy',
+        storedCopyOf(placedHello, [...log, { id: 9, role: 'user', content: 'Something else' }]) === null);
+    check('a stored question is never retargeted again', storedCopyOf({ id: 9, content: 'Hello', after: 7 }, [...log, { id: 11, role: 'user', content: 'Hello' }]) === null);
+    // A log that does not follow the stream must say when the reply runs past
+    // its bottom edge: strangers read a still screen as a reply that stopped.
+    // Scroller box ends at y=900 with 16 px padding, so text is seen down to 884.
+    check('text past the bottom edge counts as below, the padding does not', textBelow(1000, 900, 16) === 116 && textBelow(884, 900, 16) === 0 && textBelow(600, 900, 16) < 0);
+    // One press turns one page, never straight to the end: a reader halfway
+    // down a long answer must not skip the middle (two outside readers did).
+    // A view 800 px tall moves on 640 px, keeping the last fifth in sight.
+    check('"More below" moves on one page, never past the last line',
+        pageStep(5000, 800) === 640 && pageStep(300, 800) === 300 && pageStep(0, 800) === 0 && pageStep(-40, 800) === 0,
+        [pageStep(5000, 800), pageStep(300, 800), pageStep(0, 800), pageStep(-40, 800)].join(' '));
+    // A 200 px view with the button over its bottom 60 px: a fifth (40) is
+    // less than that, so the step stops at the button's top edge (140).
+    check('...and on a short view stops where the button starts, so no line under it is skipped',
+        pageStep(5000, 200, 60) === 140 && pageStep(5000, 800, 60) === 640 && pageStep(5000, 200, 260) === 160,
+        [pageStep(5000, 200, 60), pageStep(5000, 800, 60), pageStep(5000, 200, 260)].join(' '));
+    check('the "more below" button shows only while text is below, and turns a page',
+        /\{!showList && moreBelow && \(/.test(drawerSrc) && /onClick=\{scroll\.nextPage\}/.test(drawerSrc)
+        && /useEffect\(\(\) => \{ scroll\.measure\(\); \}\);/.test(drawerSrc));
+    // `below` changes while a reply streams; the object the panel's effects
+    // list must not, or the open effect re-runs and sends the log to the
+    // bottom the moment the button appears (it did, before this check).
+    const hookSrc = readFileSync(fileURLToPath(new URL('../src/hooks/useReadingScroll.ts', import.meta.url)), 'utf8');
+    const memo = hookSrc.match(/const scroll = useMemo\(\s*\(\) => \(\{([^}]*)\}\),\s*\[([^\]]*)\]/);
+    check('the scroll object keeps one identity: "below" is returned beside it, not in it',
+        !!memo && !/\bbelow\b/.test(memo[1] + memo[2]) && /return \[scroll, below\] as const;/.test(hookSrc)
+        && /const \[scroll, moreBelow\] = useReadingScroll/.test(drawerSrc), memo ? memo[1] : 'no useMemo found');
+    // Stated geometry: a scroller `client` tall at viewport y=`at`, padding `pad`
+    // top and bottom, its content box starting one padding down, the question
+    // `offset` px into that box, the log scrolled to `st`.
+    const cases = [
+        { offset: 600, client: 500, pad: 16, at: 100, st: 50 },   // a long conversation, short answer so far
+        { offset: 0, client: 700, pad: 16, at: 60, st: 0 },       // the first question of a chat
+        { offset: 2400, client: 320, pad: 12, at: 0, st: 2000 },  // a phone with the keyboard up
+    ];
+    const wrong = cases.filter(({ offset, client, pad, at, st }) => {
+        const room = roomFor(offset, client, pad, pad);
+        const maxScroll = pad + room + pad - client;
+        const target = scrollTargetFor(at + pad + offset - st, at, st, pad);
+        // The question at the top, one padding below the edge, and the room
+        // under it is exactly enough: no clamp, no blank page beyond it.
+        return target !== offset || maxScroll !== offset;
+    });
+    // Arithmetic only: the two formulas agree with each other. That the log
+    // really holds still is measured in a browser (assistant-scroll-gates.mjs).
+    check('the room made and the scroll target agree (arithmetic)', wrong.length === 0, JSON.stringify(wrong));
+    check('no room is made for a box already taller than the view', roomFor(0, 0, 16, 16) === 0);
+    check('the turns carry the id the question is found by again', /data-turn-id=\{m\.id\}/.test(drawerSrc) && /<div ref=\{scroll\.contentRef\}/.test(drawerSrc));
+    // The calls that may move the log, and no other: opening (bottom), the
+    // list and a new chat (top), a question just asked (anchor), and the
+    // question leaving the list (release; retarget only renames its row), and
+    // the reader's own press of "More below" (nextPage, its onClick only). A
+    // new call, or any hand-set scrollTop/scrollTo/scrollIntoView, is a new
+    // reason for the log to move on its own, and needs its own case here.
+    const calls = (drawerSrc.match(/scroll\.(?:anchor|toTop|toBottom|release|retarget|nextPage|ref\.current)\b/g) || []).sort();
+    check('only opening, the list, a new chat, a new question, a dropped one and the reader\'s press move the log',
+        JSON.stringify(calls) === JSON.stringify(['scroll.anchor', 'scroll.nextPage', 'scroll.release', 'scroll.retarget', 'scroll.toBottom', 'scroll.toTop', 'scroll.toTop'])
+        && !/\.scrollTop\s*=|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(/.test(drawerSrc), calls.join(', '));
+    // A "was history loading?" flag missed: React renders the rows and the
+    // flag's reset in one pass. What this panel put at the end has a
+    // provisional (negative) id; a stored row never moves the view.
+    // A failed turn's question put back beside its card also has a negative
+    // id. Put back for a turn from another device, it moved the view while the
+    // learner read an earlier answer; put back for the question sent here (the
+    // server dropped it), it must keep the top (the browser suite's refused
+    // turn).
+    check('a question sent here goes to the top; a stored row does not', anchorsView(-5, false, 'Hi', null) && !anchorsView(12, false, 'Hi', null));
+    check('a failed turn from another device put back does not move the view',
+        !anchorsView(-6, true, 'Hello', null) && !anchorsView(-6, true, 'Hello', 'Something else'));
+    check('the question sent here, dropped and put back, keeps the top', anchorsView(-6, true, 'Hello', 'Hello'));
+    const bubbles = drawerSrc.match(/const bubbleId = -Date\.now\(\) - 2;\s*splicedUserIdsRef\.current\.set\(bubbleId, /g) || [];
+    const userRows = drawerSrc.match(/id: \w+, role: 'user'/g) || [];
+    check('the drawer asks anchorsView for every question it adds, put-back bubbles marked',
+        /const putBack = splicedUserIdsRef\.current\.has\(lastQuestionId\);\s*if \(!anchorsView\(lastQuestionId, putBack, content, sentRef\.current\)\) return;\s*sentRef\.current = putBack \? null : content;\s*placedRef\.current = [^;]+;\s*scroll\.anchor\(lastQuestionId\);/.test(drawerSrc)
+        && /if \(stored\) \{\s*sentRef\.current = null;/.test(drawerSrc)
+        && /const userId = -Date\.now\(\);/.test(drawerSrc)
+        && bubbles.length === 2 && userRows.length === 3, `bubbles ${bubbles.length}, user rows added ${userRows.length}`);
+    check('a question swapped for its stored copy keeps the place; one taken off drops the room',
+        /const stored = storedCopyOf\(placed, messages\);\s*if \(stored\) \{[\s\S]{0,200}?scroll\.retarget\(stored\);\s*\} else \{[\s\S]{0,120}?scroll\.release\(\);/.test(drawerSrc)
+        && /after: storedBefore \}/.test(drawerSrc));
+    // A question sent while the first open still reads the history: the
+    // load's end re-ran "open at the newest message" and threw the question's
+    // place away, mid-answer.
+    check('a history load that ends after a question was sent here leaves it at the top',
+        /loadRef\.current = loadingHistory \? \{ placed: placedRef\.current \} : null;/.test(drawerSrc)
+        && /else if \(!loadingHistory && load && placedRef\.current && placedRef\.current !== load\.placed\) return;\s*else scroll\.toBottom\(\);/.test(drawerSrc));
+    // \r?\n: a Windows checkout has CRLF line ends.
+    const reset = drawerSrc.match(/const resetView = \(\) => \{\r?\n([\s\S]*?)\r?\n    \};/);
+    check('a new empty chat drops the room left under the last question', !!reset && /scroll\.toTop\(\);/.test(reset[1]));
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
