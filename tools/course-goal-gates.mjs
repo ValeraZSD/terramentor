@@ -18,7 +18,9 @@
 //   1. in a fresh creation, the learner's goal reaches the phase plan, every
 //      phase's sections call, every batched topics call and every per-section
 //      topics call, and each of those calls carries the rule that keeps the
-//      level inside the goal;
+//      level inside the goal; a section the batched call missed gets its
+//      own call, which sees the goal too; the summary call is told to name
+//      nothing the goal did not ask for;
 //   2. a creation that stopped with a phase unwritten and is carried on with
 //      POST /api/ai/continue-creation (the only path that writes AI topics
 //      into a course that already exists) shows the same goal to every call
@@ -32,8 +34,11 @@
 //
 // `--server <dir>` runs the same cases against another copy of server/ (the
 // pre-change code, e.g. `git archive origin/main server src | tar -x -C temp/head`,
-// then `--server temp/head/server`); that code is expected to FAIL every case:
-// its sections calls never see the goal and no outline call has the rule.
+// then `--server temp/head/server`). On that code the goal already reached the
+// phase plan and the topics calls, so those "is shown the goal" checks pass
+// there too and only guard against a regression; what must FAIL there is the
+// sections calls' goal (cases 1, 2, 3), every "carries the rule" check, and
+// the summary's.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -99,21 +104,26 @@ function answer(st, user) {
         { title: 'Past tenses', description: 'Simple and continuous' },
     ] });
     if (st === 'sub_batch') {
-        const listed = [...user.matchAll(/^\d+\. (.+?)(?: — .*)?$/gm)].map(m => m[1]);
+        const listed = [...user.matchAll(/^\d+\. (.+?)(?: — .*)?$/gm)].map(m => m[1]).filter(t => t !== batchMisses);
         return JSON.stringify({ topics: listed.map(title => ({
             element: title,
             subElements: [{ title: `${title}: form`, description: 'Form' }, { title: `${title}: use`, description: 'Use' }],
         })) });
     }
-    if (st === 'sub_one') return JSON.stringify({ subElements: [
-        { title: 'Defining relative clauses', description: 'Which noun' },
-        { title: 'Non-defining relative clauses', description: 'Extra facts' },
-    ] });
+    if (st === 'sub_one') {
+        const topic = /CURRENT TOPIC to expand: (.+)/.exec(user)?.[1]?.trim() || 'Topic';
+        return JSON.stringify({ subElements: [
+            { title: `${topic}: form`, description: 'Form' },
+            { title: `${topic}: use`, description: 'Use' },
+        ] });
+    }
     return null;
 }
 
 // Calls told to answer with something unreadable: `(stage, user) => boolean`.
 let unreadable = () => false;
+// A section the batched topics call leaves out of its answer, or null.
+let batchMisses = null;
 let calls = [];
 
 const stub = createServer((req, res) => {
@@ -198,6 +208,21 @@ ok('the run completes', !!done, JSON.stringify(frames.find(f => f.phase === 'err
 const freshId = done?.projectId;
 ok('its outline: 2 phases, 3 sections, 6 topics', freshId && titlesOf(freshId).length === 11, JSON.stringify(freshId && titlesOf(freshId)));
 checkCalls('creation', calls, TYPED_GOAL, OUTLINE);
+const summaries = calls.filter(c => c.st === 'summary');
+ok('the summary call is told to name nothing the goal did not ask for',
+    summaries.length > 0 && summaries.every(c => /name no skill or area they did not ask for/.test(c.system)),
+    summaries.map(c => c.system.slice(0, 200)).join(' | '));
+
+console.log('\n=== a section the batched topics call missed: its own call sees the goal ===');
+batchMisses = 'Past tenses'; calls = [];
+frames = await stream('/api/ai/create-project', { name: 'English 1b', description: TYPED_GOAL, content_language: 'en' });
+batchMisses = null;
+done = frames.find(f => f.phase === 'complete');
+ok('the run completes', !!done, JSON.stringify(frames.find(f => f.phase === 'error')));
+ok('the missed section is filled by its own call', done && titlesOf(done.projectId).includes('Past tenses: form'), JSON.stringify(done && titlesOf(done.projectId)));
+const fallback = calls.filter(c => c.st === 'sub_one' && c.user.includes('CURRENT TOPIC to expand: Past tenses'));
+ok('that call was made', fallback.length === 1, String(fallback.length));
+checkCalls('missed by the batch', fallback, TYPED_GOAL, ['sub_one']);
 
 // ---- 2. stopped with a phase unwritten, then carried on --------------------------
 console.log('\n=== a stopped creation carried on: the continuation sees the goal ===');
@@ -210,7 +235,7 @@ ok('the first run stops with the second phase empty', !!frames.find(f => f.phase
 unreadable = () => false; calls = [];
 frames = await stream('/api/ai/continue-creation', { projectId: stoppedId });
 ok('the continuation completes', !!frames.find(f => f.phase === 'complete'), JSON.stringify(frames.find(f => f.phase === 'error')));
-ok('…and writes the missing phase', titlesOf(stoppedId).includes('Defining relative clauses'), JSON.stringify(titlesOf(stoppedId)));
+ok('…and writes the missing phase', titlesOf(stoppedId).includes('Relative clauses: form'), JSON.stringify(titlesOf(stoppedId)));
 checkCalls('continuation', calls, TYPED_GOAL, ['elements', 'sub_one']);
 
 // ---- 3. no goal typed: the identity step's description ---------------------------
@@ -219,6 +244,8 @@ unreadable = (st, user) => st === 'elements' && user.includes('Learning Phase: C
 calls = [];
 frames = await stream('/api/ai/create-project', { name: 'English grammar', description: '', content_language: 'en' });
 const untypedId = frames.findLast(f => f.projectId)?.projectId;
+ok('the first run stops with the second phase empty', !!frames.find(f => f.phase === 'error') && untypedId
+    && !titlesOf(untypedId).includes('Relative clauses'), JSON.stringify(untypedId && titlesOf(untypedId)));
 checkCalls('creation, no goal typed', calls, WRITTEN_GOAL, ['categories', 'elements', 'sub_batch']);
 unreadable = () => false; calls = [];
 frames = await stream('/api/ai/continue-creation', { projectId: untypedId });
