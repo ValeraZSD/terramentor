@@ -653,6 +653,33 @@ try {
         mark(ben, 'ben-3');
         r = cli('restore', forged);
         ok('a backup whose site.db names a library id that is no id is refused and the site is untouched', r.code === 1 && /untouched/.test(r.out) && markOf(ben) === 'ben-3', r.out);
+        // A forged site.db handing one user to two libraries (one could read the other's).
+        const twoUsers = join(scratch, 'ops-two-users');
+        cpSync(night, twoUsers, { recursive: true });
+        {
+            // Rebuilt without its UNIQUE: a forger writes whatever schema they like.
+            const f = new Database(join(twoUsers, 'site.db'));
+            f.pragma('foreign_keys = OFF');
+            f.exec('CREATE TABLE l2 AS SELECT * FROM libraries; DROP TABLE libraries; ALTER TABLE l2 RENAME TO libraries; UPDATE libraries SET uid = 4242;');
+            f.close();
+        }
+        r = cli('restore', twoUsers);
+        ok('a backup whose site.db gives one user to two libraries is refused and the site is untouched', r.code === 1 && /two libraries/.test(r.out) && markOf(ben) === 'ben-3', r.out);
+        // A ledger line naming a library the site still has was not written by its removal.
+        const wrongLedger = join(scratch, 'ops-erasures-wrong');
+        writeFileSync(wrongLedger, `${crypto.createHash('sha256').update(`site:${ben}`).digest('hex')} 20261126T000000Z 20261210T000000Z\n`);
+        r = cli('restore', night, '--erased', wrongLedger);
+        ok('a ledger that names a library the site still has is refused, and that library is untouched', r.code === 1 && /still has/.test(r.out)
+            && markOf(ben) === 'ben-3' && existsSync(pool.libDir(ben)), r.out);
+        // A backup whose library is a link (to another library's folder) is not followed.
+        const linkedBackup = join(scratch, 'ops-linked-backup');
+        cpSync(night, linkedBackup, { recursive: true });
+        rmSync(join(linkedBackup, 'libraries', ben), { recursive: true });
+        symlinkSync(pool.libDir(ann), join(linkedBackup, 'libraries', ben), 'junction');
+        r = cli('restore', linkedBackup);
+        ok('a backup whose library folder is a link is refused and the site is untouched', r.code === 1 && /not a folder/.test(r.out)
+            && markOf(ben) === 'ben-3' && markOf(ann) === 'ann-1', r.out);
+        if (process.platform === 'win32') rmdirSync(join(linkedBackup, 'libraries', ben)); else unlinkSync(join(linkedBackup, 'libraries', ben));
         rmSync(join(night, 'libraries', ben), { recursive: true });
         r = cli('restore', night);
         ok('a library its night could not back up keeps its account and its folder as it is', r.code === 0 && /not backed up that night/.test(r.out)

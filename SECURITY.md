@@ -515,17 +515,24 @@ loads it. What it does:
   [age](https://age-encryption.org) (X25519, ChaCha20-Poly1305) to the operator's public key(s)
   in `TM_BACKUP_RECIPIENTS`. No backup is written without one, and a file holding a private key
   is refused there, as is a recipients file anyone but root can write. The private key is not
-  needed to back up, only to restore, so it need not be on the server; the unencrypted archive
-  exists only while it is checked, in `hosted/.work/` (root only), and is deleted after. Anyone
-  who copies the backup folder, a storage box included, reads nothing without a private key.
+  needed to back up, only to restore, so it need not be on the server. Unencrypted, a backup
+  exists only while it is made and checked: in a `.backup-*` folder inside the library or site
+  being backed up, then in `hosted/.work/` (root only); both are deleted after, and what a
+  killed run left is deleted by the next one (files are unlinked, not overwritten). Anyone who
+  copies the backup folder, a storage box included, reads nothing without a private key.
   age does not prove who made an archive (anyone with the public key can), so only archives
-  from the operator's own backup folder should be restored; `site-restore` refuses a `site.db`
-  whose library ids or user ids are not of the shape the front desk writes.
+  from the operator's own backup folder should be restored. `site-restore` refuses a library
+  archive that was not made from the library whose folder it is in, or that holds a link, and a
+  `site.db` whose library ids or user ids are not ones the front desk writes (one user for two
+  libraries, or a user the site already gives another library).
 - **Each library is read and written as its own user.** The front desk runs as root, but its
-  backup and restore of a site library run the library's tool under that library's uid, and a
-  backup refuses a library whose database, vault or credentials file is a link. A person who
-  plants links in their own library folder cannot make a backup or restore read another
-  library or write over `site.db`.
+  backup and restore of a site library run the library's tool under that library's uid, with
+  none of the front desk's environment but the basics, and a removed library's folder is
+  emptied as its uid. A backup refuses a library whose database, vault or credentials file is
+  a link, and root hands a library nothing through a link or a second name of a file. A person
+  who plants links in their own library folder cannot make a backup or restore read another
+  library or write over `site.db`. A uid, once given, is never given to a new library again,
+  even after its library is removed.
 - **A site restore signs everyone out**: the restored `site.db` keeps no session, and every
   password is the one that night's backup held.
 - **Retention**: the newest `TM_BACKUP_KEEP` (default 14) archives per copy or library; older
@@ -540,10 +547,14 @@ loads it. What it does:
   front desk starts. After the grace period, the nightly `backup --all` deletes the person's
   archives. The ledger is kept outside every archive, on the server and in the backup folder,
   and read as the union of both, so an older backup put back is erased again on the next night.
-  `hosted/rehearse.sh` checks all of this in CI.
+  Since anyone who can write the backup folder can add a line, a line dated in the future is not
+  read, and one that names a site library that still has an account is acted on by neither the
+  sweep nor a restore. `hosted/rehearse.sh` checks the erasure, the refused restores and the
+  sweep in CI.
 - **What it does not reach**: the `site.db` archives made before a removal hold that account's
-  email address and password hash until they roll off (`TM_BACKUP_KEEP` backups); `site.db`
-  overwrites removed rows (`secure_delete`), so later archives do not. The sweep deletes the
+  email address and password hash until they roll off (`TM_BACKUP_KEEP` backups); later
+  archives do not (`site.db` overwrites removed rows, and its backup copies no free page). The
+  sweep deletes the
   archives in the erased person's own folder: one copied or moved elsewhere by hand stays,
   though no restore takes it. Archives written before encryption (`.tar.gz`) stay readable until
   retention deletes them. And it deletes only in `TM_BACKUP_DIR`: a copy of that folder made

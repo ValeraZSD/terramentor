@@ -67,13 +67,17 @@ export function createLibraryPool({
     }
 
     /**
-     * A user no one has: above every row, every folder on disk (a restore of an
-     * older site.db keeps the folders of people who joined after it) and every
-     * process still running (a removed library runs until the next sweep).
+     * A user no one has, nor had: above every row, every folder on disk (a
+     * restore of an older site.db keeps the folders of people who joined after
+     * it), every process still running (a removed library runs until the next
+     * sweep) and the highest ever given, kept outside site.db (a person removed
+     * meanwhile may come back with a restore of an older night).
      */
+    const uidMark = path.join(layout.root, 'uid-mark');
     function nextUid() {
         let top = Math.max(uidBase - 1, q.maxUid.get().uid ?? 0);
         for (const c of children) top = Math.max(top, c.libraryUid ?? 0);
+        try { top = Math.max(top, Number.parseInt(fs.readFileSync(uidMark, 'utf8'), 10) || 0); } catch { /* none given yet */ }
         if (process.platform !== 'win32') {
             for (const name of fs.readdirSync(layout.libraries)) {
                 try { top = Math.max(top, fs.lstatSync(path.join(layout.libraries, name)).uid); } catch { /* gone meanwhile */ }
@@ -86,6 +90,7 @@ export function createLibraryPool({
     function create() {
         const id = crypto.randomBytes(16).toString('hex');
         const uid = separate ? nextUid() : null;
+        if (uid != null) fs.writeFileSync(uidMark, `${uid}\n`, { mode: 0o600 });
         q.add.run(id, uid, crypto.randomBytes(32).toString('hex'), nowIso());
         const dir = libDir(id);
         fs.mkdirSync(dir, { mode: 0o700 });

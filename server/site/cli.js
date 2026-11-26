@@ -57,10 +57,14 @@ const LIBRARY_ID = /^[0-9a-f]{32}$/;
 const asRoot = process.platform !== 'win32' && process.getuid?.() === 0;
 const ownedBy = (uid) => asRoot && Number.isInteger(uid) && uid > 0;
 
+// What of this tool's environment a library's user is given: no more than a
+// running library gets (libraries.js), since that user can read its own processes'.
+const PASSED_ENV = /^(PATH|LANG|LC_ALL|TZ|NODE_ENV|SYSTEMROOT|WINDIR|TEMP|TMP)$/i;
+
 /** `hostedCli.js` against one library's folder (its DATA_DIR), as the library's user. */
 function hostedCliOn(libraryDir, cliArgs, uid) {
-    const env = { ...process.env, DATA_DIR: libraryDir };
-    for (const k of ['DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH']) delete env[k];
+    const env = { HOME: libraryDir, DATA_DIR: libraryDir };
+    for (const [k, v] of Object.entries(process.env)) if (PASSED_ENV.test(k)) env[k] = v;
     const r = spawnSync(process.execPath, [path.join(appRoot, 'server', 'hostedCli.js'), ...cliArgs], {
         env, encoding: 'utf8', cwd: appRoot, ...(ownedBy(uid) ? { uid, gid: uid } : {}),
     });
@@ -70,28 +74,60 @@ function hostedCliOn(libraryDir, cliArgs, uid) {
 /** Folders a library's user must pass through (not read) to reach its own. */
 function passable(dir) { if (asRoot) fs.chmodSync(dir, 0o711); }
 
-/** Give a library's folder (or what it is restored from) to the library's own user. */
+/**
+ * Give a library's folder (or what it is restored from) to the library's own
+ * user. Never through a link, and never a file with a second name: one the
+ * library linked to a file of root's (site.db) stays root's.
+ */
 function ownTree(dir, uid) {
     if (!ownedBy(uid)) return;
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory()) throw new Error(`${dir} is not a folder`);
     fs.lchownSync(dir, uid, uid);
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, entry.name);
-        if (entry.isDirectory()) ownTree(p, uid);
-        else fs.lchownSync(p, uid, uid);
+        const s = fs.lstatSync(p);
+        if (s.isDirectory()) ownTree(p, uid);
+        else if (s.isSymbolicLink() || s.nlink === 1 || s.uid === uid) fs.lchownSync(p, uid, uid);
     }
 }
 
+/**
+ * Delete a library's folder. Run as root, what is inside is deleted as the
+ * library's own user (a library still running may swap a folder for a link
+ * while root walks it), and root removes only the empty folder.
+ */
+function deleteLibraryFolder(dir, uid) {
+    if (!ownedBy(uid)) { fs.rmSync(dir, { recursive: true, force: true }); return; }
+    if (!fs.existsSync(dir)) return;
+    spawnSync('find', [dir, '-mindepth', '1', '-delete'], { uid, gid: uid, stdio: 'ignore' });
+    fs.rmdirSync(dir);
+}
+
 /** Delete an account and its library from a site database (live or about to be restored). */
+const forgetQueries = new WeakMap();
 function forgetLibrary(db, libraryId) {
-    const account = db.prepare('SELECT id, email FROM accounts WHERE library_id = ?').get(libraryId);
+    let q = forgetQueries.get(db);
+    if (!q) {
+        q = {
+            account: db.prepare('SELECT id, email FROM accounts WHERE library_id = ?'),
+            sessions: db.prepare('DELETE FROM sessions WHERE account_id = ?'),
+            accounts: db.prepare('DELETE FROM accounts WHERE id = ?'),
+            invites: db.prepare('DELETE FROM invites WHERE email = ?'),
+            throttle: db.prepare('DELETE FROM throttle WHERE key = ?'),
+            library: db.prepare('DELETE FROM libraries WHERE id = ?'),
+        };
+        forgetQueries.set(db, q);
+    }
+    const account = q.account.get(libraryId);
     db.transaction(() => {
         if (account) {
-            db.prepare('DELETE FROM sessions WHERE account_id = ?').run(account.id);
-            db.prepare('DELETE FROM accounts WHERE id = ?').run(account.id);
-            db.prepare('DELETE FROM invites WHERE email = ?').run(account.email);
-            db.prepare('DELETE FROM throttle WHERE key = ?').run(`acct:${account.email}`);
+            q.sessions.run(account.id);
+            q.accounts.run(account.id);
+            q.invites.run(account.email);
+            q.throttle.run(`acct:${account.email}`);
         }
-        db.prepare('DELETE FROM libraries WHERE id = ?').run(libraryId);
+        q.library.run(libraryId);
     })();
     return account?.email ?? null;
 }
@@ -109,8 +145,9 @@ async function backupCommand() {
         if (!rows.length) { fs.rmSync(dir, { recursive: true, force: true }); fail(`no library ${only}`); }
     } else {
         // The libraries are the ones in the copy of site.db, so a library made
-        // meanwhile is in neither.
-        await db.backup(path.join(dir, 'site.db'));
+        // meanwhile is in neither. VACUUM INTO, not the backup API: it copies
+        // no free page, so no row deleted before secure_delete was on goes with it.
+        db.prepare('VACUUM INTO ?').run(path.join(dir, 'site.db'));
         makePrivateFile(path.join(dir, 'site.db'));
         const snap = new Database(path.join(dir, 'site.db'), { readonly: true });
         rows = snap.prepare('SELECT id, uid FROM libraries ORDER BY id').all();
@@ -162,29 +199,55 @@ function restoreCommand() {
     // desk opens it.
     fs.mkdirSync(layout.root, { recursive: true });
     const incoming = `${layout.db}.restoring`;
-    fs.rmSync(incoming, { force: true });
-    fs.copyFileSync(from, incoming);
-    makePrivateFile(incoming);
-    const db = new Database(incoming);
-    db.pragma('secure_delete = ON');
+    // The site as it is now: who has which user, and which libraries live.
+    let live = new Map();
+    if (fs.existsSync(layout.db)) {
+        const cur = new Database(layout.db, { readonly: true, fileMustExist: true });
+        try { live = new Map(cur.prepare('SELECT id, uid FROM libraries').all().map((r) => [r.id, r.uid])); } finally { cur.close(); }
+    }
+    let db = null;
     const kept = [];
     const missing = [];
     const left = [];
     try {
+        fs.rmSync(incoming, { force: true });
+        fs.copyFileSync(from, incoming, fs.constants.COPYFILE_EXCL);
+        makePrivateFile(incoming);
+        db = new Database(incoming);
+        db.pragma('secure_delete = ON');
         const okCheck = db.pragma('quick_check', { simple: true });
         if (okCheck !== 'ok') throw new Error(`the backup's site.db failed its check: ${okCheck}`);
         const rows = db.prepare('SELECT id, uid FROM libraries ORDER BY id').all();
         // A backup is only as trusted as whoever could write to where it was
         // kept: an id is a folder name and a uid is whom it is handed to.
+        const liveUids = new Map([...live].filter(([, u]) => u != null).map(([id, u]) => [u, id]));
+        const given = rows.map((r) => r.uid).filter((u) => u != null);
+        const twice = given.find((u, i) => given.indexOf(u) !== i);
+        if (twice !== undefined) throw new Error(`the backup's site.db gives the user ${twice} to two libraries`);
         for (const { id, uid } of rows) {
             if (!LIBRARY_ID.test(String(id))) throw new Error(`the backup's site.db names a library ${JSON.stringify(id)}, which is no library id`);
-            if (uid != null && !(Number.isInteger(uid) && uid > 0)) throw new Error(`the backup's site.db gives library ${id} the user ${uid}`);
+            if (uid == null) {
+                if (liveUids.size) throw new Error(`the backup's site.db gives library ${id} no user of its own, on a site where every library has one`);
+                continue;
+            }
+            if (!(Number.isInteger(uid) && uid > 0)) throw new Error(`the backup's site.db gives library ${id} the user ${uid}`);
+            if (live.has(id) && live.get(id) !== uid) throw new Error(`the backup's site.db gives library ${id} the user ${uid}; the site has it as ${live.get(id)}`);
+            if (liveUids.has(uid) && liveUids.get(uid) !== id) throw new Error(`the backup's site.db gives library ${id} the user ${uid}, which is library ${liveUids.get(uid)}'s`);
+        }
+        // Every erasure was written when its library was removed, so one that
+        // names a library the site still has was not: refused, not acted on.
+        for (const id of live.keys()) {
+            if (isErased(id)) throw new Error(`the erasure ledger names library ${id}, which the site still has; that line is wrong`);
         }
         for (const row of rows) {
             if (isErased(row.id)) { forgetLibrary(db, row.id); left.push(row.id); continue; }
             // Not in the backup (it could not be backed up that night): its row
             // stays and its folder is left as it is.
-            if (!fs.existsSync(path.join(dir, 'libraries', row.id))) { missing.push(row.id); continue; }
+            const src = path.join(dir, 'libraries', row.id);
+            let st = null;
+            try { st = fs.lstatSync(src); } catch { /* not there */ }
+            if (!st) { missing.push(row.id); continue; }
+            if (!st.isDirectory()) throw new Error(`library ${row.id} in the backup is not a folder`);
             kept.push(row);
         }
         // Sessions of that night are not brought back: everyone signs in again,
@@ -192,7 +255,7 @@ function restoreCommand() {
         db.prepare('DELETE FROM sessions').run();
         db.pragma('wal_checkpoint(TRUNCATE)');
     } catch (e) {
-        db.close();
+        db?.close();
         fs.rmSync(incoming, { force: true });
         fail(`${e.message}; the site is untouched`);
     }
@@ -273,14 +336,19 @@ if (command === 'backup') {
         console.log(`Wrong guesses forgotten for ${normalEmail(args[0])}; the password works again.`);
     } else if (command === 'remove') {
         const email = normalEmail(args[0]);
-        const row = db.prepare('SELECT library_id FROM accounts WHERE email = ?').get(email);
+        const row = db.prepare('SELECT a.library_id, l.uid FROM accounts a LEFT JOIN libraries l ON l.id = a.library_id WHERE a.email = ?').get(email);
         if (!row) fail(`no account ${email}`);
         // The rows first: from here no session or wake reaches the library.
         forgetLibrary(db, row.library_id);
-        // Windows (development only) refuses to delete a running library's open
-        // files; the front desk's sweep stops it within half a minute.
+        // A running library may still write into its folder (and Windows, for
+        // development only, refuses to delete its open files): the front desk's
+        // sweep stops it within half a minute. By then root may walk it itself.
         for (let waited = 0; ; waited++) {
-            try { fs.rmSync(layout.library(row.library_id), { recursive: true, force: true }); break; } catch (e) {
+            try {
+                if (waited < 30) deleteLibraryFolder(layout.library(row.library_id), row.uid);
+                else fs.rmSync(layout.library(row.library_id), { recursive: true, force: true });
+                break;
+            } catch (e) {
                 if (!['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(e.code) || waited >= 60) fail(`account ${email} removed, but its folder could not be deleted (${e.code}): ${layout.library(row.library_id)}`);
                 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
             }

@@ -32,7 +32,7 @@ import { restoreMarkerPath } from './hosted.js';
 import { dataPaths } from './paths.js';
 import { makePrivateDir, makePrivateFile } from './privateFiles.js';
 // The credentials file is opened only by secrets.js; this tool asks it.
-import { copyCredentialsTo, replaceCredentialsFrom } from './secrets.js';
+import { copyCredentialsTo, credentialsAreALink, replaceCredentialsFrom } from './secrets.js';
 
 // stdout carries this tool's answer and nothing else (copy.sh reads the
 // generated password from it); what the library says while it opens goes to
@@ -115,15 +115,16 @@ function countProjects(file) {
 async function backupCommand([dir]) {
     if (!dir) fail('usage: backup <dir>');
     if (existsSync(dir)) fail(`${dir} already exists`);
-    const { dbPath, vaultRoot, secretsPath } = dataPaths();
+    const { dbPath, vaultRoot } = dataPaths();
     if (!existsSync(dbPath)) fail(`no library at ${dbPath}`);
     // What the backup reads is the library's own: a link (to another library,
     // or out of the folder) is not followed into its archive.
-    for (const p of [dbPath, vaultRoot, secretsPath]) {
+    for (const p of [dbPath, vaultRoot]) {
         let st = null;
         try { st = lstatSync(p); } catch { /* not there */ }
         if (st?.isSymbolicLink()) fail(`${p} is a link, not part of this library; nothing was backed up`);
     }
+    if (credentialsAreALink()) fail('the credentials file is a link, not part of this library; nothing was backed up');
     // Its database and credentials may not belong together: saving it as a
     // good backup would let a later restore clear the marker on it.
     if (existsSync(restoreMarkerPath(dbPath))) fail('a restore of this library is unfinished; restore a good backup first');

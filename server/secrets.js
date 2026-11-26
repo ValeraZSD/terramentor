@@ -74,9 +74,16 @@ export function secretsFile() {
     return dataPaths().secretsPath;
 }
 
+/** Whether the file is a link (a backup does not follow one). */
+export function credentialsAreALink() {
+    try { return lstatSync(secretsFile()).isSymbolicLink(); } catch { return false; }
+}
+
 /** A hosted copy's backup (hostedCli.js): the file as it is, to `to`, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
     try {
+        // A link (to another library's file) is not followed into a backup.
+        if (lstatSync(secretsFile()).isSymbolicLink()) throw new Error(`${secretsFile()} is a link, not part of this library`);
         copyFileSync(secretsFile(), to);
     } catch (e) {
         if (e.code === 'ENOENT') return false;
