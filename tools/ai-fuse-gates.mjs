@@ -68,11 +68,26 @@ const fake = http.createServer((req, res) => {
         const usage = { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160, cost: COST };
         const content = 'Because the two waves cancel there.';
         if (body.stream) {
+            // OpenRouter's shape: the finish_reason chunk, then (a moment
+            // later here, so a reader that stops at the finish cannot see it
+            // in the same read) an extra chunk repeating it with `usage`.
+            // A body asking for 'no usage' gets a stream without one.
+            // One asking to be 'slow' waits before its finish_reason too.
+            const said = JSON.stringify(body.messages || []);
+            const noUsage = said.includes('no usage');
+            const finish = { choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] };
             res.writeHead(200, { 'content-type': 'text/event-stream' });
             res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content } }] })}\n\n`);
-            res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage })}\n\n`);
-            res.write('data: [DONE]\n\n');
-            return res.end();
+            return setTimeout(() => {
+                if (res.destroyed) return;
+                res.write(`data: ${JSON.stringify(finish)}\n\n`);
+                setTimeout(() => {
+                    if (res.destroyed) return;
+                    if (!noUsage) res.write(`data: ${JSON.stringify({ ...finish, usage })}\n\n`);
+                    res.write('data: [DONE]\n\n');
+                    res.end();
+                }, 150);
+            }, said.includes('slow') ? 400 : 0);
         }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ model: body.model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage }));
@@ -163,7 +178,9 @@ try {
         const explain = (who) => req('POST', '/api/ai/explain-question', { cookie: who.cookie, json: { nodeId: who === a ? node : undefined, question: QUESTION, correctAnswer: 'They cancel', userAnswer: 'No idea' } });
         const spentOf = (who) => {
             const d = new Database(join(desk.pool.libDir(who.libraryId), 'terramentor.db'), { readonly: true });
-            try { return d.prepare('SELECT usd FROM ai_spend WHERE month = ?').get(new Date().toISOString().slice(0, 7))?.usd ?? 0; }
+            // Every month the library has counted (a fresh library has one, two
+            // if the run crosses a month's end): the gate reads no clock.
+            try { return d.prepare('SELECT COALESCE(SUM(usd), 0) AS usd FROM ai_spend').get().usd; }
             catch { return null; } finally { d.close(); }
         };
         const askedSince = (n) => asked.slice(n).map((x) => x.model);
@@ -208,6 +225,10 @@ try {
         ok('after the stop, a card review still saves', review.status === 200 && JSON.parse(review.text).review_count === 1, `${review.status} ${review.text.slice(0, 160)}`);
         const sitting = await req('POST', `/api/ai/quizzes/${quiz}/attempt`, { cookie: a.cookie, json: { score: 1, total: 1, answers: [0], attemptId: crypto.randomUUID() } });
         ok('after the stop, a quiz sitting still saves', sitting.status === 200, `${sitting.status} ${sitting.text.slice(0, 160)}`);
+        const paper = await req('GET', '/api/paper/capability', { cookie: a.cookie });
+        let paperBody = {};
+        try { paperBody = JSON.parse(paper.text); } catch { /* checked below */ }
+        ok('…and a check that asks which model would read a photo answers "none" instead of failing', paper.status === 200 && paperBody.vision === false, `${paper.status} ${paper.text.slice(0, 160)}`);
         const projects = await req('GET', '/api/projects', { cookie: a.cookie });
         ok('…and the library reads as before', projects.status === 200 && JSON.parse(projects.text).some((p) => p.name === 'Waves'));
 
@@ -225,14 +246,17 @@ try {
         ok('the second learner crossed nothing, so no notice names them', bSpent < 0.01 && !notices.some((x) => x.library === b.libraryId.slice(0, 8)));
         ok('a notice is also a line in the library\'s log', lines.some((l) => l.includes('[ai-fuse]') && l.includes(a.libraryId.slice(0, 8))), lines.filter((l) => /fuse/i.test(l)).join(' | '));
 
-        // A streamed answer is counted too: the cost rides in its last chunk.
-        // Last, since it may carry the second learner past the switch.
+        // A streamed answer is counted too: the cost rides in the extra chunk
+        // after the answer's finish_reason, which the app's reader never
+        // reads. Last, since it may carry the second learner past the switch.
         n = asked.length;
         const streamedBefore = spentOf(b);
         const bChat = await req('POST', '/api/ai/assistant/stream', { cookie: b.cookie, json: { message: 'Why are there nodes?', timeZone: 'UTC' } });
         const streamed = asked.slice(n).filter((x) => x.stream).length;
-        ok('a streamed answer is counted from its last chunk', bChat.status === 200 && streamed >= 1
-            && Math.abs(spentOf(b) - streamedBefore - COST * (asked.length - n)) < 1e-9, `${bChat.status} streamed=${streamed} calls=${asked.length - n} ${streamedBefore} -> ${spentOf(b)}`);
+        const expected = streamedBefore + COST * (asked.length - n);
+        for (let i = 0; i < 100 && Math.abs(spentOf(b) - expected) >= 1e-9; i++) await new Promise((r) => setTimeout(r, 30));
+        ok('a streamed answer is counted at the cost in its usage chunk', bChat.status === 200 && streamed >= 1
+            && Math.abs(spentOf(b) - expected) < 1e-9, `${bChat.status} streamed=${streamed} calls=${asked.length - n} ${streamedBefore} -> ${spentOf(b)}`);
     }
     await release();
 
@@ -244,7 +268,10 @@ try {
         if (!String(process.env.DB_PATH).includes('ai-fuse-gates-')) throw new Error('refusing to run against a library that is not the scratch one');
         const { chainFor } = await import('../server/aiJobs.js');
         const { wireFetch } = await import('../server/aiWire.js');
-        const month = new Date().toISOString().slice(0, 7);
+        const { setFuseClockForTest, requestChars } = await import('../server/aiSpend.js');
+        // A pinned instant: the month the fuse counts in is not the gate's clock.
+        setFuseClockForTest(() => Date.parse('2026-12-15T12:00:00Z'));
+        const month = '2026-12';
         // A month far past both lines, as if a site library had written it.
         db.prepare("INSERT INTO ai_spend (month, usd, calls, updated_at) VALUES (?, 99, 1, 'x') ON CONFLICT(month) DO UPDATE SET usd = 99").run(month);
         const call = async () => {
@@ -284,6 +311,31 @@ try {
         await (await send()).text();
         ok('…and the wire moves a call that still names the main model', asked.slice(before).map((x) => x.model).join() === 'small-model', asked.slice(before).map((x) => x.model).join());
         ok('…counting what it cost', Math.abs(db.prepare('SELECT usd FROM ai_spend WHERE month = ?').get(month).usd - 0.015 - COST) < 1e-9);
+
+        // A provider that reports no cost: the answer's text is priced, not
+        // the stream's framing around it, nor a picture sent as a data: address.
+        const spentNow = () => db.prepare('SELECT usd FROM ai_spend WHERE month = ?').get(month).usd;
+        const streamBody = JSON.stringify({ model: 'small-model', stream: true, messages: [{ role: 'user', content: [
+            { type: 'text', text: 'no usage' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${'A'.repeat(40_000)}` } },
+        ] }] });
+        db.prepare('UPDATE ai_spend SET usd = 0.015 WHERE month = ?').run(month);
+        const small = { ...main, model: 'small-model' };
+        const streamed = await wireFetch(small)(`${fakeBase}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: streamBody });
+        await streamed.text();
+        const priced = ((requestChars(streamBody) / 4) * 2 + ('Because the two waves cancel there.'.length / 4) * 10) / 1e6;
+        ok('a stream with no usage is priced from its answer text and the request\'s words, not its picture', Math.abs(spentNow() - 0.015 - priced) < 1e-12 && requestChars(streamBody) < 300,
+            `${spentNow() - 0.015} vs ${priced}, request ${requestChars(streamBody)} chars`);
+
+        // A reader that stops mid-answer (the learner pressed Stop) is counted
+        // at once from what came, without reading on.
+        db.prepare('UPDATE ai_spend SET usd = 0.015 WHERE month = ?').run(month);
+        const cut = await wireFetch(small)(`${fakeBase}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'small-model', stream: true, messages: [{ role: 'user', content: 'no usage, slow' }] }) });
+        const reader = cut.body.getReader();
+        await reader.read();
+        await reader.cancel();
+        ok('a stream stopped mid-answer is counted at once', spentNow() > 0.015, spentNow());
+        setFuseClockForTest();
         delete process.env.TERRAMENTOR_SITE_LIBRARY;
         delete process.env.TERRAMENTOR_HOSTED;
     }
