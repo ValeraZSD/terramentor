@@ -9,6 +9,7 @@
 import db, { NOW_ISO } from './database.js';
 import { costOf, fuseLimits, FUSE_STOPPED, monthOf, noticeText, stageOf } from './aiFuse.js';
 import { learnerError } from './clientError.js';
+import { localEndpointFetch } from './netSafety.js';
 
 let stmts = null;
 const q = () => stmts ||= {
@@ -19,8 +20,14 @@ const q = () => stmts ||= {
     stopped: db.prepare(`UPDATE ai_spend SET stopped_at = ${NOW_ISO} WHERE month = ? AND stopped_at IS NULL`),
 };
 
+let clock = () => Date.now();
+/** Pin the instant the fuse counts in (a gate must not read the clock); no argument puts the real one back. */
+export function setFuseClockForTest(fn) {
+    clock = typeof fn === 'function' ? fn : () => Date.now();
+}
+
 /** This month's spend and stage, or null when this library has no fuse. */
-export function fuseState(now = Date.now()) {
+export function fuseState(now = clock()) {
     const limits = fuseLimits();
     if (!limits) return null;
     const month = monthOf(now);
@@ -51,7 +58,7 @@ export function fuseChain(chain) {
 }
 
 /** Add one call's cost to this month, and tell the operator about a line crossed. */
-export function recordSpend(usd, now = Date.now()) {
+export function recordSpend(usd, now = clock()) {
     const limits = fuseLimits();
     if (!limits || !(usd > 0)) return;
     const month = monthOf(now);
@@ -77,13 +84,16 @@ function notice(event, { spentUsd, limits, month, now }) {
         text, event, library: String(env.SITE_LIBRARY_ID || '').slice(0, 8), month,
         spentUsd: Math.round(spentUsd * 100) / 100, switchUsd: limits.switchUsd, stopUsd: limits.stopUsd,
     });
-    fetch(limits.noticeUrl, {
+    // An address the operator typed, as an Ollama's is: a machine on their own
+    // network may take it, a cloud metadata address may not, and a redirect is
+    // not followed (it comes back as the 3xx it is).
+    localEndpointFetch()(limits.noticeUrl, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body,
-        redirect: 'error', signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(10_000),
     }).then((res) => {
         if (!res.ok) console.warn(`[ai-fuse] AI_FUSE_NOTICE_URL answered ${res.status}; the notice is only in this log`);
         return res.body?.cancel();
-    }).catch((e) => console.warn(`[ai-fuse] AI_FUSE_NOTICE_URL could not be reached (${e.code || e.name}); the notice is only in this log`));
+    }).catch((e) => console.warn(`[ai-fuse] AI_FUSE_NOTICE_URL could not be reached (${e.cause?.code || e.code || e.message || e.name}); the notice is only in this log`));
 }
 
 const CHAT = /\/chat\/completions(?:\?|$)/;
@@ -111,7 +121,7 @@ export async function meteredCall(send, settings, url, init = {}) {
     }
     const res = await send(url, body === init.body ? init : { ...init, body });
     if (!res.ok || !res.body) return res;
-    return counted(res, typeof body === 'string' ? body.length : 0);
+    return counted(res, requestChars(body));
 }
 
 /** A request body naming `model`. Not JSON: unchanged (the fuse never breaks a request it cannot read). */
@@ -123,34 +133,66 @@ function onModel(body, model) {
     return JSON.stringify({ ...parsed, model });
 }
 
+/** The characters a request asks the model to read: its text, without the pictures it carries as data: addresses. */
+export const requestChars = (body) => (typeof body === 'string' ? body.replace(/"data:[^"]*"/g, '""').length : 0);
+
+// After a stream's answer has finished, how long and how far the fuse reads on
+// for the chunk that carries `usage`. OpenRouter sends it as an extra chunk
+// AFTER the one with the finish_reason ("every stream ends with an extra chunk
+// that carries the `usage` object", openrouter.ai/docs/api-reference/streaming),
+// and the app's stream reader (ai.js) stops at the first finish_reason.
+const DRAIN_MS = 5000;
+const DRAIN_BYTES = 64 * 1024;
+
 /**
  * The response, with its body read through on the way to the caller. The cost
- * is taken from the last `usage` block (a stream's final chunk, or the JSON
- * body) once the body ends, errors or is cancelled, whichever comes first.
+ * is taken from the last `usage` block (a stream's usage chunk, or the JSON
+ * body) once the body ends or errors. A caller that stops reading after the
+ * answer finished leaves the rest to the fuse, which reads on to the usage
+ * chunk; one that stops mid-answer is counted at once from what came (the
+ * provider stops generating when the connection closes).
  */
 function counted(res, inChars) {
     const source = res.body.getReader();
     const decoder = new TextDecoder();
+    const isStream = /text\/event-stream/i.test(res.headers.get('content-type') || '');
     let line = '';
     let whole = '';
-    let outChars = 0;
+    let rawChars = 0;
+    let textChars = 0;
+    let sawData = false;
+    let finished = false;
     let usage = null;
     let settled = false;
     const readLine = (l) => {
         const s = l.trim();
-        if (!s.startsWith('data:') || !s.includes('"usage"')) return;
-        try {
-            const u = JSON.parse(s.slice(5)).usage;
-            if (u && typeof u === 'object') usage = u;
-        } catch { /* not JSON: not a usage chunk */ }
+        if (!s.startsWith('data:')) return;
+        const data = s.slice(5).trim();
+        if (!data || data === '[DONE]') return;
+        sawData = true;
+        let json;
+        try { json = JSON.parse(data); } catch { return; }
+        if (json?.usage && typeof json.usage === 'object') usage = json.usage;
+        const choice = json?.choices?.[0];
+        const delta = choice?.delta;
+        if (delta && typeof delta === 'object') {
+            for (const t of [delta.content, delta.reasoning_content ?? delta.reasoning]) if (typeof t === 'string') textChars += t.length;
+            if (Array.isArray(delta.tool_calls)) {
+                for (const tc of delta.tool_calls) if (typeof tc?.function?.arguments === 'string') textChars += tc.function.arguments.length;
+            }
+        }
+        if (choice?.finish_reason) finished = true;
     };
     const settle = () => {
         if (settled) return;
         settled = true;
         if (line) readLine(line);
         if (!usage && whole) {
-            try { usage = JSON.parse(whole)?.usage ?? null; } catch { /* a stream, or cut short */ }
+            try { usage = JSON.parse(whole)?.usage ?? null; } catch { /* cut short */ }
         }
+        // Without a usage block: the answer's text for a stream (not the
+        // framing around it), the body for anything else.
+        const outChars = sawData ? textChars : rawChars;
         try {
             recordSpend(costOf(usage, { inChars, outChars }).usd);
         } catch (e) {
@@ -158,11 +200,28 @@ function counted(res, inChars) {
         }
     };
     const take = (text) => {
-        outChars += text.length;
-        if (whole.length < ANSWER_CHARS_KEPT) whole += text;
+        rawChars += text.length;
+        if (!isStream && whole.length < ANSWER_CHARS_KEPT) whole += text;
         const parts = (line + text).split('\n');
         line = parts.pop();
         for (const p of parts) readLine(p);
+    };
+    const readOnForUsage = async (reason) => {
+        const timer = setTimeout(() => { source.cancel(reason).catch(() => { }); }, DRAIN_MS);
+        timer.unref?.();
+        let read = 0;
+        try {
+            while (!usage && read < DRAIN_BYTES) {
+                const step = await source.read();
+                if (step.done) break;
+                read += step.value.byteLength;
+                take(decoder.decode(step.value, { stream: true }));
+            }
+        } catch { /* cut short: counted from what came */ } finally {
+            clearTimeout(timer);
+            settle();
+            source.cancel(reason).catch(() => { });
+        }
     };
     const stream = new ReadableStream({
         async pull(ctrl) {
@@ -183,6 +242,12 @@ function counted(res, inChars) {
             ctrl.enqueue(step.value);
         },
         cancel(reason) {
+            // Not awaited by the caller's reader: the usage chunk is the
+            // fuse's business, not the answer's.
+            if (finished && !usage && !settled) {
+                readOnForUsage(reason);
+                return undefined;
+            }
             settle();
             return source.cancel(reason);
         },

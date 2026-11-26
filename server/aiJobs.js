@@ -245,6 +245,10 @@ export function firstChoice(job, { model = null } = {}) {
         // A list of removed connections: the call itself refuses with the
         // message; a capability check before it has nothing better to ask.
         if (err?.jobRouteGone) return getAISettings();
+        // The month's spend is past the fuse's stop (aiSpend.js): the settings
+        // the job would use, marked, so a probe answers "no model" instead of
+        // failing; the call itself is still refused with the learner's sentence.
+        if (err?.aiFuse) return { ...chainOf(job, { model })[0], fuseStopped: true };
         throw err;
     }
 }
