@@ -235,8 +235,10 @@ out (it needs a running front desk and two invite links; see the file's header).
 API, together with the credentials file beside it (the password hash and any
 keys) and the stored files. Each archive is checked on the way out (an
 integrity check and the project count), then encrypted, and only the
-encrypted file is written to `TM_BACKUP_DIR`. The unencrypted archive exists
-only while it is checked, in `hosted/.work/` on the server (readable by root).
+encrypted file is written to `TM_BACKUP_DIR`. Unencrypted, a backup exists
+only while it is made and checked: in a `.backup-*` folder inside the library
+(or the site), then in `hosted/.work/` on the server (readable by root). Both
+are deleted after, and what a killed run left is deleted by the next run.
 
 Nightly, from root's crontab:
 
@@ -350,16 +352,28 @@ copy is erased again by the next nightly run, and a new server rebuilt from
 What it does not reach: `site.db` holds every account's email and password
 hash, so an erased person's stays in the `_site/_desk/` archives made before
 the removal until those roll off, `TM_BACKUP_KEEP` backups later (a restore of
-one deletes the account before the site starts; `site.db` overwrites a removed
-account, so later archives do not hold it). The sweep deletes archives in the
+one deletes the account before the site starts; later archives do not hold it:
+`site.db` overwrites a removed account, and its backup copies no free page).
+The sweep deletes archives in the
 erased person's own folder only: an archive copied or moved elsewhere by hand
 stays, though no restore takes it. And `copy.sh` deletes only in
 `TM_BACKUP_DIR`: whatever copies that folder elsewhere must delete what it
 deletes, within the grace period, for an erasure to be complete there too.
 
 If a removal fails partway, the erasure is taken back when nothing was deleted
-(the copy or account is still there), and stands when the account is gone but
-a folder was left; `copy.sh` says which.
+(the copy's container, or the account, is still there, or the site did not
+answer to say), and stands when they are gone but a volume or folder was left;
+`copy.sh` says which, and how to delete what was left.
+
+Anyone who can write to `TM_BACKUP_DIR` can add a line to its ledger, so
+`copy.sh` does not read a line dated after tomorrow, and acts on none that
+names a site library still having an account: the sweep keeps its archives and
+says so, and `site-restore` refuses to run until the line is deleted from both
+ledgers. A site restore also checks that each library's archive was made from
+the library whose folder it is in, so archives moved between folders are
+refused. If a library cannot be backed up (its own folder holds a link, say),
+the others are, and the backup that `site-restore` takes first goes on without
+it.
 
 ## The model and its cost
 

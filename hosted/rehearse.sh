@@ -67,6 +67,12 @@ if [ -e "$HERE/erasures" ]; then
     echo "rehearse.sh: $HERE/erasures (an erasure ledger) already exists here and the rehearsal would delete it" >&2
     exit 1
 fi
+# It erases people and moves the clock weeks ahead: real archives in a folder
+# the operator named would be swept with theirs.
+if [ -z "$OWN_BACKUPS" ] && [ -n "$(ls -A "$TM_BACKUP_DIR" 2>/dev/null)" ]; then
+    echo "rehearse.sh: TM_BACKUP_DIR ($TM_BACKUP_DIR) is not empty and the rehearsal would sweep it; name an empty folder, or none" >&2
+    exit 1
+fi
 
 cleanup() {
     [ "${KEEP:-}" = 1 ] && return 0
@@ -304,7 +310,7 @@ night_ann="$(grep "/_site/$ann_lib/" <<< "$night" | tail -1)" || true
 if [ -s "$night_a" ] && [ "$(head -c 21 "$night_a")" = age-encryption.org/v1 ] \
     && ! tar tzf - < "$night_a" >/dev/null 2>&1 \
     && ! age -d -i "$WORK/other.key" "$night_a" >/dev/null 2>&1 \
-    && age -d -i "$WORK/backup.key" "$night_a" | tar tzf - | grep -q '/terramentor\.db$'; then
+    && grep -q '/terramentor\.db$' <<< "$(age -d -i "$WORK/backup.key" "$night_a" | tar tzf -)"; then
     ok "check 2: $A's nightly archive is age-encrypted: tar cannot read it, another key cannot open it, the operator's key does"
 else
     miss "check 2: $A's nightly archive is readable without the private key, or unreadable with it: '$night_a'"
@@ -378,6 +384,30 @@ else
         && ok "check 4: the erased carol's archive is refused under another name too: $(tail -1 "$WORK/err")" \
         || miss "check 4: restoring carol's archive into $A failed for another reason, or stopped $A: $(tail -1 "$WORK/err")"
 fi
+# The new carol is someone else: an archive of hers, made after the erasure, restores.
+new_carol="$(bash "$COPY" backup carol 2>/dev/null | tail -1)" || true
+if [ -s "$new_carol" ] && bash "$COPY" restore carol "$new_carol" >/dev/null 2>"$WORK/err" && [ "$(login carol "$pwC" c3)" = 200 ]; then
+    ok "check 4: an archive of the new carol, made after the erasure, still restores"
+else
+    miss "check 4: the new carol's own archive was refused: $(tail -1 "$WORK/err")"
+fi
+# An erased person's archive put in a living library's folder, under that
+# library's name for the night: the site restore reads whom it was made from.
+ben_night="$(find "$TM_BACKUP_DIR/_site/$(library_of ben@example.test)" -maxdepth 1 -name "$(basename "$night_ann")" 2>/dev/null)"
+if [ -s "$WORK/offsite-ann" ] && [ -s "$ben_night" ]; then
+    cp "$ben_night" "$WORK/ben-night"
+    cp "$WORK/offsite-ann" "$ben_night"
+    if bash "$COPY" site-restore "$night_desk" >/dev/null 2>"$WORK/err"; then
+        miss "check 4: ann's archive, moved into ben's folder, was restored as ben's library"
+    else
+        site_up && [ -n "$(site_signin ben@example.test "$PW_BEN")" ] && grep -q 'not made from library' "$WORK/err" \
+            && ok "check 4: an erased person's archive moved into another library's folder is refused, the site untouched: $(tail -1 "$WORK/err")" \
+            || miss "check 4: the moved archive was refused for another reason, or the site was changed: $(tail -1 "$WORK/err")"
+    fi
+    cp "$WORK/ben-night" "$ben_night"
+else
+    miss "check 4: no archive of ann's ('$night_ann') or ben's night ('$ben_night') to move"
+fi
 
 echo "--- a library's own links are not followed ---"
 # A library's folder is its own to fill. Links it leaves there, to site.db, are
@@ -391,11 +421,17 @@ else
         || no "ben could not plant links in the library's own folder"
     links="$(bash "$COPY" backup --all 2>"$WORK/err")" || true
     links_desk="$(grep '/_site/_desk/' <<< "$links" | tail -1)" || true
-    if [ -s "$links_desk" ] && bash "$COPY" site-restore "$links_desk" >/dev/null 2>"$WORK/err" && site_up \
-        && [ -n "$(site_signin ben@example.test "$PW_BEN")" ] && [ "$(docker exec "$SITE" stat -c %u /site/site.db)" = 0 ]; then
-        ok "links: a site restore writes nothing through links a library left at its fixed names; site.db is whole and root's"
+    links_why=""
+    if [ ! -s "$links_desk" ]; then links_why="no site backup to restore ('$links_desk'): $(tail -2 "$WORK/err")"
+    elif ! bash "$COPY" site-restore "$links_desk" >"$WORK/links-restore" 2>"$WORK/err"; then links_why="the site restore failed: $(tail -3 "$WORK/err")"
+    elif ! site_up; then links_why="the front desk did not come back: $(docker logs --tail 5 "$SITE" 2>&1)"
+    elif [ -z "$(site_signin ben@example.test "$PW_BEN")" ]; then links_why="ben could not sign in after it: $(head -1 "$WORK/h") $(tail -2 "$WORK/links-restore")"
+    elif [ "$(docker exec "$SITE" stat -c %u:%h /site/site.db)" != 0:1 ]; then links_why="site.db is not root's own file: $(docker exec "$SITE" stat -c %u:%h /site/site.db)"
+    fi
+    if [ -z "$links_why" ]; then
+        ok "links: a site restore with links at a library's fixed names succeeds and site.db stays root's own file"
     else
-        miss "links: a site restore went through ben's links to site.db: $(tail -2 "$WORK/err")"
+        miss "links: $links_why"
     fi
     docker exec --user "$ben_uid" "$SITE" sh -c "cd /site/libraries/$ben_lib && rm -rf vault && ln -s /site vault" || no "ben could not plant a vault link"
     bash "$COPY" backup --all >/dev/null 2>"$WORK/err" && miss "links: a backup through ben's vault link reported success"
@@ -437,7 +473,7 @@ else
     miss "check 4: archives put back after an erasure survived the nightly run, or the server's ledger was not written back"
 fi
 # Every run deletes what it opened or read unencrypted.
-left_work="$(find "$HERE/.work" -mindepth 1 2>/dev/null)"
+left_work="$(find "$HERE/.work" -mindepth 1 2>/dev/null; docker exec "$SITE" sh -c 'ls -d /site/.backup-* 2>/dev/null' || true)"
 [ -z "$left_work" ] && ok "check 2: nothing unencrypted is left on the server after the runs" \
     || miss "check 2: unencrypted files left on the server: $left_work"
 
