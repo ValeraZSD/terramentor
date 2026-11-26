@@ -9,7 +9,11 @@
 // and the requests that were in flight: the log names its own suspect.
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { requestsDuring, slowRequestLog, stallKind, stallLine } from '../server/slowLog.js';
+
+// slowLog.js reads its threshold once, at import: pin it first, so a
+// SLOW_REQUEST_MS in the shell cannot move this suite's result.
+process.env.SLOW_REQUEST_MS = '1000';
+const { requestsDuring, slowRequestLog, stallKind, stallLine } = await import('../server/slowLog.js');
 
 let failures = 0;
 let passed = 0;
