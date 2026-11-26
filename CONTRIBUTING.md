@@ -148,7 +148,21 @@ scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
-`npm run test:quick` skips the four jsdom harnesses and the three browser suites if you want the fast half.
+`npm run test:quick` skips the four jsdom harnesses and the four browser suites if you want the fast half.
+
+`npm test` runs the suites side by side, as many at once as the machine has cores: on your own
+machine at most 16, and at idle priority so the desktop stays usable. The browser suites take turns.
+`perf-budget-gates` runs first and alone because its timings are a budget, then `dep-gates`
+alone because it reads every file under `tools/` while other suites write there, and
+`provenance-gates` alone because its request counts are only stable on a quiet machine. `npm test -- --jobs 4` (or `GATES_JOBS=4`) sets the number;
+`--jobs 1` runs them one after another in name order, as before. Each suite's output is printed
+whole when it ends, a failing one's under its `FAIL` line, and the run ends with the ten slowest
+suites. A suite that runs past its time limit is stopped together with every process it started.
+CI splits the suites over several runners per platform with `--shard`: `axe` (axe-gates alone),
+`browser` (the other browser suites) and `rest`; `npm test -- --shard rest --list` prints what
+one shard runs.
+A suite therefore must not take a fixed port, a fixed temp folder or a fixed file in the repo
+that another suite also uses: take a free port (`listen(0)`) and an `mkdtemp` folder.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
 `package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
@@ -223,6 +237,15 @@ line falls, but a near miss can still show; the Windows run is the one that coun
   variable and is per-project, where a fixed palette colour would ignore the learner's choice.
 - **Input capability is not a width breakpoint.** Use the `can-hover:` / `touch:` variants and
   the helpers in `src/utils/platform.ts`. A phone held sideways clears `sm:`.
+- **Interface text is `t("…")`, and its locale entries go in through `tools/i18n-put.mjs`.**
+  The key is the English sentence ([docs/I18N.md](docs/I18N.md#how-it-works-for-people-changing-the-app)).
+  Add or change entries in `src/locales/*.json` with `node tools/i18n-put.mjs <patch.json>`,
+  never by pasting lines into the files: each file is kept sorted (`tools/locale-format-gates.mjs`
+  fails otherwise), so two pull requests adding different sentences change different lines.
+  `node tools/i18n-put.mjs --settle` puts a hand-edited file back in order. Once
+  `npm run setup:worktree` or `node tools/locale-merge.mjs --register` has registered it, a git
+  merge of these files goes key by key and conflicts only on a key both sides changed; without
+  it git merges them line by line.
 - **Dates are `YYYY-MM-DD`, parsed as UTC midnight**, and date maths stays in UTC; the reason
   is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#4-data-model).
 - **A route goes in its area's file in `server/routes/`**, registered as `app.get(...)` on the

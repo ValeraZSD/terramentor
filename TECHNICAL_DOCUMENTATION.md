@@ -1142,7 +1142,7 @@ calls. `npm test` discovers them by filename, so this list cannot go stale.
 
 ```bash
 npm test                       # every guard suite
-npm run test:quick             # the same, without the jsdom harnesses
+npm run test:quick             # the same, without the jsdom harnesses and the browser suites
 npm run check                  # frontend types
 node --check server/app.js     # and each server file you touched
 npm run i18n:audit             # translation coverage, report only

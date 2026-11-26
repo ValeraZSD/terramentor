@@ -123,7 +123,7 @@ const types = (node) => childrenOf(node).map((c) => c.type);
         mkdirSync(join(root, 'src', 'components'), { recursive: true });
         mkdirSync(join(root, 'src', 'locales'), { recursive: true });
         copyFileSync(join(toolsDir, 'i18n-extract.mjs'), join(root, 'tools', 'i18n-extract.mjs'));
-        for (const f of ['i18nKeys.mjs', 'tsxAst.mjs']) copyFileSync(join(toolsDir, 'lib', f), join(root, 'tools', 'lib', f));
+        for (const f of ['i18nKeys.mjs', 'localeJson.mjs', 'tsxAst.mjs']) copyFileSync(join(toolsDir, 'lib', f), join(root, 'tools', 'lib', f));
         const target = join(root, 'src', 'components', 'Fx.tsx');
         copyFileSync(join(fixtures, 'i18n-extract.input.tsx.txt'), target);
         const broken = join(root, 'src', 'components', 'Broken.tsx');

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Locale files merge by key (tools/locale-merge.mjs). Without the driver
+# registered in the repository config, git merges them line by line.
+src/locales/*.json merge=locale-json

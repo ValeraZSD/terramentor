@@ -25,6 +25,13 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
+// server/lessonSources.js opens the library on import: a scratch one, so this
+// suite never creates the repo's default database while other suites run.
+const dbScratch = mkdtempSync(join(tmpdir(), 'citation-gates-db-'));
+process.env.DB_PATH = join(dbScratch, 'test.db');
+process.env.VAULT_ROOT = join(dbScratch, 'vault');
+process.on('exit', () => { try { rmSync(dbScratch, { recursive: true, force: true }); } catch { /* Windows holds the open database */ } });
+
 const { resolveCitations, formatSourceContext } = await import(new URL('../server/citations.js', import.meta.url).href);
 
 const require = createRequire(import.meta.url);

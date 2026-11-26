@@ -32,7 +32,7 @@ import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, namedNightly, nightlyBase, nightlyDecision,
     releaseBranch, versionCore, workflowScripts,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
-    draftProblems, gatesPassed, GATES_CHECKS,
+    draftProblems, lookUpGates,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
@@ -260,7 +260,7 @@ function resolve() {
 
 /**
  * Whether the Gates workflow already ran the guard suite on `--sha` and passed
- * (gatesPassed in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
+ * (lookUpGates in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
  * answer GitHub cannot give (no permission, no network, an error) is `false`,
  * and the release runs the suite itself: this only ever saves time. The whole
  * lookup shares one deadline, 60 seconds (`--deadline-ms` sets it for the
@@ -272,23 +272,7 @@ async function gatesPassedCmd() {
     try {
         // Inside the try: a deadline out of range is an error like any other.
         const signal = AbortSignal.timeout(Number(args['deadline-ms']) || 60_000);
-        const checkRuns = [];
-        for (const name of GATES_CHECKS) {
-            const body = await github(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`, { signal });
-            const page = body?.check_runs || [];
-            // The newest check must be among those read; past one page it may not be.
-            if ((body?.total_count ?? page.length) > page.length) {
-                throw new Error(`${body.total_count} "${name}" checks, more than one page`);
-            }
-            checkRuns.push(...page);
-        }
-        const runsBySuite = {};
-        const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
-        for (const id of suites) {
-            const runs = await github(`/actions/runs?check_suite_id=${id}&per_page=1`, { signal });
-            if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
-        }
-        verdict = gatesPassed({ sha, checkRuns, runsBySuite });
+        verdict = await lookUpGates({ sha, signal, get: (path, options) => github(path, options) });
     } catch (e) {
         verdict = { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
     }

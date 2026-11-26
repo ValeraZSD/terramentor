@@ -29,6 +29,16 @@
 # impression is formed, and the one place CI could not look. One Windows job on
 # the current Node is enough to keep it honest; the runner is slower and the
 # point is the platform, not the version.
+#
+# Shards. `npm test` on one runner waits for its slowest suites in turn: on
+# Windows axe-gates alone takes five minutes. So each platform splits the
+# suites over runners of its own (`tools/run-gates.mjs --shard`: axe, the other
+# browser suites, the rest), and the steps around them go where they fit. A
+# job named `Node 24 on <platform>` then waits for that platform's shards and
+# passes only when every one of them passed; those two names are the checks a
+# merge needs, so they stay the same whatever the shards are.
+# tools/ci-shard-gates.mjs holds this file to that: every suite in exactly one
+# shard, every shard on each platform, every step around the suites once.
 name: Gates
 
 on:
@@ -39,23 +49,31 @@ on:
   push:
     branches: [main, 'release/**']
 
+# A newer push to a pull request replaces the run of the older one. Runs on
+# main are never cancelled: each has a group of its own.
+concurrency:
+  group: gates-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # These jobs only read and run the suite; nothing here publishes.
 permissions:
   contents: read
 
 jobs:
-  gates:
-    name: Node ${{ matrix.node }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Gates ${{ matrix.shard }} on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         node: ['24']
+        # No browser opens axe or larger-ui on this runner (they skip), so
+        # their shards share one runner here.
+        shard: ['axe,browser', 'rest']
 
     # Bash on every platform, so the steps below are one script and not two: the
-    # `for f in server/*.js` loop is shell syntax, and a Windows runner otherwise
-    # runs it under PowerShell, where it is a parse error rather than a result.
+    # `for f in server/*.js` loop is shell syntax.
     defaults:
       run:
         shell: bash
@@ -77,13 +95,16 @@ jobs:
         run: npm ci
 
       - name: Types
+        if: matrix.shard == 'rest'
         run: npx tsc --noEmit
 
       - name: Server parses
+        if: matrix.shard == 'rest'
         run: |
           for f in server/*.js server/routes/*.js; do node --check "$f"; done
 
       - name: Server links
+        if: matrix.shard == 'rest'
         # `node --check` is a parser: it cannot see a re-export with no local
         # binding, which fails only when the module graph is linked.
         run: node -e "import('./server/index.js').then(() => process.exit(0))"
@@ -92,16 +113,17 @@ jobs:
           VAULT_ROOT: ${{ runner.temp }}/ci-vault
 
       - name: Guard suites
-        run: npm test
+        run: npm test -- --shard "${{ matrix.shard }}"
 
       # What tools/perf-budget-gates.mjs measured, beside each budget: a passing
       # suite is one line in the step above, and the numbers are what a budget
       # is next set from. The same table is on the run's summary page.
       - name: Performance numbers
-        if: always()
+        if: always() && matrix.shard != 'rest'
         run: cat "$RUNNER_TEMP/perf-budgets.md" 2>/dev/null || echo "the performance gate did not run"
 
       - name: Frontend builds
+        if: matrix.shard != 'rest'
         run: npm run build
 
       # The Linux zip (the largest of the three) built as the release builds
@@ -109,11 +131,67 @@ jobs:
       # is seen on its pull request and not at the next nightly. The release
       # workflow checks every platform's zip the same way.
       - name: Linux package within its size budget
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.shard != 'rest'
         timeout-minutes: 15
         run: |
           node tools/build-desktop.mjs --skip-build
           node tools/perf-budget-gates.mjs --package release/*.zip
+
+  windows:
+    name: Gates ${{ matrix.shard }} on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24']
+        shard: ['axe', 'browser', 'rest']
+
+    # Bash here too: under PowerShell the loop below is a parse error rather
+    # than a result.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Types
+        if: matrix.shard == 'rest'
+        run: npx tsc --noEmit
+
+      - name: Server parses
+        if: matrix.shard == 'rest'
+        run: |
+          for f in server/*.js server/routes/*.js; do node --check "$f"; done
+
+      - name: Server links
+        if: matrix.shard == 'rest'
+        run: node -e "import('./server/index.js').then(() => process.exit(0))"
+        env:
+          DB_PATH: ${{ runner.temp }}/ci.db
+          VAULT_ROOT: ${{ runner.temp }}/ci-vault
+
+      - name: Guard suites
+        run: npm test -- --shard "${{ matrix.shard }}"
+
+      - name: Performance numbers
+        if: always() && matrix.shard == 'browser'
+        run: cat "$RUNNER_TEMP/perf-budgets.md" 2>/dev/null || echo "the performance gate did not run"
+
+      - name: Frontend builds
+        if: matrix.shard == 'browser'
+        run: npm run build
 
       # The README's pictures against the app just built: tools/docs-shots.mjs
       # builds an invented course in a scratch library, opens the screen each
@@ -122,9 +200,40 @@ jobs:
       # Windows leg only: the app draws in the system font, and Windows is where
       # the pictures are recorded, so the same font lays out the same lines.
       - name: README pictures match the app
-        if: matrix.os == 'windows-latest'
+        if: matrix.shard == 'browser'
         timeout-minutes: 15
         run: node tools/docs-shots.mjs
+
+  # The checks a merge needs, one per platform. `always()`, so a failed,
+  # cancelled or skipped shard turns this red rather than leaving it skipped,
+  # which branch protection would read as passing.
+  linux-result:
+    name: Node 24 on ubuntu-latest
+    needs: linux
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every Linux shard passed
+        env:
+          RESULT: ${{ needs.linux.result }}
+        run: |
+          echo "Linux shards: $RESULT"
+          test "$RESULT" = success
+
+  windows-result:
+    name: Node 24 on windows-latest
+    needs: windows
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every Windows shard passed
+        env:
+          RESULT: ${{ needs.windows.result }}
+        run: |
+          echo "Windows shards: $RESULT"
+          test "$RESULT" = success
 
   # The image, built and started on every pull request. Before this job only
   # the release workflow built it, so a change that broke the Dockerfile or the

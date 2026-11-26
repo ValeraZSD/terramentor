@@ -366,6 +366,42 @@ export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GAT
     return { passed: true, reason: `Gates passed ${sha.slice(0, 7)} on its push: ${names.join(', ')}.` };
 }
 
+/**
+ * Read from GitHub what gatesPassed needs for `sha`, then decide: `{ passed, reason }`.
+ * `get(path, { signal })` makes one API call under `/repos/<owner>/<repo>`.
+ * Every call gets the same `signal`, so one deadline holds the whole lookup;
+ * once it fires no further call is made. Anything GitHub cannot answer, the
+ * deadline included, is `passed: false`; so is a lookup given no `signal`.
+ */
+export async function lookUpGates({ sha, get, signal, names = GATES_CHECKS }) {
+    try {
+        if (!signal) throw new Error('no deadline was given');
+        const call = (path) => {
+            signal.throwIfAborted();
+            return get(path, { signal });
+        };
+        const checkRuns = [];
+        for (const name of names) {
+            const body = await call(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
+            const page = body?.check_runs || [];
+            // The newest check must be among those read; past one page it may not be.
+            if ((body?.total_count ?? page.length) > page.length) {
+                throw new Error(`${body.total_count} "${name}" checks, more than one page`);
+            }
+            checkRuns.push(...page);
+        }
+        const runsBySuite = {};
+        const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
+        for (const id of suites) {
+            const runs = await call(`/actions/runs?check_suite_id=${id}&per_page=1`);
+            if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
+        }
+        return gatesPassed({ sha, checkRuns, runsBySuite, names });
+    } catch (e) {
+        return { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
+    }
+}
+
 /** Null when the build may carry `version`; otherwise the reason it may not. */
 export function checkBuildVersion({ channel, version, packageVersion }) {
     if (channel === 'stable') {

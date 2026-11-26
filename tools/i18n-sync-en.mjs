@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectAppKeys, englishEntries } from './lib/i18nKeys.mjs';
+import { serialiseLike } from './lib/localeJson.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -48,15 +49,11 @@ for (const k of orphans) process.stdout.write(`  - ${JSON.stringify(k)}\n`);
 if (write) {
     for (const k of missing) en[k] = wanted.get(k);
     if (prune) for (const k of orphans) delete en[k];
-    const sorted = Object.fromEntries(
-        Object.keys(en).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, en[k]]),
-    );
     // Written back in the ending the file already has, as `i18n-put.mjs` does:
     // the working tree is CRLF on Windows, and an LF rewrite would turn en.json
     // into the one LF file among its siblings — invisible in `git diff` under
     // autocrlf, announced only by a new "LF will be replaced" warning.
-    const text = `${JSON.stringify(sorted, null, 2)}\n`;
-    writeFileSync(file, raw.includes('\r\n') ? text.replace(/\n/g, '\r\n') : text);
+    writeFileSync(file, serialiseLike(en, raw));
 }
 
 process.stdout.write(`\n${missing.length} missing, ${orphans.length} orphaned${write ? ` — en.json written${prune ? ' (pruned)' : ''}` : ' (report only; pass --write)'}\n`);
