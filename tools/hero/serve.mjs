@@ -301,8 +301,6 @@ if (fresh) {
     const pairs = [
         ['ai_enabled', 'true'], ['ai_provider', 'openai'], ['ai_api_format', 'anthropic'],
         ['ai_openai_base_url', `${MODEL_HOST}/v1`], ['ai_openai_api_key_origin', MODEL_HOST], ['ai_openai_model', MODEL],
-        // Replay only: a placeholder the replay never sends anywhere.
-        ['ai_openai_api_key', opt.record ? process.env.ANTHROPIC_API_KEY : 'sk-ant-replay-only'],
         ['ai_reasoning_effort', 'medium'], ['ai_web_search', 'off'], ['ai_setup_dismissed', 'true'],
         ['creation_find_resources', 'false'], ['embedding_enabled', 'false'],
         // Background writing kept to the topic on screen.
@@ -312,6 +310,10 @@ if (fresh) {
         ['update_check_asked', '1'], ['update_check', 'off'],
     ];
     for (const [k, v] of pairs) put.run(k, v);
+    // The key goes to the credentials file: opening the library has already moved keys out of
+    // settings, and the app reads them only from there. Replay only: a placeholder never sent.
+    const { setSecrets, ACTIVE_KEY, ACTIVE_KEY_ORIGIN } = await import(pathToFileURL(join(ROOT, 'server', 'secrets.js')).href);
+    setSecrets({ [ACTIVE_KEY]: opt.record ? process.env.ANTHROPIC_API_KEY : 'sk-ant-replay-only', [ACTIVE_KEY_ORIGIN]: MODEL_HOST });
 }
 
 if (opt.filmClock) {
