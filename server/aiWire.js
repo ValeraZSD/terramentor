@@ -30,6 +30,7 @@ import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
 import { assertNotMetadata } from './netSafety.js';
 import { isHosted } from './hosted.js';
+import { fuseLimits } from './aiFuse.js';
 import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText, secretsOf, withoutSecret } from './httpBody.js';
 
 const HOST_WIRES = {
@@ -303,8 +304,20 @@ export function modelFetch(fetchImpl = fetch) {
 const guardedFetch = modelFetch(fetch);
 const anthropicFetch = createAnthropicFetch({ fetchImpl: guardedFetch });
 
-/** The fetch an OpenAI-shaped request to this settings object's endpoint goes through. */
-export function wireFetch(settings, { fetchImpl = fetch } = {}) {
+/**
+ * The fetch an OpenAI-shaped request to this settings object's endpoint goes
+ * through. In a site library every one of them passes the spending fuse
+ * first (aiFuse.js): it sees the OpenAI-shaped request and answer whatever
+ * wire carries them. aiSpend.js is loaded only there, so the front desk (which
+ * reads this file through zeroRetention.js) never opens an app database.
+ */
+export function wireFetch(settings, options = {}) {
+    const inner = wireFetchOf(settings, options);
+    if (!fuseLimits()) return inner;
+    return async (url, init) => (await import('./aiSpend.js')).meteredCall(inner, settings, url, init);
+}
+
+function wireFetchOf(settings, { fetchImpl = fetch } = {}) {
     const send = fetchImpl === fetch ? guardedFetch : modelFetch(fetchImpl);
     switch (wireOf(settings)) {
         case 'anthropic': return fetchImpl === fetch ? anthropicFetch : createAnthropicFetch({ fetchImpl: send });

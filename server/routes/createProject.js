@@ -57,7 +57,7 @@ function screenFailure(record, error, shown) {
         message: fromModel ? record.message : shown,
         httpStatus: record.httpStatus, model: record.model, attempts: record.attempts,
         looped: record.looped, emptyReply: record.emptyReply, reasoningTokens: record.reasoningTokens,
-        produced: record.produced, zeroRetention: record.zeroRetention,
+        produced: record.produced, zeroRetention: record.zeroRetention, aiFuse: record.aiFuse,
     };
 }
 

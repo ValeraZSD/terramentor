@@ -117,6 +117,9 @@ const TABLE_LIST = [
     ['visual_build_failures', { class: 'device' }],
     ['region_name_failures', { class: 'device' }],
     ['ai_job_fallbacks', { class: 'device' }],
+    // A site library's model spend per month (aiSpend.js): the fuse's count,
+    // which a sync or an export must never carry back to zero.
+    ['ai_spend', { class: 'device' }],
     // Which file each installed course came from, and the undo of its last
     // update. Keyed by this library's project id; a sync would have to
     // re-key them by the project's uuid before they could travel.

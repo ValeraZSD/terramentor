@@ -277,6 +277,8 @@ function describeFailure(err, task) {
         finishReason: e.finishReason || null,
         // A hosted copy's model has no zero-retention endpoint (zeroRetention.js).
         zeroRetention: e.zeroRetention === true ? true : null,
+        // A site library's model allowance for the month is spent (aiFuse.js).
+        aiFuse: e.aiFuse === true ? true : null,
 
         // --- the raw evidence
         responseBody: e.responseBody ? String(e.responseBody).slice(0, CAP.body) : null,

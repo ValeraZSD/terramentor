@@ -671,6 +671,7 @@
   "AI is off or no model is selected.": "AI is off or no model is selected.",
   "AI is off, so a new one cannot be written now.": "AI is off, so a new one cannot be written now.",
   "AI is off: the feed shows lessons already written, your notes, saved questions and reviews. Turn it on in Settings → AI & Models for new lessons.": "AI is off: the feed shows lessons already written, your notes, saved questions and reviews. Turn it on in Settings → AI & Models for new lessons.",
+  "AI is paused on your account until next month; your reviews, cards and everything already made keep working.": "AI is paused on your account until next month; your reviews, cards and everything already made keep working.",
   "AI model": "AI model",
   "AI model failed to generate questions. Check that your AI model server is running and the model is available. ({{reason}})": "AI model failed to generate questions. Check that your AI model server is running and the model is available. ({{reason}})",
   "AI returned malformed response. Try again — the model may have generated invalid data. ({{reason}})": "AI returned malformed response. Try again — the model may have generated invalid data. ({{reason}})",

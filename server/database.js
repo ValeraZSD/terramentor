@@ -2216,6 +2216,21 @@ db.exec(`
   );
 `);
 
+// What a site library spent on the model each calendar month (UTC), for the
+// fuse (aiFuse.js, aiSpend.js): the total in USD, the number of calls counted,
+// and when the month passed the switch to the smaller model and the stop.
+// Written only in a site library; empty everywhere else.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_spend (
+    month TEXT PRIMARY KEY,
+    usd REAL NOT NULL DEFAULT 0,
+    calls INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    switched_at TEXT,
+    stopped_at TEXT
+  );
+`);
+
 // What an outside agent SAYS the learner answered (server/claims.js), sent over
 // the MCP server (mcp/). Its own table on purpose, never a `mastery_evidence`
 // row: some twenty readers count that table as answers the app saw — the gate's

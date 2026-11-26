@@ -687,6 +687,8 @@ export interface AITaskFailure {
     reasoningTokens?: number | null;
     /** A hosted copy's model has no zero-retention endpoint on OpenRouter. */
     zeroRetention?: boolean | null;
+    /** A site library's model allowance for the month is spent (server/aiFuse.js). */
+    aiFuse?: boolean | null;
     /** Who ended the reply: 'stop', 'length', 'content_filter', … */
     finishReason?: string | null;
     responseBody: string | null;
@@ -1675,6 +1677,7 @@ export interface LessonWrite {
     reasoningTokens?: number | null;
     thinkingChars?: number | null;
     zeroRetention?: boolean | null;
+    aiFuse?: boolean | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */

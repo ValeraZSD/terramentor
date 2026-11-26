@@ -18,6 +18,8 @@ const TOO_LONG = /context[_ -]?(length|size|window)|maximum context|prompt (is )
  *  offers first. */
 export function retryMayHelp(f: FailureFacts | null): boolean {
     if (!f) return false;
+    // This month's model allowance is spent: nothing gets through until next month.
+    if (f.aiFuse) return false;
     const msg = (f.message || '').toLowerCase();
     if (f.looped || f.emptyReply) return true;
     if (TOO_LONG.test(msg)) return false;
@@ -66,6 +68,11 @@ export function plainCause(f: FailureFacts, { rawShown = true }: { rawShown?: bo
     // record keeps only the start of the message.
     if (f.zeroRetention) {
         return { messageKey: k('No zero-retention endpoint on OpenRouter serves the model "{{model}}", so the request was not sent anywhere else. Whoever runs this copy has to choose a model that has one (AI_MODEL; see docs/HOSTING.md, Zero retention).'), params: { model: f.model || '' } };
+    }
+    // A site library's model allowance for the month is spent (server/aiFuse.js
+    // FUSE_STOPPED, word for word): no request was sent at all.
+    if (f.aiFuse) {
+        return { messageKey: k('AI is paused on your account until next month; your reviews, cards and everything already made keep working.') };
     }
     if (f.httpStatus === 404) {
         if (f.model) {
@@ -124,6 +131,7 @@ export function lessonFailureFacts(write: LessonWrite): FailureFacts {
         emptyReply: write.emptyReply ?? null,
         reasoningTokens: write.reasoningTokens ?? null,
         zeroRetention: write.zeroRetention ?? null,
+        aiFuse: write.aiFuse ?? null,
         // Only an empty reply says what it spent; nothing else is claimed.
         ...(write.thinkingChars != null ? { produced: { thinkingChars: write.thinkingChars, contentChars: 0, percent: null } } : {}),
     };

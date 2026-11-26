@@ -1015,6 +1015,7 @@
   "AI generation in progress": "AI-generatie bezig",
   "AI gets better, so do you.": "AI wordt beter, en jij ook.",
   "AI is off: the feed shows lessons already written, your notes, saved questions and reviews. Turn it on in Settings → AI & Models for new lessons.": "AI staat uit: de feed toont lessen die al geschreven zijn, je notities, opgeslagen vragen en herhalingen. Zet het aan in Instellingen → AI & Modellen voor nieuwe lessen.",
+  "AI is paused on your account until next month; your reviews, cards and everything already made keep working.": "AI is gepauzeerd voor je account tot volgende maand; je herhalingen, kaarten en alles wat al gemaakt is blijven werken.",
   "AI model": "AI-model",
   "AI model failed to generate questions. Check that your AI model server is running and the model is available. ({{reason}})": "AI-model kon geen vragen genereren. Controleer of je AI-modelserver draait en het model beschikbaar is. ({{reason}})",
   "AI returned malformed response. Try again — the model may have generated invalid data. ({{reason}})": "AI gaf een ongeldige respons terug. Probeer opnieuw — het model heeft mogelijk ongeldige data gegenereerd. ({{reason}})",

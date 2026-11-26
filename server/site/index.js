@@ -14,6 +14,11 @@
 //   SITE_UID_BASE            first user id given to a library (100000)
 //   SITE_BREACH_CHECK        0 turns off the breached-password check
 //   AI_*                     the model every library uses (as for a hosted copy)
+//   AI_FUSE_SWITCH_USD       a person's model spend in a month past which their
+//                            calls go to AI_FUSE_SMALL_MODEL (5)
+//   AI_FUSE_STOP_USD         past which they make no model calls until next month (10)
+//   AI_FUSE_SMALL_MODEL      the cheaper model (anthropic/claude-haiku-5.5)
+//   AI_FUSE_NOTICE_URL       optional: a JSON POST when a library passes either line
 //
 // docs/HOSTING.md, "Many people at one address", is the operator's guide.
 import '../ownerOnlyUmask.js';
@@ -22,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { openSiteDb } from './siteDb.js';
 import { createFrontDesk } from './frontDesk.js';
 import { zeroRetentionWarnings } from '../zeroRetention.js';
+import { fuseConfigProblem, fuseLimits } from '../aiFuse.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -51,6 +57,10 @@ export function siteStartProblem(env = process.env, { platform = process.platfor
     const host = rawHost.toLowerCase();
     const loopback = host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
     if (!loopback && !hosts.length) return `HOST is ${host}, so other machines can reach this site: set SITE_HOSTS to the names it answers to (learn.example.org).`;
+    // Every library reads the spending fuse from the same AI_FUSE_* variables
+    // (aiFuse.js); a value it could not use would stop every model call.
+    const fuse = fuseConfigProblem(env);
+    if (fuse) return fuse;
     const [major, minor] = process.versions.node.split('.').map(Number);
     if (major < 24 || (major === 24 && minor < 7)) return `Node ${process.versions.node} has no built-in argon2; the front desk needs Node 24.7 or later.`;
     return null;
@@ -69,6 +79,10 @@ if (isMain) {
     // Every library runs hosted with these AI_* variables, so its zero-retention
     // terms are decided here; said once, not on each library's wake.
     for (const line of zeroRetentionWarnings(env, { hosted: true })) console.warn(`[site] ${line}`);
+    {
+        const f = fuseLimits({ ...env, TERRAMENTOR_HOSTED: '1', TERRAMENTOR_SITE_LIBRARY: '1' });
+        console.log(`[site] Model spend per person and month: ${f.smallModel} past USD ${f.switchUsd}, no model calls past USD ${f.stopUsd}${f.noticeUrl ? '; notices to AI_FUSE_NOTICE_URL' : ''} (AI_FUSE_*)`);
+    }
     const siteDir = path.resolve(env.SITE_DIR);
     const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
     const desk = createFrontDesk({

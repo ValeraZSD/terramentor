@@ -113,6 +113,9 @@ export function createLibraryPool({
             TERRAMENTOR_HOSTED: '1',
             TERRAMENTOR_SITE_LIBRARY: '1',
             SITE_LIBRARY_ID: id,
+            // When the library was made: the spending fuse's notice says how
+            // old a library is that crossed a line (aiFuse.js).
+            SITE_LIBRARY_CREATED: row.created_at,
             SITE_SOCKET: socketPath(id),
             SITE_NOTE_KEY: row.note_key,
             ...(allowedHosts ? { ALLOWED_HOSTS: allowedHosts } : {}),

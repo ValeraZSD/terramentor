@@ -29,6 +29,7 @@ import db, { NOW_ISO } from './database.js';
 import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
 import { reconcile, settingsForConnection } from './aiConnections.js';
 import { KeyedError, statusError } from './clientError.js';
+import { fuseChain } from './aiSpend.js';
 
 /** Every job, in the order the settings screen lists them. */
 export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
@@ -203,8 +204,16 @@ function entrySettings(entry) {
  * Throws when the job has a list and every connection on it was removed:
  * the learner kept that work off the main model, and only they can say
  * where it goes now.
+ *
+ * In a site library the spending fuse has the last word (aiSpend.js
+ * fuseChain): past this month's switch the call runs on the smaller model
+ * alone, past the stop it throws the learner's sentence.
  */
-export function chainFor(job, { model = null } = {}) {
+export function chainFor(job, options = {}) {
+    return fuseChain(chainOf(job, options));
+}
+
+function chainOf(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
     if (envOverride()) return stamped([first], job, false);
@@ -260,6 +269,8 @@ export function fallsOver(err, signal) {
     // A hosted copy's model had no zero-retention endpoint: the next choice
     // may be an endpoint that keeps the text (zeroRetention.js), so stop.
     if (err.zeroRetention) return false;
+    // This month's model allowance is spent (aiSpend.js): every model is.
+    if (err.aiFuse) return false;
     if (err.emptyReply) return true;
     const status = Number(err.httpStatus ?? err.status_code);
     if (Number.isInteger(status) && status >= 400 && status <= 599) return true;
