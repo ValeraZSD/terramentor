@@ -5,6 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import { serverText } from './utils/serverText';
+import { trackRead } from './utils/screenSwap';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
@@ -81,7 +82,13 @@ function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
     return fetch(url, { ...init, headers });
 }
 
-async function request<T>(url: string, options?: RequestInit & { timeout?: number }): Promise<T> {
+/** Every JSON call, its reads counted while open (`utils/screenSwap.ts`: a new
+ *  screen is shown once the reads it started have come back). */
+function request<T>(url: string, options?: RequestInit & { timeout?: number }): Promise<T> {
+    return trackRead(sendRequest<T>(url, options), options?.method, `${BASE}${url}`);
+}
+
+async function sendRequest<T>(url: string, options?: RequestInit & { timeout?: number }): Promise<T> {
     const timeout = options?.timeout ?? 30000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);

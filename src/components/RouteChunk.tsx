@@ -55,12 +55,24 @@ type Loader = () => Promise<{ default: ComponentType<never> }>;
 interface Chunk { attempt: number; Component: ComponentType<Record<string, unknown>> }
 
 const chunks = new Map<string, Chunk>();
+/** Routes whose module has arrived, by name: these render at once, with no
+ *  suspension and so no blank frame. */
+const loaded = new Map<string, ComponentType<Record<string, unknown>>>();
+const preloading = new Set<string>();
 
-/** The lazy for this route, made once and then held across every remount. */
+/** The loader, recording the module the moment it arrives. */
+function recording(name: string, load: Loader): () => Promise<{ default: ComponentType<never> }> {
+    return () => load().then((m) => { loaded.set(name, m.default as ComponentType<Record<string, unknown>>); return m; });
+}
+
+/** The component for this route, made once and then held across every remount:
+ *  the module itself when it is already here, else a lazy. A held lazy is kept
+ *  even after it resolves, since swapping it for the module would remount the
+ *  screen. */
 function chunkFor(name: string, load: Loader): Chunk {
     const held = chunks.get(name);
     if (held) return held;
-    const made: Chunk = { attempt: 0, Component: lazy(load as never) };
+    const made: Chunk = { attempt: 0, Component: loaded.get(name) ?? lazy(recording(name, load) as never) };
     chunks.set(name, made);
     return made;
 }
@@ -68,7 +80,20 @@ function chunkFor(name: string, load: Loader): Chunk {
 /** Start again from a fresh lazy — for a route that loaded and then crashed. */
 function remountChunk(name: string, load: Loader): void {
     const held = chunks.get(name);
-    chunks.set(name, { attempt: (held?.attempt ?? 0) + 1, Component: lazy(load as never) });
+    chunks.set(name, { attempt: (held?.attempt ?? 0) + 1, Component: loaded.get(name) ?? lazy(recording(name, load) as never) });
+}
+
+/**
+ * Fetch a route's module before it is opened, so the first visit draws the
+ * screen at once instead of a blank page while the module arrives. A failure
+ * is silent here: the visit then fails through the boundary below, which
+ * offers the reload, exactly as it would have without the preload.
+ */
+export function preloadRouteChunk<P>(name: string, load: () => Promise<{ default: ComponentType<P> }>): Promise<void> {
+    if (loaded.has(name) || preloading.has(name)) return Promise.resolve();
+    preloading.add(name);
+    return recording(name, load as Loader)().then(() => undefined, () => undefined)
+        .finally(() => preloading.delete(name));
 }
 
 /**

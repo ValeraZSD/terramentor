@@ -1269,7 +1269,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             )}
 
             {status === 'pending' && (
-                <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+                // Busy while drawn HERE (a few hundred ms): a screen being
+                // opened waits for it rather than showing this line and then
+                // the drawing in its place (utils/screenSwap.ts). Not while a
+                // model writes or repairs it, which takes far longer.
+                <div
+                    aria-busy={!repairing && !live && !progressMsg ? true : undefined}
+                    className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-6 text-sm text-slate-500 dark:text-slate-400"
+                >
                     <Loader2 size={14} className="animate-spin" />
                     {repairing
                         ? <>
