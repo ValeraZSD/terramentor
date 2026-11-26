@@ -44,7 +44,7 @@ import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
-import { forgetOpenedCourseLink, openedCourseLink } from '../utils/openedCourseLink';
+import { forgetOpenedCourseLink, onOpenedCourseLink, openedCourseLink } from '../utils/openedCourseLink';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
@@ -175,11 +175,16 @@ export default function ProjectsGrid() {
 
     // Read, not spent: if this page is left before the dialog closes (the
     // welcome's last step moves on), the app comes back here and offers it again.
+    // A link opened in this tab while the list shows offers itself the same way.
     useEffect(() => {
-        const link = openedCourseLink();
-        if (!link) return;
-        setCourseLink(link);
-        setShowCreate(true);
+        const offer = () => {
+            const link = openedCourseLink();
+            if (!link) return;
+            setCourseLink(link);
+            setShowCreate(true);
+        };
+        offer();
+        return onOpenedCourseLink(offer);
     }, []);
 
     const closeCreate = () => {
@@ -449,7 +454,8 @@ export default function ProjectsGrid() {
                     )}
                 </div>
 
-                <NewProjectModal isOpen={showCreate} draft={draft} courseLink={courseLink} onClose={closeCreate} />
+                {/* Keyed on the link: one opened while the dialog shows starts it afresh on that link. */}
+                <NewProjectModal key={courseLink ?? ''} isOpen={showCreate} draft={draft} courseLink={courseLink} onClose={closeCreate} />
             </div>
         </>
     );
