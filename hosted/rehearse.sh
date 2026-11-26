@@ -243,7 +243,7 @@ docker volume inspect "tm-$B-data" >/dev/null 2>&1 && no "$B's volume is still t
 # end, so a run shows every one that does not hold, not only the first.
 MISSED=()
 miss() { echo "FAIL $*" >&2; MISSED+=("${1%%:*}"); }
-archives() { find "$1" -maxdepth 1 -type f -name '*.tar.gz*' 2>/dev/null | wc -l; }
+archives() { { find "$1" -maxdepth 1 -type f -name '*.tar.gz*' 2>/dev/null || true; } | wc -l; }
 NOW="$(date -u +%s)"
 DAY=86400
 
@@ -315,7 +315,7 @@ fi
 
 # Check 3: last night's backup round-trips, for a copy and for the site.
 [ "$(status "$A" "/api/projects/$nid" -b "$WORK/n.jar" -X DELETE)" = 200 ] || no "delete the nightly course"
-[ "$(sa "$ck_ben" "/api/projects/$ben_course" -X DELETE -o /dev/null -w '%{http_code}')" = 200 ] || no "ben deletes his course"
+[ "$(sa "$ck_ben" "/api/projects/$ben_course" -X DELETE -o /dev/null -w '%{http_code}')" = 200 ] || no "ben deletes the course"
 if [ -s "$night_a" ] && [ "$(head -c 21 "$night_a")" = age-encryption.org/v1 ] && bash "$COPY" restore "$A" "$night_a" >/dev/null 2>"$WORK/err" \
     && [ "$(login "$A" "$pwA" a6)" = 200 ] && c "$A" /api/projects -b "$WORK/a6.jar" | grep -q 'Nightly course'; then
     ok "check 3: $A restored from last night's encrypted archive has the course deleted since"
@@ -335,7 +335,7 @@ bash "$COPY" remove carol --yes --erase >/dev/null 2>"$WORK/err" || echo "remove
 exists_c() { docker volume inspect tm-carol-data >/dev/null 2>&1; }
 exists_c && no "carol's volume outlived remove --erase"
 bash "$COPY" site-remove ann@example.test --yes --erase >/dev/null 2>"$WORK/err" || echo "site-remove --erase: $(cat "$WORK/err")" >&2
-[ -z "$(site_signin ann@example.test "$PW_ANN")" ] && ok "ann cannot sign in after her account is removed" \
+[ -z "$(site_signin ann@example.test "$PW_ANN")" ] && ok "ann cannot sign in once the account is removed" \
     || miss "check 4: ann still signs in after site-remove"
 
 # Check 4: a restore of a backup older than the erasure brings no one back.
@@ -350,7 +350,7 @@ if [ -s "$night_desk" ] && bash "$COPY" site-restore "$night_desk" > "$WORK/site
         && ! docker exec "$SITE" test -e "/site/libraries/$ann_lib"; then
         ok "check 4: the site restored from a backup taken before ann's erasure has no account, row or folder of hers: $(grep -i eras "$WORK/site-restore" | head -1)"
     else
-        miss "check 4: the restore of a backup older than ann's erasure brought her back"
+        miss "check 4: the restore of a backup older than ann's erasure brought ann back"
     fi
 else
     miss "check 3: the site could not be restored from last night's backup ('$night_desk'): $(tail -2 "$WORK/err")"
