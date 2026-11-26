@@ -1,4 +1,6 @@
 {
+  "Written by AI": "AIが作成",
+  "Written by AI ({{model}})": "AIが作成 ({{model}})",
   "Correct, with a spelling slip": "正解（小さなつづりの誤りあり）",
   "It is spelled:": "正しいつづり：",
   "Only a letter or two off.": "1〜2文字違うだけです。",

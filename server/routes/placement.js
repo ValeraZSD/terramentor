@@ -11,6 +11,9 @@ import { apiError, errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('placement');
 
+// A deleted course's probe is out of reach until its Restore.
+const liveCourse = (projectId) => !!db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId);
+
 // GLOBAL "TODAY" HUB — cross-project aggregation
 
 // ---- Placement probe --------------------------------------------------------
@@ -59,6 +62,7 @@ function publicProbe(probe) {
 app.get('/api/placement/:projectId', (req, res) => {
     const projectId = Number(req.params.projectId);
     if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
+    if (!liveCourse(projectId)) return res.status(404).json(keyed('Project not found'));
     try {
         const availability = probeAvailability(projectId);
         const probe = getProbe(projectId);
@@ -135,6 +139,7 @@ app.post('/api/placement/probe/:probeId/answer', async (req, res) => {
     if (!Number.isFinite(probeId) || !Number.isFinite(Number(questionIndex))) {
         return res.status(400).json(apiError('Missing required fields: probeId, questionIndex'));
     }
+    if (!getProbeById(probeId)) return res.status(404).json(keyed('Probe not found'));
     try {
         const result = await answerProbeQuestion(probeId, Number(questionIndex), answer);
         const probe = getProbeById(probeId);
@@ -148,6 +153,7 @@ app.post('/api/placement/probe/:probeId/answer', async (req, res) => {
 app.post('/api/placement/probe/:probeId/finish', (req, res) => {
     const probeId = Number(req.params.probeId);
     if (!Number.isFinite(probeId)) return res.status(400).json(keyed('Invalid probe id'));
+    if (!getProbeById(probeId)) return res.status(404).json(keyed('Probe not found'));
     try {
         const { probe, summary } = finishProbe(probeId);
         res.json({ probe: publicProbe(probe), summary });
@@ -163,6 +169,7 @@ app.post('/api/placement/probe/:probeId/finish', (req, res) => {
 app.delete('/api/placement/:projectId', (req, res) => {
     const projectId = Number(req.params.projectId);
     if (!Number.isFinite(projectId)) return res.status(400).json(keyed('Invalid project id'));
+    if (!liveCourse(projectId)) return res.status(404).json(keyed('Project not found'));
     try {
         res.json(discardProbe(projectId));
     } catch (error) {

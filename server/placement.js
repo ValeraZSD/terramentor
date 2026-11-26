@@ -61,7 +61,7 @@
 import db from './database.js';
 import { applySeededPrior, forgetSeed, GUESS_BY_QUESTION_TYPE } from './mastery.js';
 import { layTopicDates } from './scheduling.js';
-import { AI_PROMPTS, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
+import { AI_PROMPTS, aiProvenanceFields, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
 import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
@@ -306,7 +306,10 @@ export function computeSeeds(sequence, results, measured = new Set()) {
 
 // ---- persistence ------------------------------------------------------------
 
-const probeRow = db.prepare('SELECT * FROM placement_probes WHERE id = ?');
+// Only a probe of a live course: a deleted course's probe is not read, answered
+// or graded, and writes no evidence, until its Restore.
+const LIVE_COURSE = 'project_id IN (SELECT id FROM live_projects)';
+const probeRow = db.prepare(`SELECT * FROM placement_probes WHERE id = ? AND ${LIVE_COURSE}`);
 
 function parseJson(text, fallback) {
     try {
@@ -333,7 +336,7 @@ export function hydrateProbe(row) {
 /** The project's current probe, whatever state it is in, or null. */
 export function getProbe(projectId) {
     return hydrateProbe(db.prepare(
-        'SELECT * FROM placement_probes WHERE project_id = ? ORDER BY id DESC LIMIT 1'
+        `SELECT * FROM placement_probes WHERE project_id = ? AND ${LIVE_COURSE} ORDER BY id DESC LIMIT 1`
     ).get(projectId));
 }
 
@@ -575,6 +578,7 @@ const sameLayout = (a, b) => {
 
 /** Close the probe. A probe can be finished early — it seeds what it measured. */
 export function finishProbe(probeId) {
+    if (!probeRow.get(probeId)) throw new KeyedError('Probe not found');
     db.prepare("UPDATE placement_probes SET state = 'done', completed_at = CURRENT_TIMESTAMP WHERE id = ?")
         .run(probeId);
     const probe = hydrateProbe(probeRow.get(probeId));
@@ -633,7 +637,7 @@ export function summariseProbe(probe) {
 }
 
 export function getProbeById(probeId) {
-    return hydrateProbe(db.prepare('SELECT * FROM placement_probes WHERE id = ?').get(probeId));
+    return hydrateProbe(probeRow.get(probeId));
 }
 
 // ---- authoring --------------------------------------------------------------
@@ -708,6 +712,7 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             context, phaseTitle: target.phase_title, lang, priorFault,
         });
         let parsed;
+        let writer;
         try {
             // `operation: 'questions'` buys the 300s budget (a thinking local model
             // blows the 120s default on most targets) and the `high` effort a
@@ -715,6 +720,8 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             const resp = await generateResponse(user, system, [], {
                 temperature: 0.4, signal, operation: 'questions',
             });
+            // Read now, before the verifier answers: the model that wrote it.
+            writer = aiProvenanceFields({ job: 'questions' }).model ?? null;
             if (!/\{[\s\S]*\}/.test(resp)) { priorFault = 'the reply contained no JSON object'; continue; }
             parsed = parseQuestionReply(resp);
         } catch (err) {
@@ -756,6 +763,9 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             // before carry `false`, and `applyProbeSeeds` refuses to seed from
             // those.
             verified: true,
+            // The model id alone, as a question's own claim is written
+            // (courseFiles.js); the learner's flag says "Written by AI" from it.
+            ...(writer ? { generated_by: writer } : {}),
         };
     }
     console.warn(`[Placement] dropped target "${target.title}": ${priorFault}`);

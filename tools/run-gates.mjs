@@ -78,7 +78,7 @@ const WINDOWS = process.platform === 'win32';
 const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 
 /** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
-const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
+const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'page-scroll-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
 
 /**
  * Suites nothing else may run beside, one by one before the pool:
@@ -431,12 +431,20 @@ function reap(roots) {
         found.set(p.pid, p);
         for (const k of kids.get(p.pid) || []) if (k.created >= p.created - SLACK) walk(k);
     };
+    // A suite's end is read with Date.now() at its 'exit', after the process
+    // exited, so its children were all created before it; the margin covers only
+    // the rounding of the two clocks (a Windows tick is ~15.6 ms), not a second
+    // in which an id can be reused.
+    const AT_END = 50;
     for (const r of roots) {
-        // The id already belongs to a newer process (a suite started since, say): its children are not ours.
+        const end = r.end ?? now;
+        // The id may already belong to a newer process (one created after the suite
+        // ended, or long after it started). Its children all came after it, so only
+        // children created before it can be the suite's: both times come from WMI.
         const owner = byPid.get(r.pid);
-        if (owner && owner.created > r.start + SLACK) continue;
+        const newer = owner && owner.created > Math.min(r.start + SLACK, end) ? owner.created : Infinity;
         for (const k of kids.get(r.pid) || []) {
-            if (k.created >= r.start - SLACK && k.created <= (r.end ?? now) + SLACK) walk(k);
+            if (k.created >= r.start - SLACK && k.created <= end + AT_END && k.created < newer) walk(k);
         }
     }
     const pids = [...found.keys()];

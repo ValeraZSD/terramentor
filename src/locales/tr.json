@@ -4125,6 +4125,8 @@
   "Writing topics section by section…": "Konular bölüm bölüm yazılıyor…",
   "Writing topics…": "Konular yazılıyor…",
   "Written": "Yazıldı",
+  "Written by AI": "Yapay zekâ yazdı",
+  "Written by AI ({{model}})": "Yapay zekâ yazdı ({{model}})",
   "Written by AI ({{model}}). Check it.": "Yapay zekâ yazdı ({{model}}). Kontrol edin.",
   "Written by AI. Check it.": "Yapay zekâ yazdı. Kontrol edin.",
   "Written by the deck's author": "Destenin yazarı yazdı",

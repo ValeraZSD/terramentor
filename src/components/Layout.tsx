@@ -28,6 +28,7 @@ import { usePhysicalKeyboard } from '../utils/platform';
 import { appMayTakeShortcut, shortcutLetter } from '../utils/escapeKey';
 import { offerAppBack } from '../utils/appBack';
 import { scrolledFromStart } from '../utils/direction';
+import { scrollRailTo } from '../utils/scrollWithin';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -188,8 +189,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     // "unreachable tab" problem in a different costume.
     const tabRailRef = useRef<HTMLElement | null>(null);
     useEffect(() => {
-        const active = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${view}"]`);
-        active?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+        // The rail alone: native scrollIntoView would also scroll the page.
+        const rail = tabRailRef.current;
+        scrollRailTo(rail?.querySelector<HTMLElement>(`[data-tab="${view}"]`), rail);
     }, [view]);
 
     // …and SAY that it scrolls. The rail hides its scrollbar (`.rail-scroll`),

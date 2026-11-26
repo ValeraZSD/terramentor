@@ -1004,7 +1004,10 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     );
 
     return (
-        <div ref={wrapperRef} className="visual-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+        // `relative`: the text twin is `sr-only` (absolute) and must be placed
+        // against this card, which clips it; otherwise it lands at the foot of
+        // whatever scrolls the card and makes the page taller than the window.
+        <div ref={wrapperRef} className="visual-block relative my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
             {/* Still wraps, as a last resort: the card clips (`overflow-hidden`,
                 so the stage below can round its corners), and at 160% UI scale
                 on a phone even the folded row can be wider than the card. */}

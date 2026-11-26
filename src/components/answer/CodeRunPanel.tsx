@@ -20,7 +20,7 @@ import { diffChars, type DiffPart } from './charDiff';
  * while learning.
  */
 
-const SECTION = 'border-t border-slate-200 dark:border-slate-700 px-3 py-2';
+const SECTION = 'relative border-t border-slate-200 dark:border-slate-700 px-3 py-2';
 const MONO = 'font-mono text-[0.85rem] leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words';
 const MUTED = 'text-sm text-slate-600 dark:text-slate-400';
 const LABEL = 'text-xs font-medium text-slate-500 dark:text-slate-400';

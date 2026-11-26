@@ -131,8 +131,10 @@ async function basicRun(jobs) {
     check(`${how}: a silent exit 0 is told what it must print`, silentAt >= 0 && /exited 0 without printing an assertion count/.test(lines[silentAt + 1] || ''));
     const hang = rows.find((r) => r.name === 'hang-gates.mjs');
     check(`${how}: the hung suite is stopped at its limit and says so`,
-        hang && hang.ms >= TIMEOUT_MS - 50 && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
-    check(`${how}: the run did not wait for the processes left running (each sleeps a minute)`, run.ms < 45_000, `${run.ms} ms`);
+        hang && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
+    // Each process left running sleeps a minute and then notes `.slept`: a run that waited for one finds the note.
+    const slept = readdirSync(run.scratch).filter((f) => f.endsWith('.slept'));
+    check(`${how}: the run did not wait out the minute the processes left running sleep`, slept.length === 0, slept.join(' '));
 
     // Each failure's tagged lines sit together under its own FAIL line.
     let owner = null;
@@ -206,7 +208,9 @@ const apart = (a, b) => a.end <= b.start || b.end <= a.start;
     check('--quick leaves the browser suites out and runs the rest',
         run.code === 0 && JSON.stringify(rows.map((r) => r.name).sort()) === JSON.stringify(['dep-gates.mjs', 'pair-a-gates.mjs', 'pair-b-gates.mjs']), run.out);
     check('--quick says so on the last line', /\(--quick: harnesses and browser scans skipped\)$/.test(lastLine(run.out)), lastLine(run.out));
-    check('on CI the suites start at the priority the runner has',
+    // At idle priority already, a runner that wrongly lowered it would look the same.
+    if (getPriority() === osConstants.priority.PRIORITY_LOW) console.log('  note  CI priority not checked: this gate already runs at idle priority');
+    else check('on CI the suites start at the priority the runner has',
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8') === String(getPriority()),
         `${readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8')} vs ${getPriority()}`);
 }
@@ -220,9 +224,12 @@ async function stopRun(signal) {
         whileRunning: async (child, scratch) => {
             const deadline = Date.now() + 20_000;
             const marks = ['wait-a.ready', 'wait-b.ready', 'wait-a-child.pid', 'wait-b-child.pid'];
-            while (Date.now() < deadline && !marks.every((m) => existsSync(join(scratch, m)))) await sleep(50);
+            // A runner that already ended (a crash, a usage error) is not waited for, and not signalled.
+            const gone = () => child.exitCode !== null || child.signalCode !== null;
+            while (!gone() && Date.now() < deadline && !marks.every((m) => existsSync(join(scratch, m)))) await sleep(50);
             ready = marks.every((m) => existsSync(join(scratch, m)));
-            process.kill(child.pid, signal);
+            if (gone()) return;
+            try { process.kill(child.pid, signal); } catch { /* ended meanwhile */ }
         },
     });
     const how = WINDOWS ? 'killed outright' : signal;

@@ -16,13 +16,33 @@
 // with the suite's tree instead.
 
 import { spawnSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const runner = Number(process.env.RUN_GATES_PID);
-// The suite sees the environment it saw before the runner added this variable.
+// The suite sees the environment it saw before the runner added this variable,
+// so only the runner's direct child ever finds it. Not `process.ppid === runner`:
+// a runner killed before this line ran has already handed the suite to another
+// parent, and the suite would then go unwatched.
 delete process.env.RUN_GATES_PID;
 
-if (runner > 0 && process.ppid === runner) {
+/**
+ * Linux: what this suite started in a session of its own (`detached`) has left
+ * its process group, but still carries the suite's RUN_GATES_TAG.
+ */
+function killTagged() {
+    const tag = process.env.RUN_GATES_TAG;
+    if (process.platform !== 'linux' || !tag) return;
+    const needle = Buffer.from(`RUN_GATES_TAG=${tag}\0`);
+    let pids = [];
+    try { pids = readdirSync('/proc').filter((d) => /^\d+$/.test(d)); } catch { return; }
+    for (const d of pids) {
+        if (Number(d) === process.pid) continue;
+        try { if (readFileSync(`/proc/${d}/environ`).includes(needle)) process.kill(Number(d), 'SIGKILL'); } catch { /* gone, or not ours */ }
+    }
+}
+
+if (runner > 0) {
     const windows = process.platform === 'win32';
     const gone = () => {
         // On Linux and macOS an orphan is adopted by another process at once.
@@ -37,6 +57,7 @@ if (runner > 0 && process.ppid === runner) {
             const taskkill = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
             spawnSync(taskkill, ['/PID', String(process.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
         } else {
+            killTagged();
             // The runner starts each suite as the leader of its own group.
             try { process.kill(-process.pid, 'SIGKILL'); } catch { /* not a group leader */ }
         }

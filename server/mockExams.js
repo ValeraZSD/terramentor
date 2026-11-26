@@ -101,7 +101,7 @@ export function passPointsFor(shape) {
 // ---- papers ----------------------------------------------------------------
 
 const partsOf = (paperId) => stmt(`
-    SELECT p.id, p.question, p.part, p.points, p.node_id AS nodeId, n.title AS topic
+    SELECT p.id, p.question, p.part, p.points, n.id AS nodeId, n.title AS topic
     FROM exam_paper_parts p LEFT JOIN live_nodes n ON n.id = p.node_id
     WHERE p.paper_id = ? ORDER BY p.position
 `).all(paperId);
@@ -130,7 +130,10 @@ function paperView(row) {
     };
 }
 
-const paperRow = (id) => stmt('SELECT * FROM exam_papers WHERE id = ?').get(id);
+// Only a paper of a live course: a deleted course's papers and mocks are not
+// read, written or finished until its Restore.
+const paperRow = (id) => stmt(`SELECT ep.* FROM exam_papers ep JOIN live_projects pr ON pr.id = ep.project_id
+    WHERE ep.id = ?`).get(id);
 
 export function getPaper(id) {
     const row = paperRow(id);
@@ -259,7 +262,8 @@ export function listForProject(projectId, { now = Date.now() } = {}) {
 
 // ---- sittings and the clock --------------------------------------------------
 
-const sittingRow = (id) => stmt('SELECT * FROM mock_sittings WHERE id = ?').get(id);
+const sittingRow = (id) => stmt(`SELECT s.* FROM mock_sittings s JOIN exam_papers ep ON ep.id = s.paper_id
+    JOIN live_projects pr ON pr.id = ep.project_id WHERE s.id = ?`).get(id);
 
 function elapsedOf(s, now) {
     const running = s.running_since ? Math.max(0, Math.floor((now - Date.parse(s.running_since)) / 1000)) : 0;
@@ -762,7 +766,7 @@ function publicQuestion(q) {
 }
 
 const courseRows = (s) => stmt(`
-    SELECT p.id, p.position, p.node_id AS nodeId, p.item, p.quiz_id AS quizId, p.question_index AS questionIndex,
+    SELECT p.id, p.position, n.id AS nodeId, p.item, p.quiz_id AS quizId, p.question_index AS questionIndex,
            n.title AS topic, sc.answer, sc.points, sc.later, sc.in_time_answer AS inTimeAnswer, sc.in_time_points AS inTimePoints
     FROM exam_paper_parts p
     LEFT JOIN live_nodes n ON n.id = p.node_id

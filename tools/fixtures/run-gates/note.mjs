@@ -29,10 +29,14 @@ export const noteSpan = (name) => note(`${name}.span`, { start: startedAt, end: 
  * Linux, and out of the job object in which Node on Windows ends a child
  * together with its parent. Only there: macOS has no /proc, so the runner
  * cannot find a process that left the group, and the fixture does not ask it to.
+ * A child that sleeps its whole minute notes `<name>.slept`, so the gate can
+ * tell that a run waited for it without reading a clock.
  */
 export function leaveBehind(name, stdio, { detached = false } = {}) {
     const apart = detached && (process.platform === 'win32' || process.platform === 'linux');
-    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio, detached: apart, windowsHide: true });
+    const slept = dir ? [join(dir, `${name}.slept`)] : [];
+    const code = "setTimeout(() => { if (process.argv[1]) require('fs').writeFileSync(process.argv[1], ''); }, 60000)";
+    const child = spawn(process.execPath, ['-e', code, ...slept], { stdio, detached: apart, windowsHide: true });
     note(`${name}.pid`, String(child.pid));
     child.unref();
 }
