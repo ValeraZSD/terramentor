@@ -140,6 +140,7 @@ const exportedFlashcards = (nodeId, mediaNames = null) => {
                     name: mediaNames.get(m.hash),
                     kind: m.kind,
                     ...(m.alt ? { alt: m.alt } : {}),
+                    ...(m.at ? { at: m.at } : {}),
                 }));
                 if (named.length) media[side] = named;
             }
@@ -261,7 +262,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             for (const m of media[side] || []) {
                 const found = mediaByName?.get(m.name);
                 if (!found) { unresolvedMedia++; continue; }
-                kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '' });
+                kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}) });
             }
             if (kept.length) out[side] = kept;
         }

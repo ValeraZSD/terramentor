@@ -702,7 +702,7 @@ if (!OLD) {
         // One card gains a picture, and a card the update adds brings its own.
         topic(f, 'Lidwoorden').flashcards[0].media = { front: [{ name: 'krant.png', kind: 'image' }] };
         unit1(f).push({ title: 'Werkwoorden', uuid: u(mtag2, 'C'), description: 'Overview C.',
-            flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(mtag2, 'C3'), media: { back: [{ name: 'lopen.png', kind: 'image' }] } }] });
+            flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(mtag2, 'C3'), media: { back: [{ name: 'lopen.png', kind: 'image', at: 'to walk' }] } }] });
     })));
     mediaZip.file('media/krant.png', pngOld);
     mediaZip.file('media/lopen.png', pngNew);
@@ -716,6 +716,8 @@ if (!OLD) {
     const cardMedia = (front) => JSON.parse(db.prepare('SELECT f.media FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? AND f.front = ?').get(mpid2, front)?.media || 'null');
     check('commit: the cards name those same hashes',
         [cardMedia('de krant')?.front?.[0]?.hash, cardMedia('lopen')?.back?.[0]?.hash], [hashOf(pngOld), hashOf(pngNew)]);
+    check('commit: a file that names the line an item belongs to keeps it, one that names none stores none',
+        [cardMedia('lopen')?.back?.[0]?.at, 'at' in (cardMedia('de krant')?.front?.[0] || {})], ['to walk', false]);
     check('commit: the picture is served', (await call(`/api/media/${hashOf(pngOld)}`)).status, 200);
     const { sweepOrphanMedia } = await import(B + 'ankiImport.js');
     sweepOrphanMedia();

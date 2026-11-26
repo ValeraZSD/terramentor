@@ -43,7 +43,9 @@ function mediaNames(media) {
     const out = {};
     for (const side of ['front', 'back']) {
         const refs = Array.isArray(parsed[side]) ? parsed[side] : [];
-        if (refs.length) out[side] = refs.map(m => ({ name: m?.name || m?.hash || '', kind: m?.kind || null, alt: m?.alt || null }));
+        // `at` only when a clip has one, so a card without anchors hashes as
+        // it did before anchors travelled in files (its recorded base stays equal).
+        if (refs.length) out[side] = refs.map(m => ({ name: m?.name || m?.hash || '', kind: m?.kind || null, alt: m?.alt || null, ...(m?.at ? { at: m.at } : {}) }));
     }
     return Object.keys(out).length ? out : null;
 }
@@ -409,7 +411,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                     // does not load and the media sweep deletes the bytes.
                     prep(`INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by)
                         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`).run(projectId, found.hash, found.filename ?? m.name, found.mime, found.kind, found.size);
-                    kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '' });
+                    kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}) });
                 }
                 if (kept.length) out[side] = kept;
             }

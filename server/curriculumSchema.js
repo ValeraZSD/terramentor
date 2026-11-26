@@ -590,7 +590,11 @@ function normalizeCardMedia(raw, where, warnings) {
                 continue;
             }
             const kind = typeof m.kind === 'string' && CARD_MEDIA_KINDS.includes(m.kind) ? m.kind : null;
-            clean.push({ name, ...(kind ? { kind } : {}), ...(typeof m.alt === 'string' && m.alt ? { alt: m.alt.slice(0, 500) } : {}) });
+            // `at`: the card line a clip belongs to, so it is drawn beside that
+            // line (CardFace). Kept whole or not at all: a cut line matches no
+            // line, and the clip would only fall back to the row under the card.
+            const at = typeof m.at === 'string' && m.at.trim() && m.at.length <= LIMITS.cardSide ? m.at : null;
+            clean.push({ name, ...(kind ? { kind } : {}), ...(typeof m.alt === 'string' && m.alt ? { alt: m.alt.slice(0, 500) } : {}), ...(at ? { at } : {}) });
         }
         if (clean.length) { out[side] = clean; any = true; }
     }
