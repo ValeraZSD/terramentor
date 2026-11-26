@@ -284,6 +284,14 @@ console.log('\n--- verify skips the suites only when Gates passed this very comm
         verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { app: { slug: 'some-app' } })]), false);
     check('a check on another commit: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { head_sha: 'b'.repeat(40) })]), false);
     check('the run behind a suite unknown: run the suites', verdict(both, {}), false);
+    check('both green, but a NEWER Windows check whose run is unknown: run the suites',
+        verdict([...both, cr(3, windows, 11)], { 10: pushRun }), false);
+    check('both green, but a newer Windows check with no check suite at all: run the suites',
+        verdict([...both, cr(3, windows, undefined)], { 10: pushRun }), false);
+    check('an OLDER check whose run is unknown does not outrank the newest green: skip',
+        verdict([...both, cr(0, windows, 11, 'completed', 'failure')], { 10: pushRun }), true);
+    check('a newer check from a run known to be another workflow is still left out: skip',
+        verdict([...both, cr(3, windows, 11, 'completed', 'failure')], { 10: pushRun, 11: prRun }), true);
     check('not a commit: run the suites', verdict(both, { 10: pushRun }, 'main'), false);
 }
 
@@ -583,17 +591,20 @@ ok('a tag that is already published is refused, and nothing is deleted',
 {
     const sha = 'a'.repeat(40);
     const checkRun = (id, name) => ({ id, name, head_sha: sha, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, check_suite: { id: 77 } });
-    const askGates = async (respond) => {
+    const askGates = async (respond, { delayMs = 0, extra = [] } = {}) => {
         const seen = [];
         const server = createServer((req, res) => {
             seen.push(`${req.method} ${req.url}`);
             const [status, json] = respond(req.url);
-            res.writeHead(status, { 'content-type': 'application/json' });
-            res.end(JSON.stringify(json));
+            setTimeout(() => {
+                if (res.destroyed) return;
+                res.writeHead(status, { 'content-type': 'application/json' });
+                res.end(JSON.stringify(json));
+            }, delayMs);
         });
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         try {
-            const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'gates-passed', '--sha', sha], {
+            const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'gates-passed', '--sha', sha, ...extra], {
                 env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`, GITHUB_REPOSITORY: 'o/r', GITHUB_TOKEN: 'x', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
             });
             let stdout = '';
@@ -623,6 +634,13 @@ ok('a tag that is already published is refused, and nothing is deleted',
     });
     ok('…false when a check name has more runs than one page holds (the newest may be on the next)',
         g.status === 0 && /^passed=false$/m.test(g.stdout) && /101/.test(g.stdout), g.stdout.trim());
+    // Three calls, each answered in 0.6 s: every one alone is inside a 1.2 s
+    // deadline, all three are not. The deadline holds the whole lookup.
+    g = await askGates(green, { delayMs: 600, extra: ['--deadline-ms', '1200'] });
+    ok('…false when the whole lookup outlasts its one deadline, though each call alone would not',
+        g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+    g = await askGates(green, { delayMs: 100, extra: ['--deadline-ms', '5000'] });
+    ok('…and still true when the same slow answers fit inside it', g.status === 0 && /^passed=true$/m.test(g.stdout), g.stdout.trim());
 }
 
 // The plan, image and release jobs run tools/release.mjs straight after the

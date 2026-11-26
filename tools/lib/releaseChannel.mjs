@@ -343,18 +343,23 @@ export const GATES_WORKFLOW = '.github/workflows/gates.yml';
  * commit and reports on the head, so a check named here can be green on a
  * commit whose own tree was never tested. Each named check's newest run must
  * have finished with success; one still running, failed, cancelled or missing
- * means no.
+ * means no. A check of that name whose workflow run cannot be found is no
+ * when it is newer than that success: it may be Gates' own newer attempt.
  */
 export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GATES_CHECKS }) {
     if (!/^[0-9a-f]{40}$/.test(sha || '')) return { passed: false, reason: `"${sha}" is not a commit.` };
     for (const name of names) {
-        const ours = checkRuns.filter((c) => {
-            if (c?.name !== name || c.head_sha !== sha || c.app?.slug !== 'github-actions') return false;
+        const named = checkRuns.filter((c) => c?.name === name && c.head_sha === sha && c.app?.slug === 'github-actions');
+        const ours = named.filter((c) => {
             const run = runsBySuite[c.check_suite?.id];
             return !!run && run.event === 'push' && run.path === GATES_WORKFLOW && run.head_sha === sha;
         });
         if (!ours.length) return { passed: false, reason: `Gates has no "${name}" check from a push of ${sha.slice(0, 7)}.` };
         const newest = ours.reduce((a, b) => (b.id > a.id ? b : a));
+        const untraced = named.find((c) => c.id > newest.id && !runsBySuite[c.check_suite?.id]);
+        if (untraced) {
+            return { passed: false, reason: `A newer "${name}" check on ${sha.slice(0, 7)} (${untraced.id}) has no workflow run GitHub could name.` };
+        }
         if (newest.status !== 'completed') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} is ${newest.status}, not finished.` };
         if (newest.conclusion !== 'success') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} concluded ${newest.conclusion}.` };
     }
