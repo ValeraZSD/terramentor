@@ -15,7 +15,17 @@
 //
 // Neither failed loudly: search returned "nothing found", which is what it also
 // says when there is genuinely nothing.
-import { extractWords } from '../server/search.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// server/search.js opens the library on import: a scratch one, so this suite
+// never creates the repo's default database while other suites run.
+const dbScratch = mkdtempSync(join(tmpdir(), 'search-tokenizer-db-'));
+process.env.DB_PATH = join(dbScratch, 'test.db');
+process.env.VAULT_ROOT = join(dbScratch, 'vault');
+process.on('exit', () => { try { rmSync(dbScratch, { recursive: true, force: true }); } catch { /* Windows holds the open database */ } });
+const { extractWords } = await import('../server/search.js');
 
 let failures = 0;
 let passed = 0;
