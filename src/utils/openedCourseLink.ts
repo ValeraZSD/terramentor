@@ -3,7 +3,8 @@
 // It is taken off the address at start, before anything routes: a lock screen,
 // a sign-in or the welcome may come first and change the address, and a 22 KB
 // fragment left in the address bar is copied by every "share this page". It is
-// kept for this tab until the New course dialog that offers it closes, so a
+// kept for this tab until the course page (or, for a link that cannot be read,
+// the New course dialog) that offers it closes, so a
 // screen that moves the app on (the welcome's last step) cannot lose it: the
 // app goes back to Projects for as long as a link waits (App.tsx).
 //
@@ -64,7 +65,7 @@ export function arrivedByCourseLink(): boolean {
     try { return arrived || sessionStorage.getItem(ARRIVED_KEY) === '1'; } catch { return arrived; }
 }
 
-/** Spends the link: the dialog that offered it closed, added or not. */
+/** Spends the link: the page or dialog that offered it closed, added or not. */
 export function forgetOpenedCourseLink(): void {
     held = null;
     try { sessionStorage.removeItem(KEY); } catch { /* nothing kept there */ }

@@ -66,7 +66,7 @@ const ONE_ROW_FOOT_REM = 38;
 export default function NewProjectModal({ isOpen, draft, courseLink = null, onClose }: {
     isOpen: boolean;
     draft: CreationInput | null;
-    /** A course link the app was opened with: the dialog opens on Import with it filled in. */
+    /** A course link the app was opened with that could not be read: the dialog opens on Import with it filled in. */
     courseLink?: string | null;
     onClose: () => void;
 }) {

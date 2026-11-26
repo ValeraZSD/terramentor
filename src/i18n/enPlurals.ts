@@ -302,6 +302,8 @@ const enPlurals: Record<string, string> = {
     "and {{count}} earlier days_other": "and {{count}} earlier days",
     "and {{count}} more change_one": "and {{count}} more change",
     "and {{count}} more change_other": "and {{count}} more changes",
+    "and {{count}} more topics_one": "and {{count}} more topic",
+    "and {{count}} more topics_other": "and {{count}} more topics",
     "At most {{count}} characters_one": "At most {{count}} character",
     "At most {{count}} characters_other": "At most {{count}} characters",
     "At most {{count}} files per message_one": "At most {{count}} file per message",

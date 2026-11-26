@@ -162,6 +162,38 @@ check("another site's course=2.5 before the link does not hide it", await fromTe
 check('the name "course" broken over two lines', await fromText(full.replace('#course=', '#cou\nrse=')) === name);
 check('a line break straight after "="', await fromText(full.replace('#course=', '#course=\n')) === name);
 
+// 6. What the page a link opens shows of the course (`courseOutline.ts`). The
+// expected topics are written out by title: a topic is a non-note row with no
+// non-note rows under it, and a deck's page row is none.
+const outOut = join(scratch, 'courseOutline.mjs');
+await esbuild.build({
+    entryPoints: [fileURLToPath(new URL('../src/utils/courseOutline.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'node', outfile: outOut, logLevel: 'silent',
+});
+const { outlineOf } = await import(pathToFileURL(outOut).href);
+const outline = outlineOf([
+    { title: 'Phase one', children: [
+        { title: 'Section', children: [
+            { title: 'Greetings', flashcards: [{ front: '  ', back: 'blank front' }, { front: 'hallo', back: 'hello' }], questions: [{}, {}] },
+            { title: 'A note', is_note: true, flashcards: [{ front: 'n', back: 'n' }] },
+        ] },
+        { title: 'Numbers', children: [{ title: 'Only a note under it', is_note: true }], flashcards: [{ front: 'een', back: 'one' }], questions: [{}] },
+    ] },
+    { title: 'Deck page 1', role: 'pagination', flashcards: [{ front: 'x', back: 'y' }] },
+    { title: 'Empty phase', children: [] },
+    'not a row', null,
+]);
+check('outline: topics in course order, notes and deck pages left out',
+    isDeepStrictEqual(outline.topics.map(x => x.title), ['Greetings', 'Numbers', 'Empty phase']), JSON.stringify(outline.topics));
+check('outline: a topic counts its own cards', isDeepStrictEqual(outline.topics.map(x => x.cards), [2, 1, 0]));
+check('outline: every card and question counts, notes and pages too', outline.cards === 5 && outline.questions === 3, `${outline.cards}/${outline.questions}`);
+check('outline: the first card skips a blank front', isDeepStrictEqual(outline.firstCard, { front: 'hallo', back: 'hello' }), JSON.stringify(outline.firstCard));
+check('outline: no cards, no first card', outlineOf([{ title: 'T' }]).firstCard === null);
+check('outline: a cloze card is not the first card',
+    isDeepStrictEqual(outlineOf([{ title: 'T', flashcards: [{ front: 'De {{c1::vergadering}} begint', back: '', cloze: true }, { front: 'Het {{c2::doel}}', back: '' }, { front: 'de klant', back: 'the customer' }] }]).firstCard, { front: 'de klant', back: 'the customer' }));
+check('outline: direction overrides and control characters are not shown',
+    outlineOf([{ title: '\u202Egnp.exe\u202C Tab\u0007le' }]).topics[0]?.title === 'gnp.exe Table', JSON.stringify(outlineOf([{ title: '\u202Egnp.exe\u202C Tab\u0007le' }]).topics[0]?.title));
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
