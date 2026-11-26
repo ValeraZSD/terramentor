@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { constants as fsConstants, closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { constants as fsConstants, closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -82,11 +82,20 @@ export function secretsFile() {
 
 /** A backup of the credentials, to `to`, a name nothing holds yet, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
+    let bytes;
     try {
-        copyFileSync(writtenPath(secretsFile()), to, fsConstants.COPYFILE_EXCL);
+        bytes = readFileSync(writtenPath(secretsFile()));
     } catch (e) {
         if (e.code === 'ENOENT') return false;
         throw e;
+    }
+    // Created owner-only, and only where nothing stands yet (a link included).
+    const fd = openSync(to, 'wx', 0o600);
+    try {
+        writeFileSync(fd, bytes);
+        fsyncSync(fd);
+    } finally {
+        closeSync(fd);
     }
     chmodSync(to, 0o600);
     return true;
@@ -97,8 +106,9 @@ export function replaceCredentialsFrom(from) {
     if (lstatSync(from).isSymbolicLink()) throw new Error(`${from} is a link, not a backup file`);
     const to = writtenPath(secretsFile());
     const incoming = `${to}.restoring`;
-    // Whatever is at that name (a link, or a file a killed restore left) is
-    // removed, not written through: the new file is made fresh.
+    // A link or a file at that name (one a killed restore left) is removed,
+    // not written through: the new file is made fresh. A folder there stops
+    // the restore.
     rmSync(incoming, { force: true });
     copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
     chmodSync(incoming, 0o600);

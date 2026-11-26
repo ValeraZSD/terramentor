@@ -51,10 +51,11 @@
 // What a module takes on: `authenticate` returning `{ signedIn: true }` stands
 // for the password everywhere the password counts (the settings only the owner
 // may change, connected devices, the API key, the update controls).
-// `trustProxy` decides which address the sign-in throttle counts a request
-// under and whether it counts as secure for the cookie's Secure flag; a request
-// carrying a forwarded header never counts as this machine (auth.js
-// isLocalRequest), whatever the value. A page the deployment serves on
+// `trustProxy` decides which client address and scheme a relayed request has
+// (req.ip, req.secure): the sign-in throttle, the tailnet check behind
+// Tailscale sign-in, the cookie's Secure flag and the address offered to a
+// phone read them. A request carrying a forwarded header never counts as this
+// machine (auth.js isLocalRequest), whatever the value. A page the deployment serves on
 // the app's origin, outside the app, answers with the `X-Not-App-Shell` header
 // so the service worker does not keep it as the app's shell.
 import path from 'node:path';

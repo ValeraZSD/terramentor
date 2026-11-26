@@ -255,16 +255,7 @@ export function firstChoice(job, { model = null } = {}) {
         // `final` refusal): the settings the job would use, marked, so a
         // probe answers "no model" instead of failing; the call itself is
         // still refused.
-        if (err?.unavailable === true || err?.final === true) {
-            let own;
-            try {
-                own = chainOf(job, { model })[0];
-            } catch (inner) {
-                if (!inner?.jobRouteGone) throw inner;
-                own = getAISettings();
-            }
-            return { ...own, unavailable: true };
-        }
+        if (err?.unavailable === true || err?.final === true) return { ...chainOf(job, { model })[0], unavailable: true };
         throw err;
     }
 }

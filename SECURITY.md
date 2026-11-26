@@ -470,9 +470,10 @@ with it, and a copy built from this repository loads none.
   requests sent to it. A request its `authenticate` hook signs in counts as holding the password
   everywhere the password counts: the network settings, connected devices, the API key (read,
   regenerate, delete) and update controls only the owner may change. Its `trustProxy` value decides
-  which address the sign-in throttle counts a request under, and whether a request counts as secure
-  for the session cookie's Secure flag; a request that carries a forwarded header never counts as
-  this machine, whatever the value. A module is trusted like the server itself; it is not
+  which client address and scheme the server reads from a relayed request: the address the sign-in
+  throttle counts, the tailnet check behind Tailscale sign-in, the session cookie's Secure flag and
+  the address offered to a phone. A request that carries a forwarded header never counts as this
+  machine, whatever the value. A module is trusted like the server itself; it is not
   sandboxed. Its own outbound calls, if it makes any, are not in the list above, which covers the
   app alone.
 
