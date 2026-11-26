@@ -1638,9 +1638,14 @@ export const useStore = create<AppState>((set, get) => ({
         // this is safe to fire on every app start regardless of the setting.
         // Settled one by one: a failed update verdict must not drop the identity.
         // A server too old to serve /api/version simply shows nothing in About.
+        // A toggle pressed while these were on the wire wins, as in refreshUpdates.
+        const startedBefore = updateWritesStarted;
         const [version, updates] = await Promise.allSettled([api.getVersion(), api.getUpdates()]);
         if (version.status === 'fulfilled') set({ appVersion: version.value });
-        if (updates.status === 'fulfilled') set({ updateStatus: updates.value });
+        if (updates.status === 'fulfilled' && downloadPressesInFlight === 0 && updateWritesInFlight === 0
+            && updateWritesStarted === startedBefore) {
+            set({ updateStatus: updates.value });
+        }
     },
 
     checkForUpdates: async () => {

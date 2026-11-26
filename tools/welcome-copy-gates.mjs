@@ -140,5 +140,26 @@ section('2. a failed update check does not drop the version answer');
     v.close();
 }
 
+section('3. an update answer older than a toggle does not undo it');
+{
+    let releaseRead;
+    const v = page();
+    v.fetch = (url) => {
+        const u = String(url);
+        const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        if (u.includes('/api/version')) return Promise.resolve(json(VERSION));
+        if (u.includes('/api/updates/auto')) return Promise.resolve(json({ enabled: false }));
+        if (u.includes('/api/updates')) return new Promise((r) => { releaseRead = () => r(json({ enabled: true })); });
+        return new Promise(() => { });
+    };
+    const { act, useStore } = v.__gate;
+    let loading;
+    await act(async () => { loading = useStore.getState().loadVersion(); await settle(); });
+    await act(async () => { await useStore.getState().setAutoUpdateCheck(false); await settle(); });
+    await act(async () => { releaseRead(); await loading; await settle(); });
+    check('the switch keeps the value the toggle wrote', useStore.getState().updateStatus?.enabled === false, JSON.stringify(useStore.getState().updateStatus));
+    v.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
