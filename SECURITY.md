@@ -500,6 +500,15 @@ loads it. What it does:
   password and the rest of its hash never leave the server, and the match is made on the
   server. A password found there is refused. `SITE_BREACH_CHECK=0` turns the check off; if the
   service does not answer in 5 seconds the password is accepted.
+- **A spending fuse per person** (`server/aiFuse.js`, `server/aiSpend.js`). Every library uses
+  the site's one model key, so each counts its own model spend per month in its own database
+  (`ai_spend`, which no route reads or writes and no export carries) and moves to a smaller model,
+  then stops making model calls, past the operator's lines (`AI_FUSE_*`, `docs/HOSTING.md`). The
+  stop is checked where a call's model is chosen and again on the wire, so a call that chose its
+  model earlier is refused too. When a library passes a line and `AI_FUSE_NOTICE_URL` is set, the
+  library makes **one outbound call**: a JSON POST to that address naming the library by the first
+  eight characters of its id, the month, the amounts and the event, and nothing the person wrote;
+  no redirect is followed and it gives up after 10 seconds. With the variable unset it makes none.
 - **Not there yet**: public sign-up, email, password reset, a second factor and export. The
   front desk itself runs as root, because it must start each library as its own user.
 

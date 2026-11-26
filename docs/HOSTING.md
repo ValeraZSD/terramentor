@@ -201,6 +201,47 @@ stores and how it signs people in is in `SECURITY.md`, "Accounts on a site".
 | `SITE_IDLE_MINUTES` | 10 | quiet minutes before a library is stopped; never while a stream is open or a task runs |
 | `SITE_UID_BASE` | 100000 | the first user id given to a library |
 | `SITE_BREACH_CHECK` | on | `0` turns off the breached-password check |
+| `AI_FUSE_SWITCH_USD` | 5 | a person's model spend in a calendar month past which their calls go to `AI_FUSE_SMALL_MODEL` |
+| `AI_FUSE_STOP_USD` | 10 | the spend past which they make no model calls until the next month |
+| `AI_FUSE_SMALL_MODEL` | `anthropic/claude-haiku-5.5` | the cheaper model, on the same `AI_BASE_URL` and key |
+| `AI_FUSE_NOTICE_URL` | (none) | an address that gets a JSON POST when a library passes either line |
+
+**What each person may spend on the model.** Every library uses the one key in `AI_API_KEY`, so
+a spending limit on that key (below, "The model and its cost") is a limit for the whole site,
+and one person's runaway loop or bulk generation could spend everyone's month. Each library
+therefore counts its own model spend per calendar month (UTC), in its own database, and holds
+itself to two lines:
+
+1. Past `AI_FUSE_SWITCH_USD`, every model call of that person goes to `AI_FUSE_SMALL_MODEL`
+   for the rest of the month.
+2. Past `AI_FUSE_STOP_USD`, that person makes no model calls until the first of the next
+   month. They read one sentence ("AI is paused on your account until next month; your reviews,
+   cards and everything already made keep working.") where a model answer would have been. Their
+   card reviews, quizzes with set answers, lessons already written and search keep working,
+   since none of them needs the model (search still embeds its query: embeddings cost a fraction
+   of a cent and are never refused). What does need it waits for the next month: new lessons,
+   the assistant, and marking a written answer by its meaning.
+
+There is no daily limit; the monthly total already bounds the cost. The defaults are a fuse
+against loops and abuse rather than a quota: they sit far above what one person studying every
+day spends. The cost of each call is what OpenRouter reports on it (`usage.cost`, "Cost in
+credits", [Usage Accounting](https://openrouter.ai/docs/use-cases/usage-accounting), which
+also says "No additional parameters are required"), so the count matches your OpenRouter
+activity page. A provider that reports no cost is counted by its tokens at Claude Sonnet 5.5's
+listed price (USD 2 in, USD 10 out per million), or by its characters when it reports no
+tokens either. A model on the same machine (`AI_PROVIDER=ollama`) is neither counted nor
+switched.
+
+When a library passes either line, its log says so (`[ai-fuse] Library 1a2b3c4d has spent USD
+5.01 on the model in 2026-12, past USD 5.00 ...`), once per line and month, with how many days
+ago the library was made: a switch on the day it was made is what a loop looks like. With
+`AI_FUSE_NOTICE_URL` set, the same sentence also goes there as a JSON POST
+(`{"text": "...", "event": "switch" | "stop", "library": "1a2b3c4d", "month": "2026-12",
+"spentUsd": 5.01, "switchUsd": 5, "stopUsd": 10}`), which a Slack or Mattermost incoming
+webhook shows as it is. Nothing a person wrote is in it. The front desk refuses to start with a
+value it cannot use (an amount that is not a number, a switch above the stop, a stop of 0) and
+prints the lines in force when it starts. A copy per person (above) has no fuse: its own key
+with its own limit at OpenRouter does that job.
 
 **Waking is fast and starts nothing that costs.** A library woken by a request answers in about
 0.6 s (measured on a 24-thread machine; `tools/site-proofs.mjs` prints the number on yours). A
@@ -309,7 +350,9 @@ the server.
 
 Every copy uses the model in `hosted/.env` (`AI_PROVIDER`, `AI_BASE_URL`,
 `AI_MODEL`) with a key of its own, so one person's use cannot spend another's
-budget and a leaked key is one key. With OpenRouter, a **management key**
+budget and a leaked key is one key. (A site, "Many people at one address",
+has one key for everyone: its limit is the site's, and the limit per person is
+the app's own fuse, `AI_FUSE_*`.) With OpenRouter, a **management key**
 creates one ordinary key per copy, each with a spending limit. From
 OpenRouter's documentation:
 
