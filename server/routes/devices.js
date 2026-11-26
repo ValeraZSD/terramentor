@@ -4,7 +4,7 @@
 // is already in may connect another device or remove one.
 import { routeTable } from './routeTable.js';
 import { wrap } from './request.js';
-import { isAuthEnabled, ownerPresent, passwordThroughThrottle } from '../auth.js';
+import { isAuthEnabled, isLocalRequest, ownerPresent, passwordThroughThrottle } from '../auth.js';
 import { apiError, keyed } from '../clientError.js';
 import {
     createPairingOffer, listDevices, phoneAddress, removeDevice, servedHere, serveOnTailnet, setTailscaleTrust, tailscaleOwner,
@@ -31,6 +31,13 @@ app.get('/api/devices', wrap(async (req, res) => {
 // `tailscale: true` beside a null url: Tailscale runs here but passes nothing
 // to this app yet, which one press can fix (below).
 app.post('/api/devices/pair', wrap(async (req, res) => {
+    // With no password yet, a code comes from this computer or from a device
+    // it already let in. A machine reaching an app left open to the network
+    // (AUTH_ALLOW_OPEN_REMOTE) gets none: a device it paired would count as
+    // let in, and could set the first password without the setup code.
+    if (!isAuthEnabled() && !isLocalRequest(req) && !req.remoteAccess) {
+        return res.status(403).json(keyed('Only on the computer itself, or with the password'));
+    }
     if (await passwordRefused(req, res)) return;
     const base = await phoneAddress(req);
     if (!base) return res.json({ url: null, tailscale: !!(await tailscaleOwner()) });

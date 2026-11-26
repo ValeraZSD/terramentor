@@ -619,6 +619,15 @@ console.log('\n--- the first password from a connected device ---');
     ok('the connected phone sets the first password without a code', set.status === 200 && auth.isAuthEnabled(), `${set.status} ${JSON.stringify(set.body)}`);
     ok('…and is still let in once it is set', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
     auth.clearAuth();
+
+    // An app left open to the network: another machine reaches it, but may not
+    // pair a device of its own, which could then set the first password.
+    process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
+    let openPair;
+    try { openPair = await call('/api/devices/pair', { method: 'POST', from: '192.168.1.90' }); } finally { delete process.env.AUTH_ALLOW_OPEN_REMOTE; }
+    ok('an app open to the network gives another machine no pairing code while there is no password',
+        openPair.status === 403 && !JSON.stringify(openPair.body).includes('#pair='), `${openPair.status} ${JSON.stringify(openPair.body)}`);
+    ok('…while this computer still gets one', (await call('/api/devices/pair', { method: 'POST' })).status === 200);
 }
 
 // ── removing a device ──────────────────────────────────────────────────────────
