@@ -134,7 +134,7 @@ async function basicRun(jobs) {
         hang && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
     // Each process left running sleeps a minute and then notes `.slept`: a run that waited for one finds the note.
     const slept = readdirSync(run.scratch).filter((f) => f.endsWith('.slept'));
-    check(`${how}: the run did not wait for the processes left running`, slept.length === 0, slept.join(' '));
+    check(`${how}: the run did not wait out the minute the processes left running sleep`, slept.length === 0, slept.join(' '));
 
     // Each failure's tagged lines sit together under its own FAIL line.
     let owner = null;

@@ -393,8 +393,9 @@ function reap(roots) {
     };
     // A suite's end is read with Date.now() at its 'exit', after the process
     // exited, so its children were all created before it; the margin covers only
-    // the rounding of the two clocks, not a second in which an id can be reused.
-    const AT_END = 20;
+    // the rounding of the two clocks (a Windows tick is ~15.6 ms), not a second
+    // in which an id can be reused.
+    const AT_END = 50;
     for (const r of roots) {
         const end = r.end ?? now;
         // The id may already belong to a newer process (one created after the suite
