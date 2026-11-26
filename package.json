@@ -93,7 +93,7 @@
     "quickjs-emscripten-core": "0.32.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-i18next": "^17.1.9",
+    "react-i18next": "^18.0.3",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.5",
     "react-syntax-highlighter": "^16.1.2",
