@@ -109,6 +109,7 @@ jobs:
       contents: write
       packages: write
       actions: read
+      checks: read          # verify asks whether Gates already passed the commit
       id-token: write       # only release.yml's attest job asks for these two
       attestations: write
     uses: ./.github/workflows/release.yml

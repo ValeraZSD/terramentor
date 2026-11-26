@@ -145,9 +145,21 @@ jobs:
   # that this build is worth running, and the whole suite takes minutes.
   # The suites run on the commit as it is, before a nightly's version is stamped
   # on: they check that CHANGELOG.md documents package.json's version.
+  #
+  # Gates (gates.yml) runs the same steps on every push to main, on Linux and
+  # on Windows. When it has already passed on exactly the commit being
+  # released, running them again here proves nothing new and holds every later
+  # job for a quarter of an hour; they are skipped, and the summary says why.
+  # Anything else (Gates still running, failed, never run on this commit, or
+  # GitHub not answering) runs them here as before. A dry run never asks: its
+  # commit is a pull request's merge commit, which no push made.
   verify:
     needs: plan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read      # Gates' checks on this commit
+      actions: read     # the run each one came from: Gates, started by a push
     steps:
       # Full history, not the default single commit: tools/no-ai-attribution.mjs
       # reads commit messages over a range, and a shallow clone has no range to
@@ -161,14 +173,25 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - id: gates
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REF: ${{ needs.plan.outputs.ref }}
+        run: node tools/release.mjs gates-passed --sha "$REF"
       - run: npm ci
+        if: steps.gates.outputs.passed != 'true'
       - run: npx tsc --noEmit
+        if: steps.gates.outputs.passed != 'true'
       - name: Server parses
+        if: steps.gates.outputs.passed != 'true'
         run: |
           for f in server/*.js server/routes/*.js; do node --check "$f"; done
       - name: Guard suites
+        if: steps.gates.outputs.passed != 'true'
         run: npm test
       - name: Frontend builds
+        if: steps.gates.outputs.passed != 'true'
         run: npm run build
 
       # A stable release must say exactly what package.json says, or the app
@@ -181,17 +204,34 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
         run: node tools/release.mjs check-version --channel "$CHANNEL" --version "$VERSION"
 
-  image:
+  # The container image, for amd64 and arm64: an Apple Silicon Mac and a
+  # Raspberry Pi are both plausible homes for a local-first study app, and all
+  # three native dependencies (better-sqlite3, @napi-rs/canvas, sqlite-vec)
+  # ship arm64 prebuilds, so neither arch has to compile anything.
+  #
+  # Each architecture builds on a runner of its own kind, side by side, rather
+  # than arm64 under emulation on an amd64 runner, which took most of this
+  # job's eight minutes. Each one is started and its first visit checked on
+  # that runner, so the arm64 image is run before it is published, not only
+  # built. A real release pushes each by digest alone, with no tag; the `image`
+  # job below joins the two into the one multi-arch image the tag names.
+  image-arch:
     needs: [plan, verify]
     # A real release builds only once the gates pass. A dry run builds even when
     # they fail, so a pull request learns whether the packaging works on its own.
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write   # push to ghcr.io
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       # A shallow checkout on purpose: a Docker build reads the working tree, not
       # the log, and the commit it stamps into the image comes from the plan.
@@ -208,8 +248,6 @@ jobs:
         if: needs.plan.outputs.channel == 'nightly'
         run: node tools/release.mjs stamp "${{ needs.plan.outputs.version }}"
 
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-        if: needs.plan.outputs.publish == 'true'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -219,10 +257,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Only the exact version here. The tags that MOVE (`latest`, the minor and
-      # major lines, or `nightly`) are pointed at this image by the image-tags job,
-      # after the release is published: a build that fails later, in the zips or
-      # the release, must not have moved what `docker compose pull` fetches.
+      # The labels, and the exact version as the tag a dry run loads the image
+      # under. A real release pushes this architecture with no tag at all.
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
@@ -231,27 +267,27 @@ jobs:
           tags: |
             type=raw,value=${{ needs.plan.outputs.version }}
 
+      # Lowercase, as a Docker reference must be (see the step after the build).
+      - id: name
+        run: echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+
       - id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          push: ${{ needs.plan.outputs.publish == 'true' }}
-          # A dry run loads the image into the runner's Docker instead, which
-          # works for one platform only; arm64 is exercised by real releases.
+          platforms: linux/${{ matrix.arch }}
+          # A real release pushes by digest only; a dry run loads the image into
+          # the runner's Docker under its version tag, and pushes nothing.
+          outputs: ${{ needs.plan.outputs.publish == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.name.outputs.image) || '' }}
           load: ${{ needs.plan.outputs.publish != 'true' }}
-          # arm64 as well as amd64: an Apple Silicon Mac and a Raspberry Pi are
-          # both plausible homes for a local-first study app, and all three native
-          # dependencies (better-sqlite3, @napi-rs/canvas, sqlite-vec) ship arm64
-          # prebuilds, so neither arch has to compile anything.
-          platforms: ${{ needs.plan.outputs.publish == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ needs.plan.outputs.publish != 'true' && steps.meta.outputs.tags || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           # Identity for a build with no `.git` in it — see the ARG in Dockerfile.
           build-args: |
             GIT_SHA=${{ needs.plan.outputs.ref }}
             BUILD_TIME=${{ needs.plan.outputs.built_at }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
 
       # The image is STARTED before the release names it. Building proves it
       # compiles; only running it proves the first visit works as the README
@@ -282,6 +318,73 @@ jobs:
           echo "::add-mask::$key"
           docker exec -i -e TERRAMENTOR_API_KEY="$key" smoke node --input-type=module - /app < tools/mcp-smoke.mjs
           docker rm -f smoke
+
+      # The digest this architecture was pushed under, for the `image` job,
+      # only after the image passed its first visit above.
+      - name: Hand the digest on
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: needs.plan.outputs.publish == 'true'
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The two architectures as ONE image under its exact version, the tag a user
+  # pins: a manifest list naming both digests, made in the registry from what
+  # was pushed, so nothing is rebuilt and the build provenance each push
+  # carries stays attached. Only the exact version here. The tags that MOVE
+  # (`latest`, the minor and major lines, or `nightly`) are pointed at this
+  # image by the image-tags job, after the release is published: a build that
+  # fails later, in the zips or the release, must not have moved what
+  # `docker compose pull` fetches. A dry run pushed nothing, so it has nothing
+  # to join.
+  image:
+    needs: [plan, image-arch]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.image-arch.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write   # push the joined manifest to ghcr.io
+    outputs:
+      digest: ${{ steps.join.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: needs.plan.outputs.publish == 'true'
+        with:
+          pattern: image-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: needs.plan.outputs.publish == 'true'
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: needs.plan.outputs.publish == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: join
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          image="${IMAGE,,}"
+          sources=()
+          for d in "$RUNNER_TEMP"/digests/*; do sources+=("$image@sha256:$(basename "$d")"); done
+          if [ "${#sources[@]}" != 2 ]; then
+            echo "::error::Expected an amd64 and an arm64 digest, found ${#sources[@]}."
+            exit 1
+          fi
+          docker buildx imagetools create -t "$image:$VERSION" "${sources[@]}"
+          digest="$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          case "$digest" in sha256:*) ;; *) echo "::error::No digest for $image:$VERSION"; exit 1 ;; esac
+          docker buildx imagetools inspect "$image:$VERSION"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   # The desktop packages: one zip per OS, each carrying its own Node runtime,
   # built by tools/build-desktop.mjs on that OS. Built ON the OS rather than

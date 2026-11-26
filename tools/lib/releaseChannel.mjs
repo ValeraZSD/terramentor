@@ -253,6 +253,83 @@ export function draftProblems({ release, files, ref }) {
     return problems;
 }
 
+/** The checks of the Gates workflow (.github/workflows/gates.yml) that run the
+ *  whole guard suite, by the names GitHub shows for them. A rename there
+ *  without one here costs time, never safety: a release that cannot find them
+ *  runs the suite itself. */
+export const GATES_CHECKS = Object.freeze(['Node 24 on ubuntu-latest', 'Node 24 on windows-latest']);
+export const GATES_WORKFLOW = '.github/workflows/gates.yml';
+
+/**
+ * Whether the Gates workflow already passed the guard suite on exactly `sha`,
+ * so a release of that commit can skip running it again: `{ passed, reason }`.
+ *
+ * `checkRuns` are the check runs GitHub holds for `sha`; `runsBySuite` maps a
+ * check suite's id to the workflow run that made it. A check counts only when
+ * GitHub Actions made it, in a run of the Gates workflow started by a PUSH of
+ * that very commit. A pull request's run does not count: it tests a merge
+ * commit and reports on the head, so a check named here can be green on a
+ * commit whose own tree was never tested. Each named check's newest run must
+ * have finished with success; one still running, failed, cancelled or missing
+ * means no. A check of that name whose workflow run cannot be found is no
+ * when it is newer than that success: it may be Gates' own newer attempt.
+ */
+export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GATES_CHECKS }) {
+    if (!/^[0-9a-f]{40}$/.test(sha || '')) return { passed: false, reason: `"${sha}" is not a commit.` };
+    for (const name of names) {
+        const named = checkRuns.filter((c) => c?.name === name && c.head_sha === sha && c.app?.slug === 'github-actions');
+        const ours = named.filter((c) => {
+            const run = runsBySuite[c.check_suite?.id];
+            return !!run && run.event === 'push' && run.path === GATES_WORKFLOW && run.head_sha === sha;
+        });
+        if (!ours.length) return { passed: false, reason: `Gates has no "${name}" check from a push of ${sha.slice(0, 7)}.` };
+        const newest = ours.reduce((a, b) => (b.id > a.id ? b : a));
+        const untraced = named.find((c) => c.id > newest.id && !runsBySuite[c.check_suite?.id]);
+        if (untraced) {
+            return { passed: false, reason: `A newer "${name}" check on ${sha.slice(0, 7)} (${untraced.id}) has no workflow run GitHub could name.` };
+        }
+        if (newest.status !== 'completed') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} is ${newest.status}, not finished.` };
+        if (newest.conclusion !== 'success') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} concluded ${newest.conclusion}.` };
+    }
+    return { passed: true, reason: `Gates passed ${sha.slice(0, 7)} on its push: ${names.join(', ')}.` };
+}
+
+/**
+ * Read from GitHub what gatesPassed needs for `sha`, then decide: `{ passed, reason }`.
+ * `get(path, { signal })` makes one API call under `/repos/<owner>/<repo>`.
+ * Every call gets the same `signal`, so one deadline holds the whole lookup;
+ * once it fires no further call is made. Anything GitHub cannot answer, the
+ * deadline included, is `passed: false`; so is a lookup given no `signal`.
+ */
+export async function lookUpGates({ sha, get, signal, names = GATES_CHECKS }) {
+    try {
+        if (!signal) throw new Error('no deadline was given');
+        const call = (path) => {
+            signal.throwIfAborted();
+            return get(path, { signal });
+        };
+        const checkRuns = [];
+        for (const name of names) {
+            const body = await call(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
+            const page = body?.check_runs || [];
+            // The newest check must be among those read; past one page it may not be.
+            if ((body?.total_count ?? page.length) > page.length) {
+                throw new Error(`${body.total_count} "${name}" checks, more than one page`);
+            }
+            checkRuns.push(...page);
+        }
+        const runsBySuite = {};
+        const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
+        for (const id of suites) {
+            const runs = await call(`/actions/runs?check_suite_id=${id}&per_page=1`);
+            if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
+        }
+        return gatesPassed({ sha, checkRuns, runsBySuite, names });
+    } catch (e) {
+        return { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
+    }
+}
+
 /** Null when the build may carry `version`; otherwise the reason it may not. */
 export function checkBuildVersion({ channel, version, packageVersion }) {
     if (channel === 'stable') {

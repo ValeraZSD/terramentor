@@ -332,8 +332,9 @@ To cut a stable release:
    changed on `main` after that nightly, because the workflow from `main` would run the older
    script; let a nightly of the current `main` build (or run **Nightly** by hand), then promote.
 
-`.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
-amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
+`.github/workflows/release.yml` then runs the gates (or, when the **Gates** workflow already
+passed on a push of exactly that commit, says so and does not run them a second time), builds
+the container image natively for amd64 and arm64, starts each one, publishes it to GHCR, and opens the GitHub Release with that changelog section as its body. Beside
 the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
 and SHA-256, which is what an updater checks a download against. `manifest.json.sig` signs the
 manifest with the channel's Ed25519 key, and the zips get a build provenance attestation. The
