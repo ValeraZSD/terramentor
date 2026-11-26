@@ -43,6 +43,10 @@
  *     "cards":  { "topic": "<title>" },
  *     "prepare": "<optional module, run against the copy before shooting>" }
  *
+ * A picture's manifest entry may carry `"viewport": { "height": 900 }` (its own
+ * window, over the manifest's) and `"crop": { "selector": "<css>", "margin": 24 }`
+ * (only that element's box, with that many CSS pixels around it).
+ *
  * A re-shoot also records the fixture's screens, so the pictures and the
  * manifest change in the same commit. A clip (`"clip": true`) is filmed with
  * other tools; the check still watches the screens it passes through, and
@@ -345,7 +349,18 @@ function pageKit(browser, base) {
             await sleep(400);
         },
         setting: (key, value) => evaluate(`fetch('/api/settings/${key}', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: ${JSON.stringify(value)} }) }).then((r) => r.status)`),
-        png: async () => Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'),
+        /** The window, or only the box of `selector` and `margin` CSS pixels around it. */
+        png: async (selector, margin = 0) => {
+            let clip;
+            if (selector) {
+                const r = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, W: innerWidth, H: innerHeight }; })()`);
+                if (!r) throw new Error(`nothing to crop to: ${selector}`);
+                const x = Math.max(0, Math.floor(r.x - margin));
+                const y = Math.max(0, Math.floor(r.y - margin));
+                clip = { x, y, width: Math.min(r.W, Math.ceil(r.x + r.w + margin)) - x, height: Math.min(r.H, Math.ceil(r.y + r.h + margin)) - y, scale: 1 };
+            }
+            return Buffer.from((await send('Page.captureScreenshot', { format: 'png', ...(clip ? { clip } : {}) })).data, 'base64');
+        },
     };
     return kit;
 }
@@ -742,6 +757,10 @@ export async function visit(mode, dir, entries, viewport, browserPath, onState, 
             if (ids) server.cast.ids = ids;
         }
         for (const entry of entries) {
+            // A picture may ask for its own window: a dialog taller than the
+            // manifest's window scrolls, and the picture would cut it off.
+            const size = { ...viewport, ...entry.shot.viewport };
+            await browser.send('Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height, deviceScaleFactor: size.scale, mobile: false });
             for (const state of entry.states) {
                 // Each state starts from a fresh page, and one that runs no study clock: the home
                 // stream credits its top card with the seconds spent on it, and that time would
@@ -828,7 +847,9 @@ async function main() {
             const named = JSON.parse(readFileSync(join(dir, 'docs-shots.json'), 'utf8')).prepare;
             const prepare = named ? (await import(pathToFileURL(resolve(dir, named)).href)).default : null;
             await visit('library', scratch, stills, manifest.viewport, browserPath, async (entry, _state, page) => {
-                const png = await page.png();
+                // A crop keeps only the part the picture is about, so the README,
+                // which shrinks every picture to its column, shrinks it less.
+                const png = await page.png(entry.shot.crop?.selector, entry.shot.crop?.margin);
                 // A folder of one's own also gets the lossless picture, to look at; the repository keeps the webp.
                 if (opts.out) writeFileSync(join(out, `${name(entry.shot)}.png`), png);
                 await writeWebp(png, join(out, basename(entry.shot.file)), manifest.webpQuality);
