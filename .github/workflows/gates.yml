@@ -158,6 +158,10 @@ jobs:
           echo "$out" | grep -q 'Refusing to start: bound to 0.0.0.0 with no password'
           if echo "$out" | grep -q 'Server running at'; then echo 'it listened'; exit 1; fi
 
+      # Backups are encrypted with age, which the operator installs on the server.
+      - name: Install age
+        run: sudo apt-get update -q && sudo apt-get install -y -q age
+
       - name: Two hosted copies behind the proxy
         run: TM_IMAGE=terramentor:ci bash hosted/rehearse.sh
 

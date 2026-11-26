@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Two hosted copies behind the proxy on one machine, end to end: created by
 # copy.sh, reached over HTTPS by name, kept apart, refusing what a hosted copy
-# refuses, backed up, restored and removed. CI runs it against the image it
-# just built; it needs Docker, curl and free ports (TM_HTTP_PORT/TM_HTTPS_PORT,
-# 8080/8443 unless set).
+# refuses, backed up, restored and removed. Then a site front desk beside them,
+# backed up with the copies, and erasure: archives encrypted to a key made
+# here, a removed person's archives gone after the grace period, and a restore
+# of a backup older than an erasure that brings nobody back. CI runs it against
+# the image it just built; it needs Docker, curl, age and free ports
+# (TM_HTTP_PORT/TM_HTTPS_PORT, 8080/8443, and TM_SITE_PORT, 8090, unless set).
 #
 #   TM_IMAGE=terramentor:ci bash hosted/rehearse.sh
 #   KEEP=1 ...   leaves what is left running afterwards (to look at it)
@@ -35,6 +38,12 @@ B=bob
 # Every name the rehearsal makes; it deletes only these, and only when none
 # existed before it started.
 NAMES="alice bob carol dave erin"
+# The site front desk, its volume and the address it answers to.
+SITE=tm-rehearse-site
+SITE_HOST="site.$TM_DOMAIN"
+SITE_PORT="${TM_SITE_PORT:-8090}"
+command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1 \
+    || { echo "rehearse.sh: needs age and age-keygen (apt install age)" >&2; exit 1; }
 WORK="$(scratch_dir)"
 
 # It starts and, at the end, deletes the proxy and its certificates: never on a
@@ -50,9 +59,15 @@ for n in $NAMES; do
         exit 1
     fi
 done
+if docker container inspect "$SITE" >/dev/null 2>&1 || docker volume inspect "$SITE" >/dev/null 2>&1; then
+    echo "rehearse.sh: $SITE (or its volume) already exists here and the rehearsal would delete it" >&2
+    exit 1
+fi
 
 cleanup() {
     [ "${KEEP:-}" = 1 ] && return 0
+    docker rm -f "$SITE" >/dev/null 2>&1 || true
+    docker volume rm "$SITE" >/dev/null 2>&1 || true
     for n in $NAMES; do
         docker rm -f "tm-$n" >/dev/null 2>&1 || true
         docker volume rm "tm-$n-data" >/dev/null 2>&1 || true
@@ -66,6 +81,17 @@ cleanup() {
     return 0
 }
 trap cleanup EXIT
+
+# The operator's key pair: the server is given only the public half, which is
+# all a backup needs; the private half is what a restore asks for.
+age-keygen -o "$WORK/backup.key" 2>/dev/null
+age-keygen -y "$WORK/backup.key" > "$WORK/recipients"
+age-keygen -o "$WORK/other.key" 2>/dev/null
+export TM_BACKUP_RECIPIENTS="$WORK/recipients" TM_BACKUP_IDENTITY="$WORK/backup.key"
+# An archive as tar reads it: opened with the key when it is encrypted.
+open_archive() {
+    if [ "$(head -c 21 "$1")" = age-encryption.org/v1 ]; then age -d -i "$WORK/backup.key" "$1"; else cat "$1"; fi
+}
 
 pass=0
 ok() { pass=$((pass + 1)); echo "ok   $*"; }
@@ -117,14 +143,14 @@ echo "--- backup and restore ---"
 archive="$(bash "$COPY" backup "$A" | tail -1)"
 [ -s "$archive" ] && ok "online backup of $A: $archive ($(wc -c < "$archive") bytes)" || no "no archive"
 # Read through stdin: GNU tar takes "Z:/..." for a remote host.
-listing="$(tar tzf - < "$archive")"
+listing="$(open_archive "$archive" | tar tzf -)"
 grep -q '/terramentor.db$' <<< "$listing" && grep -q '/credentials.json$' <<< "$listing" && ok "it holds the database and the credentials" || no "archive contents: $listing"
 [ "$(status "$A" "/api/projects/$id" -b "$WORK/a.jar" -X DELETE)" = 200 ] && ok "the project is deleted" || no "delete"
 c "$A" /api/projects -b "$WORK/a.jar" | grep -q 'Rehearsal course' && no "still there after delete" || ok "…and gone"
-kept_before="$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz' | wc -l)"
+kept_before="$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz*' | wc -l)"
 safety="$(bash "$COPY" restore "$A" "$archive" | sed -n 's/^its library before the restore: //p')"
 [ -s "$safety" ] && [ "$safety" != "$archive" ] && [ -s "$archive" ] \
-    && [ "$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz' | wc -l)" = $((kept_before + 1)) ] \
+    && [ "$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz*' | wc -l)" = $((kept_before + 1)) ] \
     && ok "the restore backed $A up first ($safety) and kept the archive it restored" || no "no backup before the restore: '$safety'"
 [ "$(login "$A" "$pwA" a2)" = 200 ] && ok "the same password opens the restored copy" || no "login after restore"
 c "$A" /api/projects -b "$WORK/a2.jar" | grep -q 'Rehearsal course' && ok "the project is back after the restore" || no "project not restored"
@@ -146,17 +172,17 @@ running_a && [ "$(login "$A" "$pwA" a4)" = 200 ] && c "$A" /api/projects -b "$WO
 if TM_BACKUP_DIR="$WORK/plain-file/x" bash "$COPY" restore "$A" "$archive" 2>"$WORK/err"; then no "a restore went on without the backup of what it replaces"; fi
 running_a && [ "$(status "$A" /api/auth/status)" = 200 ] && grep -q "was not touched" "$WORK/err" \
     && ok "a restore whose backup fails leaves $A running: $(tail -1 "$WORK/err")" || no "a failed backup before the restore did not stop it: $(cat "$WORK/err")"
-kept_before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
+kept_before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | wc -l)"
 TM_BACKUP_DIR="$WORK/plain-file/x" bash "$COPY" restore "$A" "$archive" --no-backup >/dev/null
-[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = "$kept_before" ] && [ "$(login "$A" "$pwA" a5)" = 200 ] \
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | wc -l)" = "$kept_before" ] && [ "$(login "$A" "$pwA" a5)" = 200 ] \
     && ok "--no-backup restores without taking one" || no "restore --no-backup"
 
-before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
+before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | wc -l)"
 bash "$COPY" backup "$A" >/dev/null & p1=$!
 bash "$COPY" backup "$A" >/dev/null & p2=$!
 r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
 [ "$r1" = 0 ] && [ "$r2" = 0 ] || no "two backups at once failed ($r1, $r2)"
-[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = $((before + 2)) ] && ok "two backups at once keep two archives" || no "two backups at once kept $(ls "$TM_BACKUP_DIR/$A")"
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | wc -l)" = $((before + 2)) ] && ok "two backups at once keep two archives" || no "two backups at once kept $(ls "$TM_BACKUP_DIR/$A")"
 # Another run holding the copy (a restore, as it would): a backup waits for it
 # rather than reading a library that may change halfway.
 mkdir -p "$HERE/.locks" && mkdir "$HERE/.locks/$A"
@@ -166,13 +192,13 @@ kill -0 "$p1" 2>/dev/null && waited=1 || waited=0
 rmdir "$HERE/.locks/$A"
 r1=0; wait "$p1" || r1=$?
 [ "$waited" = 1 ] && [ "$r1" = 0 ] && ok "a backup waits while another run holds $A, then completes" || no "backup with $A held: waited=$waited exit=$r1"
-newest="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | sort | tail -1)"
+newest="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | sort | tail -1)"
 TM_BACKUP_KEEP=2 bash "$COPY" backup "$A" >/dev/null
-[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = 2 ] && [ -s "$newest" ] \
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz*' | wc -l)" = 2 ] && [ -s "$newest" ] \
     && ok "retention keeps the newest 2 in a folder with a space in its path" || no "retention left: $(ls "$TM_BACKUP_DIR/$A")"
 
 all="$(bash "$COPY" backup --all)"
-[ "$(echo "$all" | grep -c 'tar.gz$')" = 2 ] && ok "backup --all wrote one archive per copy" || no "backup --all: $all"
+[ "$(echo "$all" | grep -cE '/(alice|bob)/[^/]*\.tar\.gz(\.age)?$')" = 2 ] && ok "backup --all wrote one archive per copy" || no "backup --all: $all"
 
 echo "--- update and refusals of the tool itself ---"
 before="$(ls "$TM_BACKUP_DIR/$A" | wc -l)"
@@ -213,4 +239,160 @@ docker volume inspect "tm-$B-data" >/dev/null 2>&1 && no "$B's volume is still t
 [ -s "$(echo "$out" | sed -n 's/^its library: //p')" ] && ok "$B's library was exported first" || no "no export of $B"
 [ "$(status "$A" /api/auth/status)" = 200 ] && ok "$A still answers after $B's removal" || no "$A down after removal"
 
+# The four erasure checks report each on its own line and the run fails at the
+# end, so a run shows every one that does not hold, not only the first.
+MISSED=()
+miss() { echo "FAIL $*" >&2; MISSED+=("${1%%:*}"); }
+archives() { find "$1" -maxdepth 1 -type f -name '*.tar.gz*' 2>/dev/null | wc -l; }
+NOW="$(date -u +%s)"
+DAY=86400
+
+echo "--- a site front desk beside the copies ---"
+docker volume create "$SITE" >/dev/null
+docker run -d --name "$SITE" --user 0 -v "$SITE":/site -e SITE_DIR=/site -e HOST=0.0.0.0 -e SITE_HOSTS="$SITE_HOST" \
+    -e SITE_BREACH_CHECK=0 -e AI_PROVIDER=openai -e AI_BASE_URL=http://127.0.0.1:9/v1 -e AI_MODEL=none \
+    -p "127.0.0.1:$SITE_PORT:3001" "$TM_IMAGE" node server/site/index.js >/dev/null
+export TM_SITE_CONTAINER="$SITE"
+sc() { local path="$1"; shift; curl -sS --max-time 30 --resolve "$SITE_HOST:$SITE_PORT:127.0.0.1" "$@" "http://$SITE_HOST:$SITE_PORT$path"; }
+site_up() { for _ in $(seq 1 60); do sc /site/health -f >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
+# The session cookie is read from the answer's headers: it is Secure, which curl's
+# own jar keeps only over HTTPS.
+site_cookie() { sed -n 's/^[Ss]et-[Cc]ookie: __Host-tm_session=\([^;]*\).*/\1/p' "$WORK/h" | tr -d '\r' | tail -1; }
+site_join() {
+    local link
+    link="$(docker exec "$SITE" node server/site/cli.js invite "$1")"
+    : > "$WORK/h"
+    sc "/site/invite/${link##*/site/invite/}" -D "$WORK/h" -o /dev/null --data-urlencode "password=$2" --data-urlencode "again=$2" || true
+    site_cookie
+}
+site_signin() {
+    : > "$WORK/h"
+    sc /site/sign-in -D "$WORK/h" -o /dev/null --data-urlencode "email=$1" --data-urlencode "password=$2" || true
+    site_cookie
+}
+sa() { local ck="$1" path="$2"; shift 2; sc "$path" -H "Cookie: __Host-tm_session=$ck" -H "Origin: http://$SITE_HOST:$SITE_PORT" "$@"; }
+site_course() { sa "$1" /api/projects -H 'Content-Type: application/json' -d "{\"name\":\"$2\"}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1; }
+site_has() { sa "$1" /api/projects | grep -q "$2"; }
+library_of() { docker exec "$SITE" node server/site/cli.js accounts | awk -F'\t' -v e="$1" '$1 == e { print $2 }'; }
+site_up && ok "the front desk answers" || no "the front desk did not start: $(docker logs --tail 20 "$SITE" 2>&1)"
+PW_ANN=rehearsal-password-ann PW_BEN=rehearsal-password-ben
+ck_ann="$(site_join ann@example.test "$PW_ANN")"
+ck_ben="$(site_join ben@example.test "$PW_BEN")"
+[ -n "$ck_ann" ] && [ -n "$ck_ben" ] && ok "two people join the site by invitation" || no "site join: '$ck_ann' '$ck_ben'"
+[ -n "$(site_course "$ck_ann" 'Ann course')" ] && ben_course="$(site_course "$ck_ben" 'Ben course')" && [ -n "$ben_course" ] \
+    && ok "each makes a course in their own library" || no "site courses not made"
+ann_lib="$(library_of ann@example.test)"
+[ -n "$ann_lib" ] || no "no library for ann"
+
+echo "--- last night's backup: encrypted, and restored ---"
+[ "$(login "$A" "$pwA" n)" = 200 ] || no "$A login"
+c "$A" /api/projects -b "$WORK/n.jar" -H 'Content-Type: application/json' -d '{"name":"Nightly course"}' -o "$WORK/made.json"
+nid="$(sed -n 's/.*"id":\([0-9]*\).*/\1/p' "$WORK/made.json" | head -1)"
+night="$(bash "$COPY" backup --all 2>"$WORK/err")" || echo "backup --all: $(cat "$WORK/err")" >&2
+night_a="$(grep "/$A/" <<< "$night" | tail -1)" || true
+night_desk="$(grep '/_site/_desk/' <<< "$night" | tail -1)" || true
+night_ann="$(grep "/_site/$ann_lib/" <<< "$night" | tail -1)" || true
+[ -s "$night_ann" ] && cp "$night_ann" "$WORK/offsite-ann"
+
+# Check 2: the archive is useless without the private key.
+if [ -s "$night_a" ] && [ "$(head -c 21 "$night_a")" = age-encryption.org/v1 ] \
+    && ! tar tzf - < "$night_a" >/dev/null 2>&1 \
+    && ! age -d -i "$WORK/other.key" "$night_a" >/dev/null 2>&1 \
+    && age -d -i "$WORK/backup.key" "$night_a" | tar tzf - | grep -q '/terramentor\.db$'; then
+    ok "check 2: $A's nightly archive is age-encrypted: tar cannot read it, another key cannot open it, the operator's key does"
+else
+    miss "check 2: $A's nightly archive is readable without the private key, or unreadable with it: '$night_a'"
+fi
+plain="$(find "$TM_BACKUP_DIR" -type f ! -name '*.age' ! -name erasures)"
+[ -z "$plain" ] && ok "check 2: nothing but encrypted archives (and the erasure ledger) in the backup folder" \
+    || miss "check 2: readable files in the backup folder: $plain"
+if TM_BACKUP_IDENTITY='' bash "$COPY" restore "$A" "${night_a:-/nonexistent}" >/dev/null 2>"$WORK/err"; then
+    miss "check 2: a restore without the private key went on"
+else
+    running_a && ok "check 2: a restore without the private key is refused, $A untouched: $(tail -1 "$WORK/err")" \
+        || miss "check 2: a restore without the key stopped $A"
+fi
+
+# Check 3: last night's backup round-trips, for a copy and for the site.
+[ "$(status "$A" "/api/projects/$nid" -b "$WORK/n.jar" -X DELETE)" = 200 ] || no "delete the nightly course"
+[ "$(sa "$ck_ben" "/api/projects/$ben_course" -X DELETE -o /dev/null -w '%{http_code}')" = 200 ] || no "ben deletes his course"
+if [ -s "$night_a" ] && [ "$(head -c 21 "$night_a")" = age-encryption.org/v1 ] && bash "$COPY" restore "$A" "$night_a" >/dev/null 2>"$WORK/err" \
+    && [ "$(login "$A" "$pwA" a6)" = 200 ] && c "$A" /api/projects -b "$WORK/a6.jar" | grep -q 'Nightly course'; then
+    ok "check 3: $A restored from last night's encrypted archive has the course deleted since"
+else
+    miss "check 3: $A did not round-trip through last night's encrypted archive: $(tail -1 "$WORK/err")"
+fi
+
+echo "--- erasure ---"
+# A person whose copy is removed and erased; their archive, as an off-site
+# copy of the backup folder would still hold it.
+out_c="$(bash "$COPY" new carol)"; pwC="$(echo "$out_c" | sed -n 's/^password: //p')"
+[ "$(login carol "$pwC" c1)" = 200 ] && c carol /api/projects -b "$WORK/c1.jar" -H 'Content-Type: application/json' -d '{"name":"Carol course"}' -o /dev/null \
+    || no "carol's course"
+old_carol="$(bash "$COPY" backup carol | tail -1)"
+cp "$old_carol" "$WORK/offsite-carol"
+bash "$COPY" remove carol --yes --erase >/dev/null 2>"$WORK/err" || echo "remove --erase: $(cat "$WORK/err")" >&2
+exists_c() { docker volume inspect tm-carol-data >/dev/null 2>&1; }
+exists_c && no "carol's volume outlived remove --erase"
+bash "$COPY" site-remove ann@example.test --yes --erase >/dev/null 2>"$WORK/err" || echo "site-remove --erase: $(cat "$WORK/err")" >&2
+[ -z "$(site_signin ann@example.test "$PW_ANN")" ] && ok "ann cannot sign in after her account is removed" \
+    || miss "check 4: ann still signs in after site-remove"
+
+# Check 4: a restore of a backup older than the erasure brings no one back.
+if [ -s "$night_desk" ] && bash "$COPY" site-restore "$night_desk" > "$WORK/site-restore" 2>"$WORK/err" && site_up; then
+    ck_ben2="$(site_signin ben@example.test "$PW_BEN")"
+    if [ -n "$ck_ben2" ] && site_has "$ck_ben2" 'Ben course'; then
+        ok "check 3: the site restored from last night's archives has ben's course deleted since"
+    else
+        miss "check 3: ben's course is not back after the site restore"
+    fi
+    if [ -z "$(site_signin ann@example.test "$PW_ANN")" ] && [ -z "$(library_of ann@example.test)" ] \
+        && ! docker exec "$SITE" test -e "/site/libraries/$ann_lib"; then
+        ok "check 4: the site restored from a backup taken before ann's erasure has no account, row or folder of hers: $(grep -i eras "$WORK/site-restore" | head -1)"
+    else
+        miss "check 4: the restore of a backup older than ann's erasure brought her back"
+    fi
+else
+    miss "check 3: the site could not be restored from last night's backup ('$night_desk'): $(tail -2 "$WORK/err")"
+    miss "check 4: no site restore to check ann's erasure against"
+fi
+out_c="$(bash "$COPY" new carol)"; pwC="$(echo "$out_c" | sed -n 's/^password: //p')"
+if bash "$COPY" restore carol "$WORK/offsite-carol" >/dev/null 2>"$WORK/err"; then
+    miss "check 4: an archive of the erased carol was restored into the new carol"
+else
+    [ "$(login carol "$pwC" c2)" = 200 ] && ! c carol /api/projects -b "$WORK/c2.jar" | grep -q 'Carol course' \
+        && ok "check 4: an archive older than carol's erasure is refused, and the new carol is untouched: $(tail -1 "$WORK/err")" \
+        || miss "check 4: the refused restore changed the new carol"
+fi
+
+# Check 1: archives stay through the grace period (14 days) and are gone after it.
+in_grace="$(archives "$TM_BACKUP_DIR/carol")"; ann_grace="$(archives "$TM_BACKUP_DIR/_site/$ann_lib")"
+TM_NOW=$((NOW + 13 * DAY)) bash "$COPY" sweep >/dev/null 2>&1 || true
+day13="$(archives "$TM_BACKUP_DIR/carol")"; ann13="$(archives "$TM_BACKUP_DIR/_site/$ann_lib")"
+TM_NOW=$((NOW + 15 * DAY)) bash "$COPY" sweep > "$WORK/sweep" 2>&1 || true
+# The new carol's own archives (made after the erasure) are hers and stay.
+old_left="$(find "$TM_BACKUP_DIR/carol" -maxdepth 1 -name "$(basename "$old_carol")" 2>/dev/null)"
+ann_left="$(archives "$TM_BACKUP_DIR/_site/$ann_lib")"
+if [ "$in_grace" -ge 1 ] && [ "$day13" = "$in_grace" ] && [ "$ann_grace" -ge 1 ] && [ "$ann13" = "$ann_grace" ] \
+    && [ -z "$old_left" ] && [ "$ann_left" = 0 ]; then
+    ok "check 1: the erased archives stay 13 days ($in_grace of carol, $ann_grace of ann) and are gone on day 15: $(head -1 "$WORK/sweep")"
+else
+    miss "check 1: erased archives after the grace period: carol $in_grace/$day13/${old_left:-gone}, ann $ann_grace/$ann13/$ann_left"
+fi
+# An off-site copy of the backup folder put back: the next nightly run erases again.
+mkdir -p "$TM_BACKUP_DIR/carol" "$TM_BACKUP_DIR/_site/$ann_lib"
+cp "$WORK/offsite-carol" "$TM_BACKUP_DIR/carol/$(basename "$old_carol")"
+[ -s "$WORK/offsite-ann" ] && cp "$WORK/offsite-ann" "$TM_BACKUP_DIR/_site/$ann_lib/$(basename "$night_ann")"
+TM_NOW=$((NOW + 16 * DAY)) bash "$COPY" backup --all >/dev/null 2>&1 || true
+if [ -z "$(find "$TM_BACKUP_DIR/carol" -maxdepth 1 -name "$(basename "$old_carol")")" ] && [ "$(archives "$TM_BACKUP_DIR/_site/$ann_lib")" = 0 ] \
+    && [ "$(archives "$TM_BACKUP_DIR/carol")" -ge 1 ]; then
+    ok "check 4: erased archives put back from an off-site copy are erased again by the next nightly run; the new carol's stay"
+else
+    miss "check 4: archives put back after an erasure survived the nightly run"
+fi
+
+if [ "${#MISSED[@]}" -gt 0 ]; then
+    echo "$pass passed; erasure checks that did not hold: $(printf '%s\n' "${MISSED[@]}" | sort -u | tr '\n' ' ')" >&2
+    exit 1
+fi
 echo "$pass passed"
