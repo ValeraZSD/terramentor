@@ -218,7 +218,7 @@ export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = 
     const newestOther = highestStable(tags.filter((t) => t !== `v${version}`));
     const latest = channel === 'stable' && !prerelease && (!newestOther || compareVersions(version, newestOther) >= 0);
     const minor = version.split('.').slice(0, 2).join('.');
-    // The major line too: docs/HOSTING.md and hosted/example.env pin `:1`.
+    // The major line too, for an image pinned to `:1`.
     const major = version.split('.')[0];
     return {
         channel, version, tag: `v${version}`, ref, previous, publish, prerelease, latest, minor,

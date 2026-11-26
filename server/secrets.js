@@ -74,7 +74,7 @@ export function secretsFile() {
     return dataPaths().secretsPath;
 }
 
-/** A hosted copy's backup (hostedCli.js): the file as it is, to `to`, owner-only. False when there is none. */
+/** A backup of the credentials: the file as it is, to `to`, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
     try {
         copyFileSync(secretsFile(), to);
@@ -86,7 +86,7 @@ export function copyCredentialsTo(to) {
     return true;
 }
 
-/** A hosted copy's restore: `from` replaces the file whole, copied beside it first. */
+/** Restoring that backup: `from` replaces the file whole, copied beside it first. */
 export function replaceCredentialsFrom(from) {
     const to = secretsFile();
     const incoming = `${to}.restoring`;
