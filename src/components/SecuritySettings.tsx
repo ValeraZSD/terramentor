@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Shield, ShieldCheck, KeyRound, Copy, Check, RefreshCw, Trash2, Monitor, Smartphone } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Shield, ShieldCheck, KeyRound, Copy, Check, RefreshCw, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
-import { api, siteApi, type SiteSession } from '../api';
+import { api } from '../api';
+import { clientExtension } from '../clientExtension';
 import { copyText } from '../utils/clipboard';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import { uiLocale } from '../utils/locale';
-import { Button, ButtonLink, IconButton } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
 import { PasswordInput } from './ui/Field';
-import { GROUP_CAPTION, SettingNote, SettingRow } from './ui/SettingRow';
+import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
 import { DEVICES_CHANGED } from './OtherDevices';
 
 /**
@@ -17,130 +16,9 @@ import { DEVICES_CHANGED } from './OtherDevices';
  * use as a `Bearer` token. Backed by the /api/auth/* endpoints.
  */
 export default function SecuritySettings() {
-    const authSite = useStore(s => s.authSite);
-    return authSite ? <SiteAccount /> : <PasswordSecurity />;
-}
-
-/**
- * A library on a shared site (server/site/): the account and the devices it
- * is signed in on, kept by the site's front desk and read from it. Signing out
- * of this device is a form post, so the browser leaves the app and the front
- * desk can clear what the library left in it.
- */
-function SiteAccount() {
-    const { t } = useTranslation();
-    const showConfirm = useStore(s => s.showConfirm);
-    const addToast = useStore(s => s.addToast);
-    const [account, setAccount] = useState<{ email: string; sessions: SiteSession[] } | null>(null);
-    const [failed, setFailed] = useState(false);
-    const [busy, setBusy] = useState<number | 'others' | null>(null);
-
-    const load = useCallback(() => siteApi.sessions()
-        .then(a => { setAccount(a); setFailed(false); })
-        .catch(() => setFailed(true)), []);
-    useEffect(() => { load(); }, [load]);
-
-    // This device first, then the most recently used.
-    const sessions = [...(account?.sessions ?? [])].sort((a, b) => Number(b.current) - Number(a.current) || b.last_seen_at.localeCompare(a.last_seen_at));
-    const others = sessions.filter(s => !s.current);
-
-    const signOutOne = async (s: SiteSession) => {
-        const ok = await showConfirm({
-            title: t("Sign out of {{device}}?", { device: deviceName(s.device, t) }),
-            message: t("That device will need your password to get back in."),
-            confirmLabel: t("Sign out"),
-        });
-        if (!ok) return;
-        setBusy(s.id);
-        try { await siteApi.signOutSession(s.id); await load(); }
-        catch (e: any) { addToast('error', e?.message || t("Could not sign out that device.")); }
-        finally { setBusy(null); }
-    };
-    const signOutOthers = async () => {
-        const ok = await showConfirm({
-            title: t("Sign out of all other devices?"),
-            message: t("Every device except this one will need your password to get back in."),
-            confirmLabel: t("Sign out of all other devices"),
-        });
-        if (!ok) return;
-        setBusy('others');
-        try { await siteApi.signOutOthers(); await load(); }
-        catch (e: any) { addToast('error', e?.message || t("Could not sign out the other devices.")); }
-        finally { setBusy(null); }
-    };
-
-    const now = Date.now();
-    // Signing out of this device is a form post: the browser leaves the app and
-    // the front desk clears what the library left in it.
-    const signOutHere = (
-        <form method="post" action="/site/sign-out">
-            <Button type="submit">{t("Sign out")}</Button>
-        </form>
-    );
-    const listed = sessions.some(s => s.current);
-    return (
-        <section className="mb-8">
-            <h2 className={`${GROUP_CAPTION} flex items-center gap-2`}>
-                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-                {t("Account")}
-            </h2>
-            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
-                {/* Every Sign out ends the device on its own row; the account row
-                    carries one only while the list is not there to hold it. */}
-                <SettingRow label={account?.email ?? t("Signed in")} control={listed ? undefined : signOutHere} />
-                {failed && (
-                    <div className="p-4 flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm text-slate-700 dark:text-slate-200">{t("Could not load your signed-in devices.")}</p>
-                        <Button size="sm" onClick={load}>{t("Try again")}</Button>
-                    </div>
-                )}
-                {sessions.length > 0 && (
-                    <div>
-                        <p className="px-4 pt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t("Signed-in devices")}</p>
-                        <ul className="divide-y divide-slate-100 dark:divide-slate-700/60" aria-label={t("Signed-in devices")}>
-                            {sessions.map(s => {
-                                const Icon = /Android|iOS/.test(s.device) ? Smartphone : Monitor;
-                                return (
-                                    <li key={s.id} className="p-4 flex items-center gap-3">
-                                        <Icon className="w-5 h-5 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                                        <div className="min-w-0 flex-1">
-                                            <p className="font-medium text-slate-900 dark:text-white truncate">{deviceName(s.device, t)}</p>
-                                            {/* The device in hand is the one in use now, so its line says which it is. */}
-                                            <p className={`text-sm ${s.current ? 'font-medium text-emerald-800 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300'}`}>
-                                                {s.current ? t("This device") : activeAgo(s.last_seen_at, now, t)}
-                                            </p>
-                                        </div>
-                                        {s.current
-                                            ? signOutHere
-                                            : <Button busy={busy === s.id} disabled={busy !== null} onClick={() => signOutOne(s)}>{t("Sign out")}</Button>}
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    </div>
-                )}
-                {others.length > 1 && (
-                    <div className="p-4">
-                        <Button busy={busy === 'others'} disabled={busy !== null} onClick={signOutOthers}>{t("Sign out of all other devices")}</Button>
-                    </div>
-                )}
-            </div>
-        </section>
-    );
-}
-
-/** "Edge on Windows", as the front desk names a device from its browser, in the interface language. */
-function deviceName(label: string, t: TFunction) {
-    const [browser, os] = label.split(' on ');
-    return os ? t("{{browser}} on {{os}}", { browser, os }) : browser;
-}
-
-/** "Active 3 hours ago", "Active yesterday": how long ago a device was last used. */
-function activeAgo(iso: string, now: number, t: TFunction) {
-    const min = Math.max(0, Math.floor((now - Date.parse(iso)) / 60000));
-    if (min < 2) return t("Active now");
-    const [n, unit]: [number, Intl.RelativeTimeFormatUnit] = min < 60 ? [min, 'minute'] : min < 1440 ? [Math.floor(min / 60), 'hour'] : [Math.floor(min / 1440), 'day'];
-    return t("Active {{when}}", { when: new Intl.RelativeTimeFormat(uiLocale(), { numeric: 'auto' }).format(-n, unit) });
+    // A client extension may put its own panel here (src/clientExtension.ts).
+    const Panel = clientExtension.SecurityPanel;
+    return Panel ? <Panel fallback={<PasswordSecurity />} /> : <PasswordSecurity />;
 }
 
 function PasswordSecurity() {

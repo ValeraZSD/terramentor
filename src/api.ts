@@ -5,6 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import { serverText } from './utils/serverText';
+import { clientExtension } from './clientExtension';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
@@ -21,32 +22,10 @@ export function setAuthRequiredHandler(fn: (() => void) | null) {
     onAuthRequired = fn;
 }
 
-/** A library on a shared site is signed into at the site's own page, not the lock screen. */
-export function goToSiteSignIn() {
-    window.location.assign('/site/sign-in');
-}
-
-/** One signed-in device of a site account (server/site/accounts.js `listSessions`). */
-export interface SiteSession { id: number; device: string; created_at: string; last_seen_at: string; current: boolean }
-
-/** The site's own routes (server/site/frontDesk.js), outside /api: the account's signed-in devices. */
-async function siteRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
-    const res = await fetch(path, { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
-    const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body?.site) goToSiteSignIn();
-    if (!res.ok) throw new Error(serverText(body) || `Error ${res.status}`);
-    return body as T;
-}
-
-export const siteApi = {
-    sessions: () => siteRequest<{ email: string; sessions: SiteSession[] }>('/site/sessions.json'),
-    signOutSession: (id: number) => siteRequest<{ ok: boolean }>(`/site/sessions/${id}/sign-out`, 'POST'),
-    signOutOthers: () => siteRequest<{ ended: number }>('/site/sign-out-others', 'POST'),
-};
-
-function authRequired(body: { site?: boolean } | null | undefined) {
-    if (body?.site) goToSiteSignIn();
-    else onAuthRequired?.();
+function authRequired(body: Record<string, unknown> | null | undefined) {
+    // A client extension may take a signed-out answer elsewhere (src/clientExtension.ts).
+    if (clientExtension.onSignedOut?.(body ?? {}) === true) return;
+    onAuthRequired?.();
 }
 
 // SSE streams go through the same relative `/api` as everything else. In dev
@@ -1055,7 +1034,7 @@ export const api = {
     // `exposed`: no password, and the server is set up to be reachable from
     // other machines (HOST beyond loopback, a listed public name); the app
     // shows a banner until a password is set.
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; site?: boolean }>('/auth/status', { timeout: 4000 }),
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; [field: string]: unknown }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),

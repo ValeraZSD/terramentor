@@ -321,6 +321,9 @@ function markDoc(documentId, status) {
 // Failures that mean "no model available" (so the whole feature is just
 // degraded, not broken) vs. a genuine error worth surfacing.
 export function isUnavailable(err) {
+    // A final refusal (aiJobs.js fallsOver) is no model for now, not a broken
+    // document: the document waits to be healed.
+    if (err?.final === true) return true;
     const m = String(err?.message || '').toLowerCase();
     // The NAME first, because the message cannot be trusted for a cancellation:
     // an undici abort says "This operation was aborted", but ai.js throws its own

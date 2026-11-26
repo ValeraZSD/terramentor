@@ -1726,13 +1726,14 @@ async function runBurst() {
             emptyReply: err?.emptyReply === true ? true : null,
             reasoningTokens: err?.reasoningTokens ?? null,
             thinkingChars: err?.thinkingChars ?? null,
+            ...tasks.finalSentence(err),
         };
         // A topic page still waits on its lesson: try again when the backoff
         // ends, or the page would say "couldn't be written" (or keep its
         // slot spinning) until something else happened to kick the writer.
         kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
-        if (handle) handle.fail(err.message);
+        if (handle) handle.fail(err.message, err);
     }
 }
 

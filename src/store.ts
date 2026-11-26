@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
 import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
-import { api, goToSiteSignIn } from './api';
+import { api } from './api';
+import { clientExtension } from './clientExtension';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath, todayStr } from './utils/tree';
@@ -602,8 +603,8 @@ interface AppState {
     authTailscale: AuthTailscaleHint | null;
     /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
     authExposed: boolean;
-    /** This library is run by a shared site's front desk, which signs people in and out (`/api/auth/status` `site`). */
-    authSite: boolean;
+    /** The rest of `/api/auth/status`: fields an extension adds (server/extension.js `authenticate`). */
+    authExtra: Record<string, unknown>;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -1061,7 +1062,7 @@ export const useStore = create<AppState>((set, get) => ({
     authSetupRequired: false,
     authTailscale: null,
     authExposed: false,
-    authSite: false,
+    authExtra: {},
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1309,9 +1310,11 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
-            if (site && !authenticated) { goToSiteSignIn(); return; }
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
+            const status = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, ...extra } = status;
+            // A client extension may take a signed-out page elsewhere (src/clientExtension.ts).
+            if (enabled && !authenticated && clientExtension.onSignedOut?.(status) === true) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1341,13 +1344,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, ...extra } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
                 && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed && before.authSite === !!site) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
+                && before.authExposed === !!exposed && JSON.stringify(before.authExtra) === JSON.stringify(extra)) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();

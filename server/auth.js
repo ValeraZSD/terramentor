@@ -34,8 +34,7 @@ import { SECRET_SEARCH_KEYS } from './searchBackends.js';
 import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName, remoteAccessOf } from './devices.js';
 import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
-import { operatorSetupToken } from './hosted.js';
-import { isSiteLibrary } from './siteLibrary.js';
+import { extension } from './extension.js';
 import { keyed } from './clientError.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
@@ -378,9 +377,18 @@ export function isRequestAuthenticated(req) {
     return !!req.remoteAccess || hasPasswordCredential(req);
 }
 
-/** Did the site's front desk send this request with a good note (siteLibrary.js)? */
-function siteNoteHolder(req) {
-    return isSiteLibrary() && !!req?.sitePerson;
+/**
+ * An extension's own answer for this request (server/extension.js
+ * `authenticate`): null when it leaves the request to the password gate, else
+ * `{ signedIn, fields }`. `fields` ride on the 401 and on the auth status.
+ */
+export function extensionAuth(req) {
+    const decide = extension().authenticate;
+    if (typeof decide !== 'function') return null;
+    const answer = decide(req);
+    if (!answer || typeof answer !== 'object') return null;
+    const fields = answer.fields && typeof answer.fields === 'object' ? answer.fields : {};
+    return { signedIn: answer.signedIn === true, fields };
 }
 
 /**
@@ -394,9 +402,8 @@ function siteNoteHolder(req) {
  * there to prevent; scripts and bots use the API key.
  */
 export function hasPasswordCredential(req) {
-    // In a site library the person signed in at the front desk with their
-    // password; the note it sent stands for that.
-    if (siteNoteHolder(req)) return true;
+    // An extension that signs people in itself stands for the password.
+    if (extensionAuth(req)?.signedIn === true) return true;
     const authz = req.headers.authorization || '';
     if (authz.startsWith('Bearer ')) {
         const token = authz.slice(7).trim();
@@ -679,10 +686,10 @@ let setupCode = null;
  * only the person running the server can read (`docker compose logs`).
  */
 export function announceSetupCode() {
-    // A hosted copy given a setup token by its operator (server/hosted.js)
-    // uses that instead, and never prints it: the operator handed it over
-    // already, and the log of a rented server is not only theirs to read.
-    const token = operatorSetupToken();
+    // An extension that hands over a code of its own (server/extension.js
+    // `setupCode`) uses that instead, and it is never printed: whoever holds it
+    // has it already.
+    const token = extensionSetupCode();
     if (token) {
         setupCode = token.toUpperCase();
         console.log('[security] No password is set. Open the app and enter the setup token you were given to set one.');
@@ -695,8 +702,12 @@ export function announceSetupCode() {
     console.log(`[security] No password is set, so this app answers only its own machine. To set one from another device, open the app there and enter this setup code: ${setupCode}`);
     return setupCode;
 }
+function extensionSetupCode() {
+    const give = extension().setupCode;
+    return typeof give === 'function' ? String(give() || '').trim() : '';
+}
 export function checkSetupCode(code) {
-    const token = operatorSetupToken();
+    const token = extensionSetupCode();
     if (token) setupCode = token.toUpperCase();
     if (!setupCode || typeof code !== 'string') return false;
     return timingEqual(code.trim().toUpperCase(), setupCode);
@@ -713,10 +724,11 @@ export function clearSetupCode() {
  * (server/app.js) so they stay reachable while locked.
  */
 export function requireAuth(req, res, next) {
-    // A site library has no password of its own: the note is the only way in.
-    if (isSiteLibrary()) {
-        if (siteNoteHolder(req)) return next();
-        return res.status(401).json({ ...keyed('Sign in again'), authRequired: true, site: true });
+    // An extension that signs people in itself decides here (server/extension.js `authenticate`).
+    const ext = extensionAuth(req);
+    if (ext) {
+        if (ext.signedIn) return next();
+        return res.status(401).json({ ...keyed('Sign in again'), authRequired: true, ...ext.fields });
     }
     if (!isAuthEnabled()) {
         if (!remoteSetupRequired(req)) return next();

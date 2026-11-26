@@ -100,7 +100,7 @@ export async function decidePaperVision() {
     // The vision job's first choice: its own model, else this one on the connection in use.
     const head = firstChoice('vision', { model: getPaperVisionModel() || null });
     const model = head.model;
-    if (!model || mode === 'never' || !getAISettings().enabled) return { use: 'no', model };
+    if (!model || head.unavailable || mode === 'never' || !getAISettings().enabled) return { use: 'no', model };
     if (mode === 'always') return { use: 'yes', model };
     const cap = await visionAvailability(model, head);
     return { use: cap === 'yes' || cap === 'listed' ? 'yes' : 'no', model };

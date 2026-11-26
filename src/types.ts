@@ -687,6 +687,10 @@ export interface AITaskFailure {
     reasoningTokens?: number | null;
     /** Who ended the reply: 'stop', 'length', 'content_filter', … */
     finishReason?: string | null;
+    /** A refusal that says it is final (server/tasks.js finalSentence), with its own keyed sentence. */
+    final?: boolean | null;
+    messageKey?: string | null;
+    params?: Record<string, unknown> | null;
     responseBody: string | null;
     rawResponse: string | null;
     causes: string[];
@@ -1672,6 +1676,9 @@ export interface LessonWrite {
     emptyReply?: boolean | null;
     reasoningTokens?: number | null;
     thinkingChars?: number | null;
+    final?: boolean | null;
+    messageKey?: string | null;
+    params?: Record<string, unknown> | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */

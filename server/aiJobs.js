@@ -29,6 +29,7 @@ import db, { NOW_ISO } from './database.js';
 import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
 import { reconcile, settingsForConnection } from './aiConnections.js';
 import { KeyedError, statusError } from './clientError.js';
+import { extension } from './extension.js';
 
 /** Every job, in the order the settings screen lists them. */
 export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
@@ -203,8 +204,17 @@ function entrySettings(entry) {
  * Throws when the job has a list and every connection on it was removed:
  * the learner kept that work off the main model, and only they can say
  * where it goes now.
+ *
+ * An extension has the last word (server/extension.js `modelChain`): it may
+ * change the list, or throw.
  */
-export function chainFor(job, { model = null } = {}) {
+export function chainFor(job, options = {}) {
+    const chain = chainOf(job, options);
+    const decide = extension().modelChain;
+    return typeof decide === 'function' ? decide(chain, job) : chain;
+}
+
+function chainOf(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
     if (envOverride()) return stamped([first], job, false);
@@ -236,6 +246,10 @@ export function firstChoice(job, { model = null } = {}) {
         // A list of removed connections: the call itself refuses with the
         // message; a capability check before it has nothing better to ask.
         if (err?.jobRouteGone) return getAISettings();
+        // An extension refused every model for now (`unavailable`): the
+        // settings the job would use, marked, so a probe answers "no model"
+        // instead of failing; the call itself is still refused.
+        if (err?.unavailable === true) return { ...chainOf(job, { model })[0], unavailable: true };
         throw err;
     }
 }
@@ -257,6 +271,9 @@ export function fallsOver(err, signal) {
     if (!err || typeof err !== 'object') return false;
     if (signal?.aborted) return false;
     if (err.name === 'AbortError' || err.name === 'TimeoutError' || err.looped) return false;
+    // A refusal that says it is final (an extension's, server/extension.js):
+    // no other model changes it.
+    if (err.final === true) return false;
     if (err.emptyReply) return true;
     const status = Number(err.httpStatus ?? err.status_code);
     if (Number.isInteger(status) && status >= 400 && status <= 599) return true;
