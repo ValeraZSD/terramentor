@@ -353,7 +353,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // the model this turn goes to (server/aiJobs.js).
     const aiSettings = firstChoice('conversation');
     const nativeKey = endpointKey(aiSettings);
-    const tryNativeTools = aiSettings.provider === 'openai' && !aiSettings.unavailable && !nativeToolsRefused.has(nativeKey);
+    const tryNativeTools = aiSettings.provider === 'openai' && !nativeToolsRefused.has(nativeKey);
     // The documents retrieved for this turn, so the answer's `[[src:N]]`
     // markers can be resolved into their real titles before it is stored.
     let ragSources = [];
