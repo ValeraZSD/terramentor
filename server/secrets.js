@@ -75,14 +75,15 @@ export function secretsFile() {
 }
 
 // Backup and restore of the credentials file for a start-up extension
-// (server/extension.js): this is the only module that may name the file.
+// (server/extension.js): this is the only module that may name the file. A
+// credentials file that is a link is read and replaced where the link points,
+// as every other write here does (writtenPath); neither helper writes through
+// a link at the other end.
 
-/** A backup of the credentials: the file as it is, to `to`, owner-only. False when there is none. */
+/** A backup of the credentials, to `to`, a name nothing holds yet, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
     try {
-        // A link (to some other file) is not followed into a backup.
-        if (lstatSync(secretsFile()).isSymbolicLink()) throw new Error(`${secretsFile()} is a link, not this library's credentials file`);
-        copyFileSync(secretsFile(), to);
+        copyFileSync(writtenPath(secretsFile()), to, fsConstants.COPYFILE_EXCL);
     } catch (e) {
         if (e.code === 'ENOENT') return false;
         throw e;
@@ -91,13 +92,14 @@ export function copyCredentialsTo(to) {
     return true;
 }
 
-/** Restoring that backup: `from` replaces the file whole, copied beside it first. */
+/** Restoring that backup: `from` (a file, not a link) replaces the file whole, copied beside it first. */
 export function replaceCredentialsFrom(from) {
-    const to = secretsFile();
+    if (lstatSync(from).isSymbolicLink()) throw new Error(`${from} is a link, not a backup file`);
+    const to = writtenPath(secretsFile());
     const incoming = `${to}.restoring`;
-    // Whatever is at that name (a link left in the library's folder) is
+    // Whatever is at that name (a link, or a file a killed restore left) is
     // removed, not written through: the new file is made fresh.
-    rmSync(incoming, { recursive: true, force: true });
+    rmSync(incoming, { force: true });
     copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
     chmodSync(incoming, 0o600);
     renameSync(incoming, to);

@@ -25,7 +25,7 @@
 //      start problem and on an unknown hook, before anything listens; with a
 //      quiet start and a socket of its own it listens there.
 
-import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, existsSync, lstatSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,6 +94,11 @@ const ext = await import(B + 'extension.js');
     refused = '';
     try { await ext.loadExtension('extension.mjs'); } catch (e) { refused = e.message; }
     ok('a relative path is refused, before anything is loaded', /is not an absolute path/.test(refused), refused);
+    const badTrust = join(scratch, 'bad-trust.mjs');
+    writeFileSync(badTrust, "export default { trustProxy: 'nonsense' };\n");
+    refused = '';
+    try { await ext.loadExtension(badTrust); } catch (e) { refused = e.message; }
+    ok('a trustProxy value Express refuses is refused at load, not at the first request', /trustProxy value Express refuses/.test(refused), refused);
     ok('...and none of them left a hook behind', Object.keys(ext.extension()).length === 0);
 
     // No module: the app trusts a forwarded address from loopback only, as always.
@@ -113,9 +118,10 @@ export default {
         next();
     },
     authenticate(req) {
+        globalThis.__authAsked = (globalThis.__authAsked || 0) + 1;
         const who = req.headers['x-person'];
         if (who === 'in') return { signedIn: true };
-        if (who === 'out') return { signedIn: false, fields: { signInPath: '/elsewhere', authRequired: false } };
+        if (who === 'out') return { signedIn: false, fields: { signInPath: '/elsewhere', authRequired: false, authenticated: true, enabled: false } };
         if (who === 'odd') return false;
         return null;
     },
@@ -123,6 +129,10 @@ export default {
     settingRefusal: (spec, key) => (key === 'theme_tint' ? 'Not on this copy' : null),
     serverControls: false,
     modelChain(chain, job) {
+        if (globalThis.__chainAnswer !== undefined) return globalThis.__chainAnswer;
+        if (job === 'conversation' && globalThis.__chainFinal) {
+            throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' } });
+        }
         if (job === 'vision') throw Object.assign(new Error('no vision now'), { unavailable: true });
         if (globalThis.__finalMode) return [{ ...chain[0], provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'final-model', enabled: true }];
         return chain.map((s) => ({ ...s, model: 'swapped-' + job }));
@@ -148,6 +158,7 @@ const tasks = await import(B + 'tasks.js');
 const embeddings = await import(B + 'embeddings.js');
 const clientError = await import(B + 'clientError.js');
 const ai = await import(B + 'ai.js');
+const feedGen = await import(B + 'feedGen.js');
 
 const app = createApp();
 const server = app.listen(0, '127.0.0.1');
@@ -181,7 +192,12 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const odd = await call('/api/projects', { headers: { 'X-Person': 'odd' } });
     ok('a sign-in hook answering neither null nor { signedIn } fails the request, never lets it by', odd.status === 500, `${odd.status}`);
     const status = await call('/api/auth/status', { headers: { 'X-Person': 'out' } });
-    ok('...and the auth status says so, with the same fields', status.status === 200 && status.json?.enabled === true && status.json?.authenticated === false && status.json?.signInPath === '/elsewhere', JSON.stringify(status.json));
+    ok('...and the auth status says so, with the same fields (which cannot override enabled or authenticated)', status.status === 200 && status.json?.enabled === true && status.json?.authenticated === false && status.json?.signInPath === '/elsewhere', JSON.stringify(status.json));
+    const asked = globalThis.__authAsked;
+    const one = { headers: { 'x-person': 'in' } };
+    const first = auth.extensionAuth(one);
+    const again = auth.extensionAuth(one);
+    ok('the sign-in hook is asked once per request, its answer kept', globalThis.__authAsked - asked === 1 && first?.signedIn === true && again === first, `asked ${globalThis.__authAsked - asked}`);
     const inside = await call('/api/projects', { headers: { 'X-Person': 'in' } });
     ok('signed in by the hook: through', inside.status === 200, `${inside.status}`);
 
@@ -210,6 +226,18 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     ok('...it may refuse a job', thrown?.unavailable === true);
     const head = aiJobs.firstChoice('vision');
     ok('...and a capability probe then reads "no model" instead of failing', head?.unavailable === true);
+    globalThis.__chainFinal = true;
+    let finalHead = null;
+    try { finalHead = aiJobs.firstChoice('conversation'); } catch (e) { finalHead = e; }
+    globalThis.__chainFinal = false;
+    ok('...the same for a final refusal of a job', finalHead?.unavailable === true, String(finalHead?.message ?? ''));
+    for (const [label, answer] of [['an empty list', []], ['a list holding no connection', [null]], ['no list', 'x']]) {
+        globalThis.__chainAnswer = answer;
+        let bad = null;
+        try { aiJobs.chainFor('courses'); } catch (e) { bad = e; }
+        ok(`a model chain answering ${label} is an error, not a call to nowhere`, /answered no list of connections/.test(bad?.message ?? ''), String(bad?.message));
+    }
+    globalThis.__chainAnswer = undefined;
 
     const fake = async () => new Response('{"data":[]}', { status: 200, headers: { 'Content-Type': 'application/json' } });
     const send = aiWire.wireFetch({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'm' }, { fetchImpl: fake });
@@ -221,6 +249,8 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     ok('...any other error carries none', Object.keys(tasks.finalSentence(Object.assign(new Error('x'), { messageKey: 'x' }))).length === 0);
     ok('...falls over to no other model, where the same status otherwise would', !aiJobs.fallsOver(finalErr) && aiJobs.fallsOver(Object.assign(new Error('x'), { httpStatus: 503 })));
     ok('...and leaves a document waiting for a model rather than broken', embeddings.isUnavailable(finalErr) === true);
+    ok('...and a feed card waiting rather than retried', feedGen.isTransient(finalErr) === false && feedGen.isTransient(Object.assign(new Error('x'), { httpStatus: 503 })) === true);
+    ok('...and an endpoint failure says its own sentence too', clientError.endpointBody(null, finalErr)?.messageKey === 'Paused until {{when}}', JSON.stringify(clientError.endpointBody(null, finalErr)));
     ok('...and a route answering with it says its own sentence, not "the endpoint answered 503"', clientError.errorBody(finalErr, 500)?.messageKey === 'Paused until {{when}}', JSON.stringify(clientError.errorBody(finalErr, 500)));
 
     // The same refusal thrown by the module's fetch, through a real model call.
@@ -232,28 +262,39 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const sent = globalThis.__extensionSeen.length - before;
     ok('a final refusal from the module\'s fetch, through a real model call: sent once, never retried', sent === 1 && called?.final === true, `sent ${sent}, ${called?.message}`);
 
-    // The credentials backup and restore a module may use never go through a link.
+    // The credentials backup and restore a module may use: a linked credentials
+    // file is read and replaced where it points, as the app's own writes do;
+    // neither writes through a link at the other end.
     const secrets = await import(B + 'secrets.js');
     const file = secrets.secretsFile();
-    const elsewhere = join(scratch, 'elsewhere.secrets.json');
-    writeFileSync(elsewhere, '{"not":"this library"}');
+    const target = join(scratch, 'target.secrets.json');
+    writeFileSync(target, '{"format":"terramentor-secrets","version":1,"secrets":{"a":"1"}}');
     rmSync(file, { force: true });
     let linked = true;
-    try { symlinkSync(elsewhere, file, 'file'); } catch { linked = false; }
+    try { symlinkSync(target, file, 'file'); } catch { linked = false; }
     if (!linked) console.log('  (link checks skipped: this account cannot make a link)');
     else {
         const backup = join(scratch, 'backup.secrets.json');
-        let refused = '';
-        try { secrets.copyCredentialsTo(backup); } catch (e) { refused = e.message; }
-        ok('a credentials file that is a link is not copied into a backup', /is a link/.test(refused) && !existsSync(backup), refused);
-        rmSync(file, { force: true });
+        ok('a backup of a linked credentials file copies the file it points to', secrets.copyCredentialsTo(backup) === true && readFileSync(backup, 'utf8') === readFileSync(target, 'utf8'));
         const victim = join(scratch, 'victim.txt');
         writeFileSync(victim, 'untouched');
-        symlinkSync(victim, `${file}.restoring`, 'file');
+        const planted = join(scratch, 'planted.secrets.json');
+        symlinkSync(victim, planted, 'file');
+        let refused = '';
+        try { secrets.copyCredentialsTo(planted); } catch (e) { refused = e.code || e.message; }
+        ok('a backup never writes through a link at its destination', refused === 'EEXIST' && readFileSync(victim, 'utf8') === 'untouched', refused);
+        symlinkSync(victim, `${target}.restoring`, 'file');
         const from = join(scratch, 'from.secrets.json');
         writeFileSync(from, '{"format":"terramentor-secrets","version":1,"secrets":{}}');
         secrets.replaceCredentialsFrom(from);
-        ok('a restore writes nothing through a link left at its temporary name', readFileSync(victim, 'utf8') === 'untouched' && readFileSync(file, 'utf8') === readFileSync(from, 'utf8'));
+        ok('a restore lands where the link points, the link kept, nothing written through a link at its temporary name',
+            readFileSync(victim, 'utf8') === 'untouched' && readFileSync(target, 'utf8') === readFileSync(from, 'utf8')
+            && lstatSync(file).isSymbolicLink() && !existsSync(`${target}.restoring`));
+        const fromLink = join(scratch, 'from-link.secrets.json');
+        symlinkSync(victim, fromLink, 'file');
+        refused = '';
+        try { secrets.replaceCredentialsFrom(fromLink); } catch (e) { refused = e.message; }
+        ok('a restore refuses a backup that is a link', /is a link/.test(refused) && readFileSync(target, 'utf8') === readFileSync(from, 'utf8'), refused);
     }
 }
 server.close();

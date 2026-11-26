@@ -468,10 +468,11 @@ with it, and a copy built from this repository loads none.
 - **What a hook can change** is what the person running the server could change by editing the
   code: who is signed in, which settings the page may write, which model a call uses and the
   requests sent to it. A request its `authenticate` hook signs in counts as holding the password
-  everywhere the password counts: the network settings, connected devices and update controls only
-  the owner may change. Its `trustProxy` value decides which addresses count as this machine, so
-  a value that trusts a forwarded header from anywhere lets any client claim to be local, and with
-  no password set a local request is let in. A module is trusted like the server itself; it is not
+  everywhere the password counts: the network settings, connected devices, the API key (read,
+  regenerate, delete) and update controls only the owner may change. Its `trustProxy` value decides
+  which address the sign-in throttle counts a request under, and whether a request counts as secure
+  for the session cookie's Secure flag; a request that carries a forwarded header never counts as
+  this machine, whatever the value. A module is trusted like the server itself; it is not
   sandboxed. Its own outbound calls, if it makes any, are not in the list above, which covers the
   app alone.
 

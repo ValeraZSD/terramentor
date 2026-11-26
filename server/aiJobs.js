@@ -213,7 +213,7 @@ export function chainFor(job, options = {}) {
     const decide = extension().modelChain;
     if (typeof decide !== 'function') return chain;
     const changed = decide(chain, job);
-    if (!Array.isArray(changed) || changed.length === 0) {
+    if (!Array.isArray(changed) || changed.length === 0 || !changed.every((s) => s && typeof s === 'object')) {
         throw new Error('The extension\'s modelChain hook answered no list of connections');
     }
     return changed;
@@ -251,10 +251,20 @@ export function firstChoice(job, { model = null } = {}) {
         // A list of removed connections: the call itself refuses with the
         // message; a capability check before it has nothing better to ask.
         if (err?.jobRouteGone) return getAISettings();
-        // An extension refused every model for now (`unavailable`): the
-        // settings the job would use, marked, so a probe answers "no model"
-        // instead of failing; the call itself is still refused.
-        if (err?.unavailable === true) return { ...chainOf(job, { model })[0], unavailable: true };
+        // An extension refused every model for now (`unavailable`, or a
+        // `final` refusal): the settings the job would use, marked, so a
+        // probe answers "no model" instead of failing; the call itself is
+        // still refused.
+        if (err?.unavailable === true || err?.final === true) {
+            let own;
+            try {
+                own = chainOf(job, { model })[0];
+            } catch (inner) {
+                if (!inner?.jobRouteGone) throw inner;
+                own = getAISettings();
+            }
+            return { ...own, unavailable: true };
+        }
         throw err;
     }
 }

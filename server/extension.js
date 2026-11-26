@@ -18,9 +18,11 @@
 //                             database, as under the desktop launcher.
 //   quietStart                true: the start-up work that asks a model, and
 //                             the update poll, are not started.
-//   trustProxy                Express's `trust proxy` value (default 'loopback').
+//   trustProxy                Express's `trust proxy` value (default 'loopback');
+//                             a value Express refuses stops the start.
 //   requestGuard              Express middleware, first on every /api request.
-//   authenticate(req)         null leaves the request to the password gate;
+//   authenticate(req)         asked once per request. null (or undefined)
+//                             leaves the request to the password gate;
 //                             `{ signedIn, fields }` decides it here: signed in,
 //                             or refused with `fields` added to the 401 and to
 //                             GET /api/auth/status. Synchronous; any other
@@ -48,12 +50,15 @@
 //
 // What a module takes on: `authenticate` returning `{ signedIn: true }` stands
 // for the password everywhere the password counts (the settings only the owner
-// may change, the update controls), and `trustProxy` decides which addresses
-// count as this machine, so a value that trusts a forwarded header from
-// anywhere lets any client claim to be local. A page the deployment serves on
+// may change, connected devices, the API key, the update controls).
+// `trustProxy` decides which address the sign-in throttle counts a request
+// under and whether it counts as secure for the cookie's Secure flag; a request
+// carrying a forwarded header never counts as this machine (auth.js
+// isLocalRequest), whatever the value. A page the deployment serves on
 // the app's origin, outside the app, answers with the `X-Not-App-Shell` header
 // so the service worker does not keep it as the app's shell.
 import path from 'node:path';
+import express from 'express';
 import { pathToFileURL } from 'node:url';
 
 /** Every hook and the type its value must have. */
@@ -98,6 +103,13 @@ export async function loadExtension(file = process.env.TERRAMENTOR_EXTENSION) {
     if (unknown.length) throw new Error(`TERRAMENTOR_EXTENSION: ${name} names hooks this server does not have: ${unknown.join(', ')}`);
     const mistyped = Object.entries(hooks).filter(([key, value]) => !fits(HOOK_TYPES[key], value)).map(([key]) => key);
     if (mistyped.length) throw new Error(`TERRAMENTOR_EXTENSION: ${name} has hooks of the wrong type: ${mistyped.join(', ')}`);
+    if ('trustProxy' in hooks) {
+        try {
+            express().set('trust proxy', hooks.trustProxy);
+        } catch (e) {
+            throw new Error(`TERRAMENTOR_EXTENSION: ${name} has a trustProxy value Express refuses: ${e.message}`);
+        }
+    }
     loaded = Object.freeze({ ...hooks });
     return loaded;
 }
