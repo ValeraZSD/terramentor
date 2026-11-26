@@ -28,6 +28,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pluralCategories } from './lib/i18nKeys.mjs';
+import { serialiseLike } from './lib/localeJson.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const localesDir = resolve(here, '..', 'src', 'locales');
@@ -171,7 +172,8 @@ async function callModel(lang, code, items) {
 for (const code of codes) {
     const lang = LANGUAGE_NAMES[code] || code;
     const file = join(localesDir, `${code}.json`);
-    const current = existsSync(file) && !flags.has('--redo') ? JSON.parse(readFileSync(file, 'utf8')) : {};
+    const raw = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const current = raw && !flags.has('--redo') ? JSON.parse(raw) : {};
     // A key the source no longer uses (an English string was reworded) is dropped
     // on the way in, so this run never writes it back and the gate stays green.
     const allowed = new Set(wanted(code).map((it) => it.key));
@@ -203,8 +205,7 @@ for (const code of codes) {
             if (v.trim() === it.english.trim()) { unchanged++; continue; }
             current[it.key] = v.trim();
         }
-        const sorted = Object.fromEntries(Object.keys(current).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, current[k]]));
-        writeFileSync(file, `${JSON.stringify(sorted, null, 2)}\n`);
+        writeFileSync(file, serialiseLike(current, raw));
         process.stdout.write(`  ${Math.min(i + BATCH, todo.length)}/${todo.length}\r`);
     }
     console.log(`\n${code}: ${Object.keys(current).length} entries now; ${rejected} rejected (placeholder or empty), ${unchanged} left in English`);
