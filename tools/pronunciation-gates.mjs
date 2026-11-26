@@ -55,13 +55,15 @@ console.error = (...a) => { if (!/not wrapped in act/.test(String(a[0]))) consol
 
 // ---- a speech engine that records what it was asked to say ----------------
 const voice = (lang, name) => ({ lang, name, localService: true, default: false, voiceURI: name });
-const engine = { voices: [], spoken: [], cancels: 0 };
+const engine = { voices: [], spoken: [], cancels: 0, listeners: new Set() };
 class Utterance { constructor(text) { this.text = text; } }
 window.speechSynthesis = {
     getVoices: () => engine.voices,
     speak(u) { engine.spoken.push(u); },
     cancel() { engine.cancels++; },
-    addEventListener() { }, removeEventListener() { },
+    // The voice list arrives late in a browser: `voiceschanged` says it came.
+    addEventListener(type, f) { if (type === 'voiceschanged') engine.listeners.add(f); },
+    removeEventListener(type, f) { engine.listeners.delete(f); },
 };
 globalThis.SpeechSynthesisUtterance = window.SpeechSynthesisUtterance = Utterance;
 
@@ -168,6 +170,20 @@ try {
         ok('ja in en: a sentence keeps the word before its comma', say('私、学生です。', 'en', 'ja') === '私、学生です。', say('私、学生です。', 'en', 'ja'));
         ok('zh in en: a sentence is said whole across its full-width comma', say('你好，我是学生。', 'en', 'zh') === '你好，我是学生。', say('你好，我是学生。', 'en', 'zh'));
         ok('nl in ru: a lone Latin letter is not a word', say('уровень B1', 'ru', 'nl') === null, say('уровень B1', 'ru', 'nl'));
+        // A gloss in the learned script (often English) beside the word is not said.
+        ok('nl in ru: an English gloss in brackets is left out', say('het huiswerk (homework)', 'ru', 'nl') === 'het huiswerk', say('het huiswerk (homework)', 'ru', 'nl'));
+        ok('nl in ru: an English gloss after "=" is left out', say('het huiswerk = the homework', 'ru', 'nl') === 'het huiswerk', say('het huiswerk = the homework', 'ru', 'nl'));
+        // Signs of no script of their own inside a word or sentence keep it whole.
+        const ch = (n) => String.fromCharCode(n);
+        const meat = 'м' + ch(0x2BC) + 'ясо', hello = 'م' + ch(0x640) + 'رحبا', hindi = `यह किताब है${ch(0x964)} वह कलम है${ch(0x964)}`, greek = `Ναι${ch(0xB7)} εντάξει`;
+        ok('uk in en: a word with the Ukrainian apostrophe is said whole', say(meat, 'en', 'uk') === meat, say(meat, 'en', 'uk'));
+        ok('ar in en: a word with the joining stroke is said whole', say(hello, 'en', 'ar') === hello, say(hello, 'en', 'ar'));
+        ok('hi in en: two sentences keep their stops', say(hindi, 'en', 'hi') === hindi, say(hindi, 'en', 'hi'));
+        ok('el in en: a Greek line keeps its middle dot', say(greek, 'en', 'el') === greek, say(greek, 'en', 'el'));
+        ok('ru in en: the Russian word, not the English', say('дом (house)', 'en', 'ru') === 'дом', say('дом (house)', 'en', 'ru'));
+        ok('he in en: the Hebrew word is said', say('שלום', 'en', 'he') === 'שלום', say('שלום', 'en', 'he'));
+        // Serbian is written in Latin letters too: a Serbian line is never taken for Dutch.
+        ok('nl in sr: a Serbian line in Latin letters is silent', say('Dobar dan', 'sr', 'nl') === null, say('Dobar dan', 'sr', 'nl'));
         // A final vowel mark belongs to the word it ends.
         ok('ar in en: a word keeps its final mark', say('كِتَابٌ (a book)', 'en', 'ar') === 'كِتَابٌ', say('كِتَابٌ (a book)', 'en', 'ar'));
         // Two languages in one script cannot be told apart on a short line.
@@ -243,13 +259,24 @@ try {
             JSON.stringify([pauses - pausesBefore, speakers(v.host)]));
         await v.unmount();
         window.HTMLMediaElement.prototype.pause = function () { };
+        // A recording of a labelled line is named like the device's speaker: by its Dutch words.
+        played.length = 0;
+        v = await mount(card(1, { ...ruCard, media: { front: [], back: [{ kind: 'audio', hash, at: 'Пример: Ik maak mijn huiswerk.' }] } }));
+        const named = v.host.querySelector('button[aria-label="Play: Ik maak mijn huiswerk."]');
+        if (named) await act(() => { named.click(); });
+        ok('a recorded labelled line is named by its Dutch words, and plays the recording',
+            !!named && JSON.stringify(played) === JSON.stringify([`/api/media/${hash}`]), JSON.stringify([speakers(v.host), played]));
+        await v.unmount();
 
         // No Dutch voice on this device: no speaker anywhere.
         engine.voices = [voice('en-US', 'English')];
         v = await mount(card(1, ruCard));
         ok('no speaker on a device with no Dutch voice', speakers(v.host).length === 0, JSON.stringify(speakers(v.host)));
-        await v.unmount();
+        // The Dutch voice turns up late, as voice lists do: the speakers follow it.
         engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch')];
+        await act(() => { for (const f of engine.listeners) f(); });
+        ok('a Dutch voice that arrives late brings the speakers', speakers(v.host).length === 2, JSON.stringify(speakers(v.host)));
+        await v.unmount();
 
         // A Dutch course that teaches no language: no speaker.
         v = await mount(card(2, { front: 'de liquiditeit', back: 'Of je op tijd genoeg geld hebt.' }));
@@ -332,6 +359,22 @@ try {
         await end(v.host, voiceB);
         ok('...and the sequence goes on to the next line', plays.at(-1) === src(sentence), JSON.stringify(plays));
         await v.unmount();
+        globalThis.__st.state = { ...globalThis.__st.state, a11y: { ...globalThis.__st.state.a11y, cardAudioAutoplay: false } };
+        // A clip the browser refuses (autoplay policy, or paused before it began)
+        // clears only its own state: the line pressed right after it keeps playing.
+        window.HTMLMediaElement.prototype.play = function () {
+            const s = this.getAttribute('src'); plays.push(s);
+            return s === src(voiceA) ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve();
+        };
+        v = await mount(card(3, twoVoices));
+        await act(() => {
+            v.host.querySelector('button[aria-label="Play: de liquiditeit"]').click();
+            v.host.querySelector(`button[aria-label="Play: ${EXAMPLE}"]`).click();
+        });
+        ok('a refused clip does not clear the line pressed after it', !!v.host.querySelector(`button[aria-label="Stop: ${EXAMPLE}"]`), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+        window.HTMLMediaElement.prototype.play = function () { plays.push(this.getAttribute('src')); return Promise.resolve(); };
+        globalThis.__st.state = { ...globalThis.__st.state, a11y: { ...globalThis.__st.state.a11y, cardAudioAutoplay: true } };
         globalThis.__st.state = { ...globalThis.__st.state, a11y: { ...globalThis.__st.state.a11y, cardAudioAutoplay: false } };
 
         // Clips that name no line keep the row under the card, each its own button, all played.

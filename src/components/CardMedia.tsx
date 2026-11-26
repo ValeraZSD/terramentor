@@ -108,8 +108,9 @@ interface AudioEngine {
 const AudioCtx = createContext<AudioEngine | null>(null);
 
 /**
- * Owns this side's `<audio>` elements and which clip is playing. Clips play in deck
- * order, as in Anki (the word, then its sentence).
+ * Owns this side's `<audio>` elements and which clip is playing. The opening
+ * sequence goes in deck order, as in Anki (the word, then its sentence), one
+ * clip per line (below).
  *
  * `lineOf` names the card line a clip belongs to ('' for none). A line may carry
  * the same words in two voices; the opening sequence says each line ONCE, with

@@ -733,6 +733,15 @@ if (!OLD) {
     const mediaDiff = (withMedia.body?.items?.changed || []).flatMap(it => it.diff || []).find(d => d.field === 'media');
     check('the media change reads "krant.png", not "[object Object]"', [withMedia.status, mediaDiff?.to ?? null], [200, 'krant.png']);
 
+    // An edition that only names the line a card's clip belongs to changes
+    // that card's media, so the line reaches an installed copy.
+    const { readFileCourse } = await import(B + 'courseUpdate.js');
+    const clipFile = (clip) => readFileCourse({ name: 'C' }, [{ uuid: 'n1', title: 'N', flashcards: [{ uuid: 'k3', front: 'de krant', back: 'b', media: { front: [clip] } }] }], { withMedia: true })
+        .entities.find(e => e.kind === 'card')?.fields.media;
+    const [plainClip, lineClip] = [clipFile({ name: 'krant.mp3', kind: 'audio' }), clipFile({ name: 'krant.mp3', kind: 'audio', at: 'de krant' })];
+    check('a file that only adds a clip\'s line changes the card\'s media hash',
+        [!!plainClip && !!lineClip, plainClip && lineClip && fieldHash(plainClip) !== fieldHash(lineClip)], [true, true]);
+
     console.log('\n--- the write paths reuse their statements ---');
     const { markLearnerEdit } = await import(B + 'courseUpdate.js');
     const { claimUuid } = await import(B + 'courseFiles.js');

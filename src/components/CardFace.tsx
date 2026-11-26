@@ -118,10 +118,13 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
         return said ? <SpeakLineButton key={`say:${langs.learning}:${said}`} text={said} lang={langs.learning} /> : null;
     };
     // One button per line, however many recordings it carries (two voices
-    // saying the same words share it, see `LineClipsButton`).
+    // saying the same words share it, see `LineClipsButton`). Named like the
+    // device's speaker, by the learned-language words where they can be told
+    // apart, else by the whole line.
     const lineButton = (line: string): ReactNode => {
         const clips = clipsFor(line);
-        if (clips.length) return <LineClipsButton key={`clips:${clips.map(c => c.hash).join(',')}`} items={clips} label={stripCardMarkup(line).trim()} />;
+        const name = (langs && spokenLine(line, langs)) || stripCardMarkup(line).trim();
+        if (clips.length) return <LineClipsButton key={`clips:${clips.map(c => c.hash).join(',')}`} items={clips} label={name} />;
         return speakerFor(line);
     };
     const inlineClips = (line: string) => {

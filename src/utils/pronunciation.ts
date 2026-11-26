@@ -50,11 +50,14 @@ const SCRIPT_CLASS: Record<string, string> = {
 const base = (code: string) => code.trim().toLowerCase().split(/[-_]/)[0];
 
 /** The scripts a catalog language is written in, or null for a language the
- *  catalog does not know. The catalog lists a script only where it differs
- *  from Latin letters, and Greek is written in its own. */
+ *  catalog does not know. An empty catalog list means Latin letters, except
+ *  for two the catalog leaves at that: Greek has its own script, and Serbian is
+ *  written in both Cyrillic and Latin, so a Serbian line in Latin letters is
+ *  never taken for a Latin-script language. */
 function scriptsOf(code: string): string[] | null {
     const c = base(code);
     if (c === 'el') return ['Greek'];
+    if (c === 'sr') return ['Cyrillic', 'Latin'];
     const lang = LANGUAGES.find(l => l.code === c);
     if (!lang) return null;
     return lang.scripts.length ? lang.scripts : ['Latin'];
@@ -85,6 +88,15 @@ function plain(line: string): string {
         .trim();
 }
 
+// Signs of no script of their own that sit INSIDE a word or sentence: the
+// Ukrainian apostrophe (мʼясо), the Arabic joining stroke, the zero-width
+// joiner and non-joiner of Indic and Persian words, the Devanagari stops, the
+// Greek middle dot, and the two hyphens. Built from code points, as two of
+// them are invisible.
+const JOINERS = String.fromCharCode(0x02BC, 0x0640, 0x200C, 0x200D, 0x0964, 0x0965, 0x00B7, 0x0387, 0x2010, 0x2011);
+// Sentence ends that close a run: the Devanagari stops and the Greek question mark too.
+const ENDS = '.!?…)。！？؟' + String.fromCharCode(0x0964, 0x0965, 0x037E);
+
 /** The runs of `text` written in `scripts`, joined: what a learned-language voice can read of it. */
 function runsIn(text: string, scripts: string[]): string {
     const cls = classOf(scripts);
@@ -94,9 +106,9 @@ function runsIn(text: string, scripts: string[]): string {
     // punctuation, the full-width and Arabic kinds too (私、学生です。 is one
     // run). A letter of another script ends the run. A number may open it
     // ("2.000 euro per maand").
-    const inner = `[${cls}\\p{M}\\p{N}\\s'’\\-.,:;!?¿¡…()\\[\\]"“”„«»/%€$£、，：；「」『』・〜（）،؛]`;
+    const inner = `[${cls}\\p{M}\\p{N}\\s'’\\-.,:;!?¿¡…()\\[\\]"“”„«»/%€$£、，：；「」『』・〜（）،؛${JOINERS}]`;
     // A word's last letter keeps the marks after it (Arabic كِتَابٌ ends in one).
-    const run = new RegExp(`(?:\\p{N}[\\p{N}\\s.,%€$£]*)?${letter}(?:${inner}*${letter})?\\p{M}*[.!?…)。！？؟]?`, 'gu');
+    const run = new RegExp(`(?:\\p{N}[\\p{N}\\s.,%€$£]*)?${letter}(?:${inner}*${letter})?\\p{M}*[${ENDS}]?`, 'gu');
     // A lone letter of an alphabet is a stray ("B1", "a)"); a lone Han, Kana
     // or Hangul sign is a word (水, 猫, 물).
     const least = scripts.some(s => s === 'Han' || s === 'Kana' || s === 'Hangul') ? 1 : 2;
@@ -128,6 +140,10 @@ export function spokenLine(line: string, langs: CourseLanguages): string | null 
     if (content !== learning) {
         const contentScripts = content ? scriptsOf(content) : null;
         if (!contentScripts || contentScripts.some(s => learnScripts.includes(s))) return null;
+        // A gloss beside the word ("het huiswerk (homework)", "het huiswerk =
+        // the homework") is in the learned script too, often English: an aside
+        // in brackets, and whatever follows " = ", is not said.
+        text = text.replace(/\s*[(（][^()（）]*[)）]/gu, ' ').split(/\s+=\s+/)[0].trim();
     }
     // In a course written in the language it teaches the runs are the whole
     // line, unless something in another script is on it; that is left out too.
