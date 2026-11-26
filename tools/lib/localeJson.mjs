@@ -28,21 +28,33 @@ export const withEol = (text, eol) => (eol === '\n' ? text : text.replace(/\n/g,
 export const sameShape = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
 
 /** Does this file's text come back unchanged through `serialiseLocale`?
- *  False for text that is not JSON. */
+ *  False for text that is not JSON, or JSON that is not an object. */
 export function roundTrips(text) {
     let data;
     try { data = JSON.parse(text); } catch { return false; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
     return sameShape(serialiseLocale(data), text);
 }
 
 /**
  * Does every entry line of this flat file survive JSON.parse? A key written
  * twice parses to ONE key holding the last value, so a rewrite would drop the
- * other without a word. Counts `"key":` at the start of a line, any indent;
- * a file not written one entry per line counts as not.
+ * other without a word. Every line other than a brace or a blank must hold
+ * exactly one `"key":`, no key may come twice, and the keys must be the ones
+ * JSON.parse kept. Strings are read whole, left to right, so a `"x":` inside a
+ * value is not taken for a key. A file not written one entry per line counts
+ * as not.
  */
 export function oneLinePerKey(text, data) {
-    return (text.match(/^\s*"(?:[^"\\]|\\.)*"\s*:/gm) || []).length === Object.keys(data).length;
+    const seen = new Set();
+    for (const line of text.split('\n')) {
+        const rest = line.trim();
+        if (rest === '' || rest === '{' || rest === '}' || rest === '{}') continue;
+        const keys = [...rest.matchAll(/("(?:[^"\\]|\\.)*")\s*(:?)/g)].filter((m) => m[2]).map((m) => JSON.parse(m[1]));
+        if (keys.length !== 1 || seen.has(keys[0])) return false;
+        seen.add(keys[0]);
+    }
+    return seen.size === Object.keys(data).length;
 }
 
 /** `serialiseLocale`, in the line ending `like` already uses. */

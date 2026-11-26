@@ -92,21 +92,50 @@ export function mergeLocales(base, ours, theirs) {
  * The merged file with conflict markers around each conflicting key's line.
  * Written through the locale writer, then each conflicting key's line is
  * replaced by the two sides' lines (a side that deleted the key is empty).
+ *
+ * Keeping either side whole must leave valid JSON. A conflict followed by a
+ * settled key always ends in a comma, so it is marked alone. The conflicts at
+ * the END of the file are marked as one block, each side with its own commas,
+ * and when one side keeps none of them the line before them goes into the
+ * block too: that line ends in a comma on one side and not on the other.
  */
 export function conflictText(merged, conflicts, like) {
     const eol = like.includes('\r\n') ? '\r\n' : '\n';
     const byKey = new Map(conflicts.map((c) => [c.key, c]));
     const withAll = Object.fromEntries([...Object.entries(merged), ...conflicts.map((c) => [c.key, c.ours ?? c.theirs])]);
     const lines = serialiseLike(withAll, '\n').split('\n');
-    const out = [];
-    for (const line of lines) {
+    const keyOf = (line) => {
         const m = /^ {2}("(?:[^"\\]|\\.)*"): /.exec(line);
-        const c = m && byKey.get(JSON.parse(m[1]));
-        if (!c) { out.push(line); continue; }
-        const comma = line.endsWith(',') ? ',' : '';
-        const entry = (v) => (v === undefined ? [] : [`  ${JSON.stringify(c.key)}: ${JSON.stringify(v)}${comma}`]);
-        out.push('<<<<<<< ours', ...entry(c.ours), '=======', ...entry(c.theirs), '>>>>>>> theirs');
+        return m ? JSON.parse(m[1]) : undefined;
+    };
+    const conflictAt = (i) => { const k = keyOf(lines[i]); return k === undefined ? undefined : byKey.get(k); };
+    const entry = (key, v, comma) => `  ${JSON.stringify(key)}: ${JSON.stringify(v)}${comma ? ',' : ''}`;
+
+    const close = lines.lastIndexOf('}');
+    let tail = close;                                   // first line of the conflicts that end the file
+    while (tail > 1 && conflictAt(tail - 1)) tail--;
+    const ending = lines.slice(tail, close).map((_, n) => conflictAt(tail + n));
+    const keepsNone = (side) => ending.every((c) => c[side] === undefined);
+    const anchored = ending.length > 0 && tail > 1 && (keepsNone('ours') || keepsNone('theirs'));
+    const start = anchored ? tail - 1 : tail;
+
+    const out = [];
+    for (let i = 0; i < start; i++) {
+        const c = conflictAt(i);
+        if (!c) { out.push(lines[i]); continue; }
+        const one = (v) => (v === undefined ? [] : [entry(c.key, v, lines[i].endsWith(','))]);
+        out.push('<<<<<<< ours', ...one(c.ours), '=======', ...one(c.theirs), '>>>>>>> theirs');
     }
+    if (ending.length) {
+        const side = (pick) => {
+            const kept = [];
+            if (anchored) { const k = keyOf(lines[start]); kept.push([k, withAll[k]]); }
+            for (const c of ending) if (c[pick] !== undefined) kept.push([c.key, c[pick]]);
+            return kept.map(([k, v], n) => entry(k, v, n < kept.length - 1));
+        };
+        out.push('<<<<<<< ours', ...side('ours'), '=======', ...side('theirs'), '>>>>>>> theirs');
+    }
+    out.push(...lines.slice(close));
     return out.join(eol);
 }
 
@@ -139,9 +168,11 @@ export function mergeFiles(basePath, oursPath, theirsPath, label = oursPath) {
 }
 
 /** Write `merge.locale-json.*` into the repository's config at `root` (the
- *  config every worktree of it shares). Does nothing when it is already set. */
+ *  config every worktree of it shares). Does nothing when it is already set
+ *  THERE: the same command in the user's global config does not count, since
+ *  the writes below go to the repository's config. */
 export function registerLocaleMergeDriver(root) {
-    const get = spawnSync('git', ['config', '--get', `merge.${DRIVER}.driver`], { cwd: root, encoding: 'utf8' });
+    const get = spawnSync('git', ['config', '--local', '--get', `merge.${DRIVER}.driver`], { cwd: root, encoding: 'utf8' });
     if (get.status === 0 && get.stdout.replace(/\r?\n$/, '') === DRIVER_COMMAND) return { changed: false };
     for (const [k, v] of [[`merge.${DRIVER}.name`, 'locale files, merged by key'], [`merge.${DRIVER}.driver`, DRIVER_COMMAND]]) {
         const set = spawnSync('git', ['config', '--replace-all', k, v], { cwd: root, encoding: 'utf8' });

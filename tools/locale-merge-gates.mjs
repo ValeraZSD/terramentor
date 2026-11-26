@@ -80,6 +80,11 @@ function repo(base, one, two, { withDriver = true, dropDriverOnOne = false } = {
 }
 const read = (file) => readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 const conflicted = (dir) => git(dir, 'diff', '--name-only', '--diff-filter=U').out.trim();
+/** Resolve every conflict block to one side; does the result parse, for both sides? */
+function bothSidesParse(text) {
+    const pick = (side) => text.replace(/<<<<<<< ours\n([\s\S]*?)=======\n([\s\S]*?)>>>>>>> theirs\n/g, (_, a, b) => (side === 'ours' ? a : b));
+    try { JSON.parse(pick('ours')); JSON.parse(pick('theirs')); return true; } catch { return false; }
+}
 
 const BASE = '{\n  "Apple": "a",\n  "Cherry": "c"\n}\n';
 
@@ -143,8 +148,40 @@ try {
         const { dir, file } = repo(BASE, one, two);
         const m = git(dir, 'merge', '--no-edit', 'two');
         check('a key deleted on one side and edited on the other is a conflict', m.status !== 0 && conflicted(dir) === 'src/locales/x.json', m.out);
-        eq('…the deleting side shows empty',
-            read(file), '{\n  "Apple": "a",\n<<<<<<< ours\n=======\n  "Cherry": "c (edited)"\n>>>>>>> theirs\n}\n');
+        eq('…the deleting side shows empty, and the line above it goes in the block, since its comma depends on the side kept',
+            read(file), '{\n<<<<<<< ours\n  "Apple": "a"\n=======\n  "Apple": "a",\n  "Cherry": "c (edited)"\n>>>>>>> theirs\n}\n');
+        check('…keeping either side whole leaves valid JSON', bothSidesParse(read(file)), read(file));
+    }
+    {
+        // Mid-file, a deletion against an edit stays one key: the comma is there either way.
+        const base = '{\n  "Apple": "a",\n  "Cherry": "c",\n  "Date": "d"\n}\n';
+        const one = '{\n  "Apple": "a",\n  "Date": "d"\n}\n';
+        const two = '{\n  "Apple": "a",\n  "Cherry": "c (edited)",\n  "Date": "d"\n}\n';
+        const { dir, file } = repo(base, one, two);
+        git(dir, 'merge', '--no-edit', 'two');
+        eq('a deletion conflict before a settled key marks that key alone',
+            read(file), '{\n  "Apple": "a",\n<<<<<<< ours\n=======\n  "Cherry": "c (edited)",\n>>>>>>> theirs\n  "Date": "d"\n}\n');
+        check('…keeping either side whole leaves valid JSON', bothSidesParse(read(file)), read(file));
+    }
+    {
+        // The last key edited two ways: both sides keep it, the line above keeps its comma, so it stays outside.
+        const one = '{\n  "Apple": "a",\n  "Cherry": "c1"\n}\n';
+        const two = '{\n  "Apple": "a",\n  "Cherry": "c2"\n}\n';
+        const { dir, file } = repo(BASE, one, two);
+        git(dir, 'merge', '--no-edit', 'two');
+        eq('the last key edited two ways marks that key alone',
+            read(file), '{\n  "Apple": "a",\n<<<<<<< ours\n  "Cherry": "c1"\n=======\n  "Cherry": "c2"\n>>>>>>> theirs\n}\n');
+    }
+    {
+        // The last two keys both in conflict, one side deleting both: one block, commas per side.
+        const base = '{\n  "Apple": "a",\n  "Cherry": "c",\n  "Date": "d"\n}\n';
+        const one = '{\n  "Apple": "a"\n}\n';
+        const two = '{\n  "Apple": "a",\n  "Cherry": "c2",\n  "Date": "d2"\n}\n';
+        const { dir, file } = repo(base, one, two);
+        git(dir, 'merge', '--no-edit', 'two');
+        eq('two conflicting keys at the end are one block, each side with its own commas',
+            read(file), '{\n<<<<<<< ours\n  "Apple": "a"\n=======\n  "Apple": "a",\n  "Cherry": "c2",\n  "Date": "d2"\n>>>>>>> theirs\n}\n');
+        check('…keeping either side whole leaves valid JSON', bothSidesParse(read(file)), read(file));
     }
     {
         // Not JSON on one side: the driver hands the file to git's line merge,
@@ -192,6 +229,24 @@ try {
         const all = git(dir, 'config', '--get-all', 'merge.locale-json.driver').out.trim();
         check('registering twice writes one entry, and the second run changes nothing',
             first.changed && !second.changed && all === DRIVER_COMMAND, all);
+    }
+    {
+        // The same command already in the user's GLOBAL config: the repository's own still gets it.
+        const dir = join(scratch, 'reg-global');
+        mkdirSync(dir);
+        must(dir, 'init', '-q');
+        const globalWithDriver = join(scratch, 'driver.gitconfig');
+        writeFileSync(globalWithDriver, '');
+        must(dir, 'config', '--file', globalWithDriver, 'merge.locale-json.driver', DRIVER_COMMAND);
+        const saved = process.env.GIT_CONFIG_GLOBAL;
+        process.env.GIT_CONFIG_GLOBAL = globalWithDriver;
+        let r;
+        try { r = registerLocaleMergeDriver(dir); } finally {
+            if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved;
+        }
+        const local = git(dir, 'config', '--local', '--get', 'merge.locale-json.driver').out.trim();
+        check('a driver set only in the global config does not stop registration in the repository',
+            r.changed && local === DRIVER_COMMAND, local);
     }
 } catch (err) {
     check('the suite ran to the end', false, err.stack || err.message);
