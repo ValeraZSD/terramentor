@@ -869,7 +869,8 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
             if (line.startsWith('[security]')) lines.push(line); else quiet(...a);
         };
         const realNow = Date.now;
-        let at = realNow();
+        // A fixed instant, after any line the real clock stamped above.
+        let at = Date.UTC(2100, 0, 1);
         Date.now = () => at;
         try {
             const asked = [auth.announceSetupCode(), auth.announceSetupCode(), auth.announceSetupCode()];
