@@ -500,8 +500,39 @@ loads it. What it does:
   password and the rest of its hash never leave the server, and the match is made on the
   server. A password found there is refused. `SITE_BREACH_CHECK=0` turns the check off; if the
   service does not answer in 5 seconds the password is accepted.
+- **Removing an account** (`node server/site/cli.js remove <email>`) deletes its sessions,
+  invites, wrong-guess counts and its library's folder, and stops the library if it runs. What
+  that leaves in backups is under "Backups on a hosted server", below.
 - **Not there yet**: public sign-up, email, password reset, a second factor and export. The
   front desk itself runs as root, because it must start each library as its own user.
+
+## Backups on a hosted server
+
+`hosted/copy.sh` backs up every hosted copy and every library of a site front desk
+(`docs/HOSTING.md`, "Backups"). What it promises:
+
+- **Archives are encrypted before they are written to the backup folder**, with
+  [age](https://age-encryption.org) (X25519, ChaCha20-Poly1305) to the operator's public key(s)
+  in `TM_BACKUP_RECIPIENTS`. No backup is written without one, and a file holding a private key
+  is refused there. The private key is not needed to back up, only to restore, so it need not
+  be on the server; the unencrypted archive exists only while it is checked, in `hosted/.work/`
+  (root only), and is deleted after. Anyone who copies the backup folder, a storage box
+  included, reads nothing without a private key.
+- **Retention**: the newest `TM_BACKUP_KEEP` (default 14) archives per copy or library; older
+  ones are deleted by the next backup.
+- **Erasure**: `copy.sh remove <name> --erase` or `copy.sh site-remove <email> --erase` writes a
+  line to an erasure ledger: the SHA-256 of the copy's name or the library's id (no name or
+  address), when, and when its grace period (`TM_ERASE_AFTER_DAYS`, default 14) ends. From then
+  on `copy.sh restore` refuses any archive made before the erasure, and `copy.sh site-restore`
+  leaves the erased library out and deletes its account from the restored `site.db` before the
+  front desk starts. After the grace period, the nightly `backup --all` deletes the person's
+  archives. The ledger is kept outside every archive, on the server and in the backup folder,
+  and read as the union of both, so an older backup put back is erased again on the next night.
+  `hosted/rehearse.sh` checks all of this in CI.
+- **What it does not reach**: the `site.db` archives hold every account's email address and
+  password hash, so an erased person's stays in them until they roll off (`TM_BACKUP_KEEP`
+  nights). And it deletes only in `TM_BACKUP_DIR`: a copy of that folder made elsewhere keeps
+  what it holds unless whatever made the copy deletes it too.
 
 ## What is NOT protected
 

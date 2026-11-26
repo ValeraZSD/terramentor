@@ -218,3 +218,8 @@ hosted/sites/
 hosted/copies/
 hosted/networks.yml
 hosted/.locks/
+# ...and the erasure ledger, the folder a backup is read in before it is
+# encrypted, and the public key(s) it is encrypted to.
+hosted/erasures
+hosted/.work/
+hosted/backup-recipients
