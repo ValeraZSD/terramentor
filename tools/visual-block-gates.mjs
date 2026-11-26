@@ -367,6 +367,30 @@ console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its r
     m.unmount();
 }
 
+console.log('\n--- the hidden text twin stays inside the card that clips it ---');
+{
+    // `sr-only` is `position: absolute`. Its box is placed against the nearest
+    // POSITIONED ancestor, and a scroll container that is not positioned does
+    // not clip it. With no positioned box inside the card, the twin of an
+    // animation in the assistant's reply was placed against the whole panel:
+    // 1px tall at the reply's foot, 107px below the window, so the page grew
+    // past the window and the feed's next "continue" scrolled the app's header
+    // away. The card is `overflow-hidden`; it clips the twin once it is also
+    // the box the twin is placed against.
+    globalThis.__widths = { block: 640, row: 420 };
+    const m = globalThis.__mount(host, { kind: 'plot', language: 'plot', code: '{"data":[{"fn":"x^2"}]}', live: false, surface: 'assistant' });
+    await settle(600);
+    const twin = host.querySelector('[data-text-twin]');
+    const card = twin?.closest('.visual-block');
+    const POSITIONED = /(^|\s)(relative|absolute|fixed|sticky)(\s|$)/;
+    let box = twin?.parentElement ?? null;
+    while (box && !POSITIONED.test(box.className || '')) box = box.parentElement;
+    check('a drawn graph carries its text twin, inside the card', !!twin && !!card, text());
+    check('…and the twin is placed against the card or a box inside it, never a box outside',
+        !!card && !!box && card.contains(box), box ? `${box.tagName}.${box.className}` : 'no positioned box up to the document');
+    m.unmount();
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }
 console.log(`\nvisual-block gates: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

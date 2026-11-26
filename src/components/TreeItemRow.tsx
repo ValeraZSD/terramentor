@@ -190,7 +190,9 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                 // a button role holding the drag, expand, status and ⋮ buttons
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${hoverCapable ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${held
+                // `relative`: the `sr-only` drag handle is placed against
+                // this row, inside whatever scrolls the outline.
+                className={`group relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${hoverCapable ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent
                         ? 'drop-target -outline-offset-2 bg-accent/10'

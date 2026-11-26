@@ -1,4 +1,6 @@
 {
+  "Written by AI": "Написано ШІ",
+  "Written by AI ({{model}})": "Написано ШІ ({{model}})",
   "Correct, with a spelling slip": "Правильно, з невеликою одруківкою",
   "It is spelled:": "Правильно пишеться:",
   "Only a letter or two off.": "Помилка лише в одній-двох літерах.",

@@ -308,11 +308,14 @@ app.get('/api/documents/:id/original', (req, res) => {
 });
 
 app.delete('/api/documents/:id', (req, res) => {
-    const doc = db.prepare('SELECT id, file_hash FROM documents /* with deleted */ WHERE id = ?').get(req.params.id);
-    const docs = doc ? [doc] : [];
+    // A file of a deleted course or topic waits for its Restore; it is removed
+    // for good only with them (softDelete.js purge).
+    const doc = db.prepare('SELECT id, file_hash FROM live_documents documents WHERE id = ?').get(req.params.id);
+    if (!doc) return res.status(404).json(keyed('Document not found'));
+    const docs = [doc];
     const chunkIds = documentChunkIds(docs);
 
-    db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
 
     freeDocumentAssets(docs, chunkIds);
     res.json({ success: true });

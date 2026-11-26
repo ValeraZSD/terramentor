@@ -355,10 +355,18 @@ export function isUnavailable(err) {
         || m.includes('429') || m.includes('502') || m.includes('503');
 }
 
+let liveDocumentStmt = null;
+const isLiveDocument = (id) =>
+    !!(liveDocumentStmt ??= db.prepare('SELECT 1 FROM live_documents documents WHERE id = ?')).get(id);
+
 async function runIndex(documentId) {
     if (!vecAvailable) { markDoc(documentId, 'unavailable'); return; }
     // Left for the first call that works once the switch is back on.
     if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); healWanted = true; return; }
+    // A file of a deleted course or topic is sent nowhere: it waits, pending,
+    // and its Restore queues it again (routes/deleted.js).
+    // Not a failure, so a heal's try is handed back.
+    if (!isLiveDocument(documentId)) { markDoc(documentId, 'pending'); healAttempts.delete(documentId); return; }
 
     const chunks = db.prepare('SELECT id, content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }
@@ -375,11 +383,23 @@ async function runIndex(documentId) {
         origin: indexOrigin,
     });
 
+    // Deleted while a batch was out: nothing more is written, and its Restore
+    // indexes the file again. Not a failure, so its Restore's heal must not
+    // find the tries used up.
+    const stopIfDeleted = () => {
+        if (isLiveDocument(documentId)) return false;
+        markDoc(documentId, 'pending');
+        healAttempts.delete(documentId);
+        handle.cancelled();
+        return true;
+    };
     try {
         let done = 0;
         for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+            if (i > 0 && stopIfDeleted()) return;
             const batch = chunks.slice(i, i + EMBED_BATCH);
             const vectors = await embedBatch(batch.map(c => c.content));
+            if (stopIfDeleted()) return;
             const dim = vectors[0]?.length;
             if (!dim) throw new Error('embedding model returned empty vectors');
             if (!ensureVecTable(dim)) throw new Error('vector storage unavailable');
@@ -401,6 +421,7 @@ async function runIndex(documentId) {
         healAttempts.delete(documentId);
         handle.finish();
     } catch (err) {
+        if (stopIfDeleted()) return;
         const status = isUnavailable(err) ? 'unavailable' : 'error';
         markDoc(documentId, status);
         if (status === 'unavailable') {
@@ -458,7 +479,7 @@ export function healDocuments() {
     if (!embeddingReady()) return { queued: 0 };
     healWanted = false;
     const ids = db.prepare(
-        `SELECT id FROM documents /* with deleted */ WHERE status = 'ready'
+        `SELECT id FROM live_documents documents WHERE status = 'ready'
            AND (embedding_status IS NULL OR embedding_status IN ('unavailable', 'pending'))`
     ).all().map(r => r.id)
         .filter(id => !onChain.has(id) && (healAttempts.get(id) || 0) < MAX_HEAL_ATTEMPTS);
@@ -652,10 +673,11 @@ export function setEmbeddingSettings({ enabled, model, provider }) {
 }
 
 // Re-embed every ready document (e.g. after enabling the feature or pulling a
-// model). Clears prior index state so the badges reflect the fresh run.
+// model). Clears prior index state so the badges reflect the fresh run. A file
+// of a deleted course or topic is cleared too but not sent: its Restore heals it.
 export function reindexAll() {
     healAttempts.clear();
-    const docs = db.prepare(`SELECT id FROM documents /* with deleted */ WHERE status = 'ready'`).all();
+    const docs = db.prepare(`SELECT id FROM live_documents documents WHERE status = 'ready'`).all();
     db.prepare(`UPDATE documents SET embedding_status = NULL WHERE status = 'ready'`).run();
     docs.forEach(d => indexDocument(d.id));
     return { queued: docs.length };

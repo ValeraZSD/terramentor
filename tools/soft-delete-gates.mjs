@@ -516,6 +516,285 @@ console.log('\n--- a delete or a restore reaches what is worked out from the row
 }
 
 // ============================================================================
+console.log('\n--- what a deleted course or topic holds is sent, served and exported nowhere ---');
+{
+    // Text only the deleted course's rows hold. Every model call below goes to
+    // a stub on loopback that keeps what it was sent.
+    const LEAK = 'zqleak';
+    const sent = [];
+    // Runs on each request before the stub answers: a row below deletes a
+    // topic while its file's embedding call is out.
+    let onRequest = null;
+    const stub = createServer((req, res) => {
+        let body = '';
+        req.on('data', c => { body += c; });
+        req.on('end', () => {
+            sent.push(body);
+            onRequest?.(body);
+            let input = [];
+            try { input = JSON.parse(body || '{}').input ?? []; } catch { }
+            const texts = Array.isArray(input) ? input : [input];
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ embeddings: texts.map(() => [0.5, 0.5, 0.5, 0.5]) }));
+        });
+    });
+    await new Promise(r => stub.listen(0, '127.0.0.1', r));
+    const leaked = () => sent.filter(b => b.includes(LEAK)).length;
+    const waitFor = async (cond, ms = 20_000) => {
+        const end = Date.now() + ms;
+        while (Date.now() < end) { if (cond()) return true; await new Promise(r => setTimeout(r, 100)); }
+        return cond();
+    };
+    const { mediaStorage, default: vaultStorage } = await import(B + 'vaultStorage.js');
+    const mock = await import(B + 'mockExams.js');
+    const { listReports } = await import(B + 'itemReports.js');
+    const { describeMedia, pendingDescriptions } = await import(B + 'mediaDescribe.js');
+    const { healDocuments, reindexAll, indexDocument } = await import(B + 'embeddings.js');
+    const { resumePendingRecovery, queueRecovery } = await import(B + 'pdfRecovery.js');
+    const { vecAvailable } = await import(B + 'database.js');
+
+    const lc = project(`${LEAK} course`);
+    const lPhase = node(lc, null, `${LEAK} phase`);
+    const lTopic = node(lc, lPhase, `${LEAK} topic`);
+    const doc = (p, n, title, extra = {}) => {
+        const d = ins(`INSERT INTO documents (project_id, node_id, title, content, status, file_type, file_hash, recovery_status)
+            VALUES (?, ?, ?, ?, 'ready', ?, ?, ?)`, p, n, title, `${title} text`, extra.type ?? 'text', extra.hash ?? null, extra.recovery ?? null);
+        ins('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, 0, ?)', d, `${title} text`);
+        return d;
+    };
+    // Files: one waiting to be indexed, one PDF waiting for recovery (its
+    // bytes are not a PDF, so a run marks it failed), each with a live twin.
+    const deadIndex = doc(lc, lTopic, `${LEAK} unindexed file`);
+    const deadPdf = doc(lc, lTopic, `${LEAK} pdf`, { type: 'pdf', hash: vaultStorage.put(Buffer.from(`${LEAK} not a pdf`)).hash, recovery: 'pending' });
+    const liveIndex = doc(keep, kTopic, 'Keep unindexed file');
+    const livePdf = doc(keep, kTopic, 'Keep pdf', { type: 'pdf', hash: vaultStorage.put(Buffer.from('Keep, not a pdf')).hash, recovery: 'pending' });
+    // Pictures: one of the deleted course, one only a deleted card of a live
+    // course shows, one a live card shows.
+    const picture = (p, n, name, { deleteCard = false } = {}) => {
+        const { hash } = mediaStorage.put(Buffer.from(`${name} picture bytes`));
+        ins("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', 20)", p, hash, `${name}.png`);
+        const c = ins('INSERT INTO flashcards (node_id, front, back, media) VALUES (?, ?, ?, ?)', n, `${name} card`, 'back',
+            JSON.stringify({ front: [{ hash, kind: 'image', name: `${name}.png` }] }));
+        if (deleteCard) SD.softDelete('flashcards', c);
+        return hash;
+    };
+    const hCourse = picture(lc, lTopic, `${LEAK}-course`);
+    const hCard = picture(keep, kTopic, `${LEAK}-card`, { deleteCard: true });
+    const hLive = picture(keep, kTopic, 'keep-live');
+    // One picture in two courses: the deleted course's row has a description,
+    // the live course's row none.
+    const hTwice = picture(lc, lTopic, 'twice');
+    db.prepare("UPDATE media_files SET description = ?, described_by = 'author' WHERE hash = ? AND project_id = ?").run(`${LEAK} author text`, hTwice, lc);
+    ins("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'twice.png', 'image/png', 'image', 20)", keep, hTwice);
+    ins('INSERT INTO flashcards (node_id, front, back, media) VALUES (?, ?, ?, ?)', kTopic, 'twice card', 'back',
+        JSON.stringify({ front: [{ hash: hTwice, kind: 'image', name: 'twice.png' }] }));
+    // And one in two live courses: the first course's card was deleted and its
+    // row has a description, the second course's card is live and its row has none.
+    const hMoved = picture(keep, kTopic, 'moved', { deleteCard: true });
+    db.prepare("UPDATE media_files SET description = ?, described_by = 'author' WHERE hash = ? AND project_id = ?").run(`${LEAK} old text`, hMoved, keep);
+    const other = project('Second live course');
+    picture(other, node(other, null, 'Second topic'), 'moved');
+    // Each course declares its own language: the description is asked in the
+    // language of the course whose card shows it.
+    db.prepare("UPDATE projects SET content_language = 'de' WHERE id = ?").run(keep);
+    db.prepare("UPDATE projects SET content_language = 'nl' WHERE id = ?").run(other);
+    // Paper practice: an exercise and a marked attempt with its photo.
+    const exercise = ins("INSERT INTO feed_items (node_id, kind, content, status) VALUES (?, 'practice', ?, 'ready')", lTopic,
+        JSON.stringify({ prompt: `${LEAK} exercise`, reference_solution: `${LEAK} solution`, rubric: [{ criterion: `${LEAK} step`, points: 1 }] }));
+    const attempt = ins("INSERT INTO paper_attempts (node_id, feed_item_id, image_hash, score, total, graded_by) VALUES (?, ?, ?, 0, 1, 'self')",
+        lTopic, exercise, vaultStorage.put(Buffer.from(`${LEAK} photo`)).hash);
+    // Placement: a probe ready to answer.
+    const probe = ins("INSERT INTO placement_probes (project_id, state, targets, questions) VALUES (?, 'ready', ?, ?)", lc,
+        JSON.stringify([{ node_id: lTopic }]),
+        JSON.stringify([{ type: 'multiple_choice', node_id: lTopic, question: `${LEAK} probe question`, options: ['a', 'b'], answer: 0 }]));
+    // A report naming a card of the course, with the card's text.
+    ins(`INSERT INTO item_reports (kind, item_key, node_id, project_id, reason, item, created_at)
+        VALUES ('card', 'card:999999', ?, ?, 'wrong', ?, '2026-01-01T00:00:00.000Z')`, lTopic, lc, JSON.stringify({ view: { front: `${LEAK} reported card` } }));
+    // Mocks: a paper and a sitting of the course, and in the live course a
+    // sitting with a part on a topic deleted before it is finished.
+    const lPaper = mock.createPaper(lc, { title: `${LEAK} paper`, minutes: 60, parts: [{ question: '1', part: '', points: 10, nodeId: lTopic }] });
+    const lSitting = mock.startSitting(lPaper.id, { now: 0 });
+    const mTopic = node(keep, kPhase, 'Mock topic deleted');
+    const kPaper = mock.createPaper(keep, { title: 'Keep paper', minutes: 60, parts: [
+        { question: '1', part: '', points: 10, nodeId: mTopic }, { question: '2', part: '', points: 10, nodeId: kTopic }] });
+    const kSitting = mock.startSitting(kPaper.id, { now: 0 });
+    mock.stopWriting(kSitting.id, { now: 60_000 });
+    for (const p of kPaper.parts) mock.setPartScore(kSitting.id, p.id, 10);
+
+    const del = await call('DELETE', `/api/projects/${lc}`);
+    const delTopic = await call('DELETE', `/api/nodes/${mTopic}`);
+    ok('control: the course and the topic are deleted', del.status === 200 && delTopic.status === 200 && !!raw('projects', lc).deleted_at);
+
+    // 1. Indexing. Embeddings on, against the stub.
+    set.run('ai_ollama_url', `http://127.0.0.1:${stub.address().port}`);
+    set.run('embedding_provider', 'ollama');
+    set.run('embedding_model', 'stub-embed');
+    set.run('embedding_enabled', 'true');
+    const embedStatus = (id) => db.prepare('SELECT embedding_status FROM documents WHERE id = ?').pluck().get(id);
+    if (vecAvailable) {
+        healDocuments();
+        reindexAll();
+        indexDocument(deadIndex);
+        const settled = await waitFor(() => embedStatus(liveIndex) === 'indexed');
+        await new Promise(r => setTimeout(r, 300));
+        ok('control: a live file waiting to be indexed is indexed', settled, `${embedStatus(liveIndex)}`);
+        ok('a deleted course\'s file is never sent to the embedding model (heal, re-index all, a direct queue)',
+            leaked() === 0 && embedStatus(deadIndex) !== 'indexed', `${leaked()} request(s) held its text; status ${embedStatus(deadIndex)}`);
+        // Deleted while its one embedding call is out: the answer is dropped,
+        // the file waits as pending for its Restore.
+        const midTopic = node(keep, null, 'Mid-call topic');
+        const midDoc = doc(keep, midTopic, 'midcall file');
+        let deletedMidCall = false;
+        onRequest = (body) => {
+            if (deletedMidCall || !body.includes('midcall file')) return;
+            deletedMidCall = true;
+            SD.softDelete('nodes', midTopic);
+        };
+        indexDocument(midDoc);
+        await waitFor(() => deletedMidCall, 5_000);
+        await new Promise(r => setTimeout(r, 500));
+        onRequest = null;
+        const midVectors = db.prepare(`SELECT COUNT(*) FROM vec_chunks WHERE rowid IN
+            (SELECT id FROM document_chunks WHERE document_id = ?)`).pluck().get(midDoc);
+        ok('a file deleted while its embedding call is out keeps no vectors and waits as pending',
+            deletedMidCall && midVectors === 0 && embedStatus(midDoc) === 'pending',
+            `deleted mid-call ${deletedMidCall}, ${midVectors} vector(s), status ${embedStatus(midDoc)}`);
+    } else console.log('        (sqlite-vec is not available here: the indexing rows are skipped)');
+
+    // 2. PDF recovery.
+    const recovery = (id) => db.prepare('SELECT recovery_status FROM documents WHERE id = ?').pluck().get(id);
+    resumePendingRecovery();
+    queueRecovery(deadPdf);
+    const recovered = await waitFor(() => recovery(livePdf) !== 'pending');
+    await new Promise(r => setTimeout(r, 300));
+    ok('control: a live PDF waiting for recovery is run', recovered, `${recovery(livePdf)}`);
+    ok('a deleted course\'s PDF is not run, and stays pending', recovery(deadPdf) === 'pending', `${recovery(deadPdf)}`);
+    // A restart while its run was going, with no live file waiting: it waits
+    // as pending for its Restore, and is not run.
+    db.prepare("UPDATE documents SET recovery_status = 'running' WHERE id = ?").run(deadPdf);
+    resumePendingRecovery();
+    await new Promise(r => setTimeout(r, 300));
+    ok('a deleted PDF caught running by a restart is pending again, and not run', recovery(deadPdf) === 'pending', `${recovery(deadPdf)}`);
+    // Deleted after the run picked it up, while it is analysed: its bytes are
+    // not a PDF, so the analysis fails, and the file must stay pending for its
+    // Restore rather than be marked failed.
+    const midTopic = node(keep, kPhase, 'Keep topic deleted mid-analysis');
+    const midPdf = doc(keep, midTopic, 'Keep pdf deleted mid-analysis', { type: 'pdf', hash: vaultStorage.put(Buffer.from('Mid, not a pdf')).hash, recovery: 'pending' });
+    const midHash = db.prepare('SELECT file_hash FROM documents WHERE id = ?').pluck().get(midPdf);
+    const readBuffer = vaultStorage.readBuffer;
+    let deletedMidAnalysis = false;
+    // The run has read the live row; its topic is deleted as the bytes are read.
+    vaultStorage.readBuffer = function (hash) {
+        if (hash === midHash && !deletedMidAnalysis) deletedMidAnalysis = SD.softDelete('nodes', midTopic) > 0;
+        return readBuffer.call(this, hash);
+    };
+    // Runs go one at a time, so a live file queued after it is marked failed
+    // only once that run has settled: its outcome is read after that.
+    const afterPdf = doc(keep, kTopic, 'Keep pdf queued after', { type: 'pdf', hash: vaultStorage.put(Buffer.from('After, not a pdf')).hash, recovery: 'pending' });
+    let settled = false;
+    try {
+        queueRecovery(midPdf);
+        queueRecovery(afterPdf);
+        settled = await waitFor(() => recovery(afterPdf) === 'failed');
+    } finally { vaultStorage.readBuffer = readBuffer; }
+    ok('a PDF deleted while it is analysed stays pending, not failed', settled && deletedMidAnalysis && recovery(midPdf) === 'pending',
+        `run settled ${settled}, deleted mid-analysis ${deletedMidAnalysis}, ${recovery(midPdf)}`);
+
+    // 3. Pictures: listed, counted, swept, described, served.
+    const listedHashes = ((await call('GET', '/api/media-descriptions?limit=200')).json?.items || []).map(i => i.hash);
+    ok('control: a live card\'s picture is listed', listedHashes.includes(hLive));
+    ok('a picture of a deleted course, or of only a deleted card, is not listed', !listedHashes.includes(hCourse) && !listedHashes.includes(hCard));
+    const stats = (await call('GET', `/api/media-descriptions/status?projectId=${lc}`)).json;
+    ok('…nor counted', stats?.images === 0, JSON.stringify(stats));
+    const pending = pendingDescriptions().map(p => p.hash);
+    ok('…nor queued for the description sweep', pending.includes(hLive) && !pending.includes(hCourse) && !pending.includes(hCard), JSON.stringify(pending));
+    const described = await describeMedia(hCourse, { model: 'stub' });
+    ok('…nor sent to a vision model when asked for by its hash', !described.ok && described.reason === 'no such media' && leaked() === 0, JSON.stringify(described));
+    const twice = await describeMedia(hTwice, { model: 'stub' });
+    ok('a picture also in a live course is described from the live course\'s row, not the deleted one\'s',
+        twice.reason !== 'already described' && twice.reason !== 'no such media' && !String(twice.description ?? '').includes(LEAK), JSON.stringify(twice));
+    // AI on for this one call, so its request reaches the stub and its prompt
+    // can be read; the stub's answer is no description, so nothing is stored.
+    const sentBefore = sent.length;
+    const closedPort = process.env.AI_BASE_URL;
+    process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
+    set.run('ai_enabled', 'true');
+    const moved = await describeMedia(hMoved, { model: 'stub' });
+    set.run('ai_enabled', 'false');
+    process.env.AI_BASE_URL = closedPort;
+    ok('…and one in two live courses from the row of the course whose card shows it',
+        moved.reason !== 'already described' && moved.reason !== 'no such media' && !String(moved.description ?? '').includes(LEAK), JSON.stringify(moved));
+    const askedIn = sent.slice(sentBefore).join('\n');
+    ok('…and asked in that course\'s language, not the first row\'s',
+        askedIn.includes('Write the description in Dutch') && !askedIn.includes('Write the description in German'),
+        askedIn ? askedIn.match(/Write the description in \w+/)?.[0] ?? 'no language line' : `no request reached the stub: ${JSON.stringify(moved)}`);
+    const served = async (h) => [(await call('GET', `/api/media/${h}`)).status, (await call('GET', `/api/media/${h}/info`)).status];
+    ok('control: a live card\'s picture is served', (await served(hLive)).every(s => s === 200));
+    ok('…and one of a deleted course or of only a deleted card is a 404', [...await served(hCourse), ...await served(hCard)].every(s => s === 404),
+        JSON.stringify([await served(hCourse), await served(hCard)]));
+
+    // 4. The course file carries only the files its live cards show.
+    const bundle = await fetch(`${base}/api/export/${keep}/bundle`);
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(Buffer.from(await bundle.arrayBuffer()));
+    const media = Object.keys(zip.files).filter(f => f.startsWith('media/'));
+    ok('control: the export carries a live card\'s picture', bundle.status === 200 && media.includes('media/keep-live.png'), JSON.stringify(media));
+    ok('…and not one only a deleted card shows', !media.some(f => f.includes(LEAK)), JSON.stringify(media));
+
+    // 5. Paper practice.
+    const solution = await call('GET', `/api/paper/${exercise}/solution`);
+    const selfGrade = await call('POST', `/api/paper/${exercise}/self-grade`, { metCount: 1 });
+    const photo = await call('GET', `/api/paper/attempts/${attempt}/image`);
+    ok('a deleted topic\'s exercise, its marking and its photo are 404s', solution.status === 404 && selfGrade.status === 404 && photo.status === 404
+        && db.prepare('SELECT COUNT(*) FROM paper_attempts WHERE node_id = ?').pluck().get(lTopic) === 1,
+        `${solution.status} ${selfGrade.status} ${photo.status}`);
+
+    // 6. Placement.
+    const evidence = (n, type) => db.prepare('SELECT COUNT(*) FROM mastery_evidence WHERE node_id = ? AND evidence_type = ?').pluck().get(n, type);
+    const status = await call('GET', `/api/placement/${lc}`);
+    const answer = await call('POST', `/api/placement/probe/${probe}/answer`, { questionIndex: 0, answer: 0 });
+    const finish = await call('POST', `/api/placement/probe/${probe}/finish`);
+    const discard = await call('DELETE', `/api/placement/${lc}`);
+    ok('a deleted course\'s probe is not read, answered, finished or discarded',
+        [status, answer, finish, discard].every(r => r.status === 404 && !r.text.includes(LEAK)),
+        [status, answer, finish, discard].map(r => `${r.status} ${r.text.slice(0, 60)}`).join(' | '));
+    ok('…and nothing is written for it', evidence(lTopic, 'placement') === 0
+        && db.prepare('SELECT state FROM placement_probes WHERE id = ?').pluck().get(probe) === 'ready');
+
+    // 7. Mocks.
+    const sitting = await call('GET', `/api/mock-sittings/${lSitting.id}`);
+    const again = await call('POST', `/api/mock-exams/papers/${lPaper.id}/sittings`, {});
+    ok('a deleted course\'s mock and paper are 404s', sitting.status === 404 && again.status === 404 && !sitting.text.includes(LEAK),
+        `${sitting.status} ${again.status}`);
+    const finished = await call('POST', `/api/mock-sittings/${kSitting.id}/finish`, {});
+    ok('finishing a mock writes no evidence for a topic deleted since', finished.status === 200
+        && evidence(mTopic, 'mock') === 0 && evidence(kTopic, 'mock') === 1,
+        `${finished.status} deleted ${evidence(mTopic, 'mock')} live ${evidence(kTopic, 'mock')}`);
+
+    // 8. Reports.
+    const reports = await call('GET', `/api/item-reports?projectId=${lc}`);
+    ok('a deleted course\'s reports are not listed', reports.status === 200 && !reports.text.includes(LEAK)
+        && !listReports({ includeSettled: true, limit: 200 }).some(r => JSON.stringify(r).includes(LEAK)), reports.text.slice(0, 200));
+
+    // 9. A file of a deleted course is not removed outright: its Restore needs it.
+    const gone = await call('DELETE', `/api/documents/${deadIndex}`);
+    ok('deleting a deleted course\'s file by its id is a 404, and the file stays', gone.status === 404
+        && !!db.prepare('SELECT 1 FROM documents WHERE id = ?').get(deadIndex), `${gone.status}`);
+
+    // The Restore gives back what the delete held.
+    const back = await call('POST', `/api/deleted/projects/${lc}/restore`);
+    ok('control: the course is restored', back.status === 200);
+    if (vecAvailable) {
+        ok('…and its file is indexed again', await waitFor(() => embedStatus(deadIndex) === 'indexed'), `${embedStatus(deadIndex)}`);
+    }
+    ok('…and its PDF\'s recovery runs', await waitFor(() => recovery(deadPdf) !== 'pending'), `${recovery(deadPdf)}`);
+    ok('…and its probe and its pictures are back', (await call('GET', `/api/placement/${lc}`)).status === 200
+        && (await call('GET', `/api/media/${hCourse}`)).status === 200);
+    set.run('embedding_enabled', 'false');
+    stub.close();
+}
+
+// ============================================================================
 console.log('\n--- the operator\'s tool on a library from before soft delete ---');
 {
     // hostedCli opens the file raw, without the migrations: a library no newer

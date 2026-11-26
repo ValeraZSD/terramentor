@@ -210,9 +210,14 @@ async function setup(app) {
         hand: img.handwritten(), shapes: img.shapesPicture(), chart: img.barChart(), diagram: img.flowDiagram(),
     };
     const media = {};
+    // Each picture on a card of a deck: a file no live card shows is not described.
+    const deck = app.db.prepare("INSERT INTO projects (name) VALUES ('Pictures')").run().lastInsertRowid;
+    const topic = app.db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Pictures')").run(deck).lastInsertRowid;
     for (const k of ['shapes', 'chart', 'diagram']) {
         const { hash, size } = mediaStorage.put(png[k]);
-        app.db.prepare(`INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (NULL, ?, ?, 'image/png', 'image', ?)`).run(hash, `${k}.png`, size);
+        app.db.prepare(`INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', ?)`).run(deck, hash, `${k}.png`, size);
+        app.db.prepare("INSERT INTO flashcards (node_id, front, back, media) VALUES (?, 'Front', 'Back', ?)")
+            .run(topic, JSON.stringify({ front: [{ hash, kind: 'image', name: `${k}.png` }], back: [] }));
         media[k] = hash;
     }
     return { png, media };

@@ -1,12 +1,13 @@
 # Accessibility
 
-Last reviewed: 18 November 2026. This page describes the code on `main` on that date.
+Last reviewed: 23 November 2026. This page describes the code on `main` on that date.
 
 ## In short
 
 - **Seeing.** In the app, Settings → General → Text & interface size makes everything up to
-  160% of its usual size. Settings → Accessibility → Contrast → Higher gives darker text and stronger
-  lines. Zoom beyond that has not been tested.
+  160% of its usual size. Settings → Accessibility → Larger text and buttons brings small text up
+  to normal size and makes every button bigger, and Contrast → Higher gives darker text and
+  stronger lines. Zoom beyond that has not been tested.
 - **Reading.** Settings → Accessibility has wider letter, word and line spacing and a reading
   line (a band under the line you point at, like a ruler). Read aloud speaks cards, questions,
   lessons, notes and assistant answers with your computer's own voices, at 50 to 200% speed.
@@ -52,7 +53,8 @@ The [conformance report](#conformance-report-wcag-22) at the end goes through ev
 - Seeing: Contrast (Standard, Higher, or System) and Motion (Full, Reduced, or System).
   Higher gives darker text and stronger borders and lines. Reduced stops movement in the app;
   only the ring that fades out round a dropped item stays.
-- Reading: letter, word and line spacing, each in three steps. The widest step uses at least
+- Reading: Larger text and buttons brings the app's small print up to normal size and makes
+  every button at least 44 px. Letter, word and line spacing, each in three steps. The widest step uses at least
   the spacing that WCAG 1.4.12 names. Reading line puts a band under the line you point at in
   lessons and notes.
 - Listening: Read aloud adds a speaker button to cards, questions, lessons, notes and
@@ -75,9 +77,22 @@ Elsewhere in the app:
   spelling. Words under five letters, numbers, a changed first or last letter, and words in
   scripts written without spaces (Chinese, Japanese, Thai) are never forgiven.
 - Settings → AI & Models → Describe card pictures lists every card picture beside its
-  description, so a description a model wrote can be checked and corrected.
+  description, so a description a model wrote can be checked and corrected. A description
+  a model writes is refused, and the picture keeps waiting for one, when it is a refusal,
+  when it only names the kind of picture ("A bar chart.") in words the check lists for some
+  languages, or when it is in the wrong script: Latin letters with next to nothing in the
+  script of a course written in another script, or mostly another script in a course
+  written in Latin letters. In a Latin-script course other than English it is also refused
+  when it reads as English: at least two words only English uses, such as "the" or "with",
+  making up 15% or more of its words. These checks are deliberately narrow and catch the
+  common mistakes, not every wrong description: correcting one by hand is always possible.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
   dashboard) sets its own page title, each screen has one main heading, and moving to another screen is announced.
+- Back (a phone's Back button, the browser's Back, a mouse's back key) closes the topmost
+  dialog, as Escape does, before it leaves the screen. In a dialog of steps, such as New
+  course, Back goes to the previous step instead; Escape still closes the dialog.
+- In Arabic the page is laid out right to left: the page's direction is set with its
+  language, before the first screen is drawn.
 - In a card review session, each new card and, on Reveal answer, its answer are read out
   once. Space on a focused button presses that button instead of turning the card.
 - In the feed, Enter submits a typed answer and the verdict is announced.
@@ -169,11 +184,11 @@ a page that did not do the thing fails it.
 
 **axe in a real browser.** `tools/axe-gates.mjs` builds the app, opens it in headless Edge or
 Chrome on an invented course, and runs [axe-core](https://github.com/dequelabs/axe-core) with
-the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 18 screens:
-Today, Projects, a new course, a course's dashboard, its outline, a topic with its questions and
+the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 19 screens:
+Today, Projects, a new course (its first choice and its form), a course's dashboard, its outline, a topic with its questions and
 cards tab, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
 General, Accessibility, Learning, AI & Models and Web & research sections of Settings. Each is
-scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 72 scans. The
+scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 76 scans. The
 allowed failures are listed in `tools/axe-allowlist.json`, which may only shrink; it is empty,
 so one failure on any screen fails the gate. Before trusting a scan, the gate shows axe a
 broken button and checks that axe reports it. It runs in `npm test` and on the Windows leg of
@@ -195,13 +210,13 @@ started by hand or when its own files change; it is not part of every build. It 
 Windows machine where a screen reader may take over the screen and the speakers for several
 minutes, which is why it runs on a CI runner and not in `npm test`.
 
-Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
+Latest result, 23 November 2026, NVDA 2026.3 with Microsoft Edge:
 
 - Card review: after Reveal answer NVDA reads the answer ("A lens"); a rating is not confirmed
   aloud, but the next question is read. In browse mode it also reads, and can press, the page behind
   the review.
 - Quiz: an option is read with its text and its pressed state, and choosing one is answered
-  by "Correct". The first option is 22 presses of Tab from the top of the page; Skip to content shortens
+  by "Correct". The first option is 20 presses of Tab from the top of the page; Skip to content shortens
   that.
 - Maths: ten to the power minus two is read as "10 to the negative 2 power" and one
   thousandth as "1 over 1000". In a topic's own card list, turning a card over says only "pressed".
@@ -249,7 +264,7 @@ uses a screen reader.
 ## Conformance report (WCAG 2.2)
 
 **Covers:** the Terramentor web app and the desktop app, which opens the same pages in a
-browser window, on `main` on 18 November 2026.
+browser window, on `main` on 23 November 2026.
 
 **Does not cover:** content written by a course's author or by a model (lessons, cards,
 diagrams, charts, animations, widgets, assistant answers, imported media, and the recordings and
@@ -292,7 +307,7 @@ has nothing the criterion is about.
 | 2.5.2 Pointer Cancellation | Supports | Controls act on release; Confirm before grading adds a second press for answers. |
 | 2.5.3 Label in Name | Supports | Buttons are named by the words they show. |
 | 2.5.4 Motion Actuation | Not applicable | Nothing responds to moving or shaking the device. |
-| 3.1.1 Language of Page | Supports | The page language is set to the interface language before the page loads. |
+| 3.1.1 Language of Page | Supports | The page language, and its direction (right to left for Arabic), is set to the interface language before the first screen is drawn. |
 | 3.2.1 On Focus | Supports | No control acts on focus alone. |
 | 3.2.2 On Input | Supports | Changing a setting does not move to another screen. |
 | 3.2.6 Consistent Help | Supports | The assistant is in the header of every screen; Report a problem is always in Settings. |
@@ -321,13 +336,13 @@ has nothing the criterion is about.
 | 2.4.5 Multiple Ways | Supports | The header, search (Ctrl+K, or Cmd+K on a Mac) and the atlas index. |
 | 2.4.6 Headings and Labels | Supports | One main heading per screen; settings rows and fields are labelled. |
 | 2.4.7 Focus Visible | Partially supports | A ring shows keyboard focus; on an accent-coloured button it is the button's own colour. |
-| 2.4.11 Focus Not Obscured (Minimum) | Not evaluated | Pop-up notices and the task dock sit over the page and can cover part of the focused control; no state has been found yet where one hides it fully. |
+| 2.4.11 Focus Not Obscured (Minimum) | Not evaluated | Pop-up notices and the task dock sit over the page and can cover part of the focused control; no state has been found yet where one hides it fully. On Today the course's name stays pinned at the top on one line and what scrolls into view stops a fixed 3.25rem below the top, clear of it; this has not been checked at the widest text spacing. |
 | 2.5.7 Dragging Movements | Partially supports | Lists have Move earlier and Move later; panel resizing and photo corners need a drag. |
 | 2.5.8 Target Size (Minimum) | Supports | axe reports no target-size failure on the scanned screens (a smaller target passes it when spaced apart). |
 | 3.1.2 Language of Parts | Partially supports | Course text carries its course's language; assistant answers do not. |
 | 3.2.3 Consistent Navigation | Supports | The header and its tabs are the same on every screen. |
 | 3.2.4 Consistent Identification | Supports | One set of shared controls, held by `control-gates.mjs`. |
 | 3.3.3 Error Suggestion | Not evaluated | Not yet reviewed form by form. |
-| 3.3.4 Error Prevention (Legal, Financial, Data) | Supports | Deleting asks first; a card rating and an assistant change can be undone. |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | Supports | Deleting asks first, and a deleted course, topic, note, card, quiz or link comes back from Recently deleted in Settings; a card rating and an assistant change can be undone. |
 | 3.3.8 Accessible Authentication (Minimum) | Supports | Password fields accept pasting and password managers; there is no puzzle. |
 | 4.1.3 Status Messages | Partially supports | A review session's cards and answers, feed verdicts and assistant answers are announced; a rating, Undo, a topic's own card list, and drill and quiz results are not. |
