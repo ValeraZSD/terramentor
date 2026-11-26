@@ -590,10 +590,13 @@ function NewProjectForm({ draft, courseLink, onClose, onCancel, release, holdsWo
                                 course — rather than "Paste…", the last step of
                                 it. */}
                             {/* `wrap`: on a phone (and in most languages) the
-                                label takes two lines. */}
-                            <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => go('external')}>
-                                {t("Or make a course with an external chatbot")}
-                            </Button>
+                                label takes two lines. Not beside a course a
+                                link brought: that screen has one thing to do. */}
+                            {!courseLink && (
+                                <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => go('external')}>
+                                    {t("Or make a course with an external chatbot")}
+                                </Button>
+                            )}
                         </div>
                     ) : (
                         <div className="space-y-4">

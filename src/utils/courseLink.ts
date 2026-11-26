@@ -18,10 +18,10 @@ const FORMAT = '1';
 
 /** Longest `data` part read (characters). Far above any course a link is meant for. */
 export const MAX_LINK_CHARS = 2_000_000;
-/** Largest course a link may unpack to (bytes). The import endpoint takes no more either. */
+/** Largest course a link may unpack to (bytes), far above any course a link is meant for. */
 export const MAX_COURSE_BYTES = 8 * 1024 * 1024;
 
-export type CourseLinkProblem = 'not-a-link' | 'newer-format' | 'too-large' | 'damaged' | 'not-a-course';
+export type CourseLinkProblem = 'not-a-link' | 'newer-format' | 'too-large' | 'damaged' | 'not-a-course' | 'unsupported';
 
 /** Why a link could not be read; `problem` is what the screen says. */
 export class CourseLinkError extends Error {
@@ -87,15 +87,78 @@ export function courseLinkFor(page: string, packed: string): string {
     return `${page.replace(/#.*$/, '')}#${COURSE_LINK_PARAM}=${packed}`;
 }
 
+/** Ways to read the packed course out of `text`, likeliest first; empty when it holds none. */
+export function packedCourseReadings(text: string): string[] {
+    // An app that escaped the link writes `course%3D`; a wrapped one may break
+    // the name itself over two lines.
+    const s = String(text || '').replace(/%3D/gi, '=');
+    const name = COURSE_LINK_PARAM.split('').join('\\s*');
+    const at = new RegExp(`(?:^|[#&?\\s])${name}\\s*=`).exec(s);
+    if (!at) return [];
+    const rest = s.slice(at.index + at[0].length);
+    const head = /^\s*(\d+)\s*\.\s*/.exec(rest);
+    if (!head) {
+        const bare = /^[^\s&#]+/.exec(rest);
+        return bare ? [bare[0]] : [];
+    }
+    // The data is a run of URL-safe base64 that messaging apps break over
+    // lines. It ends at the first character no link carries (`!`, `>`, a
+    // sentence's last `.`), at `&` or `#`, or where the line breaks stop.
+    const runs: string[] = [];
+    let tail = rest.slice(head[0].length);
+    let size = 0;
+    for (;;) {
+        const run = /^([A-Za-z0-9_-]+)\s*/.exec(tail);
+        if (!run) break;
+        runs.push(run[1]);
+        size += run[1].length;
+        tail = tail.slice(run[0].length);
+        if (size > MAX_LINK_CHARS) break;
+    }
+    if (runs.length === 0) return [`${head[1]}.`];
+    // A word typed after the link ("…xyz thanks") looks like one more line of
+    // it, so readings that leave the last few runs off follow the whole one.
+    const readings: string[] = [];
+    for (let n = runs.length; n >= Math.max(1, runs.length - 3); n--) readings.push(`${head[1]}.${runs.slice(0, n).join('')}`);
+    return readings;
+}
+
 /**
  * The packed course inside whatever was pasted or opened: a full link, the
- * part after `#`, or `course=…` alone. Messaging apps wrap long links and add
- * spaces or line breaks, so those are dropped first. Null when there is none.
+ * part after `#`, or `course=…` alone, with any line breaks a messaging app
+ * put in it dropped. Null when there is none.
  */
 export function packedCourseIn(text: string): string | null {
-    const flat = String(text || '').replace(/\s+/g, '');
-    const m = new RegExp(`(?:^|[#&?])${COURSE_LINK_PARAM}=([^&#]+)`).exec(flat);
-    return m ? m[1] : null;
+    return packedCourseReadings(text)[0] ?? null;
+}
+
+/** Whether this browser can unpack a link at all (deflate-raw: Safari 16.4+, Chrome 103+, Firefox 113+). */
+export function canUnpackLinks(): boolean {
+    try {
+        new DecompressionStream('deflate-raw');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The course in pasted or opened text, trying each reading of it in turn.
+ * Throws `CourseLinkError` with the reason the likeliest reading failed.
+ */
+export async function courseFromText(text: string): Promise<{ project: { name: string }; nodes: unknown[] }> {
+    const readings = packedCourseReadings(text);
+    if (readings.length === 0) throw new CourseLinkError('not-a-link');
+    if (!canUnpackLinks()) throw new CourseLinkError('unsupported');
+    let first: unknown = null;
+    for (const packed of readings) {
+        try {
+            return await unpackCourse(packed);
+        } catch (e) {
+            first ??= e;
+        }
+    }
+    throw first;
 }
 
 /** The course file a link carries. Throws `CourseLinkError` with the reason. */

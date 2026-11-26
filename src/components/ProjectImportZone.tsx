@@ -2,19 +2,25 @@
 // The Import tab of the New project dialog: a dropzone that turns a project
 // file into a project, or hands an Anki deck to the deck importer; and a field
 // for a course link, which carries the same file inside the link itself.
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
 import { onActivateKey } from '../utils/a11y';
 import { installedEditionOf } from '../utils/projectFiles';
-import { CourseLinkError, CourseLinkProblem, packedCourseIn, unpackCourse } from '../utils/courseLink';
+import { CourseLinkError, CourseLinkProblem, courseFromText, packedCourseIn } from '../utils/courseLink';
+import type { CourseUpdatePreview } from '../types';
 import { Field, TextInput } from './ui/Field';
 import { Button } from './ui/Button';
 
-/** A course a link carries, counted for the line under the field. */
-interface LinkedCourse { name: string; cards: number; questions: number; file: File }
+/** A course a link carries, counted for the line under the field. `have`:
+ *  whether the library already holds it (asked only for an opened link): new,
+ *  the same or an older edition (open that), or a newer one (its update preview). */
+interface LinkedCourse {
+    name: string; cards: number; questions: number; file: File;
+    have: 'new' | { projectId: number } | CourseUpdatePreview;
+}
 
 function countItems(nodes: unknown[]): { cards: number; questions: number } {
     let cards = 0, questions = 0;
@@ -54,43 +60,69 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
 
     // The link field. What it holds is read as it changes, so the line under
     // it names the course (or says what is wrong) before anything is added.
+    // A reading stays on screen until the next one is ready, so the line does
+    // not blink while the learner types; `from` says which text it read.
     const [linkText, setLinkText] = useState(linkGiven);
-    const [linked, setLinked] = useState<LinkedCourse | null>(null);
-    const [linkProblem, setLinkProblem] = useState<CourseLinkProblem | null>(null);
+    const [reading, setReading] = useState<{ from: string; course: LinkedCourse | null; problem: CourseLinkProblem | null } | null>(null);
+    const current = reading?.from === linkText ? reading : null;
+    const linked = current?.course ?? null;
+    const linkProblem = current?.problem ?? null;
+    // A link the app was opened with is shown as the course it holds, with one
+    // button, until the learner changes the text (only possible when it failed).
+    const offering = linkGiven !== '' && linkText === linkGiven;
+    const hintId = useId();
     useEffect(() => {
-        setLinked(null);
-        setLinkProblem(null);
-        const packed = packedCourseIn(linkText);
-        if (!packed) {
+        const text = linkText;
+        if (!packedCourseIn(text)) {
             // Half a paste is not yet wrong; text with no course in it is.
-            if (linkText.trim().length > 12) setLinkProblem('not-a-link');
+            setReading({ from: text, course: null, problem: text.trim().length > 12 ? 'not-a-link' : null });
             return;
         }
         let stale = false;
-        unpackCourse(packed).then(data => {
-            if (stale) return;
-            const name = data.project.name.trim();
-            // The importer reads files, so the link's course is handed to it as
-            // one: the edition check, the warnings and the toasts stay one path.
-            const file = new File([JSON.stringify(data)], `${name.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80) || 'course'}.json`, { type: 'application/json' });
-            setLinked({ name, ...countItems(data.nodes), file });
-        }).catch(e => {
-            if (!stale) setLinkProblem(e instanceof CourseLinkError ? e.problem : 'damaged');
-        });
-        return () => { stale = true; };
-    }, [linkText]);
+        // A pause before unpacking, so typing does not unpack on every key.
+        const timer = window.setTimeout(async () => {
+            try {
+                const data = await courseFromText(text);
+                const name = data.project.name.trim();
+                // The importer reads files, so the link's course is handed to it as
+                // one: the edition check, the warnings and the toasts stay one path.
+                const safeName = Array.from(name.replace(/[\\/:*?"<>|\p{C}]+/gu, ' ')).slice(0, 80).join('').trim();
+                const file = new File([JSON.stringify(data)], `${safeName || 'course'}.json`, { type: 'application/json' });
+                // An opened link is asked about first: a course the library already
+                // has is offered to open, not to add again.
+                let have: LinkedCourse['have'] = 'new';
+                if (offering) {
+                    const edition = await installedEditionOf(file).catch(() => null);
+                    if (edition?.match) {
+                        have = edition.refused === 'older' || edition.summary?.nothing
+                            ? { projectId: edition.match.projectId }
+                            : edition;
+                    }
+                }
+                if (!stale) setReading({ from: text, course: { name, ...countItems(data.nodes), file, have }, problem: null });
+            } catch (e) {
+                if (!stale) setReading({ from: text, course: null, problem: e instanceof CourseLinkError ? e.problem : 'damaged' });
+            }
+        }, offering ? 0 : 150);
+        return () => { stale = true; window.clearTimeout(timer); };
+    }, [linkText, offering]);
 
     const linkProblemText: Record<CourseLinkProblem, string> = {
         'not-a-link': t("This is not a course link."),
         'newer-format': t("This link was made by a newer version of Terramentor. Update the app, then open it again."),
         'too-large': t("This course is too large for a link. Ask for the course file instead."),
-        'damaged': t("This link is incomplete. Copy the whole link again."),
+        'damaged': t("This link is incomplete. Open it again from the message it came in, or copy all of it."),
         'not-a-course': t("This link holds no course."),
+        'unsupported': t("This browser cannot open course links. Update it, or ask for the course file."),
     };
 
-    const addLinked = (e: FormEvent) => {
-        e.preventDefault();
-        if (linked && !importing) processImport(linked.file);
+    const addLinked = (e?: FormEvent) => {
+        e?.preventDefault();
+        if (!linked || importing) return;
+        const have = linked.have;
+        if (have === 'new') processImport(linked.file);
+        else if ('projectId' in have) { onDone(); openProject(have.projectId); }
+        else { onDone(); openCourseUpdate(linked.file, have); }
     };
 
     const processImport = async (file: File) => {
@@ -182,8 +214,48 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
         if (file && !importing) processImport(file);
     };
 
+    // A count keeps its word on its line: "8" never ends one line with
+    // "questions" starting the next.
+    const counts = linked && (
+        <>
+            <span className="whitespace-nowrap">{t("{{count}} cards", { count: linked.cards })}</span>
+            {' · '}<span className="whitespace-nowrap">{t("{{count}} questions", { count: linked.questions })}</span>
+        </>
+    );
+
+    // The link the app was opened with, read: the course it holds and one button.
+    if (offering && linked) {
+        const have = linked.have;
+        const known = have !== 'new' && 'projectId' in have;
+        return (
+            <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 px-4 py-4 dark:border-slate-700">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {known ? t("You already have this course.") : t("Course in this link")}
+                    </p>
+                    <p className="mt-1 break-words text-xl font-semibold text-slate-900 dark:text-white">{linked.name}</p>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{counts}</p>
+                </div>
+                <Button variant="primary" size="lg" block busy={importing} onClick={() => addLinked()}>
+                    {have === 'new' ? t("Add this course") : known ? t("Open") : t("Update course")}
+                </Button>
+            </div>
+        );
+    }
+    // Being read: a moment, so a spinner rather than a field that jumps.
+    if (offering && !current) {
+        return (
+            <div className="flex min-h-32 items-center justify-center" aria-busy="true">
+                <Loader2 className="h-5 w-5 animate-spin text-accent-fg" aria-hidden="true" />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
+        {/* A link the app was opened with has one thing to do: the file
+            target is for someone who came to import, not for them. */}
+        {!linkGiven && (
         <div
             // The view's one target, so it is a real place to drop a file:
             // 8rem tall, because a compact row looks lost on an otherwise
@@ -234,39 +306,39 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
                 </>
             )}
         </div>
+        )}
         {/* A course link is the same file inside the link, sent as a message
             where a file is awkward: on a phone, a link is copied with one
             press and a file has to be found in a folder first. */}
         <form onSubmit={addLinked}>
-            <Field
-                label={t("Or paste a course link")}
-                hint={linked
-                    // A count keeps its word on its line: "8" never ends one
-                    // line with "questions" starting the next.
-                    ? <span className="text-slate-700 dark:text-slate-200">
-                        <span className="font-medium">{linked.name}</span>
-                        {' · '}<span className="whitespace-nowrap">{t("{{count}} cards", { count: linked.cards })}</span>
-                        {' · '}<span className="whitespace-nowrap">{t("{{count}} questions", { count: linked.questions })}</span>
-                    </span>
-                    : linkProblem ? <span role="alert" className="text-red-700 dark:text-red-300">{linkProblemText[linkProblem]}</span> : undefined}
-            >
+            <Field label={t("Or paste a course link")}>
                 {(id) => (
-                    <div className="flex gap-2">
-                        <TextInput
-                            id={id}
-                            className="min-w-0 flex-1"
-                            value={linkText}
-                            onChange={e => setLinkText(e.target.value)}
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                            enterKeyHint="go"
-                            aria-invalid={linkProblem ? true : undefined}
-                        />
-                        <Button type="submit" variant={linked ? 'primary' : 'neutral'} disabled={!linked || importing}>
-                            {t("Add")}
-                        </Button>
-                    </div>
+                    <>
+                        <div className="flex gap-2">
+                            <TextInput
+                                id={id}
+                                className="min-w-0 flex-1"
+                                value={linkText}
+                                onChange={e => setLinkText(e.target.value)}
+                                autoComplete="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
+                                enterKeyHint="go"
+                                aria-invalid={linkProblem ? true : undefined}
+                                aria-describedby={hintId}
+                            />
+                            <Button type="submit" variant={linked ? 'primary' : 'neutral'} disabled={!linked || importing}>
+                                {t("Add")}
+                            </Button>
+                        </div>
+                        {/* Always there, so a screen reader hears the course or the
+                            problem as soon as a paste is read. */}
+                        <p id={hintId} aria-live="polite" className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+                            {linked
+                                ? <span className="text-slate-700 dark:text-slate-200"><span className="font-medium">{linked.name}</span>{' · '}{counts}</span>
+                                : linkProblem ? <span className="text-red-700 dark:text-red-300">{linkProblemText[linkProblem]}</span> : null}
+                        </p>
+                    </>
                 )}
             </Field>
         </form>
