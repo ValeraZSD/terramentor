@@ -208,9 +208,14 @@ try {
             r2.env.api !== r1.env.api && r2.env.web !== r1.env.web && !taken.has(r2.env.api) && !taken.has(r2.env.web),
             `${r1.env.api}/${r1.env.web} vs ${r2.env.api}/${r2.env.web}`);
 
+        const driverIn = (dir) => spawnSync('git', ['config', '--get-all', 'merge.locale-json.driver'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+        check('the locale merge driver is registered in the config every worktree shares',
+            r1.mergeDriver.changed && driverIn(main) === driverIn(w2) && driverIn(main).includes('node tools/locale-merge.mjs %O %A %B %P'), driverIn(main));
         const again = await setup.setupWorktree({ root: w1, installDeps: false, isFree: () => false });
         check('a re-run keeps its .env (a running dev server holds those ports)',
             readFileSync(join(w1, '.env'), 'utf8') === env1 && !again.env.written && again.env.api === r1.env.api);
+        check('…and leaves the merge driver as it was, one entry',
+            !again.mergeDriver.changed && !r2.mergeDriver.changed && driverIn(main).split('\n').length === 1, driverIn(main));
         writeFileSync(join(w2, '.env'), 'PORT=9999\n');
         await setup.setupWorktree({ root: w2, installDeps: false, refresh: true, isFree: () => true });
         eq('a hand-written .env is never rewritten, not even with --refresh', readFileSync(join(w2, '.env'), 'utf8'), 'PORT=9999\n');
@@ -255,8 +260,8 @@ try {
         // compare two spellings of one file and exit 0 having done nothing — no
         // install, no .env. A run that does nothing must fail here.
         for (const dir of [w1, main]) {
-            mkdirSync(join(dir, 'tools'), { recursive: true });
-            for (const f of ['worktree-setup.mjs', 'dev-ports.mjs']) {
+            mkdirSync(join(dir, 'tools', 'lib'), { recursive: true });
+            for (const f of ['worktree-setup.mjs', 'dev-ports.mjs', 'locale-merge.mjs', 'lib/localeJson.mjs']) {
                 writeFileSync(join(dir, 'tools', f), readFileSync(join(repoRoot, 'tools', f)));
             }
         }

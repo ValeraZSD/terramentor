@@ -387,15 +387,20 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
 // would silently start getting unauthenticated requests.
 {
     const probe = path.join(root, 'tools/fixtures/redirect-credentials.mjs');
+    // The probe imports server/ai.js, which opens the library: a scratch one,
+    // never the repo's default database, which other suites may be creating.
+    const probeScratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-redirect-'));
     const run = spawnSync(process.execPath, [probe], {
         encoding: 'utf8',
-        env: { ...process.env, ALLOW_PRIVATE_FETCH: '1' },
+        env: { ...process.env, ALLOW_PRIVATE_FETCH: '1', DB_PATH: path.join(probeScratch, 'probe.db'), VAULT_ROOT: path.join(probeScratch, 'vault') },
         // A backstop, not the mechanism: the probe races its own clock and
         // always prints. This only stops a wedged child from wedging the suite.
         timeout: 40_000,
     });
+    try { fs.rmSync(probeScratch, { recursive: true, force: true }); } catch { /* best effort */ }
+    // The result is the last line: a new library logs its migrations first.
     let landed = null;
-    try { landed = JSON.parse(run.stdout); } catch { /* reported as the failure below */ }
+    try { landed = JSON.parse(String(run.stdout).trim().split(/\r?\n/).at(-1)); } catch { /* reported as the failure below */ }
     ok('the redirect probe ran', !!landed && !!landed.crossOrigin && !!landed.sameOrigin);
     const cross = landed?.crossOrigin || {};
     const same = landed?.sameOrigin || {};

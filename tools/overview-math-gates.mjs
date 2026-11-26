@@ -20,6 +20,7 @@
 // No model, no network, no database.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +34,13 @@ const check = (label, cond, extra = '') => {
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
 const section = (name) => console.log(`\n${name}`);
+
+// server/ai.js opens the library on import: a scratch one, so this suite never
+// creates the repo's default database while other suites run.
+const dbScratch = mkdtempSync(join(tmpdir(), 'overview-math-db-'));
+process.env.DB_PATH = join(dbScratch, 'test.db');
+process.env.VAULT_ROOT = join(dbScratch, 'vault');
+process.on('exit', () => { try { rmSync(dbScratch, { recursive: true, force: true }); } catch { /* Windows holds the open database */ } });
 
 const { AI_PROMPTS } = await import('../server/ai.js');
 const agentic = await import('../server/agentic.js');
