@@ -129,12 +129,14 @@ app.post('/api/auth/sign-out-everywhere', wrap(async (req, res) => {
 //
 // From another machine it also takes the one-time code in the server's log:
 // otherwise whoever reaches an unlocked app first chooses its password. The
-// code attempts share the login throttle.
+// code attempts share the login throttle. A device this computer already let
+// in (a connected device, its owner's Tailscale) is in like this machine is,
+// so it needs no code.
 let firstPasswordPending = false;
 app.post('/api/auth/setup', wrap(async (req, res) => {
     if (isAuthEnabled()) return res.status(409).json(keyed('A password is already set'));
     const password = req.body && req.body.password;
-    if (!isLocalRequest(req)) {
+    if (!isLocalRequest(req) && !req.remoteAccess) {
         const wait = loginBlocked(req);
         if (wait > 0) return res.status(429).json({ ...keyed('Too many attempts. Try again in {{wait}}s.', { wait }), retryAfter: wait });
         if (!checkSetupCode(req.body && req.body.setupCode)) {
