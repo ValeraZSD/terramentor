@@ -158,6 +158,9 @@ alone because it reads every file under `tools/` while other suites write there,
 `--jobs 1` runs them one after another in name order, as before. Each suite's output is printed
 whole when it ends, a failing one's under its `FAIL` line, and the run ends with the ten slowest
 suites. A suite that runs past its time limit is stopped together with every process it started.
+CI splits the suites over several runners per platform with `--shard`: `axe` (axe-gates alone),
+`browser` (the other browser suites) and `rest`; `npm test -- --shard rest --list` prints what
+one shard runs.
 A suite therefore must not take a fixed port, a fixed temp folder or a fixed file in the repo
 that another suite also uses: take a free port (`listen(0)`) and an `mkdtemp` folder.
 

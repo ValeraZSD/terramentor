@@ -391,9 +391,11 @@ npm run check                           # frontend types (tsc --noEmit)
 node --check server/app.js              # (and any other server file)
 ```
 
-`tools/run-gates.mjs` is what `npm test` runs, and CI runs the same command on
-Node 24, on Linux and Windows. It runs the suites side by side (`--jobs N` or `GATES_JOBS`; the
-browser suites take turns), so no suite may hold a fixed port, temp folder or repo file another
+`tools/run-gates.mjs` is what `npm test` runs, and CI runs it on Node 24, on
+Linux and Windows, with each platform's suites split over several runners
+(`npm test -- --shard rest`, or `axe` or `browser`; a platform's check passes only when all
+of its shards pass). It runs the suites side by side (`--jobs N` or `GATES_JOBS`;
+the browser suites take turns), so no suite may hold a fixed port, temp folder or repo file another
 also uses. Discovery is by filename, so a new `tools/*-gates.mjs` joins the
 suite automatically. A selection of what they cover; the table is not the whole
 list, `ls tools/*-gates.mjs` is:

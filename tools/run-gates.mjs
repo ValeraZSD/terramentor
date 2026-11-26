@@ -54,6 +54,15 @@
  *   node tools/run-gates.mjs --jobs 4         four suites at a time (or GATES_JOBS=4); --jobs 1 runs them one by one
  *   node tools/run-gates.mjs --suites-dir D   the *-gates.mjs files in D instead of tools/ (no harnesses)
  *   node tools/run-gates.mjs --timeout-ms N   the time limit of a suite that is not a browser suite (default 180000)
+ *   node tools/run-gates.mjs --shard axe,browser   only the suites of the named shards (below)
+ *   node tools/run-gates.mjs --list           print what would run, one per line, and run nothing
+ *
+ * Shards. CI splits the suites over several runners so no one of them waits for
+ * the slowest suites in turn. Every suite is in exactly one shard:
+ *   axe      tools/axe-gates.mjs, the slowest suite, on a runner of its own;
+ *   browser  the other browser suites;
+ *   rest     everything else, the jsdom harnesses included.
+ * tools/ci-shard-gates.mjs holds the shards and .github/workflows/gates.yml to that.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -96,7 +105,15 @@ const TIMES_FILE = join(repoRoot, 'node_modules', '.cache', 'run-gates-times.jso
 const WATCHDOG = pathToFileURL(join(toolsDir, 'lib', 'suiteWatchdog.mjs')).href;
 const TASKKILL = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
 
-const USAGE = 'usage: node tools/run-gates.mjs [--quick] [--jobs N] [--suites-dir DIR] [--timeout-ms N]';
+/** The shards CI runs on separate runners; a suite's shard follows from its name alone. */
+const SHARDS = ['axe', 'browser', 'rest'];
+const shardOf = (name, harness) => {
+    if (harness) return 'rest';
+    if (name === 'axe-gates.mjs') return 'axe';
+    return BROWSER_SUITES.includes(name) ? 'browser' : 'rest';
+};
+
+const USAGE = 'usage: node tools/run-gates.mjs [--quick] [--jobs N] [--suites-dir DIR] [--timeout-ms N] [--shard axe,browser,rest] [--list]';
 
 function usageError(message) {
     process.stderr.write(`run-gates: ${message}\n${USAGE}\n`);
@@ -110,7 +127,7 @@ function positiveInt(value, name) {
 }
 
 function parseArgs(argv) {
-    const opts = { quick: false, jobs: null, suitesDir: null, timeoutMs: null };
+    const opts = { quick: false, jobs: null, suitesDir: null, timeoutMs: null, shards: null, list: false };
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         const eq = arg.startsWith('--') ? arg.indexOf('=') : -1;
@@ -124,6 +141,15 @@ function parseArgs(argv) {
         else if (name === '--jobs' || name === '-j') opts.jobs = positiveInt(value(), name);
         else if (name === '--suites-dir') opts.suitesDir = resolve(value());
         else if (name === '--timeout-ms') opts.timeoutMs = positiveInt(value(), name);
+        else if (name === '--shard') {
+            const raw = value();
+            const picked = raw.split(',').map((s) => s.trim()).filter(Boolean);
+            if (!picked.length || picked.some((s) => !SHARDS.includes(s))) {
+                usageError(`--shard takes one or more of ${SHARDS.join(', ')}, comma-separated, not "${raw}"`);
+            }
+            opts.shards = new Set([...(opts.shards ?? []), ...picked]);
+        }
+        else if (name === '--list') opts.list = true;
         else if (name === '--help' || name === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
         else usageError(`unknown argument "${arg}"`);
     }
@@ -169,10 +195,24 @@ const targets = [...suites, ...harnesses].map((script) => {
     const browser = !harness && BROWSER_SUITES.includes(name);
     return {
         script, label: labelOf(script), harness, browser,
+        shard: shardOf(name, harness),
         alone: !harness && ALONE_SUITES.includes(name),
         timeoutMs: browser ? BROWSER_TIMEOUT_MS : (opts.timeoutMs ?? TIMEOUT_MS),
     };
-});
+}).filter((t) => !opts.shards || opts.shards.has(t.shard));
+
+// A shard that selects nothing would pass by running nothing: a renamed suite
+// must not leave its runner green. --quick empties the browser shards on purpose.
+if (opts.shards && !targets.length && !quick) {
+    process.stderr.write(`run-gates: no suite is in shard ${[...opts.shards].join(',')}\n`);
+    process.exit(1);
+}
+
+// exitWith (below) waits for the pipe: a Windows pipe write is asynchronous, and a long list would be cut.
+if (opts.list) {
+    exitWith(0, targets.map((t) => `${t.label}\n`).join(''));
+    await new Promise(() => { /* exitWith ends the process */ });
+}
 
 // ---------------------------------------------------------------------------
 // Running one suite
@@ -581,7 +621,7 @@ function runPool(browserQueue, poolQueue) {
 // earlier; side by side, on a fresh checkout, one of them may start first.
 try { mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true }); } catch { /* the suite reports it */ }
 
-write(`Running ${targets.length} suites, ${jobs === 1 ? 'one at a time' : `${jobs} at a time, browser suites one at a time`}` +
+write(`Running ${targets.length} suites${opts.shards ? ` (shard ${[...opts.shards].join(',')})` : ''}, ${jobs === 1 ? 'one at a time' : `${jobs} at a time, browser suites one at a time`}` +
     `${IDLE ? ', at idle priority' : ''}\n`);
 
 if (jobs === 1) {
