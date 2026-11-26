@@ -75,10 +75,11 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh restore <name> <archive> [--identity <key>] [--no-backup]` | reads the archive with the private key, backs the copy up as it is (needs `TM_BACKUP_DIR`), stops it, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
 | `copy.sh update <name>` / `--all` | recreates the container from `TM_IMAGE`; the library stays |
 | `copy.sh remove <name> [--erase] [--yes]` | backs the copy up first, then removes it, its volume, network and key; `--erase` erases its archives (see "Erasure") |
-| `copy.sh erase <name>` / `unerase <name>` | erases the archives of a copy already removed; cancels an erasure still in its grace period |
+| `copy.sh erase <name>` / `site:<library id>` | erases the archives of a copy or site library already removed |
+| `copy.sh unerase <name>` / `site:<library id>` | cancels an erasure still in its grace period |
 | `copy.sh sweep` | deletes the archives whose erasure's grace period has ended |
 | `copy.sh site-remove <email> [--erase] [--yes]` | backs up one person's site library, then deletes their account and library |
-| `copy.sh site-restore <_site/_desk/archive> [--identity <key>]` | puts the whole site back as it was that night, erased people left out |
+| `copy.sh site-restore <_site/_desk/archive> [--identity <key>] [--no-backup]` | puts the whole site back as it was that night, erased people left out and everyone signed out |
 
 `new`, `restore`, `update` and `remove` take a lock per copy in
 `hosted/.locks/`, so two operators cannot work on the same copy at once; a
@@ -274,10 +275,19 @@ TM_BACKUP_RECIPIENTS=/opt/terramentor/hosted/backup-recipients
 ```
 
 `copy.sh` writes no backup without it, and refuses a file that holds a private
-key. A second `age1...` line encrypts to a second key as well (one kept
-offline, say): either opens the archives. Keep the private key where you keep
-your other secrets, and a copy of it somewhere else: **without any private
-key, no backup can be read**, by you either.
+key, or that anyone but its owner (root) can write. A second `age1...` line
+encrypts to a second key as well (one kept offline, say): either opens the
+archives. Keep the private key where you keep your other secrets, and a copy
+of it somewhere else: **without any private key, no backup can be read**, by
+you either.
+
+age keeps archives secret; it does not prove who made one, since anyone with
+the public key can make an archive too. Restore only archives from your own
+backup folder. Archives written before encryption (`.tar.gz`) stay readable
+without a key until retention deletes them, and the archives of copies removed
+before then are never deleted by it: each `backup --all` says how many are
+left. Encrypt them in place (`age -R hosted/backup-recipients -o x.tar.gz.age
+x.tar.gz && rm x.tar.gz`) or delete them.
 
 ### Restoring
 
@@ -293,19 +303,23 @@ is undone by restoring that one. That needs `TM_BACKUP_DIR` and
 `TM_BACKUP_RECIPIENTS` set in `hosted/.env`, also on a new server. A library
 whose last restore never finished is not backed up (it cannot be, and this
 restore is the repair); for one too damaged to back up, `--no-backup` goes on
-without the backup. A site restore stops the front desk, puts back `site.db`
-and every library of that night, and starts it again; a library that joined
-after that night keeps its folder and has no account until you deal with it
-(the restore names it). Archives written before encryption (`.tar.gz`) are
-still restored, without a key. Try one before you need one:
+without the backup. A site restore stops the front desk, puts back every
+library of that night and then `site.db`, and starts it again. Everyone signs
+in again, with the password they had that night: a password changed since,
+or a device signed out since, is as it was then. A library that joined after
+that night keeps its folder and has no account until you deal with it, and a
+library that could not be backed up that night is left as it is; the restore
+names both. A restore that stops partway leaves the front desk stopped: restore
+again. Try one before you need one:
 `hosted/rehearse.sh` deletes a project, restores last night's backup and checks
 it is back, for a copy and for a site.
 
 ### Retention and erasure
 
-Each folder keeps the newest `TM_BACKUP_KEEP` (default 14) archives: with a
-nightly run, two weeks. Something deleted inside a library is therefore gone
-from the backups 14 nights later. The archives of a person removed without
+Each folder keeps the newest `TM_BACKUP_KEEP` (default 14) archives: with only
+the nightly run, two weeks. Something deleted inside a library is therefore
+gone from the backups after 14 more backups of it; the backup a restore takes
+first is not counted, so a restore can keep one archive longer. The archives of a person removed without
 `--erase` are kept until you erase them (`copy.sh erase <name>`, or
 `erase site:<library id>`) or delete them.
 
@@ -315,6 +329,7 @@ erase a person:
 - their copy or library is deleted at once, as with any remove;
 - from then on, no restore brings them back: `copy.sh restore` refuses an
   archive made before the erasure (by the time inside it, not its file name),
+  into any copy (each archive also names, as a hash, whom it was made from),
   and `site-restore` leaves the erased library out and deletes its account and
   rows from that night's `site.db` before the front desk starts;
 - their archives are kept for a grace period, `TM_ERASE_AFTER_DAYS` (default
@@ -324,7 +339,8 @@ erase a person:
 
 What makes this hold is the erasure ledger: one line per erasure, the SHA-256
 of the copy's name (or of the site library's id), when it was erased and when
-its grace period ends. It names nobody, and it is kept outside every archive,
+its grace period ends. No name or address is written in it (though a guessed
+name can be checked against its hash), and it is kept outside every archive,
 in two places: `hosted/erasures` on the server and `TM_BACKUP_DIR/erasures`
 beside the archives. Every command reads both, and each sweep writes what
 either holds back to both. So a backup folder put back from an older off-site
@@ -332,11 +348,18 @@ copy is erased again by the next nightly run, and a new server rebuilt from
 `TM_BACKUP_DIR` brings the ledger with it.
 
 What it does not reach: `site.db` holds every account's email and password
-hash, so an erased person's stays in the `_site/_desk/` archives until those
-roll off, `TM_BACKUP_KEEP` nights later (a restore of one deletes the account
-before the site starts). And `copy.sh` deletes only in `TM_BACKUP_DIR`:
-whatever copies that folder elsewhere must delete what it deletes, within the
-grace period, for an erasure to be complete there too.
+hash, so an erased person's stays in the `_site/_desk/` archives made before
+the removal until those roll off, `TM_BACKUP_KEEP` backups later (a restore of
+one deletes the account before the site starts; `site.db` overwrites a removed
+account, so later archives do not hold it). The sweep deletes archives in the
+erased person's own folder only: an archive copied or moved elsewhere by hand
+stays, though no restore takes it. And `copy.sh` deletes only in
+`TM_BACKUP_DIR`: whatever copies that folder elsewhere must delete what it
+deletes, within the grace period, for an erasure to be complete there too.
+
+If a removal fails partway, the erasure is taken back when nothing was deleted
+(the copy or account is still there), and stands when the account is gone but
+a folder was left; `copy.sh` says which.
 
 ## The model and its cost
 

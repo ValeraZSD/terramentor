@@ -67,9 +67,16 @@ SITES="$HERE/sites"
 KEYS="$HERE/copies"
 # Where a backup is read and checked before it is encrypted, and where a
 # restore opens one: on the server, readable by root only, never in TM_BACKUP_DIR.
+# Each run works in a folder of its own, deleted however the run ends; one a
+# killed run left (its process gone) is deleted by the next run.
 WORKDIR="$HERE/.work"
 mkdir -p "$SITES" "$KEYS" "$WORKDIR"
 chmod 700 "$KEYS" "$WORKDIR"
+for _run in "$WORKDIR"/run-*; do
+    [ -d "$_run" ] || continue
+    kill -0 "${_run##*/run-}" 2>/dev/null || rm -rf "$_run"
+done
+RUNDIR="$WORKDIR/run-$$"
 
 die() { echo "copy.sh: $*" >&2; exit 1; }
 [[ "$TM_BACKUP_KEEP" =~ ^[1-9][0-9]*$ ]] || die "TM_BACKUP_KEEP is a whole number of archives, at least 1: '$TM_BACKUP_KEEP'"
@@ -81,12 +88,10 @@ die() { echo "copy.sh: $*" >&2; exit 1; }
 LOCKS="$HERE/.locks"
 HELD=()
 UNDO_NEW=""
-# Opened or unencrypted files of this run in WORKDIR, deleted however it ends.
-SCRATCH=()
 on_exit() {
     local rc=$?
     [ -n "$UNDO_NEW" ] && undo_new "$UNDO_NEW"
-    for s in ${SCRATCH[@]+"${SCRATCH[@]}"}; do rm -rf "$s"; done
+    rm -rf "$RUNDIR"
     for l in ${HELD[@]+"${HELD[@]}"}; do rmdir "$LOCKS/$l" 2>/dev/null || true; done
     exit "$rc"
 }
@@ -336,6 +341,9 @@ need_recipients() {
     : "${TM_BACKUP_RECIPIENTS:?set TM_BACKUP_RECIPIENTS in hosted/.env: a file with the age public key(s) backups are encrypted to (docs/HOSTING.md, Backups)}"
     command -v age >/dev/null 2>&1 || die "age is not installed (apt install age); no backup is written unencrypted"
     [ -s "$TM_BACKUP_RECIPIENTS" ] || die "TM_BACKUP_RECIPIENTS ($TM_BACKUP_RECIPIENTS) is missing or empty"
+    # Whoever can change this file chooses who can read every backup after it.
+    [ -O "$TM_BACKUP_RECIPIENTS" ] && [ -z "$(find "$TM_BACKUP_RECIPIENTS" -perm /022 2>/dev/null)" ] \
+        || die "$TM_BACKUP_RECIPIENTS must belong to $(id -un) and be writable by no one else (chmod 644)"
     ! grep -q 'AGE-SECRET-KEY' "$TM_BACKUP_RECIPIENTS" \
         || die "$TM_BACKUP_RECIPIENTS holds a PRIVATE key; the server gets the public key only (age-keygen -y)"
     grep -qE '^(age1|ssh-)' "$TM_BACKUP_RECIPIENTS" || die "$TM_BACKUP_RECIPIENTS has no age1... public key"
@@ -361,7 +369,7 @@ seal() {
     echo "$out/$stamp.tar.gz.age"
 }
 # Sets OPENED to a plain gzip tar of <archive>: the archive itself when it was
-# written before encryption, else a copy opened with the key into WORKDIR.
+# written before encryption, else a copy opened with the key into this run's folder.
 open_archive() {
     local archive="$1" identity="$2" what="$3"
     OPENED="$archive"
@@ -369,8 +377,8 @@ open_archive() {
     [ -n "$identity" ] && [ -s "$identity" ] \
         || die "$archive is encrypted: give the private key with --identity <file> (or TM_BACKUP_IDENTITY); $what was not touched"
     command -v age >/dev/null 2>&1 || die "age is not installed (apt install age); $what was not touched"
-    OPENED="$WORKDIR/open-$$-$RANDOM.tar.gz"
-    SCRATCH+=("$OPENED")
+    mkdir -p -m 700 "$RUNDIR"
+    OPENED="$RUNDIR/open-$RANDOM.tar.gz"
     ( umask 077; age -d -i "$identity" -o "$OPENED" "$archive" ) 2>/dev/null \
         || die "$archive could not be opened with $identity (another key, or a damaged file); $what was not touched"
 }
@@ -378,20 +386,42 @@ open_archive() {
 # --- The erasure ledger -------------------------------------------------------
 # One line per erasure: SHA-256 of "copy:<name>" or "site:<library id>", when it
 # was erased and when its grace period ends (UTC, as archive names write time).
-# A hash, so the ledger names nobody. It is kept outside every archive, twice:
+# A hash, so no name or address is written in it (a guess of a name can still
+# be checked against it). It is kept outside every archive, twice:
 # hosted/erasures on the server and TM_BACKUP_DIR/erasures beside the archives,
 # and read as the union of both, so a backup folder put back from an older
 # off-site copy, or a server rebuilt from one, still knows what was erased.
+# Every archive also carries the key of whom it was made from (origin), which
+# a restore checks whatever the archive is called and wherever it was put.
 LEDGER="$HERE/erasures"
 ledger_key() { case "$1" in site:*) printf '%s' "$1" ;; *) printf 'copy:%s' "$1" ;; esac | sha256sum | cut -d' ' -f1; }
-now_epoch() { echo "${TM_NOW:-$(date -u +%s)}"; }  # TM_NOW: a rehearsal's clock
+# TM_NOW moves the clock, for hosted/rehearse.sh only.
+now_epoch() { if [ "${TM_REHEARSAL:-}" = 1 ] && [ -n "${TM_NOW:-}" ]; then echo "$TM_NOW"; else date -u +%s; fi; }
 stamp_at() { date -u -d "@$1" +%Y%m%dT%H%M%SZ; }
 ledger_lines() {
     { cat "$LEDGER" 2>/dev/null; [ -n "${TM_BACKUP_DIR:-}" ] && cat "$TM_BACKUP_DIR/erasures" 2>/dev/null; } \
         | grep -E '^[0-9a-f]{64} [0-9]{8}T[0-9]{6}Z [0-9]{8}T[0-9]{6}Z$' | sort -u || true
 }
-# When <what> was last erased, or nothing.
-erased_at() { ledger_lines | awk -v k="$(ledger_key "$1")" '$1 == k { print $2 }' | sort | tail -1; }
+# When the ledger key $1 was last erased, or nothing; erased_at takes a name.
+erased_key_at() { ledger_lines | awk -v k="$1" '$1 == k { print $2 }' | sort | tail -1; }
+erased_at() { erased_key_at "$(ledger_key "$1")"; }
+# Drops the erasure of <what> still in its grace period from both ledgers; 1 if there was none.
+ledger_drop() {
+    local key now before after f
+    key="$(ledger_key "$1")"
+    now="$(stamp_at "$(now_epoch)")"
+    wait_lock _erasures
+    before="$(ledger_lines | wc -l)"
+    for f in "$LEDGER" "$TM_BACKUP_DIR/erasures"; do
+        [ -f "$f" ] || continue
+        # Only an erasure still in its grace period; one whose archives are gone stays.
+        awk -v k="$key" -v now="$now" '!($1 == k && $3 > now)' "$f" > "$f.new" && chmod 600 "$f.new" && mv "$f.new" "$f" \
+            || { rm -f "$f.new"; unlock _erasures; die "could not rewrite $f; the erasure of $1 may still be in it"; }
+    done
+    after="$(ledger_lines | wc -l)"
+    unlock _erasures
+    [ "$after" -lt "$before" ]
+}
 # Under its own lock, so two erasures never interleave their lines.
 erase_record() {
     local what="$1" now line f
@@ -419,23 +449,27 @@ backup_one() {
     dir="/data/.backup-$stamp"
     # Read and checked here first, unencrypted, on the server only; encrypted
     # on the way into TM_BACKUP_DIR (seal).
-    tmp="$WORKDIR/$name-$stamp.tar.gz"
+    mkdir -p -m 700 "$RUNDIR" && tmp="$RUNDIR/$name-$stamp.tar.gz" || return 1
     : > "$tmp" && chmod 600 "$tmp" || return 1
+    # Whom it was made from, inside it: a restore checks this key against the
+    # erasure ledger whatever the archive is called or wherever it is put.
+    local origin
+    origin="$(ledger_key "$name")"
     if running "$name"; then
         # Online: SQLite's backup API reads a consistent copy while the app writes.
-        docker exec "$(container "$name")" node server/hostedCli.js backup "$dir" >&2 || ok=0
+        docker exec "$(container "$name")" sh -c "node server/hostedCli.js backup '$dir' >&2 && echo $origin > '$dir/origin'" || ok=0
         # pipefail (set above) makes a failed `docker cp` fail the pipe.
         if [ "$ok" = 1 ]; then docker cp "$(container "$name")":"$dir" - | gzip > "$tmp" || ok=0; fi
         docker exec "$(container "$name")" rm -rf "$dir" >/dev/null 2>&1 || true
     else
         docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" sh -c \
-            "trap 'rm -rf $dir' EXIT; node server/hostedCli.js backup '$dir' >&2 && tar cz -C /data '.backup-$stamp'" > "$tmp" || ok=0
+            "trap 'rm -rf $dir' EXIT; node server/hostedCli.js backup '$dir' >&2 && echo $origin > '$dir/origin' && tar cz -C /data '.backup-$stamp'" > "$tmp" || ok=0
     fi
     # An empty or cut-off archive is still a gzip file: read it back.
     # (A here-string, not a pipe: `grep -q` leaving early would fail tar.)
     local listing=""
     if [ "$ok" = 1 ]; then listing="$(tar tzf - < "$tmp" 2>/dev/null)" || ok=0; fi
-    if [ "$ok" = 1 ] && ! grep -q '/terramentor\.db$' <<< "$listing"; then ok=0; fi
+    if [ "$ok" = 1 ] && { ! grep -q '/terramentor\.db$' <<< "$listing" || ! grep -q '/origin$' <<< "$listing"; }; then ok=0; fi
     if [ "$ok" != 1 ]; then
         rm -f "$tmp"
         echo "copy.sh: the backup of $name failed; nothing was kept" >&2
@@ -464,8 +498,6 @@ cmd_backup() {
             fi
         fi
         cmd_sweep || failed=1
-        # What a run killed halfway left unencrypted in WORKDIR (a day old: no run takes that long).
-        find "$WORKDIR" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
         return "$failed"
     fi
     valid_name "$what"
@@ -498,10 +530,20 @@ cmd_restore() {
     # moment this name was erased belongs to the person erased. The time is the
     # one inside the archive, which renaming the file does not change.
     inner="$(grep -E '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing" | sed -E 's#^(\./)?\.backup-##')"
-    erased="$(erased_at "$name")"
-    if [ -n "$erased" ] && ! [[ "${inner:0:16}" > "$erased" ]]; then
-        die "$archive was made before $name was erased ($erased), so it is not restored; $name was not touched"
-    fi
+    # Asked of whom it is restored into, of whom it was made from (the origin
+    # inside it) and of the folder it was found in (archives made before
+    # origins were written), so another name or place brings no one back.
+    local origin folder key whose
+    origin="$(tar xzf - -O --wildcards '*.backup-*/origin' < "$OPENED" 2>/dev/null | tr -cd '0-9a-f' | head -c 64)" || true
+    folder="$(basename "$(dirname "$(realpath "$archive")")")"
+    for key in "$(ledger_key "$name")" "$origin" "$(ledger_key "$folder")" "$(ledger_key "site:$folder")"; do
+        [ -n "$key" ] || continue
+        erased="$(erased_key_at "$key")"
+        if [ -n "$erased" ] && ! [[ "${inner:0:16}" > "$erased" ]]; then
+            [ "$key" = "$(ledger_key "$name")" ] && whose="$name" || whose="the person it was made from"
+            die "$archive was made before $whose was erased ($erased), so it is not restored; $name was not touched"
+        fi
+    done
     # The library as it is now, kept before anything replaces it: a restore
     # from the wrong archive must be one more restore away from undone.
     # Not taken when there is nothing worth keeping: a restore that never
@@ -562,16 +604,23 @@ cmd_remove() {
     local archive
     archive="$(backup_one "$name")" || die "the backup failed; nothing was removed"
     [ -s "$archive" ] || die "the backup failed; nothing was removed"
-    # Recorded before anything is removed, so a removal that stops halfway is
-    # still an erasure.
+    # Recorded before anything is removed, so a run killed partway is still an
+    # erasure; taken back if the library could not be deleted, so the ledger
+    # never says erased of someone whose library is still here.
     if [ -n "$erase" ]; then erase_record "$name"; fi
-    docker rm -f "$(container "$name")" >/dev/null
+    if ! { docker rm -f "$(container "$name")" >/dev/null && docker volume rm "$(volume "$name")" >/dev/null; }; then
+        [ -n "$erase" ] && ledger_drop "$name" >/dev/null || true
+        die "$name's container or library could not be deleted; it is not erased (run remove again)"
+    fi
     rm -f "$SITES/$name.caddy" "$KEYS/$name.env"
     proxy_apply
-    docker network rm "$(network "$name")" >/dev/null
-    docker volume rm "$(volume "$name")" >/dev/null
+    docker network rm "$(network "$name")" >/dev/null || echo "copy.sh: $name's network was left; docker network rm $(network "$name")" >&2
     echo "removed: $name"
-    echo "its library: $archive"
+    if [ -n "$erase" ]; then
+        echo "its library: $archive (kept until the erasure's grace period ends, then deleted)"
+    else
+        echo "its library: $archive"
+    fi
 }
 
 # The erasure of a copy or site library that is already gone (removed without
@@ -583,8 +632,12 @@ cmd_erase() {
     case "$what" in
         site:*)
             [[ "${what#site:}" =~ ^[0-9a-f]{32}$ ]] || die "a site library id is 32 hex characters (copy.sh site-remove prints it): '$what'"
-            if [ -n "${TM_SITE_CONTAINER:-}" ] && docker exec "$TM_SITE_CONTAINER" node server/site/cli.js accounts | cut -f2 | grep -qx "${what#site:}"; then
-                die "library ${what#site:} still has an account: copy.sh site-remove <email> --erase"
+            if [ -n "${TM_SITE_CONTAINER:-}" ]; then
+                local accts
+                accts="$(docker exec "$TM_SITE_CONTAINER" node server/site/cli.js accounts)" \
+                    || die "could not list the site's accounts (is $TM_SITE_CONTAINER running?); nothing was erased"
+                ! cut -f2 <<< "$accts" | grep -qx "${what#site:}" \
+                    || die "library ${what#site:} still has an account: copy.sh site-remove <email> --erase"
             fi ;;
         *)
             valid_name "$what"
@@ -597,37 +650,26 @@ cmd_unerase() {
     local what="${1:-}"
     [ -n "$what" ] || die "usage: unerase <name> | site:<library id>"
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
-    local key now before after f
-    key="$(ledger_key "$what")"
-    now="$(stamp_at "$(now_epoch)")"
-    wait_lock _erasures
-    before="$(ledger_lines | wc -l)"
-    for f in "$LEDGER" "$TM_BACKUP_DIR/erasures"; do
-        [ -f "$f" ] || continue
-        # Only an erasure still in its grace period; one whose archives are gone stays.
-        awk -v k="$key" -v now="$now" '!($1 == k && $3 > now)' "$f" > "$f.new" && chmod 600 "$f.new" && mv "$f.new" "$f"
-    done
-    after="$(ledger_lines | wc -l)"
-    unlock _erasures
-    [ "$after" -lt "$before" ] || die "no erasure of $what in its grace period (none, or its archives are already deleted)"
+    ledger_drop "$what" || die "no erasure of $what in its grace period (none, or its archives are already deleted)"
     echo "unerased: $what (its archives are kept and can be restored again)"
 }
 
-# Deletes every archive whose erasure is due: in the erased one's folder, each
-# archive made up to the moment of the erasure (a later copy of the same name
-# is someone else, and keeps its own). Then writes the union of both ledgers to
-# both, so neither forgets a line the other had.
+# Deletes every archive whose erasure is due, in the erased one's folder: for a
+# copy, each archive made up to the moment of the erasure (a later copy of the
+# same name is someone else, and keeps its own); for a site library, all of
+# them (a library id is never given again). Then writes the union of both
+# ledgers to both, so neither forgets a line the other had.
 cmd_sweep() {
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
-    local now d base k f t key erased due n=0 lines
+    local now d base k f t key erased due n=0 lines legacy
     now="$(stamp_at "$(now_epoch)")"
-    declare -A folder_of=()
+    declare -A folder_of=() is_site=()
     for d in "$TM_BACKUP_DIR"/*/ "$TM_BACKUP_DIR"/_site/*/; do
         [ -d "$d" ] || continue
         base="$(basename "$d")"
         if [ "$base" = _site ] || [ "$base" = _desk ]; then continue; fi
         case "$d" in
-            "$TM_BACKUP_DIR/_site/"*) k="$(ledger_key "site:$base")" ;;
+            "$TM_BACKUP_DIR/_site/"*) k="$(ledger_key "site:$base")"; is_site[$k]=1 ;;
             *) k="$(ledger_key "$base")" ;;
         esac
         folder_of[$k]="$d"
@@ -638,10 +680,11 @@ cmd_sweep() {
         [[ "$due" > "$now" ]] && continue
         d="${folder_of[$key]:-}"
         [ -n "$d" ] || continue
-        for f in "$d"*.tar.gz "$d"*.tar.gz.age; do
+        # .part: an encryption a killed run left unfinished.
+        for f in "$d"*.tar.gz "$d"*.tar.gz.age "$d".*.tar.gz.age.part; do
             [ -f "$f" ] || continue
-            t="$(basename "$f")"
-            if ! [[ "${t:0:16}" > "$erased" ]]; then rm -f "$f"; n=$((n + 1)); fi
+            t="$(basename "$f")"; t="${t#.}"
+            if [ -n "${is_site[$key]:-}" ] || ! [[ "${t:0:16}" > "$erased" ]]; then rm -f "$f"; n=$((n + 1)); fi
         done
         rmdir "$d" 2>/dev/null || true
     done <<< "$lines"
@@ -649,11 +692,14 @@ cmd_sweep() {
         wait_lock _erasures
         lines="$(ledger_lines)"
         for f in "$LEDGER" "$TM_BACKUP_DIR/erasures"; do
-            ( umask 077; printf '%s\n' "$lines" > "$f.new" ) && mv "$f.new" "$f"
+            ( umask 077; printf '%s\n' "$lines" > "$f.new" ) && mv "$f.new" "$f" \
+                || { rm -f "$f.new"; unlock _erasures; echo "copy.sh: could not write the erasure ledger to $f" >&2; return 1; }
         done
         unlock _erasures
     fi
     echo "sweep: $n archive(s) deleted whose erasure's grace period had ended"
+    legacy="$(find "$TM_BACKUP_DIR" -type f -name '*.tar.gz' 2>/dev/null | wc -l)"
+    [ "$legacy" = 0 ] || echo "copy.sh: $legacy archive(s) from before backups were encrypted are still readable without a key (docs/HOSTING.md, Encryption)" >&2
 }
 
 # --- The site ------------------------------------------------------------------
@@ -669,16 +715,21 @@ site_container() {
 site_dir() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$TM_SITE_CONTAINER" | sed -n 's/^SITE_DIR=//p'; }
 
 # The site, or one library of it (its id as $1), encrypted into TM_BACKUP_DIR/_site.
-# Prints each archive's path, site.db's last; nothing is kept when any part fails.
+# Prints each archive's path, site.db's last. A library that could not be
+# backed up (cli.js exits 3) costs no one else theirs: the rest is kept and the
+# backup fails at the end; any other failure keeps nothing.
 site_backup() {
-    local only="$1" thin="${2:-}" c="$TM_SITE_CONTAINER" sdir stamp work src lib id ok=1
+    local only="$1" thin="${2:-}" c="$TM_SITE_CONTAINER" sdir stamp work src lib id ok=1 rc=0
     need_recipients
     sdir="$(site_dir)"
     [ -n "$sdir" ] || { echo "copy.sh: $c has no SITE_DIR" >&2; return 1; }
     stamp="$(new_stamp)"
-    work="$WORKDIR/site-$stamp"
+    mkdir -p -m 700 "$RUNDIR" && work="$RUNDIR/site-$stamp" || return 1
     mkdir -m 700 "$work" || return 1
-    docker exec "$c" node server/site/cli.js backup "$sdir/.backup-$stamp" ${only:+--library "$only"} >&2 || ok=0
+    # What a run killed partway left inside the site (a day old: no run takes that long).
+    docker exec "$c" find "$sdir" -maxdepth 1 -name '.backup-*' -mmin +1440 -exec rm -rf {} + >/dev/null 2>&1 || true
+    docker exec "$c" node server/site/cli.js backup "$sdir/.backup-$stamp" ${only:+--library "$only"} >&2 || rc=$?
+    [ "$rc" = 0 ] || [ "$rc" = 3 ] || ok=0
     if [ "$ok" = 1 ]; then docker cp "$c:$sdir/.backup-$stamp" - | tar x -C "$work" || ok=0; fi
     docker exec "$c" rm -rf "$sdir/.backup-$stamp" >/dev/null 2>&1 || true
     src="$work/.backup-$stamp"
@@ -689,12 +740,14 @@ site_backup() {
     for lib in "$src"/libraries/*/; do
         [ -d "$lib" ] || continue
         id="$(basename "$lib")"
-        if ! { mkdir "$work/p" && mv "$lib" "$work/p/.backup-$stamp" && tar cz -C "$work/p" ".backup-$stamp" > "$work/$id.tar.gz" \
+        [[ "$id" =~ ^[0-9a-f]{32}$ ]] || { rm -rf "$work"; echo "copy.sh: the site's backup holds a folder '$id', which is no library id" >&2; return 1; }
+        if ! { mkdir "$work/p" && mv "$lib" "$work/p/.backup-$stamp" && ledger_key "site:$id" > "$work/p/.backup-$stamp/origin" \
+            && tar cz -C "$work/p" ".backup-$stamp" > "$work/$id.tar.gz" \
             && rm -rf "$work/p" && seal "$work/$id.tar.gz" "$TM_BACKUP_DIR/_site/$id" "$stamp" "$thin"; }; then
             rm -rf "$work"; echo "copy.sh: the backup of site library $id failed" >&2; return 1
         fi
     done
-    # site.db last: a night that has its archive has every library's.
+    # site.db last: a night that has its archive has every library's that could be backed up.
     if [ -z "$only" ]; then
         if ! { mkdir -p "$work/p/.backup-$stamp" && mv "$src/site.db" "$work/p/.backup-$stamp/site.db" \
             && tar cz -C "$work/p" ".backup-$stamp" > "$work/_desk.tar.gz" && seal "$work/_desk.tar.gz" "$TM_BACKUP_DIR/_site/_desk" "$stamp" "$thin"; }; then
@@ -702,6 +755,7 @@ site_backup() {
         fi
     fi
     rm -rf "$work"
+    [ "$rc" = 0 ] || { echo "copy.sh: the site's backup is not whole: a library could not be backed up (see above)" >&2; return 1; }
 }
 
 cmd_site_remove() {
@@ -729,10 +783,21 @@ cmd_site_remove() {
     archive="$(tail -1 <<< "$archive")"
     [ -s "$archive" ] || die "the backup failed; nothing was removed"
     if [ -n "$erase" ]; then erase_record "site:$id"; fi
-    docker exec "$TM_SITE_CONTAINER" node server/site/cli.js remove "$email" || die "the account of $email was not removed"
+    if ! docker exec "$TM_SITE_CONTAINER" node server/site/cli.js remove "$email"; then
+        # Its rows are deleted first: still listed means nothing was removed, and nothing is erased.
+        if [ -n "$erase" ] && docker exec "$TM_SITE_CONTAINER" node server/site/cli.js accounts | cut -f2 | grep -qx "$id"; then
+            ledger_drop "site:$id" >/dev/null || true
+            die "the account of $email was not removed, so it is not erased"
+        fi
+        die "the account of $email was removed but its folder was not deleted (see above); the erasure stands"
+    fi
     unlock _site
     echo "removed: $email (library $id)"
-    echo "its library: $archive"
+    if [ -n "$erase" ]; then
+        echo "its library: $archive (kept until the erasure's grace period ends, then deleted)"
+    else
+        echo "its library: $archive"
+    fi
 }
 
 cmd_site_restore() {
@@ -755,8 +820,8 @@ cmd_site_restore() {
     [ -n "$sdir" ] || die "$TM_SITE_CONTAINER has no SITE_DIR"
     image="$(docker inspect -f '{{.Config.Image}}' "$TM_SITE_CONTAINER")"
     wait_lock _site
-    work="$WORKDIR/site-restore-$$"
-    SCRATCH+=("$work")
+    mkdir -p -m 700 "$RUNDIR"
+    work="$RUNDIR/site-restore"
     mkdir -p -m 700 "$work/.backup-$stamp/libraries"
     # That night's site.db, and each library of the same night. An erased
     # library's archive is not even opened.
@@ -792,9 +857,14 @@ cmd_site_restore() {
     local rc=0
     tar c -C "$work" ".backup-$stamp" | docker run --rm -i --network none --user 0 --volumes-from "$TM_SITE_CONTAINER" -e SITE_DIR="$sdir" "$image" \
         sh -c 'mkdir -p /tmp/r && tar x -C /tmp/r && node server/site/cli.js restore /tmp/r/.backup-* --erased /tmp/r/.backup-*/erased' || rc=$?
+    # cli.js exits 1 having changed nothing; anything else may have stopped
+    # partway, and the site is not started on half a restore.
+    if [ "$rc" != 0 ] && [ "$rc" != 1 ]; then
+        die "the site restore stopped partway (exit $rc), see above; $TM_SITE_CONTAINER is left stopped. Restore it again from this backup or from the one taken before it"
+    fi
     docker start "$TM_SITE_CONTAINER" >/dev/null
     unlock _site
-    [ "$rc" = 0 ] || die "the site restore failed (exit $rc), see above; the site was started again"
+    [ "$rc" = 0 ] || die "the site restore failed before changing anything (see above); the site was started again"
     echo "site restored from $desk: $n librar$([ "$n" = 1 ] && echo y || echo ies), $skipped erased left out"
 }
 

@@ -63,6 +63,10 @@ if docker container inspect "$SITE" >/dev/null 2>&1 || docker volume inspect "$S
     echo "rehearse.sh: $SITE (or its volume) already exists here and the rehearsal would delete it" >&2
     exit 1
 fi
+if [ -e "$HERE/erasures" ]; then
+    echo "rehearse.sh: $HERE/erasures (an erasure ledger) already exists here and the rehearsal would delete it" >&2
+    exit 1
+fi
 
 cleanup() {
     [ "${KEEP:-}" = 1 ] && return 0
@@ -75,7 +79,7 @@ cleanup() {
     done
     (cd "$HERE" && docker compose -f docker-compose.yml down -v >/dev/null 2>&1) || true
     for n in $NAMES; do docker network rm "tm-$n" >/dev/null 2>&1 || true; done
-    rm -f "$HERE/networks.yml"
+    rm -f "$HERE/networks.yml" "$HERE/erasures"
     rm -rf "$WORK"
     [ -n "$OWN_BACKUPS" ] && rm -rf "$OWN_BACKUPS"
     return 0
@@ -88,6 +92,8 @@ age-keygen -o "$WORK/backup.key" 2>/dev/null
 age-keygen -y "$WORK/backup.key" > "$WORK/recipients"
 age-keygen -o "$WORK/other.key" 2>/dev/null
 export TM_BACKUP_RECIPIENTS="$WORK/recipients" TM_BACKUP_IDENTITY="$WORK/backup.key"
+# Lets the erasure checks below move copy.sh's clock (TM_NOW), here only.
+export TM_REHEARSAL=1
 # An archive as tar reads it: opened with the key when it is encrypted.
 open_archive() {
     if [ "$(head -c 21 "$1")" = age-encryption.org/v1 ]; then age -d -i "$WORK/backup.key" "$1"; else cat "$1"; fi
@@ -364,6 +370,44 @@ else
         && ok "check 4: an archive older than carol's erasure is refused, and the new carol is untouched: $(tail -1 "$WORK/err")" \
         || miss "check 4: the refused restore changed the new carol"
 fi
+# The same archive restored into someone else: it carries whom it was made from.
+if bash "$COPY" restore "$A" "$WORK/offsite-carol" >/dev/null 2>"$WORK/err"; then
+    miss "check 4: an archive of the erased carol was restored into $A"
+else
+    running_a && grep -q 'erased' "$WORK/err" \
+        && ok "check 4: the erased carol's archive is refused under another name too: $(tail -1 "$WORK/err")" \
+        || miss "check 4: restoring carol's archive into $A failed for another reason, or stopped $A: $(tail -1 "$WORK/err")"
+fi
+
+echo "--- a library's own links are not followed ---"
+# A library's folder is its own to fill. Links it leaves there, to site.db, are
+# planted as its own user; backup and restore run as root.
+ben_lib="$(library_of ben@example.test)"
+ben_uid="$(docker exec "$SITE" stat -c %u "/site/libraries/$ben_lib" 2>/dev/null)" || true
+if [ -z "$ben_lib" ] || [ -z "$ben_uid" ] || [ "$ben_uid" = 0 ]; then
+    miss "links: ben's library does not run as a user of its own ('$ben_lib' '$ben_uid')"
+else
+    docker exec --user "$ben_uid" "$SITE" sh -c "cd /site/libraries/$ben_lib && ln -s /site/site.db terramentor.db.restoring && ln -s /site/site.db terramentor.secrets.json.restoring" \
+        || no "ben could not plant links in the library's own folder"
+    links="$(bash "$COPY" backup --all 2>"$WORK/err")" || true
+    links_desk="$(grep '/_site/_desk/' <<< "$links" | tail -1)" || true
+    if [ -s "$links_desk" ] && bash "$COPY" site-restore "$links_desk" >/dev/null 2>"$WORK/err" && site_up \
+        && [ -n "$(site_signin ben@example.test "$PW_BEN")" ] && [ "$(docker exec "$SITE" stat -c %u /site/site.db)" = 0 ]; then
+        ok "links: a site restore writes nothing through links a library left at its fixed names; site.db is whole and root's"
+    else
+        miss "links: a site restore went through ben's links to site.db: $(tail -2 "$WORK/err")"
+    fi
+    docker exec --user "$ben_uid" "$SITE" sh -c "cd /site/libraries/$ben_lib && rm -rf vault && ln -s /site vault" || no "ben could not plant a vault link"
+    bash "$COPY" backup --all >/dev/null 2>"$WORK/err" && miss "links: a backup through ben's vault link reported success"
+    newest_ben="$(find "$TM_BACKUP_DIR/_site/$ben_lib" -maxdepth 1 -name '*.tar.gz.age' | sort | tail -1)"
+    ben_listing="$(open_archive "$newest_ben" | tar tzf -)" || ben_listing=""
+    if [ -n "$ben_listing" ] && ! grep -qE 'site\.db|libraries/' <<< "$ben_listing"; then
+        ok "links: a library whose vault links to the whole site is not backed up through it: $(grep -m1 'is a link' "$WORK/err")"
+    else
+        miss "links: ben's archive holds files from outside ben's library: $newest_ben"
+    fi
+    docker exec "$SITE" rm -f "/site/libraries/$ben_lib/vault"
+fi
 
 # Check 1: archives stay through the grace period (14 days) and are gone after it.
 in_grace="$(archives "$TM_BACKUP_DIR/carol")"; ann_grace="$(archives "$TM_BACKUP_DIR/_site/$ann_lib")"
@@ -383,13 +427,19 @@ fi
 mkdir -p "$TM_BACKUP_DIR/carol" "$TM_BACKUP_DIR/_site/$ann_lib"
 cp "$WORK/offsite-carol" "$TM_BACKUP_DIR/carol/$(basename "$old_carol")"
 [ -s "$WORK/offsite-ann" ] && cp "$WORK/offsite-ann" "$TM_BACKUP_DIR/_site/$ann_lib/$(basename "$night_ann")"
+# ...on a server rebuilt with only the backup folder: the server's own ledger is gone.
+rm -f "$HERE/erasures"
 TM_NOW=$((NOW + 16 * DAY)) bash "$COPY" backup --all >/dev/null 2>&1 || true
 if [ -z "$(find "$TM_BACKUP_DIR/carol" -maxdepth 1 -name "$(basename "$old_carol")")" ] && [ "$(archives "$TM_BACKUP_DIR/_site/$ann_lib")" = 0 ] \
-    && [ "$(archives "$TM_BACKUP_DIR/carol")" -ge 1 ]; then
-    ok "check 4: erased archives put back from an off-site copy are erased again by the next nightly run; the new carol's stay"
+    && [ "$(archives "$TM_BACKUP_DIR/carol")" -ge 1 ] && [ "$(wc -l < "$HERE/erasures" 2>/dev/null || echo 0)" -ge 2 ]; then
+    ok "check 4: erased archives put back from an off-site copy, on a server that lost its own ledger, are erased again by the next nightly run; the new carol's stay"
 else
-    miss "check 4: archives put back after an erasure survived the nightly run"
+    miss "check 4: archives put back after an erasure survived the nightly run, or the server's ledger was not written back"
 fi
+# Every run deletes what it opened or read unencrypted.
+left_work="$(find "$HERE/.work" -mindepth 1 2>/dev/null)"
+[ -z "$left_work" ] && ok "check 2: nothing unencrypted is left on the server after the runs" \
+    || miss "check 2: unencrypted files left on the server: $left_work"
 
 if [ "${#MISSED[@]}" -gt 0 ]; then
     echo "$pass passed; erasure checks that did not hold: $(printf '%s\n' "${MISSED[@]}" | sort -u | tr '\n' ' ')" >&2
