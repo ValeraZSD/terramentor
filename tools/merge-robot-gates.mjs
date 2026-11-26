@@ -107,7 +107,7 @@ const only = (name, mutate, expect) => {
     check('green #367 merges', v.merge, text(v));
     const msg = commitMessage(green());
     check('subject is the title plus (#367)', msg.title === "Keep learner text out of a site operator's log (#367)", msg.title);
-    check('body is the one Signed-off-by line, once', msg.message === 'Signed-off-by: ValeraZSD <valerazsd@gmail.com>', JSON.stringify(msg.message));
+    check('body is the one Signed-off-by line, once', msg.message === 'Signed-off-by: ValeraZSD <owner@example.test>', JSON.stringify(msg.message));
 }
 only('a hold label stops it', (f) => f.pull.labels.push({ name: 'hold' }), 'hold');
 only('a release label stops it', (f) => f.pull.labels.push({ name: 'release' }), 'reserved');
@@ -404,7 +404,7 @@ const run = async (env, fake, argv = ['--repo', 'ValeraZSD/terramentor']) => {
     const m = puts[0]?.body || {};
     check('live: merges the oldest (#367)', puts[0]?.path === '/repos/ValeraZSD/terramentor/pulls/367/merge', puts[0]?.path);
     check('live: squash, pinned to the judged head', m.merge_method === 'squash' && m.sha === 'a69449c4df6c92f2abc705b8ed8370f99c8282b1', JSON.stringify(m));
-    check('live: subject and Signed-off-by body', m.commit_title === "Keep learner text out of a site operator's log (#367)" && m.commit_message === 'Signed-off-by: ValeraZSD <valerazsd@gmail.com>', JSON.stringify(m));
+    check('live: subject and Signed-off-by body', m.commit_title === "Keep learner text out of a site operator's log (#367)" && m.commit_message === 'Signed-off-by: ValeraZSD <owner@example.test>', JSON.stringify(m));
     const dispatch = fake.calls.find((c) => c.method === 'POST' && /dispatches$/.test(c.path));
     check('live: dispatches gates.yml on main after the merge', dispatch?.path === '/repos/ValeraZSD/terramentor/actions/workflows/gates.yml/dispatches' && dispatch.body.ref === 'main',
         JSON.stringify(dispatch));

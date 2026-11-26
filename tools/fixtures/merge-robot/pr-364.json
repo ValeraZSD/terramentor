@@ -246,7 +246,7 @@
      }
     ],
     "commit": {
-     "message": "Keep the assistant still while an answer streams\n\nThe assistant's log followed every streamed token, so the line being\nread moved up the screen several times a second. Now Send scrolls the\nquestion to the top of the log once, the answer is written below it,\nand the log never moves on its own while the reply arrives.\n\nuseReadingScroll replaces useStickToBottom: the content box gets a\nmin-height so a short answer still leaves room for the question to sit\nat the top, measured again when the panel resizes, docks or undocks.\nOpening the panel or a conversation still lands on the newest message;\na reload that only swaps a question's provisional id does not move it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Keep the assistant still while an answer streams\n\nThe assistant's log followed every streamed token, so the line being\nread moved up the screen several times a second. Now Send scrolls the\nquestion to the top of the log once, the answer is written below it,\nand the log never moves on its own while the reply arrives.\n\nuseReadingScroll replaces useStickToBottom: the content box gets a\nmin-height so a short answer still leaves room for the question to sit\nat the top, measured again when the panel resizes, docks or undocks.\nOpening the panel or a conversation still lands on the newest message;\na reload that only swaps a question's provisional id does not move it.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T15:17:25Z"
      }
@@ -260,7 +260,7 @@
      }
     ],
     "commit": {
-     "message": "Show when the answer continues below\n\nA small button at the foot of the log says the answer goes on below (or is still being written there) and scrolls to its end when pressed. It shows only while text is hidden below the visible part.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Show when the answer continues below\n\nA small button at the foot of the log says the answer goes on below (or is still being written there) and scrolls to its end when pressed. It shows only while text is hidden below the visible part.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T15:55:35Z"
      }
@@ -274,7 +274,7 @@
      }
     ],
     "commit": {
-     "message": "Keep the log still when More below appears\n\nThe scroll object the panel's effects depend on carried the 'text below' flag, so the open effect re-ran and sent the log to the bottom whenever the flag changed. The flag now comes back beside a stable object. Also: the room under a question follows its stored copy and goes when a failed turn removes it, a rebuilt log (docking) keeps its place, the last message is watched for growth outside a render, and a keyboard press leaves focus on the log.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Keep the log still when More below appears\n\nThe scroll object the panel's effects depend on carried the 'text below' flag, so the open effect re-ran and sent the log to the bottom whenever the flag changed. The flag now comes back beside a stable object. Also: the room under a question follows its stored copy and goes when a failed turn removes it, a rebuilt log (docking) keeps its place, the last message is watched for growth outside a render, and a keyboard press leaves focus on the log.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T16:18:50Z"
      }
@@ -288,7 +288,7 @@
      }
     ],
     "commit": {
-     "message": "Measure the still assistant log in a browser\n\nassistant-scroll-gates.mjs streams a long answer from a stub model into the built app at desktop and phone size and asserts the question goes to the top, the log does not move while or after it is written, and the More below button shows and works by mouse and keyboard. It fails on the previous commit.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Measure the still assistant log in a browser\n\nassistant-scroll-gates.mjs streams a long answer from a stub model into the built app at desktop and phone size and asserts the question goes to the top, the log does not move while or after it is written, and the More below button shows and works by mouse and keyboard. It fails on the previous commit.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T16:18:51Z"
      }
@@ -302,7 +302,7 @@
      }
     ],
     "commit": {
-     "message": "Move the view only for a question sent here\n\nA stored row no longer moves the log, so opening a conversation whose last row is a question lands on it instead of anchoring (a loading flag could not tell, since React renders the rows and the flag's reset together). The stored copy of a placed question is the newest stored question with its text, never an earlier one with the same words. A rebuilt log keeps how far the reader had read past the question, the content box is watched for growth as well as the last message, and the log shows a focus ring when it takes focus.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Move the view only for a question sent here\n\nA stored row no longer moves the log, so opening a conversation whose last row is a question lands on it instead of anchoring (a loading flag could not tell, since React renders the rows and the flag's reset together). The stored copy of a placed question is the newest stored question with its text, never an earlier one with the same words. A rebuilt log keeps how far the reader had read past the question, the content box is watched for growth as well as the last message, and the log shows a focus ring when it takes focus.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T16:51:20Z"
      }
@@ -316,7 +316,7 @@
      }
     ],
     "commit": {
-     "message": "Cover re-reading, reopening and refusals\n\nThe browser gate now also scrolls up mid-answer, closes and reopens the panel, presses More below from the keyboard, finds the answer's last paragraph by its words rather than the hook's measure, and has the model refuse a question. Waits are on what the page shows; --only runs one size.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Cover re-reading, reopening and refusals\n\nThe browser gate now also scrolls up mid-answer, closes and reopens the panel, presses More below from the keyboard, finds the answer's last paragraph by its words rather than the hook's measure, and has the model refuse a question. Waits are on what the page shows; --only runs one size.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T16:51:20Z"
      }
@@ -330,7 +330,7 @@
      }
     ],
     "commit": {
-     "message": "Turn one page per More below press\n\nA press moved straight to the last line, so a reader halfway down a long\nanswer skipped everything between. It now moves on by four fifths of the\nview, keeping the lines the button sat over in sight, and keyboard focus\nstays on the button until the last press.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Turn one page per More below press\n\nA press moved straight to the last line, so a reader halfway down a long\nanswer skipped everything between. It now moves on by four fifths of the\nview, keeping the lines the button sat over in sight, and keyboard focus\nstays on the button until the last press.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T17:48:13Z"
      }
@@ -344,7 +344,7 @@
      }
     ],
     "commit": {
-     "message": "Stop a page turn at the button, focus on leave\n\nOn a short view a fifth of the page is less than the button covers, so\nthe step now stops at the button's top edge. Focus moves to the log when\nthe button goes, not at a press judged to be the last: a streaming answer\ncan grow again. A closed panel forgets the button, and the call list and\nthe browser walk pin the page turn.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Stop a page turn at the button, focus on leave\n\nOn a short view a fifth of the page is less than the button covers, so\nthe step now stops at the button's top edge. Focus moves to the log when\nthe button goes, not at a press judged to be the last: a streaming answer\ncan grow again. A closed panel forgets the button, and the call list and\nthe browser walk pin the page turn.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T17:57:45Z"
      }
@@ -358,7 +358,7 @@
      }
     ],
     "commit": {
-     "message": "Fill the More below button\n\nThe outline look has no fill, so the line under the floating button showed\nthrough its label. The filled subtle look hides it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Fill the More below button\n\nThe outline look has no fill, so the line under the floating button showed\nthrough its label. The filled subtle look hides it.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:05:04Z"
      }
@@ -372,7 +372,7 @@
      }
     ],
     "commit": {
-     "message": "Match CRLF in the new-chat scroll check\n\nA Windows checkout has CRLF line ends, so the regex that finds the reset\nfunction's body found nothing there.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Match CRLF in the new-chat scroll check\n\nA Windows checkout has CRLF line ends, so the regex that finds the reset\nfunction's body found nothing there.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:32:42Z"
      }
@@ -386,7 +386,7 @@
      }
     ],
     "commit": {
-     "message": "Keep the place through a load or a failed repeat\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Keep the place through a load or a failed repeat\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T19:29:34Z"
      }
@@ -403,7 +403,7 @@
      }
     ],
     "commit": {
-     "message": "Merge main into assistant-read-like-a-book\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Merge main into assistant-read-like-a-book\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T21:38:41Z"
      }
@@ -417,7 +417,7 @@
      }
     ],
     "commit": {
-     "message": "Leave the view for another device's failed turn\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Leave the view for another device's failed turn\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-25T11:44:06Z"
      }

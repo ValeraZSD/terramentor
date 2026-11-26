@@ -252,7 +252,7 @@
      }
     ],
     "commit": {
-     "message": "Gate: hosted OpenRouter calls ask for zero retention\n\nA new suite drives the chat, stream, vision and embeddings calls of a\nhosted copy against a recorded openrouter.ai and reads the bodies that\nleft. It fails on the current code: no provider terms are sent unless\nAI_EXTRA_BODY adds them, and AI_EXTRA_BODY can switch them off.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Gate: hosted OpenRouter calls ask for zero retention\n\nA new suite drives the chat, stream, vision and embeddings calls of a\nhosted copy against a recorded openrouter.ai and reads the bodies that\nleft. It fails on the current code: no provider terms are sent unless\nAI_EXTRA_BODY adds them, and AI_EXTRA_BODY can switch them off.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:22:56Z"
      }
@@ -266,7 +266,7 @@
      }
     ],
     "commit": {
-     "message": "Ask OpenRouter for zero retention when hosted\n\nA hosted copy, and every library of a site, now lays provider.zdr and\ndata_collection: deny over every chat, vision and embeddings body it\nsends to OpenRouter. They go on last, so neither a learner's routing\npreference nor AI_EXTRA_BODY can switch them off, and a hosted body\nbuilt without knowing its endpoint is refused instead of sent bare.\n\nWhen no zero-retention endpoint serves the model, OpenRouter's 404 is\nreported in words an operator can act on, and the failure dialog shows\nit as written rather than calling the model unknown. At start the copy\n(or a site's front desk, once for its libraries) names an AI_EXTRA_BODY\nthat tries to drop the terms, and a model endpoint that is not\nOpenRouter, where the terms cannot be asked for.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Ask OpenRouter for zero retention when hosted\n\nA hosted copy, and every library of a site, now lays provider.zdr and\ndata_collection: deny over every chat, vision and embeddings body it\nsends to OpenRouter. They go on last, so neither a learner's routing\npreference nor AI_EXTRA_BODY can switch them off, and a hosted body\nbuilt without knowing its endpoint is refused instead of sent bare.\n\nWhen no zero-retention endpoint serves the model, OpenRouter's 404 is\nreported in words an operator can act on, and the failure dialog shows\nit as written rather than calling the model unknown. At start the copy\n(or a site's front desk, once for its libraries) names an AI_EXTRA_BODY\nthat tries to drop the terms, and a model endpoint that is not\nOpenRouter, where the terms cannot be asked for.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:27:09Z"
      }
@@ -280,7 +280,7 @@
      }
     ],
     "commit": {
-     "message": "Explain zero retention to hosted operators\n\nHOSTING.md gets a section on the terms a hosted copy sends, how to\ncheck that a model and the embedding model have zero-retention\nendpoints, and the account setting that keeps out Safety Retention\nendpoints. example.env points at it.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Explain zero retention to hosted operators\n\nHOSTING.md gets a section on the terms a hosted copy sends, how to\ncheck that a model and the embedding model have zero-retention\nendpoints, and the account setting that keeps out Safety Retention\nendpoints. example.env points at it.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:27:10Z"
      }
@@ -294,7 +294,7 @@
      }
     ],
     "commit": {
-     "message": "Fail closed on OpenRouter ZDR refusals\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Fail closed on OpenRouter ZDR refusals\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:37:09Z"
      }
@@ -308,7 +308,7 @@
      }
     ],
     "commit": {
-     "message": "Reword the hosted retention note in SECURITY.md\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Reword the hosted retention note in SECURITY.md\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:38:03Z"
      }
@@ -322,7 +322,7 @@
      }
     ],
     "commit": {
-     "message": "Close review gaps in hosted zero retention\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Close review gaps in hosted zero retention\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:48:03Z"
      }
@@ -336,7 +336,7 @@
      }
     ],
     "commit": {
-     "message": "Name the ZDR account setting in the docs\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Name the ZDR account setting in the docs\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:48:03Z"
      }
@@ -350,7 +350,7 @@
      }
     ],
     "commit": {
-     "message": "Treat ZDR refusals as no model available\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Treat ZDR refusals as no model available\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:55:09Z"
      }
@@ -364,7 +364,7 @@
      }
     ],
     "commit": {
-     "message": "Say ZDR needs the account setting too\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Say ZDR needs the account setting too\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:55:09Z"
      }
@@ -378,7 +378,7 @@
      }
     ],
     "commit": {
-     "message": "Stop on an empty 404, warn for embeddings\n\nA hosted OpenRouter 404 with no body is taken as the zero-retention\nrefusal: a failed body read arrives empty, and an ordinary failure would\nlet the job chain move the text to a backup endpoint. The start-up\nwarning now also follows document chunks sent for embeddings when chat\nruns on a local model, and the feed writer hands its task the error so\nthe task record keeps the refusal flag.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Stop on an empty 404, warn for embeddings\n\nA hosted OpenRouter 404 with no body is taken as the zero-retention\nrefusal: a failed body read arrives empty, and an ordinary failure would\nlet the job chain move the text to a backup endpoint. The start-up\nwarning now also follows document chunks sent for embeddings when chat\nruns on a local model, and the feed writer hands its task the error so\nthe task record keeps the refusal flag.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T21:35:52Z"
      }
@@ -392,7 +392,7 @@
      }
     ],
     "commit": {
-     "message": "Warn for embeddings only when vectors run\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Warn for embeddings only when vectors run\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T21:37:33Z"
      }

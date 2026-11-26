@@ -179,7 +179,7 @@
      }
     ],
     "commit": {
-     "message": "Add a hard suite option to the model bench\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Add a hard suite option to the model bench\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T11:55:30Z"
      }
@@ -193,7 +193,7 @@
      }
     ],
     "commit": {
-     "message": "Add the hard model-bench suite\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Add the hard model-bench suite\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T11:55:35Z"
      }
@@ -207,7 +207,7 @@
      }
     ],
     "commit": {
-     "message": "Document the hard model-bench suite\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Document the hard model-bench suite\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T11:55:35Z"
      }
@@ -221,7 +221,7 @@
      }
     ],
     "commit": {
-     "message": "Score only the chosen suite in the bench report\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Score only the chosen suite in the bench report\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T12:06:14Z"
      }
@@ -235,7 +235,7 @@
      }
     ],
     "commit": {
-     "message": "Pin the Dutch paper case's language check\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Pin the Dutch paper case's language check\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T12:06:15Z"
      }
@@ -249,7 +249,7 @@
      }
     ],
     "commit": {
-     "message": "Fix ambiguous hard-suite cases\n\nTwo Ukrainian language items had a second normative answer (СУМ gives both «хворіти на що» and «чим»; «завжди» has a variant stress). They are replaced by two Dutch loan-verb forms whose keys are the only forms the Woordenlijst lists. Five texts are tightened where a careful reader could object: a verb form of the wrong verb, an over-broad vocative rule, a 't kofschip rule stated before its exception, «романы» for works that include a поэма, and «rabbit» without the species.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Fix ambiguous hard-suite cases\n\nTwo Ukrainian language items had a second normative answer (СУМ gives both «хворіти на що» and «чим»; «завжди» has a variant stress). They are replaced by two Dutch loan-verb forms whose keys are the only forms the Woordenlijst lists. Five texts are tightened where a careful reader could object: a verb form of the wrong verb, an over-broad vocative rule, a 't kofschip rule stated before its exception, «романы» for works that include a поэма, and «rabbit» without the species.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T13:40:01Z"
      }
@@ -263,7 +263,7 @@
      }
     ],
     "commit": {
-     "message": "Name both 't kofschip exceptions up front\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Name both 't kofschip exceptions up front\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T14:06:16Z"
      }
@@ -277,7 +277,7 @@
      }
     ],
     "commit": {
-     "message": "Flag ZDR for Claude models called directly\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Flag ZDR for Claude models called directly\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T14:25:27Z"
      }
@@ -291,7 +291,7 @@
      }
     ],
     "commit": {
-     "message": "Narrow the 't kofschip v/z sentence\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Narrow the 't kofschip v/z sentence\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T14:25:28Z"
      }

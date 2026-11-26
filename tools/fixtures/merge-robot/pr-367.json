@@ -196,7 +196,7 @@
      }
     ],
     "commit": {
-     "message": "Move failureFacts to a module with no database\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Move failureFacts to a module with no database\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:28:31Z"
      }
@@ -210,7 +210,7 @@
      }
     ],
     "commit": {
-     "message": "Log a slow request by its path, without the query\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Log a slow request by its path, without the query\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:28:31Z"
      }
@@ -224,7 +224,7 @@
      }
     ],
     "commit": {
-     "message": "Keep a site library's output out of the desk's log\n\nThe front desk copied every line a library printed into its own log,\nwhich outlives the library and an erasure: topic titles, questions with\ntheir answers, a course's name on import. A failed start also put the\nlibrary's last line in the error the desk logged, and the desk's own\nerror line named an invite link with its token.\n\nEach library's output now goes to server.log in its own folder, rotated\nat SITE_LIBRARY_LOG_KB with one older file kept, and opened without\nfollowing a link, a pipe or a second name the library may have left.\nThe desk's lines say only started, stopped or a failure's kind, an\naddress by its shape, and code frames without the error's message.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Keep a site library's output out of the desk's log\n\nThe front desk copied every line a library printed into its own log,\nwhich outlives the library and an erasure: topic titles, questions with\ntheir answers, a course's name on import. A failed start also put the\nlibrary's last line in the error the desk logged, and the desk's own\nerror line named an invite link with its token.\n\nEach library's output now goes to server.log in its own folder, rotated\nat SITE_LIBRARY_LOG_KB with one older file kept, and opened without\nfollowing a link, a pipe or a second name the library may have left.\nThe desk's lines say only started, stopped or a failure's kind, an\naddress by its shape, and code frames without the error's message.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:28:32Z"
      }
@@ -238,7 +238,7 @@
      }
     ],
     "commit": {
-     "message": "Harden the library log writer after review\n\nEach stream keeps its own unfinished line, so a line cut at a pipe read\nis no longer glued to the other stream's; a chunk's lines go to disk in\none write; a refused log file is said once in the front desk's log and\nnot retried; nothing is written or reopened after close; a line that\nnever ends keeps its start and drops the rest; the pipes are read as\nUTF-8. A failed start waits for its last lines before it is reported.\nCode frames skip the error's message even when it is shaped like one.\nSITE_LIBRARY_LOG_KB has a 4 KB floor.\n\nThe gate drops a query check that passed before the change and adds\nchecks for the route labels, failure words, code frames, the breached-\npassword warning, the per-stream lines and the refused-log line.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Harden the library log writer after review\n\nEach stream keeps its own unfinished line, so a line cut at a pipe read\nis no longer glued to the other stream's; a chunk's lines go to disk in\none write; a refused log file is said once in the front desk's log and\nnot retried; nothing is written or reopened after close; a line that\nnever ends keeps its start and drops the rest; the pipes are read as\nUTF-8. A failed start waits for its last lines before it is reported.\nCode frames skip the error's message even when it is shaped like one.\nSITE_LIBRARY_LOG_KB has a 4 KB floor.\n\nThe gate drops a query check that passed before the change and adds\nchecks for the route labels, failure words, code frames, the breached-\npassword warning, the per-stream lines and the refused-log line.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:36:47Z"
      }
@@ -252,7 +252,7 @@
      }
     ],
     "commit": {
-     "message": "Fix library log edge cases found in review\n\nA failed kill of a running library no longer takes it off the books. A\nlog that cannot be opened for a reason the library did not cause (a full\ndisk, a missing folder) is retried instead of refused for the run. A new\nrun waits for the last run's lines before opening the same file, and a\nfailed start only says its output is kept when lines were written. The\nsite gate now scans every front-desk log call for what it interpolates.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Fix library log edge cases found in review\n\nA failed kill of a running library no longer takes it off the books. A\nlog that cannot be opened for a reason the library did not cause (a full\ndisk, a missing folder) is retried instead of refused for the run. A new\nrun waits for the last run's lines before opening the same file, and a\nfailed start only says its output is kept when lines were written. The\nsite gate now scans every front-desk log call for what it interpolates.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:47:32Z"
      }
@@ -266,7 +266,7 @@
      }
     ],
     "commit": {
-     "message": "Close review gaps in the library log and gate\n\nNo library is started once the pool is shutting down. A start failure\nsays its output was not kept when the log was refused or unopened, and\nthe open retry follows the writer's own clock so the gate can test it.\nThe log-call scan now also catches a logger handed on as a function,\noptional or bracket access and writes to the process's own output, and\nan id slice is safe only for a library id.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Close review gaps in the library log and gate\n\nNo library is started once the pool is shutting down. A start failure\nsays its output was not kept when the log was refused or unopened, and\nthe open retry follows the writer's own clock so the gate can test it.\nThe log-call scan now also catches a logger handed on as a function,\noptional or bracket access and writes to the process's own output, and\nan id slice is safe only for a library id.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-24T18:54:11Z"
      }
@@ -280,7 +280,7 @@
      }
     ],
     "commit": {
-     "message": "List the library log writer's folder in tenancy\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "List the library log writer's folder in tenancy\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-25T11:19:08Z"
      }

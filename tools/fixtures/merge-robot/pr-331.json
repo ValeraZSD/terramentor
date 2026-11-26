@@ -149,7 +149,7 @@
      }
     ],
     "commit": {
-     "message": "Hosted guard: trimmed flag, absolute-form paths\n\nisHosted now trims TERRAMENTOR_HOSTED like the start-up check does, and the site library asks isHosted instead of its own exact test, so a value such as '1 ' no longer starts a copy with every hosted rule off. requestPath reads an absolute-form request line (PUT http://host/api/ai/key) by its pathname and drops a fragment, which is how the router routes both.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Hosted guard: trimmed flag, absolute-form paths\n\nisHosted now trims TERRAMENTOR_HOSTED like the start-up check does, and the site library asks isHosted instead of its own exact test, so a value such as '1 ' no longer starts a copy with every hosted rule off. requestPath reads an absolute-form request line (PUT http://host/api/ai/key) by its pathname and drops a fragment, which is how the router routes both.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-21T14:07:23Z"
      }
@@ -163,7 +163,7 @@
      }
     ],
     "commit": {
-     "message": "First-password setup for devices; quieter log\n\nA device this computer already let in (a connected device, the owner's Tailscale) sets the first password without the code from the server log, as this machine does; any other remote request still needs it. The setup code is printed when it is made and then at most once a minute, instead of on every status poll.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "First-password setup for devices; quieter log\n\nA device this computer already let in (a connected device, the owner's Tailscale) sets the first password without the code from the server log, as this machine does; any other remote request still needs it. The setup code is printed when it is made and then at most once a minute, instead of on every status poll.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-21T14:07:23Z"
      }
@@ -177,7 +177,7 @@
      }
     ],
     "commit": {
-     "message": "Describe what the health check does\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Describe what the health check does\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-21T14:07:24Z"
      }
@@ -191,7 +191,7 @@
      }
     ],
     "commit": {
-     "message": "Guard hosted paths as the router parses them\n\nThe guard now reads the path the router itself parsed (baseUrl + path) instead of the raw request line, so spellings such as http:///api/ai/key, a port out of range or an empty host after @ are refused too.\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Guard hosted paths as the router parses them\n\nThe guard now reads the path the router itself parsed (baseUrl + path) instead of the raw request line, so spellings such as http:///api/ai/key, a port out of range or an empty host after @ are refused too.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-21T14:13:58Z"
      }
@@ -205,7 +205,7 @@
      }
     ],
     "commit": {
-     "message": "Print the setup code again after a clock step\n\nSigned-off-by: ValeraZSD <valerazsd@gmail.com>",
+     "message": "Print the setup code again after a clock step\n\nSigned-off-by: ValeraZSD <owner@example.test>",
      "committer": {
       "date": "2026-11-21T14:13:59Z"
      }
