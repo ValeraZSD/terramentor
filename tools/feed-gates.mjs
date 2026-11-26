@@ -622,7 +622,10 @@ console.log('\n--- the grader can say "unsure" ---');
     // count is what stops a third mount arriving unguarded.
     const sidebarIsStudyFree = (src) =>
         /const studyView = workspaceView === 'study'/.test(src)
-        && /!isMobile && !studyView && !examFocus && <Sidebar \/>/.test(src)
+        // The desktop mount, inline or through the guard named for the
+        // column fit (Workspace's `showSidebar`).
+        && (/!isMobile && !studyView && !examFocus && <Sidebar \/>/.test(src)
+            || /const showSidebar = !isMobile && !studyView && !examFocus;[\s\S]*\{showSidebar && [^<{}]*<Sidebar\b/.test(src))
         && /\{isMobile && !studyView && !examFocus && \(/.test(src)
         && [...src.matchAll(/<Sidebar\b/g)].length === 2;
     const wsSrc = readFileSync(new URL('../src/components/Workspace.tsx', import.meta.url), 'utf8');
@@ -636,6 +639,12 @@ console.log('\n--- the grader can say "unsure" ---');
         "const studyView = workspaceView === 'study';",
         '{!isMobile && !studyView && !examFocus && <Sidebar />}',
         '{isMobile && (<div><Sidebar isDrawer /></div>)}',
+    ].join('\n')));
+    okc('…and a named guard that lets Study through', !sidebarIsStudyFree([
+        "const studyView = workspaceView === 'study';",
+        'const showSidebar = !isMobile && !examFocus;',
+        '{showSidebar && fit.sidebar > 0 && <Sidebar width={fit.sidebar} />}',
+        '{isMobile && !studyView && !examFocus && (<div><Sidebar isDrawer /></div>)}',
     ].join('\n')));
     okc('no drawer handle either, so nothing opens what is not there',
         /\{!studyView && \(\s*<IconButton\b/.test(wsSrc));
