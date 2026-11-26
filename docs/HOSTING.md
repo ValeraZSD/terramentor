@@ -212,10 +212,11 @@ and one person's runaway loop or bulk generation could spend everyone's month. E
 therefore counts its own model spend per calendar month (UTC), in its own database, and holds
 itself to two lines:
 
-1. Past `AI_FUSE_SWITCH_USD`, every model call of that person goes to `AI_FUSE_SMALL_MODEL`
-   for the rest of the month.
-2. Past `AI_FUSE_STOP_USD`, that person makes no model calls until the first of the next
-   month. They read one sentence ("AI is paused on your account until next month; your reviews,
+1. Once the month's spend reaches `AI_FUSE_SWITCH_USD`, every model call of that person goes
+   to `AI_FUSE_SMALL_MODEL` for the rest of the month.
+2. Once it reaches `AI_FUSE_STOP_USD`, that person starts no model call until the first of the
+   next month (a call already running when the line is crossed finishes and is counted, so the
+   total can end a few cents over). They read one sentence ("AI is paused on your account until next month; your reviews,
    cards and everything already made keep working.") where a model answer would have been. Their
    card reviews, quizzes with set answers, lessons already written and search keep working,
    since none of them needs the model (search still embeds its query: embeddings cost a fraction
@@ -226,8 +227,8 @@ There is no daily limit; the monthly total already bounds the cost. The defaults
 against loops and abuse rather than a quota: they sit far above what one person studying every
 day spends. The cost of each call is what OpenRouter reports on it (`usage.cost`, "Cost in
 credits", [Usage Accounting](https://openrouter.ai/docs/use-cases/usage-accounting), which
-also says "No additional parameters are required"), so the count matches your OpenRouter
-activity page. A provider that reports no cost is counted by its tokens at Claude Sonnet 5.5's
+also says "No additional parameters are required"), read from the answer, or from the extra
+chunk a streamed answer ends with, so the count matches your OpenRouter activity page. A provider that reports no cost is counted by its tokens at Claude Sonnet 5.5's
 listed price (USD 2 in, USD 10 out per million), or by its characters when it reports no
 tokens either. A model on the same machine (`AI_PROVIDER=ollama`) is neither counted nor
 switched.
@@ -238,8 +239,11 @@ ago the library was made: a switch on the day it was made is what a loop looks l
 `AI_FUSE_NOTICE_URL` set, the same sentence also goes there as a JSON POST
 (`{"text": "...", "event": "switch" | "stop", "library": "1a2b3c4d", "month": "2026-12",
 "spentUsd": 5.01, "switchUsd": 5, "stopUsd": 10}`), which a Slack or Mattermost incoming
-webhook shows as it is. Nothing a person wrote is in it. The front desk refuses to start with a
-value it cannot use (an amount that is not a number, a switch above the stop, a stop of 0) and
+webhook shows as it is. Nothing a person wrote is in it. The address may be a machine on your
+own network; a cloud metadata address is refused and a redirect is not followed. The front desk
+refuses to start with a value it cannot use (an amount that is not a number, a switch above the
+stop, a stop of 0, a small model that is not a model name, a notice address that is not http or
+https) and
 prints the lines in force when it starts. A copy per person (above) has no fuse: its own key
 with its own limit at OpenRouter does that job.
 
@@ -308,7 +312,9 @@ The copy adds both itself; `AI_EXTRA_BODY` can add other fields but cannot
 switch these off, and one that tries is named in the log at start. A copy on
 someone's own computer is unchanged.
 
-**The model needs a zero-retention endpoint, and so does the embedding model.**
+**The model needs a zero-retention endpoint, and so does the embedding model**
+(and on a site, `AI_FUSE_SMALL_MODEL`, which every call of a person past the switch uses;
+check it with the same command below).
 When none serves it, OpenRouter refuses the request and the request is not sent
 anywhere else. For the model, the copy shows "No zero-retention endpoint on
 OpenRouter serves the model ..."; for the embedding model, search and related

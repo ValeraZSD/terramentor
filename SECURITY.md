@@ -22,7 +22,8 @@ your data at all." Those are different claims and we only make the second one.
   exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
   or test (including OpenRouter's `/key` route, and its public model list for the thinking
   levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
-  revocation at `auth.openai.com` (all below); (b) **resource curation while
+  revocation at `auth.openai.com`, and on a multi-account site the spending notice to the
+  operator's `AI_FUSE_NOTICE_URL` when one is set (all below); (b) **resource curation while
   the AI creates a project**, which is **on by default** (Settings → AI & Models → "Find
   resources"), and the same curation for one topic when you press **Find resources** on it,
   whether that switch is on or not; it sends
@@ -503,12 +504,14 @@ loads it. What it does:
 - **A spending fuse per person** (`server/aiFuse.js`, `server/aiSpend.js`). Every library uses
   the site's one model key, so each counts its own model spend per month in its own database
   (`ai_spend`, which no route reads or writes and no export carries) and moves to a smaller model,
-  then stops making model calls, past the operator's lines (`AI_FUSE_*`, `docs/HOSTING.md`). The
+  then starts no chat model call (embeddings, which search what the library already holds, go on),
+  past the operator's lines (`AI_FUSE_*`, `docs/HOSTING.md`). The
   stop is checked where a call's model is chosen and again on the wire, so a call that chose its
   model earlier is refused too. When a library passes a line and `AI_FUSE_NOTICE_URL` is set, the
   library makes **one outbound call**: a JSON POST to that address naming the library by the first
   eight characters of its id, the month, the amounts and the event, and nothing the person wrote;
-  no redirect is followed and it gives up after 10 seconds. With the variable unset it makes none.
+  it goes through `localEndpointFetch` like any address the operator types (a cloud metadata
+  address is refused, a redirect is not followed) and gives up after 10 seconds. With the variable unset it makes none.
 - **Not there yet**: public sign-up, email, password reset, a second factor and export. The
   front desk itself runs as root, because it must start each library as its own user.
 
