@@ -514,25 +514,40 @@ loads it. What it does:
 - **Archives are encrypted before they are written to the backup folder**, with
   [age](https://age-encryption.org) (X25519, ChaCha20-Poly1305) to the operator's public key(s)
   in `TM_BACKUP_RECIPIENTS`. No backup is written without one, and a file holding a private key
-  is refused there. The private key is not needed to back up, only to restore, so it need not
-  be on the server; the unencrypted archive exists only while it is checked, in `hosted/.work/`
-  (root only), and is deleted after. Anyone who copies the backup folder, a storage box
-  included, reads nothing without a private key.
+  is refused there, as is a recipients file anyone but root can write. The private key is not
+  needed to back up, only to restore, so it need not be on the server; the unencrypted archive
+  exists only while it is checked, in `hosted/.work/` (root only), and is deleted after. Anyone
+  who copies the backup folder, a storage box included, reads nothing without a private key.
+  age does not prove who made an archive (anyone with the public key can), so only archives
+  from the operator's own backup folder should be restored; `site-restore` refuses a `site.db`
+  whose library ids or user ids are not of the shape the front desk writes.
+- **Each library is read and written as its own user.** The front desk runs as root, but its
+  backup and restore of a site library run the library's tool under that library's uid, and a
+  backup refuses a library whose database, vault or credentials file is a link. A person who
+  plants links in their own library folder cannot make a backup or restore read another
+  library or write over `site.db`.
+- **A site restore signs everyone out**: the restored `site.db` keeps no session, and every
+  password is the one that night's backup held.
 - **Retention**: the newest `TM_BACKUP_KEEP` (default 14) archives per copy or library; older
   ones are deleted by the next backup.
 - **Erasure**: `copy.sh remove <name> --erase` or `copy.sh site-remove <email> --erase` writes a
   line to an erasure ledger: the SHA-256 of the copy's name or the library's id (no name or
-  address), when, and when its grace period (`TM_ERASE_AFTER_DAYS`, default 14) ends. From then
-  on `copy.sh restore` refuses any archive made before the erasure, and `copy.sh site-restore`
+  address is written, though a guessed name can be checked against the hash), when, and when its
+  grace period (`TM_ERASE_AFTER_DAYS`, default 14) ends. Every archive holds the same hash of
+  whom it was made from, so from then on `copy.sh restore` refuses any archive made before the
+  erasure, into any copy, and `copy.sh site-restore`
   leaves the erased library out and deletes its account from the restored `site.db` before the
   front desk starts. After the grace period, the nightly `backup --all` deletes the person's
   archives. The ledger is kept outside every archive, on the server and in the backup folder,
   and read as the union of both, so an older backup put back is erased again on the next night.
   `hosted/rehearse.sh` checks all of this in CI.
-- **What it does not reach**: the `site.db` archives hold every account's email address and
-  password hash, so an erased person's stays in them until they roll off (`TM_BACKUP_KEEP`
-  nights). And it deletes only in `TM_BACKUP_DIR`: a copy of that folder made elsewhere keeps
-  what it holds unless whatever made the copy deletes it too.
+- **What it does not reach**: the `site.db` archives made before a removal hold that account's
+  email address and password hash until they roll off (`TM_BACKUP_KEEP` backups); `site.db`
+  overwrites removed rows (`secure_delete`), so later archives do not. The sweep deletes the
+  archives in the erased person's own folder: one copied or moved elsewhere by hand stays,
+  though no restore takes it. Archives written before encryption (`.tar.gz`) stay readable until
+  retention deletes them. And it deletes only in `TM_BACKUP_DIR`: a copy of that folder made
+  elsewhere keeps what it holds unless whatever made the copy deletes it too.
 
 ## What is NOT protected
 

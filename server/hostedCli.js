@@ -24,7 +24,7 @@
 // Where the library lives is server/paths.js, as for the server itself.
 import { randomInt } from 'node:crypto';
 import {
-    copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
+    constants as fsConstants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -115,8 +115,15 @@ function countProjects(file) {
 async function backupCommand([dir]) {
     if (!dir) fail('usage: backup <dir>');
     if (existsSync(dir)) fail(`${dir} already exists`);
-    const { dbPath, vaultRoot } = dataPaths();
+    const { dbPath, vaultRoot, secretsPath } = dataPaths();
     if (!existsSync(dbPath)) fail(`no library at ${dbPath}`);
+    // What the backup reads is the library's own: a link (to another library,
+    // or out of the folder) is not followed into its archive.
+    for (const p of [dbPath, vaultRoot, secretsPath]) {
+        let st = null;
+        try { st = lstatSync(p); } catch { /* not there */ }
+        if (st?.isSymbolicLink()) fail(`${p} is a link, not part of this library; nothing was backed up`);
+    }
     // Its database and credentials may not belong together: saving it as a
     // good backup would let a later restore clear the marker on it.
     if (existsSync(restoreMarkerPath(dbPath))) fail('a restore of this library is unfinished; restore a good backup first');
@@ -158,9 +165,12 @@ function restoreCommand([dir]) {
     const { dbPath, vaultRoot } = dataPaths();
     // Copied beside the library first, so a full disk fails here with the old
     // library still whole; only then is it swapped in.
+    // Fresh files at fixed names: whatever is there already (a link, left in a
+    // folder its library writes to) is removed, never written through.
     const incoming = `${dbPath}.restoring`;
     try {
-        copyFileSync(from, incoming);
+        rmSync(incoming, { force: true });
+        copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
         makePrivateFile(incoming);
     } catch (e) {
         rmSync(incoming, { force: true });
@@ -171,7 +181,8 @@ function restoreCommand([dir]) {
     // a hosted copy will not start on it (server/hosted.js).
     const marker = restoreMarkerPath(dbPath);
     try {
-        writeFileSync(marker, `${new Date().toISOString()}\n`);
+        rmSync(marker, { force: true });
+        writeFileSync(marker, `${new Date().toISOString()}\n`, { flag: 'wx' });
         makePrivateFile(marker);
     } catch (e) {
         rmSync(incoming, { force: true });

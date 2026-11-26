@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { constants as fsConstants, closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -90,7 +90,10 @@ export function copyCredentialsTo(to) {
 export function replaceCredentialsFrom(from) {
     const to = secretsFile();
     const incoming = `${to}.restoring`;
-    copyFileSync(from, incoming);
+    // Whatever is at that name (a link, left in the library's folder) is
+    // removed, not written through: the new file is made fresh.
+    try { unlinkSync(incoming); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
     chmodSync(incoming, 0o600);
     renameSync(incoming, to);
     cache = null;

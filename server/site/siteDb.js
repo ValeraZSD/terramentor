@@ -60,6 +60,9 @@ export function openSiteDb(siteDir) {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.pragma('busy_timeout = 5000');
+    // A removed account's address and password hash are overwritten, not left
+    // in a free page that the next backup copies.
+    db.pragma('secure_delete = ON');
     db.exec(SCHEMA);
     if (process.platform !== 'win32') {
         for (const f of [file, `${file}-wal`, `${file}-shm`]) {

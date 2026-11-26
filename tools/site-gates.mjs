@@ -23,7 +23,10 @@
  *      remove deletes an account, its rows and folder, and the front desk's
  *      sweep stops it if it runs; a restore of a backup older than an erasure
  *      leaves the erased library out (and, as the control, brings it back
- *      without the ledger); a backup missing a library is refused untouched.
+ *      without the ledger); a removed address leaves no trace in the next
+ *      backup; one library that cannot be backed up costs no one else
+ *      theirs; a restore brings back no session, refuses a forged library
+ *      id, and leaves a library its night missed as it is.
  *   5. The solo app is unchanged: no `site` in its status, no site line in its log.
  *
  * Nothing here reaches a model: the model address is a closed port.
@@ -34,7 +37,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { tmpdir } from 'node:os';
 import vm from 'node:vm';
@@ -588,19 +591,54 @@ try {
             && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org') && !db.prepare('SELECT 1 FROM libraries WHERE id = ?').get(ann)
             && !existsSync(pool.libDir(ann)), r.out);
         await pool.sweep();
-        ok('the front desk\'s sweep stops a removed library that was running', !pool.isAwake(ann) && (stoppedBySweep || process.platform !== 'win32'));
+        ok('the front desk\'s sweep stops a removed library that was running', !pool.isAwake(ann), `stopped by a sweep during the remove: ${stoppedBySweep}`);
         await pool.stopAll();
         db.close();
+        // A removed account is overwritten in site.db, not left in a free page the next backup copies.
+        r = cli('backup', join(scratch, 'ops-after'));
+        ok('a backup made after a remove holds no trace of the removed address', r.code === 0
+            && !readFileSync(join(scratch, 'ops-after', 'site.db')).includes(Buffer.from('ann@example.org')), r.out);
+        // One library that cannot be backed up (here an unfinished restore) does not cost the others theirs.
+        const marker = join(pool.libDir(ben), 'terramentor.db.restore-incomplete');
+        writeFileSync(marker, 'x');
+        r = cli('backup', join(scratch, 'ops-partial'));
+        ok('a library that cannot be backed up leaves the rest written, and exits 3', r.code === 3 && /PARTIAL/.test(r.out)
+            && existsSync(join(scratch, 'ops-partial', 'site.db')) && !existsSync(join(scratch, 'ops-partial', 'libraries', ben)), r.out);
+        rmSync(marker);
+        // A library's folder is its own to fill: a link it leaves there is never followed.
+        const outside = join(scratch, 'ops-outside');
+        mkdirSync(outside);
+        writeFileSync(join(outside, 'other-library.txt'), 'not ben\'s');
+        const benVault = join(pool.libDir(ben), 'vault');
+        if (existsSync(benVault)) renameSync(benVault, `${benVault}.kept`);
+        symlinkSync(outside, benVault, 'junction');
+        r = cli('backup', join(scratch, 'ops-linked'));
+        ok('a library whose vault is a link is not backed up through it', r.code === 3 && /is a link/.test(r.out)
+            && !existsSync(join(scratch, 'ops-linked', 'libraries', ben)), r.out);
+        if (process.platform === 'win32') rmdirSync(benVault); else unlinkSync(benVault);
+        if (existsSync(`${benVault}.kept`)) renameSync(`${benVault}.kept`, benVault);
+        const decoy = join(outside, 'decoy');
+        writeFileSync(decoy, 'untouched');
+        const planted = ['terramentor.db.restoring', 'terramentor.secrets.json.restoring', 'terramentor.db.restore-incomplete'].map((n) => join(pool.libDir(ben), n));
+        let linksMade = true;
+        for (const p of planted) { try { symlinkSync(decoy, p, 'file'); } catch (e) { if (process.platform === 'win32' && e.code === 'EPERM') linksMade = false; else throw e; } }
 
         // The erasure ledger, as hosted/copy.sh keeps it: SHA-256 of "site:<id>", then times.
         const ledger = join(scratch, 'ops-erasures');
         writeFileSync(ledger, `${crypto.createHash('sha256').update(`site:${ann}`).digest('hex')} 20261126T000000Z 20261210T000000Z\n`);
         r = cli('restore', night, '--erased', ledger);
+        if (linksMade) {
+            const still = planted.filter((p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } });
+            ok('a restore writes nothing through links left at its fixed names in the library', readFileSync(decoy, 'utf8') === 'untouched',
+                `decoy now: ${JSON.stringify(readFileSync(decoy, 'utf8').slice(0, 40))}; links left: ${still.map((p) => p.split(/[\\/]/).pop()).join(' ')}; ${r.out}`);
+        } else console.log('  skip a restore through planted links: this Windows account may not make file links');
         db = openSiteDb(siteDir);
         ok('a restore of a backup older than an erasure leaves the erased library out: no account, no row, no folder',
             r.code === 0 && /1 library left out/.test(r.out) && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org')
             && !db.prepare('SELECT 1 FROM libraries WHERE id = ?').get(ann) && !existsSync(pool.libDir(ann)), r.out);
         ok('…and puts every other library back as it was that night', markOf(ben) === 'ben-1' && !!db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ben@example.org'));
+        const nightSessions = (() => { const n = new Database(join(night, 'site.db'), { readonly: true }); const c = n.prepare('SELECT COUNT(*) AS c FROM sessions').get().c; n.close(); return c; })();
+        ok('…and brings back none of that night\'s sessions', nightSessions > 0 && db.prepare('SELECT COUNT(*) AS c FROM sessions').get().c === 0, `sessions in the backup: ${nightSessions}`);
         db.close();
         // The control: the same backup without the ledger brings that library back, so the ledger is what kept it out.
         r = cli('restore', night);
@@ -608,10 +646,17 @@ try {
         ok('the same restore with no ledger brings it back (the ledger is what left it out)', r.code === 0 && markOf(ann) === 'ann-1'
             && !!db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org'), r.out);
         db.close();
-        rmSync(join(night, 'libraries', ben), { recursive: true });
+        // A forged site.db (whoever can write where backups are kept) naming a folder outside libraries/.
+        const forged = join(scratch, 'ops-forged');
+        cpSync(night, forged, { recursive: true });
+        { const f = new Database(join(forged, 'site.db')); f.pragma('foreign_keys = OFF'); f.prepare('UPDATE libraries SET id = ? WHERE id = ?').run('..', ben); f.close(); }
         mark(ben, 'ben-3');
+        r = cli('restore', forged);
+        ok('a backup whose site.db names a library id that is no id is refused and the site is untouched', r.code === 1 && /untouched/.test(r.out) && markOf(ben) === 'ben-3', r.out);
+        rmSync(join(night, 'libraries', ben), { recursive: true });
         r = cli('restore', night);
-        ok('a backup missing a library it lists is refused and the site is untouched', r.code === 1 && /untouched/.test(r.out) && markOf(ben) === 'ben-3', r.out);
+        ok('a library its night could not back up keeps its account and its folder as it is', r.code === 0 && /not backed up that night/.test(r.out)
+            && markOf(ben) === 'ben-3' && markOf(ann) === 'ann-1', r.out);
         await release();
     }
 

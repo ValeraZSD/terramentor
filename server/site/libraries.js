@@ -66,10 +66,26 @@ export function createLibraryPool({
         }
     }
 
+    /**
+     * A user no one has: above every row, every folder on disk (a restore of an
+     * older site.db keeps the folders of people who joined after it) and every
+     * process still running (a removed library runs until the next sweep).
+     */
+    function nextUid() {
+        let top = Math.max(uidBase - 1, q.maxUid.get().uid ?? 0);
+        for (const c of children) top = Math.max(top, c.libraryUid ?? 0);
+        if (process.platform !== 'win32') {
+            for (const name of fs.readdirSync(layout.libraries)) {
+                try { top = Math.max(top, fs.lstatSync(path.join(layout.libraries, name)).uid); } catch { /* gone meanwhile */ }
+            }
+        }
+        return top + 1;
+    }
+
     /** Make a new, empty library folder and its row. Returns its id. */
     function create() {
         const id = crypto.randomBytes(16).toString('hex');
-        const uid = separate ? Math.max(uidBase - 1, q.maxUid.get().uid ?? 0) + 1 : null;
+        const uid = separate ? nextUid() : null;
         q.add.run(id, uid, crypto.randomBytes(32).toString('hex'), nowIso());
         const dir = libDir(id);
         fs.mkdirSync(dir, { mode: 0o700 });
@@ -142,6 +158,7 @@ export function createLibraryPool({
             windowsHide: true,
             ...(separate ? { uid: row.uid, gid: row.uid } : {}),
         });
+        child.libraryUid = row.uid;
         children.add(child);
         const tag = `[library ${id.slice(0, 8)}]`;
         let tail = '';
