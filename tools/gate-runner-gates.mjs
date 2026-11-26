@@ -208,7 +208,9 @@ const apart = (a, b) => a.end <= b.start || b.end <= a.start;
     check('--quick leaves the browser suites out and runs the rest',
         run.code === 0 && JSON.stringify(rows.map((r) => r.name).sort()) === JSON.stringify(['dep-gates.mjs', 'pair-a-gates.mjs', 'pair-b-gates.mjs']), run.out);
     check('--quick says so on the last line', /\(--quick: harnesses and browser scans skipped\)$/.test(lastLine(run.out)), lastLine(run.out));
-    check('on CI the suites start at the priority the runner has',
+    // At idle priority already, a runner that wrongly lowered it would look the same.
+    if (getPriority() === osConstants.priority.PRIORITY_LOW) console.log('  note  CI priority not checked: this gate already runs at idle priority');
+    else check('on CI the suites start at the priority the runner has',
         readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8') === String(getPriority()),
         `${readFileSync(join(run.scratch, 'pair-a.priority'), 'utf8')} vs ${getPriority()}`);
 }
@@ -222,9 +224,12 @@ async function stopRun(signal) {
         whileRunning: async (child, scratch) => {
             const deadline = Date.now() + 20_000;
             const marks = ['wait-a.ready', 'wait-b.ready', 'wait-a-child.pid', 'wait-b-child.pid'];
-            while (Date.now() < deadline && !marks.every((m) => existsSync(join(scratch, m)))) await sleep(50);
+            // A runner that already ended (a crash, a usage error) is not waited for, and not signalled.
+            const gone = () => child.exitCode !== null || child.signalCode !== null;
+            while (!gone() && Date.now() < deadline && !marks.every((m) => existsSync(join(scratch, m)))) await sleep(50);
             ready = marks.every((m) => existsSync(join(scratch, m)));
-            process.kill(child.pid, signal);
+            if (gone()) return;
+            try { process.kill(child.pid, signal); } catch { /* ended meanwhile */ }
         },
     });
     const how = WINDOWS ? 'killed outright' : signal;
