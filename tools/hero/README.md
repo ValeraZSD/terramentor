@@ -71,7 +71,9 @@ it together.
 `serve.mjs` only opens a library it made itself (it leaves a `.hero-library` file there), so it
 cannot be pointed at a real one. Without `--record`, a call through `fetch` to any host but this
 machine is refused; the film's settings turn off the features that fetch pages themselves (web
-search, finding resources, update checks). `HERO_FALLBACK_LOG`, `HERO_ORDER_LOGS` and `HERO_NO_FALLBACK` stand in for the
+search, finding resources, update checks). The model list the assistant panel asks for is
+answered by `serve.mjs` itself, with and without `--record`, so the panel looks the same in
+every take. `HERO_FALLBACK_LOG`, `HERO_ORDER_LOGS` and `HERO_NO_FALLBACK` stand in for the
 options of the same names.
 
 A refused call's whole request is saved as `<work>/library/refused/<hash>.json`, and
@@ -85,8 +87,9 @@ it.
 
 With `--stepped` the page runs on a virtual clock that moves only when the recorder steps it:
 timers, animation frames, `Date`, `performance.now`, CSS animations and transitions, and SVG
-animations all follow it. Each step is one frame (1/20 s of film, times the time-lapse speed),
-then a screenshot. The server's replayed model follows the same clock through
+animations all follow it. Each step is one frame (1/40 s of film by default, `--fps` to change it, times the time-lapse
+speed), then a screenshot. 20 fps is too coarse for the drawing's thin moving lines: they jump
+further than their own width each frame. The server's replayed model follows the same clock through
 `/__film/clock?t=<seconds>&auto=<0|1>`, so a reply arrives at the same moment of the film however
 long each screenshot takes. A slow or busy machine films the same clip, only slower.
 

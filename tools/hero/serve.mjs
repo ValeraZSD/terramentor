@@ -223,6 +223,12 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
         log({ how: 'blocked', origin: u.origin });
         throw new Error(`replay only: ${u.origin} is not reached`);
     }
+    // The model list (the assistant panel asks for it): answered here in both modes, so no take
+    // shows "can't reach" and recording and replay draw the same panel.
+    if (u.pathname === '/v1/models' && (!init.method || init.method === 'GET')) {
+        log({ how: 'models' });
+        return new Response(JSON.stringify({ data: [{ type: 'model', id: MODEL, display_name: 'Claude Opus 5.5' }], has_more: false, first_id: MODEL, last_id: MODEL }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (u.pathname !== '/v1/messages' || typeof init.body !== 'string') {
         if (!opt.record) throw new Error(`replay only: ${url} is not answered`);
         return realFetch(input, init);

@@ -13,6 +13,7 @@
  *   --port <n>            the app's port (default 3536)
  *   --stepped             frame-stepped capture: the page and the replayed model run on the film's
  *                         clock, so a busy machine films the same clip, only slower
+ *   --fps <n>             frames a second (default 40 with --stepped, else 20)
  *   --until <scene>       stop after a scene: created | opened | end (default end)
  *   --wait-feed           after the course is drafted, cut until every topic's lessons are written
  *   --fallback-log, --order-logs, --no-fallback, --record, --max-usd, --max-real: passed to serve.mjs
@@ -45,6 +46,7 @@ const opt = { recorder: process.env.HERO_RECORDER, cassettes: process.env.HERO_C
         else if (k === '--out') opt.out = v();
         else if (k === '--port') opt.port = Number(v());
         else if (k === '--stepped') opt.stepped = true;
+        else if (k === '--fps') opt.fps = Number(v());
         else if (k === '--until') opt.until = v();
         else if (k === '--wait-feed') opt.waitFeed = true;
         // Paths are resolved here: the server runs from the repository root, not from here.
@@ -58,6 +60,9 @@ const opt = { recorder: process.env.HERO_RECORDER, cassettes: process.env.HERO_C
 if (!opt.recorder || !opt.cassettes) throw new Error('usage: film.mjs --recorder <demo.mjs> --cassettes <dir> [options]');
 const SCENES = ['created', 'opened', 'end'];
 if (!SCENES.includes(opt.until)) throw new Error(`--until is one of ${SCENES.join(', ')}`);
+// 20 fps is too coarse for the drawing's thin moving lines (they hop); stepping makes 40 affordable.
+opt.fps ??= opt.stepped ? 40 : 20;
+if (!(opt.fps >= 1 && opt.fps <= 60)) throw new Error('--fps is between 1 and 60');
 const WORK = resolve(opt.work || mkdtempSync(join(tmpdir(), 'hero-film-')));
 const LIB = join(WORK, 'library');
 if (existsSync(LIB)) throw new Error(`every take needs a new library: ${LIB} exists`);
@@ -199,7 +204,7 @@ let result;
 try {
     result = await record({
         url: `${BASE}/projects`, waitFor: 'text=New course', out: OUT,
-        viewport: { width: 1280, height: 800, scale: 2 }, fps: 20, theme: 'light', locale: 'en-US',
+        viewport: { width: 1280, height: 800, scale: 2 }, fps: opt.fps, theme: 'light', locale: 'en-US',
         keepFrames: true, tail: 600, strictSize: true, start: [880, 560],
         workDir: join(WORK, 'frames'), checkDir: join(WORK, 'check'),
         fade: 0, soften: 0, progressBar: { color: '#0E7490', marks: false },
