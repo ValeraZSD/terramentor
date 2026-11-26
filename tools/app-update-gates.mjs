@@ -863,7 +863,13 @@ mkdirSync(join(appA, 'data'), { recursive: true });
 writeFileSync(join(appA, 'data', 'terramentor.db'), 'the library');
 writeFileSync(join(appA, 'library-location.txt'), 'D:/elsewhere');
 
-const port = 39000 + Math.floor(Math.random() * 900);
+// A port the system hands out as free, not one from a fixed range: other suites
+// run beside this one, and their servers must not answer the updater's probe.
+const port = await new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); });
+});
 const pidFile = join(scratch, 'app.pid');
 // The library's instance key, where the launcher would name it in the plan.
 const keyFile = join(scratch, 'instance.key');
@@ -898,8 +904,16 @@ function runUpdater({ proofless = false, timeoutMs = 15_000, channels, app = app
 /** Stop the fake app the updater started. After a refused update the updater
  *  starts the old version without waiting for it, so wait for its pid first. */
 const killApp = async () => {
-    for (let i = 0; i < 50 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
-    try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* gone */ }
+    // The app creates the file before it writes its pid, so a busy machine can
+    // show it empty: that reads as pid 0, and killing pid 0 ends this process
+    // (Windows) or its whole process group. Wait for a real pid.
+    let pid = 0;
+    for (let i = 0; i < 50; i++) {
+        try { pid = Number(readFileSync(pidFile, 'utf8')); } catch { pid = 0; }
+        if (Number.isInteger(pid) && pid > 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+    }
+    if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
     rmSync(pidFile, { force: true });
 };
 const installedVersion = (app = appA) => JSON.parse(readFileSync(join(app, 'package.json'), 'utf8')).version;

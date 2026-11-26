@@ -469,7 +469,7 @@ export async function writeSections(ctx, catIdx, category) {
     const answer = await generateStructure(
         AI_PROMPTS.generate_elements(ctx.name, ctx.projectSummary, category.title, category.description, {
             lang: ctx.lang, sources: phaseBlock(src, category.sections),
-            size: ctx.size, plan: ctx.plan, earlier: earlierSections(ctx, catIdx),
+            size: ctx.size, plan: ctx.plan, earlier: earlierSections(ctx, catIdx), goal: ctx.description,
         }),
         validateElements,
         { signal: ctx.signal, minItems: 1, label: 'Sections', answered }

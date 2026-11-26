@@ -14,6 +14,7 @@
 
 import * as nodeFs from 'node:fs';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -298,7 +299,13 @@ try {
     // --- two real launchers at once -----------------------------------------------
     if (!process.argv.includes('--quick')) {
         const dataDir = freshDir();
-        const port = 39000 + Math.floor(Math.random() * 800);
+        // A port the system hands out as free, not one from a fixed range: other
+        // suites run beside this one.
+        const port = await new Promise((resolve, reject) => {
+            const probe = createServer();
+            probe.once('error', reject);
+            probe.listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); });
+        });
         const env = { ...process.env };
         for (const k of ['DATA_DIR', 'DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH', 'PORT', 'TERRAMENTOR_TRAY']) delete env[k];
         // A scratch home, so nothing these launchers write per user (the login

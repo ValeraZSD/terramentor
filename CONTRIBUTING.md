@@ -148,7 +148,21 @@ scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
-`npm run test:quick` skips the four jsdom harnesses and the three browser suites if you want the fast half.
+`npm run test:quick` skips the four jsdom harnesses and the four browser suites if you want the fast half.
+
+`npm test` runs the suites side by side, as many at once as the machine has cores: on your own
+machine at most 16, and at idle priority so the desktop stays usable. The browser suites take turns.
+`perf-budget-gates` runs first and alone because its timings are a budget, then `dep-gates`
+alone because it reads every file under `tools/` while other suites write there, and
+`provenance-gates` alone because its request counts are only stable on a quiet machine. `npm test -- --jobs 4` (or `GATES_JOBS=4`) sets the number;
+`--jobs 1` runs them one after another in name order, as before. Each suite's output is printed
+whole when it ends, a failing one's under its `FAIL` line, and the run ends with the ten slowest
+suites. A suite that runs past its time limit is stopped together with every process it started.
+CI splits the suites over several runners per platform with `--shard`: `axe` (axe-gates alone),
+`browser` (the other browser suites) and `rest`; `npm test -- --shard rest --list` prints what
+one shard runs.
+A suite therefore must not take a fixed port, a fixed temp folder or a fixed file in the repo
+that another suite also uses: take a free port (`listen(0)`) and an `mkdtemp` folder.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
 `package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
@@ -223,6 +237,15 @@ line falls, but a near miss can still show; the Windows run is the one that coun
   variable and is per-project, where a fixed palette colour would ignore the learner's choice.
 - **Input capability is not a width breakpoint.** Use the `can-hover:` / `touch:` variants and
   the helpers in `src/utils/platform.ts`. A phone held sideways clears `sm:`.
+- **Interface text is `t("…")`, and its locale entries go in through `tools/i18n-put.mjs`.**
+  The key is the English sentence ([docs/I18N.md](docs/I18N.md#how-it-works-for-people-changing-the-app)).
+  Add or change entries in `src/locales/*.json` with `node tools/i18n-put.mjs <patch.json>`,
+  never by pasting lines into the files: each file is kept sorted (`tools/locale-format-gates.mjs`
+  fails otherwise), so two pull requests adding different sentences change different lines.
+  `node tools/i18n-put.mjs --settle` puts a hand-edited file back in order. Once
+  `npm run setup:worktree` or `node tools/locale-merge.mjs --register` has registered it, a git
+  merge of these files goes key by key and conflicts only on a key both sides changed; without
+  it git merges them line by line.
 - **Dates are `YYYY-MM-DD`, parsed as UTC midnight**, and date maths stays in UTC; the reason
   is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#4-data-model).
 - **A route goes in its area's file in `server/routes/`**, registered as `app.get(...)` on the
@@ -287,30 +310,63 @@ To cut a stable release:
    CI **fails a release that disagrees with it**, because an app that reports one version while
    the update check compares another leaves every install believing it is permanently out of
    date.
-4. Re-shoot the stills from current `main` (`node tools/docs-shots.mjs --library <dir>`, about
-   two minutes) and read `README.md` and `docs/` against the app this release ships. The checks
-   have kept the labels and the pictured screens honest on every pull request; the reading is
-   for what they cannot see: a claim about behaviour, a number, a picture that is true but
-   shows less than it could. Fix wrong text and re-shoot stale media in the same pull request,
-   or in one merged before the release is announced. Nightlies get the same pass before a
-   stable is promoted from them. The pass includes [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md):
-   its known gaps and every row of its WCAG 2.2 report read against the release, a fixed gap
-   taken out, a new one written in, and its date moved.
-5. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
+4. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
    **Nightly** by hand with **nightly**) and try that build. On Windows,
    `tools/windows-sandbox-check.ps1 -Tag <the nightly's tag>` tries its zip the way someone
    who has never run Terramentor would ([docs/DESKTOP.md](docs/DESKTOP.md#how-it-is-built)).
-6. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
-   `main`'s head, so work merged since does not ride along. It rebuilds that commit, because
-   the version is part of the build. When `package.json` at that commit is not newer than the
-   latest stable tag, or `CHANGELOG.md` there has no section for it, it refuses and names the
-   step that is missing. It also refuses when the release pipeline itself
-   (`.github/workflows/release.yml`, `tools/release.mjs`, `tools/lib/releaseChannel.mjs`)
-   changed on `main` after that nightly, because the workflow from `main` would run the older
-   script; let a nightly of the current `main` build (or run **Nightly** by hand), then promote.
+   Write down the tag of the nightly you tried: that build, and nothing merged after it, is
+   the release. `main` keeps merging from here on; nothing waits for the cut.
+5. If trying it finds a bug **this release brought in** (something the last stable did not
+   have), fix it on `main` first, in an ordinary pull request. Then give the release its own
+   branch, once, at the commit of the nightly you tried, and bring the fix there in a pull
+   request against that branch:
 
-`.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
-amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
+   ```sh
+   git push origin <the nightly's commit>:refs/heads/release/X.Y   # once per release
+   git switch -c release-X.Y-fix origin/release/X.Y
+   git cherry-pick -x <the fix's commit on main>
+   ```
+
+   Nothing else joins: a new feature, or a fix for something the last stable already did,
+   waits for the next release on `main`. Never merge `main` into the branch: the stable run
+   refuses a branch that holds `main`'s own commits after the nightly, since they were never
+   tried. **Gates** runs on every push to `release/X.Y` as it does on `main`. A
+   `CHANGELOG.md` change goes to `main` and is cherry-picked the same way.
+6. Run **Nightly** by hand with **stable**, and the tag from step 4 in **nightly**. It
+   releases that nightly's commit, or the head of `release/X.Y` when that branch exists (the
+   branch has to contain the nightly), never `main`'s head and never whichever nightly is
+   newest. It rebuilds that commit, because the version is part of the build, and the run's
+   summary lists every commit the branch adds after the nightly. When `package.json` there is
+   not newer than the latest stable tag, or `CHANGELOG.md` there has no section for it, it
+   refuses and names the step that is missing. It also refuses when the release pipeline
+   itself (`.github/workflows/release.yml`, `tools/release.mjs`,
+   `tools/lib/releaseChannel.mjs`) changed on `main` after the commit it would build, because
+   the workflow from `main` would run the older script: cherry-pick that change onto
+   `release/X.Y` (start the branch at the nightly if there is none), then run it again. The
+   other scripts the workflow runs (the smoke tests, the desktop build) come from the commit
+   being built; the summary names any that differ from `main`'s, so a step that fails on how
+   it calls one points at the change to cherry-pick. When
+   the branch carries fixes, the build waiting for your Approve has not been tried yet: take
+   the Windows zip from that run's artifacts and try it with
+   `tools/windows-sandbox-check.ps1 -Zip <the zip>` before you press Approve.
+7. The docs follow the tag; they do not hold the cut. Once the release is out, re-shoot the
+   stills from current `main` (`node tools/docs-shots.mjs --library <dir>`, about two minutes)
+   and the README clip, and read `README.md` and `docs/` against the app this release ships.
+   The checks have kept the labels and the pictured screens honest on every pull request; the
+   reading is for what they cannot see: a claim about behaviour, a number, a picture that is
+   true but shows less than it could. Fix wrong text and re-shoot stale media in one pull
+   request to `main`. The pass includes [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md): its
+   known gaps and every row of its WCAG 2.2 report read against the release, a fixed gap taken
+   out, a new one written in, and its date moved.
+
+A **patch** for a release that is out (1.2.1 after 1.2.0) goes the same way: the fix on `main`
+first, then cherry-picked onto `release/1.2` with the `package.json` bump and its
+`CHANGELOG.md` section, and **Nightly** run with **stable** naming the nightly the branch was
+started from. A release whose branch does not exist yet starts it at the 1.2.0 tag's commit.
+
+`.github/workflows/release.yml` then runs the gates (or, when the **Gates** workflow already
+passed on a push of exactly that commit, says so and does not run them a second time), builds
+the container image natively for amd64 and arm64, starts each one, publishes it to GHCR, and opens the GitHub Release with that changelog section as its body. Beside
 the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
 and SHA-256, which is what an updater checks a download against. `manifest.json.sig` signs the
 manifest with the channel's Ed25519 key, and the zips get a build provenance attestation. The
@@ -337,8 +393,9 @@ by it with one click.
 
 Pushing a tag by hand (`git tag v1.2.0 && git push origin v1.2.0`) still releases exactly that
 commit, for the day the commit to ship is not a nightly's. Every release path refuses a commit
-that is not on `main`. A hotfix tagged on an older line (1.2.1 after 1.3.0) is published but
-does not become Latest or move the `latest` image. A pull request that changes the release
+that is not on `main` or, for a stable release, on that version's own `release/X.Y`; a nightly
+comes from `main` only. A hotfix tagged on an older line (1.2.1 after 1.3.0, on `release/1.2`)
+is published but does not become Latest or move the `latest` image. A pull request that changes the release
 workflows or the packaging runs all of `release.yml` and publishes nothing.
 
 **A prerelease is how a release stays off the stable channel.** A nightly, or a tag with a
