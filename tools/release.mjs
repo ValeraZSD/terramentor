@@ -5,6 +5,7 @@
  *   node tools/release.mjs plan [--force] [--now ISO]      should the schedule publish main now, and as what
  *   node tools/release.mjs promote                         the stable release the latest nightly becomes
  *   node tools/release.mjs resolve                         what release.yml builds (event + inputs from env)
+ *   node tools/release.mjs gates-passed --sha SHA          did the Gates workflow already pass this commit's push
  *   node tools/release.mjs check-version --channel C --version V
  *   node tools/release.mjs stamp <version>                 write the version into package.json + lock
  *   node tools/release.mjs assets --dir release --channel C --version V --commit SHA
@@ -30,7 +31,7 @@ import { basename, join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
-    draftProblems,
+    draftProblems, lookUpGates,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
@@ -67,8 +68,9 @@ const commitOf = (tag) => {
 
 /** One GitHub API call for this repository, with GITHUB_TOKEN when there is
  *  one. GITHUB_API_URL is what Actions itself sets; the gates point it at a
- *  local stand-in. */
-async function github(path, { method = 'GET', body } = {}) {
+ *  local stand-in. `signal` lets a caller hold several calls to one deadline;
+ *  without one, each call gets 60 seconds. */
+async function github(path, { method = 'GET', body, signal = AbortSignal.timeout(60_000) } = {}) {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     const api = process.env.GITHUB_API_URL || 'https://api.github.com';
     const res = await fetch(`${api}/repos/${repo()}${path}`, {
@@ -80,6 +82,7 @@ async function github(path, { method = 'GET', body } = {}) {
             ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
+        signal,
     });
     if (!res.ok) throw new Error(`GitHub answered ${res.status} to ${method} ${path}`);
     return res.status === 204 ? null : res.json();
@@ -197,6 +200,28 @@ function resolve() {
         onMain: !!candidate && !!main && gitOk('merge-base', '--is-ancestor', candidate, main),
     });
     answer({ ...plan, moving_tags: movingTags.join(' '), built_at: git('show', '-s', '--format=%cI', plan.ref) });
+}
+
+/**
+ * Whether the Gates workflow already ran the guard suite on `--sha` and passed
+ * (lookUpGates in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
+ * answer GitHub cannot give (no permission, no network, an error) is `false`,
+ * and the release runs the suite itself: this only ever saves time. The whole
+ * lookup shares one deadline, 60 seconds (`--deadline-ms` sets it for the
+ * gates), so a slow API costs a minute at most before the suite runs.
+ */
+async function gatesPassedCmd() {
+    const sha = String(args.sha || '');
+    let verdict;
+    try {
+        // Inside the try: a deadline out of range is an error like any other.
+        const signal = AbortSignal.timeout(Number(args['deadline-ms']) || 60_000);
+        verdict = await lookUpGates({ sha, signal, get: (path, options) => github(path, options) });
+    } catch (e) {
+        verdict = { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
+    }
+    const next = verdict.passed ? 'The guard suites are not run again here.' : 'Running the guard suites here.';
+    answer({ passed: verdict.passed, reason: verdict.reason }, `### Gates\n\n${verdict.reason} ${next}\n`);
 }
 
 /** The files a release carries: the zips, SHA256SUMS and manifest.json in `dir`. */
@@ -415,7 +440,7 @@ function notes() {
 // exitCode, never exit(): after a fetch, ending the process while its socket is
 // still closing trips a libuv assertion on Windows and turns a clean refusal
 // into a crash with the wrong exit code.
-const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, sign: signManifest, notes, 'clean-drafts': cleanDrafts, publish };
+const commands = { plan, promote, resolve, 'gates-passed': gatesPassedCmd, 'check-version': checkVersion, stamp, assets, sign: signManifest, notes, 'clean-drafts': cleanDrafts, publish };
 if (!commands[command]) {
     process.stderr.write(`usage: node tools/release.mjs ${Object.keys(commands).join('|')} …\n`);
     process.exitCode = 2;
