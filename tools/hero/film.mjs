@@ -153,6 +153,12 @@ function pickTopic() {
     } finally { db.close(); }
 }
 
+const refusedCalls = () => {
+    const f = join(LIB, 'replay.jsonl');
+    if (!existsSync(f)) return [];
+    return readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.how === 'refused');
+};
+
 // Off camera: wait until every top-level topic has a written lesson and nothing runs for 10 s.
 async function waitFeed() {
     const t1 = Date.now();
@@ -165,6 +171,9 @@ async function waitFeed() {
         const left = dbq(`SELECT COUNT(*) c ${NO_LESSON}`)[0].c;
         const s = `busy ${busy.map((t) => t.kind).join(',') || '-'}, topics without a lesson ${left}`;
         if (s !== last) { stamp('feed', s); last = s; }
+        // A call with no recording fails the same way on every retry: stop instead of waiting.
+        const refused = refusedCalls();
+        if (refused.length) throw new Error(`the feed asked for ${refused.length} call(s) with no recording, e.g. "${refused[0].label}"; the requests are in ${join(LIB, 'refused')} (record them with --record)`);
         idle = busy.length === 0 && left === 0 ? idle + 1 : 0;
         if (idle >= 5) break;
         if (Date.now() - t1 > 40 * 60e3) throw new Error(`feed not written in 40 min: ${s}`);

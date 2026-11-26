@@ -214,7 +214,15 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
         const c = load(as);
         if (c) { log({ how: 'label-hit', key, as, ms: c.ms, label, n }); return replay(c, init.signal); }
     }
-    if (!opt.record) { log({ how: 'refused', key, label }); throw new Error(`replay only: no recording for "${label}"`); }
+    if (!opt.record) {
+        // The request is kept beside the log, so a miss can be compared with the call the
+        // recording take made at that point (a changed prompt, or a call it never made).
+        const dir = join(opt.library, 'refused');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, `${key}.json`), JSON.stringify({ model: body.model, system: body.system, messages: body.messages, tools: body.tools || null }, null, 1));
+        log({ how: 'refused', key, label });
+        throw new Error(`replay only: no recording for "${label}"`);
+    }
     realCalls++;
     if (realCalls > maxReal || spent > maxUsd) { log({ how: 'capped', key, label, realCalls, spent }); throw new Error(`cap reached (${realCalls} calls, USD ${spent.toFixed(2)})`); }
     const t0 = realNow();

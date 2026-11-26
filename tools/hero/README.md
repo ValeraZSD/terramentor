@@ -64,6 +64,13 @@ ANTHROPIC_API_KEY=... node tools/hero/film.mjs ... --record --max-usd 4 --max-re
 `--max-usd` (default 0) and `--max-real` (default 0) cap the spending; the server refuses calls
 past either. Every call is logged in `<work>/library/replay.jsonl` with how it was answered.
 
+A refused call's whole request is saved as `<work>/library/refused/<hash>.json`, and
+`--wait-feed` stops at the first one instead of waiting for the feed. Recordings cover the calls
+the recording take made and no others: the feed writer works in the background, so a take that
+waits for it longer, or films at another pace, can ask for a lesson or question the recording
+take never needed. Record such a take once with `--record`; later takes of the same flow replay
+it.
+
 ## Frame-stepped capture
 
 With `--stepped` the page runs on a virtual clock that moves only when the recorder steps it:
