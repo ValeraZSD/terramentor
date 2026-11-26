@@ -1636,13 +1636,11 @@ export const useStore = create<AppState>((set, get) => ({
         // Two calls, both local: identity never changes, and the update verdict
         // is whatever the last check stored. Neither reaches the network, so
         // this is safe to fire on every app start regardless of the setting.
-        try {
-            const [appVersion, updateStatus] = await Promise.all([api.getVersion(), api.getUpdates()]);
-            set({ appVersion, updateStatus });
-        } catch {
-            // Identity is a nicety, not a dependency. A server too old to serve
-            // /api/version simply shows nothing in About.
-        }
+        // Settled one by one: a failed update verdict must not drop the identity.
+        // A server too old to serve /api/version simply shows nothing in About.
+        const [version, updates] = await Promise.allSettled([api.getVersion(), api.getUpdates()]);
+        if (version.status === 'fulfilled') set({ appVersion: version.value });
+        if (updates.status === 'fulfilled') set({ updateStatus: updates.value });
     },
 
     checkForUpdates: async () => {
