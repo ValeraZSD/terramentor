@@ -68,8 +68,9 @@ const commitOf = (tag) => {
 
 /** One GitHub API call for this repository, with GITHUB_TOKEN when there is
  *  one. GITHUB_API_URL is what Actions itself sets; the gates point it at a
- *  local stand-in. */
-async function github(path, { method = 'GET', body } = {}) {
+ *  local stand-in. `signal` lets a caller hold several calls to one deadline;
+ *  without one, each call gets 60 seconds. */
+async function github(path, { method = 'GET', body, signal = AbortSignal.timeout(60_000) } = {}) {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     const api = process.env.GITHUB_API_URL || 'https://api.github.com';
     const res = await fetch(`${api}/repos/${repo()}${path}`, {
@@ -81,7 +82,7 @@ async function github(path, { method = 'GET', body } = {}) {
             ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(60_000),
+        signal,
     });
     if (!res.ok) throw new Error(`GitHub answered ${res.status} to ${method} ${path}`);
     return res.status === 204 ? null : res.json();
@@ -205,15 +206,19 @@ function resolve() {
  * Whether the Gates workflow already ran the guard suite on `--sha` and passed
  * (gatesPassed in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
  * answer GitHub cannot give (no permission, no network, an error) is `false`,
- * and the release runs the suite itself: this only ever saves time.
+ * and the release runs the suite itself: this only ever saves time. The whole
+ * lookup shares one deadline, 60 seconds (`--deadline-ms` sets it for the
+ * gates), so a slow API costs a minute at most before the suite runs.
  */
 async function gatesPassedCmd() {
     const sha = String(args.sha || '');
     let verdict;
     try {
+        // Inside the try: a deadline out of range is an error like any other.
+        const signal = AbortSignal.timeout(Number(args['deadline-ms']) || 60_000);
         const checkRuns = [];
         for (const name of GATES_CHECKS) {
-            const body = await github(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
+            const body = await github(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`, { signal });
             const page = body?.check_runs || [];
             // The newest check must be among those read; past one page it may not be.
             if ((body?.total_count ?? page.length) > page.length) {
@@ -224,7 +229,7 @@ async function gatesPassedCmd() {
         const runsBySuite = {};
         const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
         for (const id of suites) {
-            const runs = await github(`/actions/runs?check_suite_id=${id}&per_page=1`);
+            const runs = await github(`/actions/runs?check_suite_id=${id}&per_page=1`, { signal });
             if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
         }
         verdict = gatesPassed({ sha, checkRuns, runsBySuite });
