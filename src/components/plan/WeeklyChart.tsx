@@ -139,13 +139,14 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
             </figcaption>
             {/* The lines' names sit above the drawing, not at the lines' ends:
                 there they covered the newest weeks, the bars read first. */}
+            {/* Names only: the sentences above the chart give the numbers. */}
             {(neededName || bestName) && (
                 <div aria-hidden="true" className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-700 dark:text-slate-200">
                     {neededName && (
-                        <span className="inline-flex items-center gap-1.5">{sample(NEEDED_STROKE[band]!, true)}{neededName}</span>
+                        <span className="inline-flex items-center gap-1.5">{sample(NEEDED_STROKE[band]!, true)}{t("Pace needed")}</span>
                     )}
                     {bestName && (
-                        <span className="inline-flex items-center gap-1.5">{sample('stroke-slate-500 dark:stroke-slate-400', false)}{bestName}</span>
+                        <span className="inline-flex items-center gap-1.5">{sample('stroke-slate-500 dark:stroke-slate-400', false)}{t("Your best month")}</span>
                     )}
                 </div>
             )}

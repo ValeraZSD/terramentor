@@ -97,6 +97,17 @@ export function VerdictPill({ verdict, t, className = '' }: {
 }
 
 /**
+ * The band's icon in its colour, for beside a sentence that already names the
+ * band in words (the plan's headline): a pill there said "On pace" twice.
+ */
+export function VerdictIcon({ verdict, className = '' }: { verdict: PaceVerdict; className?: string }) {
+    const Icon = ICON[verdict.band];
+    // The pill's text colour only: no tint behind a bare icon.
+    const colour = TONE[verdict.band].split(' ').filter(c => c.startsWith('text-') || c.startsWith('dark:text-')).join(' ');
+    return <Icon className={`shrink-0 ${colour} ${className}`} aria-hidden="true" />;
+}
+
+/**
  * A weekly amount as it is read: whole numbers from 3 up ("25 a week"), one
  * decimal below that, where "0.4 a week" and "0 a week" say different things.
  * Anything above zero stays above it: one topic left in half a year is 0.1, not
@@ -151,7 +162,6 @@ export function verdictHeadline(v: PaceVerdict, t: TFunction, today: string): st
  */
 export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: string): string[] {
     const cards = v.unit === 'cards';
-    const date = v.deadline ? shortDay(v.deadline, today) : '';
     const out: string[] = [];
     if (v.band === 'done') {
         out.push(cards ? t("Every card in it has been met.") : t("Every topic in it is closed."));
@@ -167,7 +177,8 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
             : t("After two weeks of study the app compares this date with your own pace."));
         return out;
     }
-    out.push(t("That is {{n}} a week until {{date}}.", { n: rate(num, v.needed), date }));
+    // No date: the headline above names it.
+    out.push(t("That is {{n}} a week.", { n: rate(num, v.needed) }));
     if (v.quietWeeks >= 2) {
         out.push(cards
             ? t("No new card met for {{n}} weeks.", { count: v.quietWeeks, n: num(v.quietWeeks) })

@@ -14,7 +14,7 @@ import { TextInput } from './ui/Field';
 import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
 import Checkbox from './Checkbox';
 import WeeklyChart from './plan/WeeklyChart';
-import { VerdictPill, oneStop, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
+import { VerdictIcon, oneStop, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
 
 /**
  * The plan of one course: will the date work, what can be done if not, and the
@@ -302,9 +302,12 @@ export default function ScheduleModal() {
                     )}
                     {verdict && (
                         <section aria-labelledby={`${titleId}-verdict`} className="space-y-2">
-                            <VerdictPill verdict={verdict} t={t} />
-                            <h3 id={`${titleId}-verdict`} className="text-xl font-semibold text-slate-900 dark:text-white">
-                                {verdictHeadline(verdict, t, today)}
+                            {/* The headline names the band in words, so no pill
+                                above it: "On pace" over "On pace for May 1" said
+                                it twice. Its icon keeps the band's colour. */}
+                            <h3 id={`${titleId}-verdict`} className="flex items-start gap-2 text-xl font-semibold text-slate-900 dark:text-white">
+                                <VerdictIcon verdict={verdict} className="h-[1em] w-[1em] mt-[0.2em]" />
+                                <span className="min-w-0">{verdictHeadline(verdict, t, today)}</span>
                             </h3>
                             <p className="text-sm text-slate-600 dark:text-slate-300 max-w-prose">
                                 {verdictSentences(verdict, t, num, today).join(' ')}
