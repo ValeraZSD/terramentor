@@ -26,7 +26,8 @@
 
 import db, { vecAvailable } from './database.js';
 import { getAISettings, normalizeOpenAIBaseUrl, openAIBody, withoutKey } from './ai.js';
-import { wireFetch, wireOf } from './aiWire.js';
+import { zeroRetentionRefusal } from './zeroRetention.js';
+import { isOpenRouterUrl, wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
 // The model used when the learner has not chosen one. These are the only two
@@ -74,10 +75,7 @@ const EMBEDDING_PROVIDERS = ['auto', 'ollama', 'openai'];
 
 /** OpenRouter, recognised by the host of the endpoint embeddings go to. */
 function isOpenRouter(baseUrl) {
-    try {
-        const host = new URL(normalizeOpenAIBaseUrl(baseUrl)).hostname.toLowerCase();
-        return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
-    } catch { return false; }
+    return isOpenRouterUrl(normalizeOpenAIBaseUrl(baseUrl));
 }
 
 /** The model for a learner who has not chosen one, by where embeddings run. */
@@ -153,6 +151,18 @@ function openAIEmbeddingTarget(ai) {
     return { settings, base: normalizeOpenAIBaseUrl(settings.baseUrl) };
 }
 
+/** Where embeddings send document chunks over the OpenAI-compatible route,
+ *  or null when they do not take it (off, Ollama, or refused). Read by the
+ *  hosted start-up warning (zeroRetention.js), since chat may be local. */
+export function openAIEmbeddingBase() {
+    const ai = getAISettings();
+    const cfg = getEmbeddingConfig();
+    const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
+    if (!vecAvailable || !cfg.enabled || provider !== 'openai') return null;
+    const target = openAIEmbeddingTarget(ai);
+    return target.refused ? null : target.base;
+}
+
 // Embed a batch of strings → array of number[]. Throws on any failure (missing
 // model, unreachable endpoint, shape mismatch) so callers can distinguish
 // "no embeddings available" from "zero results".
@@ -178,12 +188,13 @@ export async function embedBatch(texts) {
             // this path needs the endpoint's privacy fields every bit as much
             // as a chat turn does. The Ollama branch below is a local engine
             // and takes none of them.
-            body: openAIBody({ model, input: texts }),
+            body: openAIBody({ model, input: texts }, {}, target.settings),
             signal: AbortSignal.timeout(60000),
         });
         if (!res.ok) {
             const body = withoutKey(await res.text().catch(() => ''), ai);
-            throw new Error(`embeddings ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
+            throw zeroRetentionRefusal(target.settings, res.status, body, model)
+                || new Error(`embeddings ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
         }
         const json = await res.json();
         const data = Array.isArray(json?.data) ? json.data : [];
@@ -333,6 +344,11 @@ export function isUnavailable(err) {
     // A connection with no embeddings route (Anthropic, a ChatGPT plan, or no
     // endpoint at all) is refused before any request: no model, not a fault.
     if (err?.code === NO_EMBEDDINGS) return true;
+    // A hosted copy's model has no zero-retention endpoint (zeroRetention.js):
+    // nothing is available until the operator picks another, so a document
+    // waits to be healed rather than being marked broken. Its sentence names
+    // no status code, so it is read by the flag.
+    if (err?.zeroRetention === true) return true;
     return m.includes('no router') || m.includes('not found') || m.includes('404')
         || m.includes('econnrefused') || m.includes('fetch failed')
         || m.includes('timeout') || m.includes('timed out')

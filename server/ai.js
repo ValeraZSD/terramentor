@@ -23,6 +23,8 @@ import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
+import { isHosted } from './hosted.js';
+import { asksForZeroRetention, withZeroRetention, zeroRetentionRefusal } from './zeroRetention.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 import { endpointBody, keyed, learnerError, ownWords, publicBody } from './clientError.js';
 
@@ -518,8 +520,15 @@ export function aiExtraBody() {
  *  middle layer winning over the first is the point: a machine configured to
  *  route a particular way is not overridden by a preference clicked in a panel.
  *  `provider` and `reasoning` merge a level deep rather than replacing, so an
- *  env-set `zdr` does not silently discard a chosen provider order. */
-export function openAIBody(fields, routing = {}) {
+ *  env-set `zdr` does not silently discard a chosen provider order.
+ *
+ *  `target` is the settings object of the endpoint the body is sent to. On a
+ *  hosted copy talking to OpenRouter the zero-retention terms are laid over
+ *  all three layers (server/zeroRetention.js); a hosted body built without a
+ *  target is refused rather than sent without them. */
+export function openAIBody(fields, routing = {}, target = null) {
+    const hosted = isHosted();
+    if (hosted && !target) throw new Error('openAIBody: a hosted copy must name the endpoint a body is for, to decide its retention terms');
     const extra = aiExtraBody();
     const merged = { ...routing, ...extra };
     for (const key of ['provider', 'reasoning']) {
@@ -528,7 +537,8 @@ export function openAIBody(fields, routing = {}) {
             merged[key] = { ...mine, ...theirs };
         }
     }
-    return JSON.stringify({ ...merged, ...fields });
+    const body = { ...merged, ...fields };
+    return JSON.stringify(hosted && asksForZeroRetention(target) ? withZeroRetention(body) : body);
 }
 
 /* ── transient upstream failures ────────────────────────────────────────────
@@ -729,13 +739,14 @@ async function openAIChat(settings, messages, { temperature, top_p, signal, oper
     const res = await aiFetchWithRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: openAIHeaders(settings),
-        body: openAIBody({ model: settings.model, messages, stream: false, temperature, top_p }, aiRouting(settings, { operation })),
+        body: openAIBody({ model: settings.model, messages, stream: false, temperature, top_p }, aiRouting(settings, { operation }), settings),
         signal,
     }, { signal, label: `chat ${settings.model}`, fetchImpl: wireFetch(settings) });
     if (!res.ok) {
         const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
-            new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
+            zeroRetentionRefusal(settings, res.status, body)
+            || new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
               attempts: res.attemptsUsed });
     }
@@ -786,14 +797,15 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
     const res = await aiFetchWithRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: openAIHeaders(settings),
-        body: openAIBody({ model: settings.model, messages, stream: true, temperature, top_p, ...toolFields }, aiRouting(settings, { operation })),
+        body: openAIBody({ model: settings.model, messages, stream: true, temperature, top_p, ...toolFields }, aiRouting(settings, { operation }), settings),
         signal,
     }, { signal, label: `chat stream ${settings.model}`, fetchImpl: wireFetch(settings) });
     const attempts = priorAttempts + (res.attemptsUsed || 1);
     if (!res.ok) {
         const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
-            new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
+            zeroRetentionRefusal(settings, res.status, body)
+            || new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
               attempts });
     }
@@ -846,8 +858,9 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
                 if (json.error) {
                     const code = Number(json.error?.code);
                     const httpStatus = Number.isInteger(code) && code >= 100 && code <= 599 ? code : undefined;
+                    const said = typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream';
                     throw tagAIError(
-                        new Error(withoutKey(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream', settings)),
+                        zeroRetentionRefusal(settings, httpStatus, said) || new Error(withoutKey(said, settings)),
                         { provider: 'openai', model: settings.model, endpoint: base, httpStatus, attempts, streamed: true,
                           retryBeforeOutput: !produced && !thinkingChars && !callFragments.size
                               && AI_RETRY_STATUSES.has(httpStatus) && attempts < AI_RETRY_ATTEMPTS });
@@ -1170,12 +1183,12 @@ async function transcribeOnce(settings, png, { signal, timeout = 120000, prompt,
                     }],
                     // Nobody watches a page being read, so this is unattended
                     // work and takes the unattended thinking budget.
-                }, aiRouting(settings, { operation: 'vision' })),
+                }, aiRouting(settings, { operation: 'vision' }), settings),
                 signal: timeoutController.signal,
             });
             if (!res.ok) {
                 const body = withoutKey(await res.text().catch(() => ''), settings);
-                throw tagAIError(new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
+                throw tagAIError(zeroRetentionRefusal(settings, res.status, body, visionModel) || new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
                     { provider: 'openai', model: visionModel, endpoint: baseUrl, httpStatus: res.status });
             }
             const json = await res.json();

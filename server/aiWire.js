@@ -29,6 +29,7 @@
 import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
 import { assertNotMetadata } from './netSafety.js';
+import { isHosted } from './hosted.js';
 import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText, secretsOf, withoutSecret } from './httpBody.js';
 
 const HOST_WIRES = {
@@ -67,9 +68,23 @@ export function hostWire(baseUrl) {
     return 'generic';
 }
 
-/** The protocol behind one settings object (getAISettings / settingsForConnection). */
+/** Does this base URL point at OpenRouter: its own host, or one of its subdomains? */
+export function isOpenRouterUrl(baseUrl) {
+    try {
+        // A trailing dot ("openrouter.ai.") is the same host to DNS.
+        const host = new URL(String(baseUrl)).hostname.toLowerCase().replace(/\.+$/, '');
+        return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
+    } catch { return false; }
+}
+
+/** The protocol behind one settings object (getAISettings / settingsForConnection).
+ *  A hosted copy talking to OpenRouter always speaks OpenRouter's own wire: a
+ *  stored forced protocol (a library restored from a desktop copy) would
+ *  rebuild the body without its zero-retention terms (`anthropic`) or send it
+ *  to another host altogether (`chatgpt`); see zeroRetention.js. */
 export function wireOf(settings) {
     if (settings?.provider !== 'openai') return 'ollama';
+    if (isHosted() && isOpenRouterUrl(settings.baseUrl)) return 'openrouter';
     if (API_FORMATS.includes(settings.apiFormat)) return settings.apiFormat;
     return hostWire(settings.baseUrl);
 }

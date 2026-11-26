@@ -541,9 +541,17 @@ loads it. What it does:
   make a remote provider private and does not pretend to. What it can do is pass on a term you
   set yourself: `AI_EXTRA_BODY` (see `.env.example`) merges a JSON object into every request to
   an OpenAI-compatible endpoint, chat and embeddings alike, which is how you send something like
-  OpenRouter's `{"provider":{"zdr":true,"data_collection":"deny"}}`; retention there is decided
-  per request, not by an account setting. It is unset by default, it can only add fields and
-  never change the app's own, and it is your provider that honours it, not us.
+  OpenRouter's `{"provider":{"zdr":true,"data_collection":"deny"}}`; OpenRouter applies it per
+  request, on top of whatever your account's privacy settings already require. It is unset by
+  default, it can only add fields and never change the app's own, and it is your provider that
+  honours it, not us. A hosted copy (`TERRAMENTOR_HOSTED=1`, and every library of a site) does
+  not leave this to its operator. It sends those terms itself on every request to OpenRouter,
+  and `AI_EXTRA_BODY` cannot switch either off. When no zero-retention endpoint serves the
+  model, the request fails rather than go anywhere else (`server/zeroRetention.js`;
+  `docs/HOSTING.md`, "Zero retention"). To any other endpoint a hosted copy adds neither term itself,
+  and it says so in the log at start. The terms are a request: which endpoints count as zero
+  retention also depends on the OpenRouter account's own privacy setting, which the app cannot
+  read, so the start-up log names that setting too.
 - **Choosing a provider in Settings does not change who can read your prompts.** *AI & Models →
   Where the model runs* lists the companies your router says can serve the model, and
   your choice is sent as a *preference*: if the one you picked is busy the router uses another,

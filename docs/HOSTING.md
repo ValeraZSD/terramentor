@@ -249,6 +249,62 @@ the backup. Try one before you need one;
 `hosted/rehearse.sh` deletes a project, restores the backup and checks it is
 back.
 
+## Zero retention
+
+A learner's notes, photos and passages go to the model. OpenRouter decides
+per request whether a provider may keep them, so a hosted copy (and every
+library of a site) asks on every chat, picture and embedding request:
+
+```json
+{ "provider": { "zdr": true, "data_collection": "deny" } }
+```
+
+From OpenRouter's documentation: "When `zdr` is set to `true`, the request
+will only be routed to ZDR endpoints", and `data_collection: "deny"` excludes
+"providers that may store data"
+([Provider selection](https://openrouter.ai/docs/guides/routing/provider-selection)).
+The copy adds both itself; `AI_EXTRA_BODY` can add other fields but cannot
+switch these off, and one that tries is named in the log at start. A copy on
+someone's own computer is unchanged.
+
+**The model needs a zero-retention endpoint, and so does the embedding model.**
+When none serves it, OpenRouter refuses the request and the request is not sent
+anywhere else. For the model, the copy shows "No zero-retention endpoint on
+OpenRouter serves the model ..."; for the embedding model, search and related
+topics quietly go without, and the log says why. List the endpoints that qualify (no key needed):
+
+```sh
+curl -sS https://openrouter.ai/api/v1/endpoints/zdr \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const e of JSON.parse(s).data)if(e.model_id===process.argv[1])console.log(e.provider_name,e.tag,"safety_retention:",e.safety_retention)})' \
+  anthropic/claude-sonnet-5.5
+```
+
+On 24 November 2026 that printed two endpoints for
+`anthropic/claude-sonnet-5.5` (Google Vertex and Amazon Bedrock) and two for
+`qwen/qwen3-embedding-8b`, the embedding model a copy on OpenRouter uses unless
+told otherwise (Nebius and DeepInfra), all with `safety_retention: false`.
+Run it again for your model before you start a copy; the list changes.
+
+**Set your OpenRouter account to "ZDR only".** OpenRouter also has "Safety
+Retention" endpoints, where "OpenRouter or a provider may retain prompts and
+responses from any request, whether flagged or not, only to detect,
+investigate, and prevent abuse", and `zdr: true` admits them unless the
+account or a guardrail excludes them: "If you haven't chosen, self-serve
+accounts allow Safety Retention"
+([Zero Data Retention](https://openrouter.ai/docs/guides/features/zdr)). A
+request cannot exclude them itself, so choose **ZDR only** for both groups
+(Google, and all other models) in the
+[privacy settings](https://openrouter.ai/settings/privacy). The same page says
+OpenRouter screens all requests, ZDR ones included, for child sexual abuse
+material, and flagged content "may be retained for human review, reporting,
+and preservation where required by law".
+
+**Only OpenRouter takes these fields.** With `AI_BASE_URL` pointing anywhere
+else the copy sends none of them (a strict API refuses a field it does not
+know), says so in the log at start, and retention is whatever you have agreed
+with that provider. A local model (`AI_PROVIDER=ollama`) keeps everything on
+the server.
+
 ## The model and its cost
 
 Every copy uses the model in `hosted/.env` (`AI_PROVIDER`, `AI_BASE_URL`,

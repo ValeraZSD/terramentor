@@ -257,6 +257,9 @@ export function fallsOver(err, signal) {
     if (!err || typeof err !== 'object') return false;
     if (signal?.aborted) return false;
     if (err.name === 'AbortError' || err.name === 'TimeoutError' || err.looped) return false;
+    // A hosted copy's model had no zero-retention endpoint: the next choice
+    // may be an endpoint that keeps the text (zeroRetention.js), so stop.
+    if (err.zeroRetention) return false;
     if (err.emptyReply) return true;
     const status = Number(err.httpStatus ?? err.status_code);
     if (Number.isInteger(status) && status >= 400 && status <= 599) return true;

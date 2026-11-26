@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openSiteDb } from './siteDb.js';
 import { createFrontDesk } from './frontDesk.js';
+import { zeroRetentionWarnings } from '../zeroRetention.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -65,6 +66,9 @@ if (isMain) {
     }
     const { separate, hosts, host } = siteSettings(env);
     if (!separate) console.warn('[site] SITE_SEPARATE=0: every library runs as this user and can read the others. Development only.');
+    // Every library runs hosted with these AI_* variables, so its zero-retention
+    // terms are decided here; said once, not on each library's wake.
+    for (const line of zeroRetentionWarnings(env, { hosted: true })) console.warn(`[site] ${line}`);
     const siteDir = path.resolve(env.SITE_DIR);
     const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
     const desk = createFrontDesk({

@@ -60,6 +60,13 @@ export function plainCause(f: FailureFacts, { rawShown = true }: { rawShown?: bo
     if (f.httpStatus === 402) {
         return { messageKey: k('The provider refused the request for billing reasons — the account is out of credit or the model is not on your plan.') };
     }
+    // A hosted copy whose model has no zero-retention endpoint: also a 404,
+    // but the model exists. Said from the record's flag, word for word the
+    // server's ZERO_RETENTION_REFUSAL (zeroRetention.js), because a lesson's
+    // record keeps only the start of the message.
+    if (f.zeroRetention) {
+        return { messageKey: k('No zero-retention endpoint on OpenRouter serves the model "{{model}}", so the request was not sent anywhere else. Whoever runs this copy has to choose a model that has one (AI_MODEL; see docs/HOSTING.md, Zero retention).'), params: { model: f.model || '' } };
+    }
     if (f.httpStatus === 404) {
         if (f.model) {
             return { messageKey: k('The endpoint does not know the model "{{model}}". It may have been renamed, unloaded, or never installed.'), params: { model: f.model } };
@@ -116,6 +123,7 @@ export function lessonFailureFacts(write: LessonWrite): FailureFacts {
         looped: write.looped ?? null,
         emptyReply: write.emptyReply ?? null,
         reasoningTokens: write.reasoningTokens ?? null,
+        zeroRetention: write.zeroRetention ?? null,
         // Only an empty reply says what it spent; nothing else is claimed.
         ...(write.thinkingChars != null ? { produced: { thinkingChars: write.thinkingChars, contentChars: 0, percent: null } } : {}),
     };

@@ -685,6 +685,8 @@ export interface AITaskFailure {
     emptyReply?: boolean | null;
     /** What the model spent before it stopped, when the endpoint reported it. */
     reasoningTokens?: number | null;
+    /** A hosted copy's model has no zero-retention endpoint on OpenRouter. */
+    zeroRetention?: boolean | null;
     /** Who ended the reply: 'stop', 'length', 'content_filter', … */
     finishReason?: string | null;
     responseBody: string | null;
@@ -1672,6 +1674,7 @@ export interface LessonWrite {
     emptyReply?: boolean | null;
     reasoningTokens?: number | null;
     thinkingChars?: number | null;
+    zeroRetention?: boolean | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */
