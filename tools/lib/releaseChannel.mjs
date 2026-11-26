@@ -299,12 +299,13 @@ export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GAT
  * `get(path, { signal })` makes one API call under `/repos/<owner>/<repo>`.
  * Every call gets the same `signal`, so one deadline holds the whole lookup;
  * once it fires no further call is made. Anything GitHub cannot answer, the
- * deadline included, is `passed: false`.
+ * deadline included, is `passed: false`; so is a lookup given no `signal`.
  */
 export async function lookUpGates({ sha, get, signal, names = GATES_CHECKS }) {
     try {
+        if (!signal) throw new Error('no deadline was given');
         const call = (path) => {
-            signal?.throwIfAborted();
+            signal.throwIfAborted();
             return get(path, { signal });
         };
         const checkRuns = [];

@@ -552,7 +552,9 @@ ok('a tag that is already published is refused, and nothing is deleted',
         const seen = [];
         const server = createServer((req, res) => {
             seen.push(`${req.method} ${req.url}`);
-            const [status, json] = respond(req.url);
+            const answer = respond(req.url);
+            if (!answer) return; // never answered
+            const [status, json] = answer;
             res.writeHead(status, { 'content-type': 'application/json' });
             res.end(JSON.stringify(json));
         });
@@ -560,6 +562,9 @@ ok('a tag that is already published is refused, and nothing is deleted',
         try {
             const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'gates-passed', '--sha', sha, ...extra], {
                 env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`, GITHUB_REPOSITORY: 'o/r', GITHUB_TOKEN: 'x', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
+                // Only a hang guard: a lookup that ignores its deadline waits
+                // 60 s per call; every case here answers far sooner.
+                timeout: 20_000,
             });
             let stdout = '';
             child.stdout.on('data', (d) => { stdout += d; });
@@ -590,6 +595,12 @@ ok('a tag that is already published is refused, and nothing is deleted',
         g.status === 0 && /^passed=false$/m.test(g.stdout) && /101/.test(g.stdout), g.stdout.trim());
     g = await askGates(green, { extra: ['--deadline-ms', '-1'] });
     ok('…false, exiting 0, when the deadline given is out of range', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+    // A call GitHub never answers: the CLI's deadline must reach the request
+    // itself and end it. Without it the call waits out a 60 s default and the
+    // hang guard above kills the child (status null).
+    g = await askGates(() => null, { extra: ['--deadline-ms', '300'] });
+    ok('…false, exiting 0, when a call never answers: the deadline ends the request itself',
+        g.status === 0 && /^passed=false$/m.test(g.stdout), `status ${g.status} ${g.stdout.trim()}`);
 
     // The deadline, with no clock: lookUpGates through a stand-in transport
     // that records the signal each call carries. One deadline holds the whole

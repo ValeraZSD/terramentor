@@ -204,7 +204,7 @@ function resolve() {
 
 /**
  * Whether the Gates workflow already ran the guard suite on `--sha` and passed
- * (lookUpGates and gatesPassed in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
+ * (lookUpGates in tools/lib/releaseChannel.mjs), as `passed=true|false`. Any
  * answer GitHub cannot give (no permission, no network, an error) is `false`,
  * and the release runs the suite itself: this only ever saves time. The whole
  * lookup shares one deadline, 60 seconds (`--deadline-ms` sets it for the
