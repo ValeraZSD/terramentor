@@ -23,7 +23,9 @@
 //   authenticate(req)         null leaves the request to the password gate;
 //                             `{ signedIn, fields }` decides it here: signed in,
 //                             or refused with `fields` added to the 401 and to
-//                             GET /api/auth/status.
+//                             GET /api/auth/status. Synchronous; any other
+//                             answer (false, a promise) is an error, so the
+//                             request fails rather than passing the hook by.
 //   setupCode()               the code that sets the first password from
 //                             another device, when the deployment hands one
 //                             over itself ('' for none). It is never printed.
@@ -32,22 +34,44 @@
 //   serverControls            false: the update and desktop controls are not
 //                             offered (GET /api/updates `controls`).
 //   modelChain(chain, job)    the connections a model call tries, in order
-//                             (aiJobs.js chainFor). It may change them or throw;
+//                             (aiJobs.js chainFor), returned as an array,
+//                             synchronously. It may change them or throw;
 //                             an error with `unavailable: true` makes a
 //                             capability probe answer "no model" instead.
 //   modelFetch(fetch, settings)  the fetch every OpenAI-shaped model request
 //                             goes through (aiWire.js wireFetch), wrapped.
 //
-// A name that is not on this list stops the server from starting: a misspelt
-// hook would otherwise be a hook that silently never runs.
+// A name that is not on this list, or a member of the wrong type, stops the
+// server from starting: a misspelt or mistyped hook would otherwise be a hook
+// that silently never runs. The path must be absolute, so it does not depend
+// on the folder the server was started from.
+//
+// What a module takes on: `authenticate` returning `{ signedIn: true }` stands
+// for the password everywhere the password counts (the settings only the owner
+// may change, the update controls), and `trustProxy` decides which addresses
+// count as this machine, so a value that trusts a forwarded header from
+// anywhere lets any client claim to be local. A page the deployment serves on
+// the app's origin, outside the app, answers with the `X-Not-App-Shell` header
+// so the service worker does not keep it as the app's shell.
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const EXTENSION_HOOKS = Object.freeze([
-    'startProblem', 'listenPath', 'stopOnSignals', 'quietStart',
-    'trustProxy', 'requestGuard', 'authenticate', 'setupCode', 'settingRefusal', 'serverControls',
-    'modelChain', 'modelFetch',
-]);
+/** Every hook and the type its value must have. */
+const HOOK_TYPES = Object.freeze({
+    startProblem: 'function', listenPath: 'string', stopOnSignals: 'boolean', quietStart: 'boolean',
+    trustProxy: 'trust', requestGuard: 'function', authenticate: 'function', setupCode: 'function',
+    settingRefusal: 'function', serverControls: 'boolean', modelChain: 'function', modelFetch: 'function',
+});
+export const EXTENSION_HOOKS = Object.freeze(Object.keys(HOOK_TYPES));
+
+/** Whether `value` fits `type`; 'trust' is any value Express takes for `trust proxy`. */
+function fits(type, value) {
+    if (type === 'trust') {
+        return ['boolean', 'number', 'string', 'function'].includes(typeof value)
+            || (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+    }
+    return typeof value === type;
+}
 
 let loaded = Object.freeze({});
 
@@ -64,13 +88,16 @@ export function extension() {
 export async function loadExtension(file = process.env.TERRAMENTOR_EXTENSION) {
     const name = String(file ?? '').trim();
     if (!name) return loaded;
-    const mod = await import(pathToFileURL(path.resolve(name)).href);
+    if (!path.isAbsolute(name)) throw new Error(`TERRAMENTOR_EXTENSION: ${name} is not an absolute path`);
+    const mod = await import(pathToFileURL(name).href);
     const hooks = mod.default;
     if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) {
         throw new Error(`TERRAMENTOR_EXTENSION: ${name} has no default export object`);
     }
     const unknown = Object.keys(hooks).filter((key) => !EXTENSION_HOOKS.includes(key));
     if (unknown.length) throw new Error(`TERRAMENTOR_EXTENSION: ${name} names hooks this server does not have: ${unknown.join(', ')}`);
+    const mistyped = Object.entries(hooks).filter(([key, value]) => !fits(HOOK_TYPES[key], value)).map(([key]) => key);
+    if (mistyped.length) throw new Error(`TERRAMENTOR_EXTENSION: ${name} has hooks of the wrong type: ${mistyped.join(', ')}`);
     loaded = Object.freeze({ ...hooks });
     return loaded;
 }

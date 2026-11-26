@@ -606,8 +606,9 @@ async function aiFetchWithRetry(url, init, { signal, label = 'request', fetchImp
             res = await fetchImpl(url, init);
         } catch (err) {
             // A cancel or a timeout is the answer, not a hiccup; so is an
-            // address refused before anything was sent (`noRetry`).
-            if (attempt >= last || signal?.aborted || err?.name === 'AbortError' || err?.noRetry) throw err;
+            // address refused before anything was sent (`noRetry`), and so is an
+            // extension's final refusal (server/extension.js).
+            if (attempt >= last || signal?.aborted || err?.name === 'AbortError' || err?.noRetry || err?.final === true) throw err;
             console.log(`[AI] ${label} failed (${err.message}); retrying (${attempt + 2}/${AI_RETRY_ATTEMPTS})`);
             await abortableSleep(backoffMs(attempt), signal);
             continue;

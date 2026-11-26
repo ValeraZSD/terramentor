@@ -457,17 +457,23 @@ with it, and a copy built from this repository loads none.
   at start, before the app is built and before anything listens; nothing reads the variable
   again, and no setting, library, file the app stores or request can name a module. Whoever sets
   the server's environment already chooses the code it runs, so the variable opens no new way in.
-  The hooks it may provide are listed at the top of `server/extension.js`; a name not on that
-  list stops the server from starting. With none named, every hook is absent and the app behaves
-  exactly as described in the rest of this file.
+  The path must be absolute. The hooks it may provide are listed at the top of
+  `server/extension.js`; a name not on that list, or a hook of the wrong type, stops the server
+  from starting. With none named, every hook is absent and the app behaves exactly as described
+  in the rest of this file.
 - **Client**: the build includes every module in `src/extensions/` (empty here) and the texts in
   `src/extensions/texts/`. Vite reads the folder when it builds, so a module is part of the
   build that holds it and nothing at run time can add one. `src/clientExtension.ts` lists what a
   module may provide.
 - **What a hook can change** is what the person running the server could change by editing the
   code: who is signed in, which settings the page may write, which model a call uses and the
-  requests sent to it. A module is trusted like the server itself; it is not sandboxed. Its own
-  outbound calls, if it makes any, are not in the list above, which covers the app alone.
+  requests sent to it. A request its `authenticate` hook signs in counts as holding the password
+  everywhere the password counts: the network settings, connected devices and update controls only
+  the owner may change. Its `trustProxy` value decides which addresses count as this machine, so
+  a value that trusts a forwarded header from anywhere lets any client claim to be local, and with
+  no password set a local request is let in. A module is trusted like the server itself; it is not
+  sandboxed. Its own outbound calls, if it makes any, are not in the list above, which covers the
+  app alone.
 
 ## What is NOT protected
 
@@ -1033,9 +1039,11 @@ Closed by an `overrides` entry, because a transitive pin held them back:
 
 ## Search providers, and add-ons later
 
-**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point inside the app
-(the MCP server above is a separate program that uses the app's API), and they run no code: a
-name, an icon and an https URL template that is inert until you click it.
+**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point a learner can add
+from inside the app (the MCP server above is a separate program that uses the app's API; the
+start-up modules in [The extension point](#the-extension-point) are chosen by whoever starts the
+server, not from the app), and they run no code: a name, an icon and an https URL template that
+is inert until you click it.
 `validateUrlTemplate` is the boundary: https only (which is what blocks `javascript:` reaching
 an `href`), no embedded credentials, no unknown placeholders.
 

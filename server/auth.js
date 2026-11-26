@@ -382,13 +382,24 @@ export function isRequestAuthenticated(req) {
  * `authenticate`): null when it leaves the request to the password gate, else
  * `{ signedIn, fields }`. `fields` ride on the 401 and on the auth status.
  */
+const extensionAnswers = new WeakMap();
 export function extensionAuth(req) {
     const decide = extension().authenticate;
     if (typeof decide !== 'function') return null;
+    // Asked once per request: the password gate, the owner check and the
+    // credential check each ask.
+    if (req && typeof req === 'object' && extensionAnswers.has(req)) return extensionAnswers.get(req);
     const answer = decide(req);
-    if (!answer || typeof answer !== 'object') return null;
-    const fields = answer.fields && typeof answer.fields === 'object' ? answer.fields : {};
-    return { signedIn: answer.signedIn === true, fields };
+    let verdict = null;
+    if (answer != null) {
+        if (typeof answer !== 'object' || typeof answer.then === 'function' || typeof answer.signedIn !== 'boolean') {
+            throw new Error('The extension\'s authenticate hook answered neither null nor { signedIn: true | false }');
+        }
+        const fields = answer.fields && typeof answer.fields === 'object' ? answer.fields : {};
+        verdict = { signedIn: answer.signedIn, fields };
+    }
+    if (req && typeof req === 'object') extensionAnswers.set(req, verdict);
+    return verdict;
 }
 
 /**
@@ -728,7 +739,7 @@ export function requireAuth(req, res, next) {
     const ext = extensionAuth(req);
     if (ext) {
         if (ext.signedIn) return next();
-        return res.status(401).json({ ...keyed('Sign in again'), authRequired: true, ...ext.fields });
+        return res.status(401).json({ ...ext.fields, ...keyed('Sign in again'), authRequired: true });
     }
     if (!isAuthEnabled()) {
         if (!remoteSetupRequired(req)) return next();

@@ -211,7 +211,12 @@ function entrySettings(entry) {
 export function chainFor(job, options = {}) {
     const chain = chainOf(job, options);
     const decide = extension().modelChain;
-    return typeof decide === 'function' ? decide(chain, job) : chain;
+    if (typeof decide !== 'function') return chain;
+    const changed = decide(chain, job);
+    if (!Array.isArray(changed) || changed.length === 0) {
+        throw new Error('The extension\'s modelChain hook answered no list of connections');
+    }
+    return changed;
 }
 
 function chainOf(job, { model = null } = {}) {

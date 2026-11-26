@@ -14,7 +14,9 @@
 //                   screen is shown otherwise.
 //
 // Texts a module's screens use, or texts it replaces, go beside it as
-// src/extensions/texts/<language>.json (src/i18n/index.ts).
+// src/extensions/texts/<language>.json (src/i18n/index.ts). The fields a
+// server's sign-in hook adds to the auth status are in the store as
+// `authExtra` (`useStore(s => s.authExtra)`).
 import type { ComponentType, ReactNode } from 'react';
 
 export interface ClientExtension {

@@ -574,7 +574,7 @@ const STATUS_IN_TEXT = new RegExp(
  * 502/503/504 in its text (`STATUS_IN_TEXT`).
  */
 export function isTransient(err, signal) {
-    if (signal?.aborted) return false;
+    if (signal?.aborted || err?.final === true) return false;
     const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
     // The Ollama client says it as `status_code` (as server/ai.js reads it).
     const tagged = Number(err?.httpStatus ?? err?.status_code);
@@ -1733,7 +1733,7 @@ async function runBurst() {
         // slot spinning) until something else happened to kick the writer.
         kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
-        if (handle) handle.fail(err.message, err);
+        if (handle) handle.fail(err.message, tasks.finalSentence(err));
     }
 }
 

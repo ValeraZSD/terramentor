@@ -25,7 +25,7 @@ const app = routeTable('auth');
 app.get('/api/auth/status', async (req, res) => {
     // An extension that signs people in itself answers for them (server/extension.js `authenticate`).
     const ext = extensionAuth(req);
-    if (ext) return res.json({ enabled: true, authenticated: ext.signedIn, ...ext.fields });
+    if (ext) return res.json({ ...ext.fields, enabled: true, authenticated: ext.signedIn });
     const enabled = isAuthEnabled();
     // Another machine reaching an app with no password meets a gate too: the
     // screen it is shown says how to connect it (server/devices.js), with the

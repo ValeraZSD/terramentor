@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { constants as fsConstants, closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -74,9 +74,14 @@ export function secretsFile() {
     return dataPaths().secretsPath;
 }
 
+// Backup and restore of the credentials file for a start-up extension
+// (server/extension.js): this is the only module that may name the file.
+
 /** A backup of the credentials: the file as it is, to `to`, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
     try {
+        // A link (to some other file) is not followed into a backup.
+        if (lstatSync(secretsFile()).isSymbolicLink()) throw new Error(`${secretsFile()} is a link, not this library's credentials file`);
         copyFileSync(secretsFile(), to);
     } catch (e) {
         if (e.code === 'ENOENT') return false;
@@ -90,7 +95,10 @@ export function copyCredentialsTo(to) {
 export function replaceCredentialsFrom(from) {
     const to = secretsFile();
     const incoming = `${to}.restoring`;
-    copyFileSync(from, incoming);
+    // Whatever is at that name (a link left in the library's folder) is
+    // removed, not written through: the new file is made fresh.
+    rmSync(incoming, { recursive: true, force: true });
+    copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
     chmodSync(incoming, 0o600);
     renameSync(incoming, to);
     cache = null;

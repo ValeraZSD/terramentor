@@ -11,19 +11,21 @@
 //   1. Where a module comes from. Only server/extension.js reads
 //      TERRAMENTOR_EXTENSION, only server/index.js loads it, and the repository
 //      ships no client module.
-//   2. Loading. With none named there are no hooks; a module that names a hook
-//      the server does not have, or exports no object, is refused.
+//   2. Loading. With none named there are no hooks and trust proxy is loopback;
+//      a module that names a hook the server does not have, gives one of the
+//      wrong type, exports no object, or is named by a relative path is refused.
 //   3. Every hook, through the app: the request guard runs first, the sign-in
 //      hook decides a request and adds its fields to the 401 and the status,
 //      a refused setting is not written, the update controls go away, trust
 //      proxy follows it, a given setup code is checked and never printed, the
-//      model chain and the model fetch are wrapped, and a final refusal keeps
-//      its own sentence and falls over to no other model.
+//      model chain and the model fetch are wrapped, a sign-in hook's odd answer
+//      fails the request, and a final refusal keeps its own sentence, is sent
+//      once through a real model call and falls over to no other model.
 //   4. Start. A real `node server/index.js` refuses to start on the module's
 //      start problem and on an unknown hook, before anything listens; with a
 //      quiet start and a socket of its own it listens there.
 
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -84,7 +86,19 @@ const ext = await import(B + 'extension.js');
     refused = '';
     try { await ext.loadExtension(bare); } catch (e) { refused = e.message; }
     ok('a module with no default object is refused', /has no default export object/.test(refused), refused);
-    ok('...and neither left a hook behind', Object.keys(ext.extension()).length === 0);
+    const mistyped = join(scratch, 'mistyped.mjs');
+    writeFileSync(mistyped, "export default { requestGuard: true, listenPath: 5, serverControls: 'no', trustProxy: 'loopback' };\n");
+    refused = '';
+    try { await ext.loadExtension(mistyped); } catch (e) { refused = e.message; }
+    ok('a hook of the wrong type is refused by name', /wrong type: requestGuard, listenPath, serverControls$/.test(refused), refused);
+    refused = '';
+    try { await ext.loadExtension('extension.mjs'); } catch (e) { refused = e.message; }
+    ok('a relative path is refused, before anything is loaded', /is not an absolute path/.test(refused), refused);
+    ok('...and none of them left a hook behind', Object.keys(ext.extension()).length === 0);
+
+    // No module: the app trusts a forwarded address from loopback only, as always.
+    const plainApp = (await import(B + 'app.js')).createApp();
+    ok('with no module, trust proxy is loopback', plainApp.get('trust proxy') === 'loopback', String(plainApp.get('trust proxy')));
 }
 
 // --- 3. every hook, through the app -------------------------------------------
@@ -101,7 +115,8 @@ export default {
     authenticate(req) {
         const who = req.headers['x-person'];
         if (who === 'in') return { signedIn: true };
-        if (who === 'out') return { signedIn: false, fields: { signInPath: '/elsewhere' } };
+        if (who === 'out') return { signedIn: false, fields: { signInPath: '/elsewhere', authRequired: false } };
+        if (who === 'odd') return false;
         return null;
     },
     setupCode: () => 'abcd-1234',
@@ -109,10 +124,14 @@ export default {
     serverControls: false,
     modelChain(chain, job) {
         if (job === 'vision') throw Object.assign(new Error('no vision now'), { unavailable: true });
+        if (globalThis.__finalMode) return [{ ...chain[0], provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'final-model', enabled: true }];
         return chain.map((s) => ({ ...s, model: 'swapped-' + job }));
     },
     modelFetch: (inner, settings) => async (url, init) => {
         globalThis.__extensionSeen.push(String(url));
+        if (globalThis.__finalMode) {
+            throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' }, httpStatus: 503 });
+        }
         return inner(url, init);
     },
 };
@@ -127,6 +146,8 @@ const aiJobs = await import(B + 'aiJobs.js');
 const aiWire = await import(B + 'aiWire.js');
 const tasks = await import(B + 'tasks.js');
 const embeddings = await import(B + 'embeddings.js');
+const clientError = await import(B + 'clientError.js');
+const ai = await import(B + 'ai.js');
 
 const app = createApp();
 const server = app.listen(0, '127.0.0.1');
@@ -156,7 +177,9 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const plain = await call('/api/projects');
     ok('a request the sign-in hook leaves alone meets the password gate as before (no password, this machine: in)', plain.status === 200, `${plain.status}`);
     const out = await call('/api/projects', { headers: { 'X-Person': 'out' } });
-    ok('signed out by the hook: 401, authRequired, with its fields', out.status === 401 && out.json?.authRequired === true && out.json?.signInPath === '/elsewhere' && out.json?.messageKey === 'Sign in again', JSON.stringify(out.json));
+    ok('signed out by the hook: 401, authRequired, with its fields (which cannot override the core ones)', out.status === 401 && out.json?.authRequired === true && out.json?.signInPath === '/elsewhere' && out.json?.messageKey === 'Sign in again', JSON.stringify(out.json));
+    const odd = await call('/api/projects', { headers: { 'X-Person': 'odd' } });
+    ok('a sign-in hook answering neither null nor { signedIn } fails the request, never lets it by', odd.status === 500, `${odd.status}`);
     const status = await call('/api/auth/status', { headers: { 'X-Person': 'out' } });
     ok('...and the auth status says so, with the same fields', status.status === 200 && status.json?.enabled === true && status.json?.authenticated === false && status.json?.signInPath === '/elsewhere', JSON.stringify(status.json));
     const inside = await call('/api/projects', { headers: { 'X-Person': 'in' } });
@@ -198,6 +221,40 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     ok('...any other error carries none', Object.keys(tasks.finalSentence(Object.assign(new Error('x'), { messageKey: 'x' }))).length === 0);
     ok('...falls over to no other model, where the same status otherwise would', !aiJobs.fallsOver(finalErr) && aiJobs.fallsOver(Object.assign(new Error('x'), { httpStatus: 503 })));
     ok('...and leaves a document waiting for a model rather than broken', embeddings.isUnavailable(finalErr) === true);
+    ok('...and a route answering with it says its own sentence, not "the endpoint answered 503"', clientError.errorBody(finalErr, 500)?.messageKey === 'Paused until {{when}}', JSON.stringify(clientError.errorBody(finalErr, 500)));
+
+    // The same refusal thrown by the module's fetch, through a real model call.
+    globalThis.__finalMode = true;
+    const before = globalThis.__extensionSeen.length;
+    let called = null;
+    try { await ai.generateResponse('Say ready.', '', [], { job: 'courses', operation: 'default' }); } catch (e) { called = e; }
+    globalThis.__finalMode = false;
+    const sent = globalThis.__extensionSeen.length - before;
+    ok('a final refusal from the module\'s fetch, through a real model call: sent once, never retried', sent === 1 && called?.final === true, `sent ${sent}, ${called?.message}`);
+
+    // The credentials backup and restore a module may use never go through a link.
+    const secrets = await import(B + 'secrets.js');
+    const file = secrets.secretsFile();
+    const elsewhere = join(scratch, 'elsewhere.secrets.json');
+    writeFileSync(elsewhere, '{"not":"this library"}');
+    rmSync(file, { force: true });
+    let linked = true;
+    try { symlinkSync(elsewhere, file, 'file'); } catch { linked = false; }
+    if (!linked) console.log('  (link checks skipped: this account cannot make a link)');
+    else {
+        const backup = join(scratch, 'backup.secrets.json');
+        let refused = '';
+        try { secrets.copyCredentialsTo(backup); } catch (e) { refused = e.message; }
+        ok('a credentials file that is a link is not copied into a backup', /is a link/.test(refused) && !existsSync(backup), refused);
+        rmSync(file, { force: true });
+        const victim = join(scratch, 'victim.txt');
+        writeFileSync(victim, 'untouched');
+        symlinkSync(victim, `${file}.restoring`, 'file');
+        const from = join(scratch, 'from.secrets.json');
+        writeFileSync(from, '{"format":"terramentor-secrets","version":1,"secrets":{}}');
+        secrets.replaceCredentialsFrom(from);
+        ok('a restore writes nothing through a link left at its temporary name', readFileSync(victim, 'utf8') === 'untouched' && readFileSync(file, 'utf8') === readFileSync(from, 'utf8'));
+    }
 }
 server.close();
 
