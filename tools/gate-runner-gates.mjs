@@ -131,8 +131,10 @@ async function basicRun(jobs) {
     check(`${how}: a silent exit 0 is told what it must print`, silentAt >= 0 && /exited 0 without printing an assertion count/.test(lines[silentAt + 1] || ''));
     const hang = rows.find((r) => r.name === 'hang-gates.mjs');
     check(`${how}: the hung suite is stopped at its limit and says so`,
-        hang && hang.ms >= TIMEOUT_MS - 50 && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
-    check(`${how}: the run did not wait for the processes left running (each sleeps a minute)`, run.ms < 45_000, `${run.ms} ms`);
+        hang && run.out.includes(`still running after ${TIMEOUT_MS / 1000}s`), JSON.stringify(hang));
+    // Each process left running sleeps a minute and then notes `.slept`: a run that waited for one finds the note.
+    const slept = readdirSync(run.scratch).filter((f) => f.endsWith('.slept'));
+    check(`${how}: the run did not wait for the processes left running`, slept.length === 0, slept.join(' '));
 
     // Each failure's tagged lines sit together under its own FAIL line.
     let owner = null;

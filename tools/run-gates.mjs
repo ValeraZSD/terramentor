@@ -391,12 +391,19 @@ function reap(roots) {
         found.set(p.pid, p);
         for (const k of kids.get(p.pid) || []) if (k.created >= p.created - SLACK) walk(k);
     };
+    // A suite's end is read with Date.now() at its 'exit', after the process
+    // exited, so its children were all created before it; the margin covers only
+    // the rounding of the two clocks, not a second in which an id can be reused.
+    const AT_END = 20;
     for (const r of roots) {
-        // The id already belongs to a newer process (a suite started since, say): its children are not ours.
+        const end = r.end ?? now;
+        // The id may already belong to a newer process (one created after the suite
+        // ended, or long after it started). Its children all came after it, so only
+        // children created before it can be the suite's: both times come from WMI.
         const owner = byPid.get(r.pid);
-        if (owner && owner.created > r.start + SLACK) continue;
+        const newer = owner && owner.created > Math.min(r.start + SLACK, end) ? owner.created : Infinity;
         for (const k of kids.get(r.pid) || []) {
-            if (k.created >= r.start - SLACK && k.created <= (r.end ?? now) + SLACK) walk(k);
+            if (k.created >= r.start - SLACK && k.created <= end + AT_END && k.created < newer) walk(k);
         }
     }
     const pids = [...found.keys()];
