@@ -646,6 +646,13 @@ try {
         ok('the same restore with no ledger brings it back (the ledger is what left it out)', r.code === 0 && markOf(ann) === 'ann-1'
             && !!db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('ann@example.org'), r.out);
         db.close();
+        // Folders, not links, at the same fixed names: still the library's own to clear, never a restore stopped partway.
+        for (const p of planted) { rmSync(p, { recursive: true, force: true }); mkdirSync(join(p, 'inside'), { recursive: true }); }
+        mark(ben, 'ben-2');
+        r = cli('restore', night);
+        ok('a restore clears folders left at its fixed names in the library and puts it back', r.code === 0 && markOf(ben) === 'ben-1'
+            && !existsSync(planted[0]) && !existsSync(planted[2]), `exit ${r.code}; left: ${planted.filter((p) => existsSync(p)).map((p) => p.split(/[\\/]/).pop()).join(' ')}; ${r.out}`);
+        for (const p of planted) rmSync(p, { recursive: true, force: true });
         // A forged site.db (whoever can write where backups are kept) naming a folder outside libraries/.
         const forged = join(scratch, 'ops-forged');
         cpSync(night, forged, { recursive: true });

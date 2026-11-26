@@ -170,11 +170,11 @@ function restoreCommand([dir]) {
     // folder its library writes to) is removed, never written through.
     const incoming = `${dbPath}.restoring`;
     try {
-        rmSync(incoming, { force: true });
+        rmSync(incoming, { recursive: true, force: true });
         copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
         makePrivateFile(incoming);
     } catch (e) {
-        rmSync(incoming, { force: true });
+        rmSync(incoming, { recursive: true, force: true });
         fail(`could not copy the backup in (${e.message}); the library is untouched`);
     }
     // The marker goes down before anything is replaced and comes off only
@@ -182,11 +182,11 @@ function restoreCommand([dir]) {
     // a hosted copy will not start on it (server/hosted.js).
     const marker = restoreMarkerPath(dbPath);
     try {
-        rmSync(marker, { force: true });
+        rmSync(marker, { recursive: true, force: true });
         writeFileSync(marker, `${new Date().toISOString()}\n`, { flag: 'wx' });
         makePrivateFile(marker);
     } catch (e) {
-        rmSync(incoming, { force: true });
+        rmSync(incoming, { recursive: true, force: true });
         fail(`could not mark the restore as started (${e.message}); the library is untouched`);
     }
     // Every exit above (1) left the library as it was. From here it is being

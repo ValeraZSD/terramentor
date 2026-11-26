@@ -100,7 +100,7 @@ function ownTree(dir, uid) {
 function deleteLibraryFolder(dir, uid) {
     if (!ownedBy(uid)) { fs.rmSync(dir, { recursive: true, force: true }); return; }
     if (!fs.existsSync(dir)) return;
-    spawnSync('find', [dir, '-mindepth', '1', '-delete'], { uid, gid: uid, stdio: 'ignore' });
+    spawnSync('find', [dir, '-mindepth', '1', '-delete'], { uid, gid: uid, stdio: 'ignore', env: { PATH: process.env.PATH ?? '/usr/bin:/bin' } });
     fs.rmdirSync(dir);
 }
 
@@ -212,6 +212,8 @@ function restoreCommand() {
     try {
         fs.rmSync(incoming, { force: true });
         fs.copyFileSync(from, incoming, fs.constants.COPYFILE_EXCL);
+        // A copy made as root keeps the source's owner; site.db is root's own.
+        if (asRoot) fs.chownSync(incoming, 0, 0);
         makePrivateFile(incoming);
         db = new Database(incoming);
         db.pragma('secure_delete = ON');
