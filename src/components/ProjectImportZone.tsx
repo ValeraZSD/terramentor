@@ -60,8 +60,8 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
 
     // The link field. What it holds is read as it changes, so the line under
     // it names the course (or says what is wrong) before anything is added.
-    // A reading stays on screen until the next one is ready, so the line does
-    // not blink while the learner types; `from` says which text it read.
+    // `from` says which text a reading belongs to: once the text changes, the
+    // old course is no longer shown, and the line waits for the new reading.
     const [linkText, setLinkText] = useState(linkGiven);
     const [reading, setReading] = useState<{ from: string; course: LinkedCourse | null; problem: CourseLinkProblem | null } | null>(null);
     const current = reading?.from === linkText ? reading : null;
@@ -83,7 +83,8 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
         const timer = window.setTimeout(async () => {
             try {
                 const data = await courseFromText(text);
-                const name = data.project.name.trim();
+                // Shown, not stored: the importer reads the name from the file.
+                const name = Array.from(data.project.name.trim()).slice(0, 200).join('');
                 // The importer reads files, so the link's course is handed to it as
                 // one: the edition check, the warnings and the toasts stay one path.
                 const safeName = Array.from(name.replace(/[\\/:*?"<>|\p{C}]+/gu, ' ')).slice(0, 80).join('').trim();
@@ -236,7 +237,8 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
                     <p className="mt-1 break-words text-xl font-semibold text-slate-900 dark:text-white">{linked.name}</p>
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{counts}</p>
                 </div>
-                <Button variant="primary" size="lg" block busy={importing} onClick={() => addLinked()}>
+                <Button variant="primary" size="lg" block busy={importing} onClick={() => addLinked()}
+                    aria-label={known ? t("Open {{name}}", { name: linked.name }) : undefined}>
                     {have === 'new' ? t("Add this course") : known ? t("Open") : t("Update course")}
                 </Button>
             </div>
@@ -245,8 +247,9 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
     // Being read: a moment, so a spinner rather than a field that jumps.
     if (offering && !current) {
         return (
-            <div className="flex min-h-32 items-center justify-center" aria-busy="true">
+            <div className="flex min-h-32 items-center justify-center" role="status" aria-busy="true">
                 <Loader2 className="h-5 w-5 animate-spin text-accent-fg" aria-hidden="true" />
+                <span className="sr-only">{t("Reading it…")}</span>
             </div>
         );
     }
@@ -311,7 +314,8 @@ export default function ProjectImportZone({ onDone, link: linkGiven = '' }: {
             where a file is awkward: on a phone, a link is copied with one
             press and a file has to be found in a folder first. */}
         <form onSubmit={addLinked}>
-            <Field label={t("Or paste a course link")}>
+            {/* "Or" only under the file target; an opened link hides that. */}
+            <Field label={linkGiven ? t("Paste a link") : t("Or paste a course link")}>
                 {(id) => (
                     <>
                         <div className="flex gap-2">

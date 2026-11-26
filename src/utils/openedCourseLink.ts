@@ -27,7 +27,9 @@ let arrived = false;
  * rather than a run of letters. True when there was one.
  */
 export function keepOpenedCourseLink(): boolean {
-    if (!packedCourseIn(window.location.hash)) return false;
+    // Only a `<format>.<data>` link counts: a stray `#course=x` neither moves
+    // the welcome aside nor opens the dialog.
+    if (!/^\d+\./.test(packedCourseIn(window.location.hash) ?? '')) return false;
     held = window.location.href;
     arrived = true;
     try {

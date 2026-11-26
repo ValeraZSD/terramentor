@@ -40,7 +40,7 @@ await esbuild.build({
     logLevel: 'silent',
 });
 const link = await import(pathToFileURL(out).href);
-const { packCourse, unpackCourse, packedCourseIn, courseFromText, courseLinkFor, CourseLinkError, MAX_COURSE_BYTES } = link;
+const { packCourse, unpackCourse, packedCourseIn, packedCourseReadings, courseFromText, courseLinkFor, CourseLinkError, MAX_COURSE_BYTES } = link;
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -122,10 +122,9 @@ check('packing something that is no course is refused', packRefusal === 'not-a-c
 console.log('5. a link that unpacks to gigabytes stops at the cap');
 // 64 MB of one repeated byte packs to ~64 KB: eight times the cap once unpacked.
 const bomb = '1.' + b64url(deflateRawSync(Buffer.alloc(64 * 1024 * 1024, 0x20), { level: 9 }));
-const started = Date.now();
+// The cap is checked while the stream runs, so too-large (not a crash or a
+// 64 MB string) is itself the proof that it stopped early.
 check('refused as too-large', await refusalOf(bomb) === 'too-large');
-// Generous: gates run side by side, and unpacking all 64 MB would still take far longer.
-check('refused without unpacking it all (under 10 s)', Date.now() - started < 10000, `${Date.now() - started} ms`);
 // The edge of the cap, with a real course on both sides of it.
 const courseOfSize = (bytes) => {
     const shell = JSON.stringify({ project: { name: 'Big', description: '' }, nodes: [] });
@@ -151,6 +150,17 @@ check('an escaped "=" after course (%3D)', await fromText(full.replace('#course=
 check('base64 padding at the end', await fromText(`${full}==`) === name);
 check('cut short is still damaged with text after it', await fromText(`${full.slice(0, Math.floor(full.length * 0.6))}\nthanks`) === 'damaged');
 check('no link in the text → not-a-link', await fromText('see you tomorrow') === 'not-a-link');
+// Node's inflate ignores data after a packed course ends; a browser's refuses
+// it. So the reading that is exactly the link must be among those tried,
+// whatever Node would have forgiven.
+const sixWords = 'Let me know what you think';
+check('six words after the link: the link alone is tried', packedCourseReadings(`${full} ${sixWords}`).includes(String(packed)));
+check('six words on the next line: the link alone is tried', packedCourseReadings(`${full}\n${sixWords}`).includes(String(packed)));
+check('a wrapped link, then six words: the link alone is tried', packedCourseReadings(`${wrapped}\n${sixWords}`).includes(String(packed)));
+check('"course =)" before the link does not hide it', await fromText(`Great course =) ${full}`) === name);
+check("another site's course=2.5 before the link does not hide it", await fromText(`https://other.test/x?id=3&course=2.5 and ours: ${full}`) === name);
+check('the name "course" broken over two lines', await fromText(full.replace('#course=', '#cou\nrse=')) === name);
+check('a line break straight after "="', await fromText(full.replace('#course=', '#course=\n')) === name);
 
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -93,19 +93,29 @@ export function packedCourseReadings(text: string): string[] {
     // the name itself over two lines.
     const s = String(text || '').replace(/%3D/gi, '=');
     const name = COURSE_LINK_PARAM.split('').join('\\s*');
-    const at = new RegExp(`(?:^|[#&?\\s])${name}\\s*=`).exec(s);
-    if (!at) return [];
-    const rest = s.slice(at.index + at[0].length);
-    const head = /^\s*(\d+)\s*\.\s*/.exec(rest);
-    if (!head) {
-        const bare = /^[^\s&#]+/.exec(rest);
-        return bare ? [bare[0]] : [];
+    // "course =)" in the words before the link, or another site's `?course=2`,
+    // is not the link: the first `course=` in this packing is, else the first
+    // in any `<format>.<data>` (so a newer link is told apart), else any.
+    let other: string[] | null = null;
+    let bare: string | null = null;
+    for (const at of s.matchAll(new RegExp(`(?:^|[#&?\\s])${name}\\s*=`, 'g'))) {
+        const rest = s.slice(at.index + at[0].length);
+        const head = /^\s*(\d+)\s*\.\s*/.exec(rest);
+        if (head?.[1] === FORMAT) return readingsAfter(head[1], rest.slice(head[0].length));
+        if (head) other ??= readingsAfter(head[1], rest.slice(head[0].length));
+        else bare ??= /^[^\s&#]+/.exec(rest)?.[0] ?? null;
     }
+    return other ?? (bare ? [bare] : []);
+}
+
+/** Most readings tried for one paste: each failed one is a whole unpack. */
+const MAX_READINGS = 40;
+
+function readingsAfter(format: string, tail: string): string[] {
     // The data is a run of URL-safe base64 that messaging apps break over
     // lines. It ends at the first character no link carries (`!`, `>`, a
     // sentence's last `.`), at `&` or `#`, or where the line breaks stop.
     const runs: string[] = [];
-    let tail = rest.slice(head[0].length);
     let size = 0;
     for (;;) {
         const run = /^([A-Za-z0-9_-]+)\s*/.exec(tail);
@@ -115,12 +125,15 @@ export function packedCourseReadings(text: string): string[] {
         tail = tail.slice(run[0].length);
         if (size > MAX_LINK_CHARS) break;
     }
-    if (runs.length === 0) return [`${head[1]}.`];
-    // A word typed after the link ("…xyz thanks") looks like one more line of
-    // it, so readings that leave the last few runs off follow the whole one.
-    const readings: string[] = [];
-    for (let n = runs.length; n >= Math.max(1, runs.length - 3); n--) readings.push(`${head[1]}.${runs.slice(0, n).join('')}`);
-    return readings;
+    if (runs.length === 0) return [`${format}.`];
+    // Words typed after the link ("…xyz Let me know what you think") look like
+    // more lines of it, and a browser refuses data after a packed course ends.
+    // So the whole run is tried first, then the first line alone (a link no
+    // app wrapped), then the whole run less one, two, … trailing words.
+    const counts = [runs.length];
+    if (runs.length > 1) counts.push(1);
+    for (let n = runs.length - 1; n > 1 && counts.length < MAX_READINGS; n--) counts.push(n);
+    return counts.map(n => `${format}.${runs.slice(0, n).join('')}`);
 }
 
 /**
