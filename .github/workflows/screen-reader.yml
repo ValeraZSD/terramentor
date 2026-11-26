@@ -13,6 +13,12 @@ on:
       - .github/workflows/screen-reader.yml
       - tools/screen-reader-run.mjs
 
+# A newer push to a pull request replaces the older run; a run by hand is
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

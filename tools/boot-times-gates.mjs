@@ -14,6 +14,7 @@
 // Run:  node tools/boot-times-gates.mjs   (the real start takes ~5-30 s)
 
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,13 @@ check('no marks, no line', bootLine([]), null);
     for (const k of ['DATA_DIR', 'DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH', 'PORT', 'TERRAMENTOR_TRAY']) delete env[k];
     // Nothing a start writes per user (a login item, a shortcut) reaches the real home.
     Object.assign(env, { HOME: scratch, USERPROFILE: scratch, APPDATA: join(scratch, 'Roaming'), LOCALAPPDATA: join(scratch, 'Local'), XDG_CONFIG_HOME: join(scratch, '.config') });
-    const port = 39000 + Math.floor(Math.random() * 800);
+    // A port the system hands out as free, not one from a fixed range: other
+    // suites run beside this one.
+    const port = await new Promise((resolve, reject) => {
+        const probe = createServer();
+        probe.once('error', reject);
+        probe.listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); });
+    });
     // --data-dir is applied in the launcher's own process before the server is
     // imported; the vault and the secrets file follow it. --check starts,
     // verifies and quits.
