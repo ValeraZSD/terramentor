@@ -514,7 +514,8 @@ loads it. What it does:
 - **Archives are encrypted before they are written to the backup folder**, with
   [age](https://age-encryption.org) (X25519, ChaCha20-Poly1305) to the operator's public key(s)
   in `TM_BACKUP_RECIPIENTS`. No backup is written without one, and a file holding a private key
-  is refused there, as is a recipients file anyone but root can write. The private key is not
+  is refused there, as is a recipients file that the user running `copy.sh` (root) does not own
+  or that others can write. The private key is not
   needed to back up, only to restore, so it need not be on the server. Unencrypted, a backup
   exists only while it is made and checked: in a `.backup-*` folder inside the library or site
   being backed up, then in `hosted/.work/` (root only); both are deleted after, and what a
@@ -522,7 +523,8 @@ loads it. What it does:
   copies the backup folder, a storage box included, reads nothing without a private key.
   age does not prove who made an archive (anyone with the public key can), so only archives
   from the operator's own backup folder should be restored. `site-restore` refuses a library
-  archive that was not made from the library whose folder it is in, or that holds a link, and a
+  archive that was not made from the library whose folder it is in, or that holds a link, a file
+  under two names or a name outside its folder (asked before anything is unpacked), and a
   `site.db` whose library ids or user ids are not ones the front desk writes (one user for two
   libraries, or a user the site already gives another library).
 - **Each library is read and written as its own user.** The front desk runs as root, but its
@@ -547,9 +549,11 @@ loads it. What it does:
   front desk starts. After the grace period, the nightly `backup --all` deletes the person's
   archives. The ledger is kept outside every archive, on the server and in the backup folder,
   and read as the union of both, so an older backup put back is erased again on the next night.
-  Since anyone who can write the backup folder can add a line, a line dated in the future is not
-  read, and one that names a site library that still has an account is acted on by neither the
-  sweep nor a restore. `hosted/rehearse.sh` checks the erasure, the refused restores and the
+  Since anyone who can write the backup folder can add a line, a line dated more than an hour
+  ahead, or due before it was made, is not read. The sweep deletes nothing of a site library that
+  still has an account, of a copy that runs and was made before the erasure the line names, or of
+  any site library while the site's accounts cannot be read; a site restore refuses to run while
+  a line names a library that still has an account. `hosted/rehearse.sh` checks the erasure, the refused restores and the
   sweep in CI.
 - **What it does not reach**: the `site.db` archives made before a removal hold that account's
   email address and password hash until they roll off (`TM_BACKUP_KEEP` backups); later

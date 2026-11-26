@@ -78,7 +78,7 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh erase <name>` / `site:<library id>` | erases the archives of a copy or site library already removed |
 | `copy.sh unerase <name>` / `site:<library id>` | cancels an erasure still in its grace period |
 | `copy.sh sweep` | deletes the archives whose erasure's grace period has ended |
-| `copy.sh site-remove <email> [--erase] [--yes]` | backs up one person's site library, then deletes their account and library |
+| `copy.sh site-remove <email> [--erase] [--no-backup] [--yes]` | backs up one person's site library, then deletes their account and library |
 | `copy.sh site-restore <_site/_desk/archive> [--identity <key>] [--no-backup]` | puts the whole site back as it was that night, erased people left out and everyone signed out |
 
 `new`, `restore`, `update` and `remove` take a lock per copy in
@@ -366,14 +366,17 @@ answer to say), and stands when they are gone but a volume or folder was left;
 `copy.sh` says which, and how to delete what was left.
 
 Anyone who can write to `TM_BACKUP_DIR` can add a line to its ledger, so
-`copy.sh` does not read a line dated after tomorrow, and acts on none that
-names a site library still having an account: the sweep keeps its archives and
-says so, and `site-restore` refuses to run until the line is deleted from both
-ledgers. A site restore also checks that each library's archive was made from
+`copy.sh` does not read a line dated more than an hour ahead, and acts on none
+that names a site library still having an account, or a copy that runs and was
+made before that erasure: the sweep keeps their archives and says so, and
+`site-restore` refuses to run until a line naming a live library is deleted from
+both ledgers. With `TM_SITE_CONTAINER` unset, or the site not answering, no site
+library's archives are swept that night. A site restore also checks that each library's archive was made from
 the library whose folder it is in, so archives moved between folders are
 refused. If a library cannot be backed up (its own folder holds a link, say),
 the others are, and the backup that `site-restore` takes first goes on without
-it.
+it; `site-remove` stops instead, and `site-remove <email> --no-backup` removes
+that person without a backup.
 
 ## The model and its cost
 
