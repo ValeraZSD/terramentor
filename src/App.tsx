@@ -1,5 +1,6 @@
 import { useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useLocation, useNavigate } from 'react-router-dom';
+import { openedCourseLink } from './utils/openedCourseLink';
 import { useStore } from './store';
 import { setAuthRequiredHandler } from './api';
 import { useRouterStoreSync } from './hooks/useRouterStoreSync';
@@ -92,6 +93,18 @@ export default function App() {
         })();
         return () => setAuthRequiredHandler(null);
     }, []);
+
+    // A course link the app was opened with is offered on Projects, where the
+    // New course dialog lives; it waits through a lock screen and the welcome.
+    const appShown = authChecked && (!authEnabled || authenticated) && welcome === 'done' && !isOpenRouterReturn();
+    // On the entry's key, not the path: the welcome's last step navigates
+    // right after this one, and the two can land in one render with the path
+    // back where it was, which would not run this again.
+    const { pathname, key: entry } = useLocation();
+    const navigate = useNavigate();
+    useEffect(() => {
+        if (appShown && pathname !== '/projects' && openedCourseLink() !== null) navigate('/projects', { replace: true });
+    }, [appShown, pathname, entry, navigate]);
 
     // Avoid flashing the app before we know whether a login is required.
     if (!authChecked) return null;

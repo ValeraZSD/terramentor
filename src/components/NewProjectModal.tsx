@@ -63,9 +63,11 @@ const ONE_ROW_FOOT_REM = 38;
 
 /** `draft` refills the form: a creation that failed before it made a project
  *  hands back what was typed, and its files, still read (see `takeDraft`). */
-export default function NewProjectModal({ isOpen, draft, onClose }: {
+export default function NewProjectModal({ isOpen, draft, courseLink = null, onClose }: {
     isOpen: boolean;
     draft: CreationInput | null;
+    /** A course link the app was opened with: the dialog opens on Import with it filled in. */
+    courseLink?: string | null;
     onClose: () => void;
 }) {
     const { t } = useTranslation();
@@ -87,7 +89,7 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     };
     // The first step, two tiles, takes the height it needs; the form and the
     // run that replaces it in place share the fixed box.
-    const [choosing, setChoosing] = useState(!draft);
+    const [choosing, setChoosing] = useState(!draft && !courseLink);
     // Where the title's ← goes, set by the step on show; none on the first.
     const [back, setBack] = useState<(() => void) | null>(null);
     const onBack = useCallback((to: (() => void) | null) => setBack(() => to), []);
@@ -99,7 +101,7 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
         // Import a course, Lessons…), so the title says it too.
         <Modal isOpen={isOpen} onClose={leave} title={t("New course")} maxWidth={COURSE_DIALOG_SIZE.maxWidth}
             className={choosing ? '' : COURSE_DIALOG_SIZE.className} fill onBack={back ?? undefined}>
-            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} holdsWork={holdsWork} onChoosing={setChoosing} onBack={onBack} />
+            <NewProjectForm draft={draft} courseLink={courseLink} onClose={onClose} onCancel={cancel} release={release} holdsWork={holdsWork} onChoosing={setChoosing} onBack={onBack} />
         </Modal>
     );
 }
@@ -134,8 +136,9 @@ function Choice({ icon, title, line, onClick }: { icon: ReactNode; title: string
     );
 }
 
-function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosing, onBack }: {
+function NewProjectForm({ draft, courseLink, onClose, onCancel, release, holdsWork, onChoosing, onBack }: {
     draft: CreationInput | null;
+    courseLink: string | null;
     /** Whether the first step (create or import) is showing. */
     onChoosing: (choosing: boolean) => void;
     /** What the title's ← does on this step; null on the first. */
@@ -154,8 +157,9 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     const uiLanguage = useStore(s => s.uiLanguage);
 
     // A plain open asks first: create or import. A form handed back (a run's
-    // Back, the assistant's "Open in New course") opens on the form itself.
-    const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : 'choose');
+    // Back, the assistant's "Open in New course") opens on the form itself, and
+    // a course link the app was opened with opens on Import.
+    const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : courseLink ? 'import' : 'choose');
     // The chatbot path's own fields and the reply pasted back, kept here so a
     // step back (its ←, the system's Back) does not drop them.
     const [brief, setBrief] = useState<BriefKept>({ level: '', goal: '', reply: '' });
@@ -577,7 +581,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                         />
                     ) : createMode === 'import' ? (
                         <div className="space-y-4">
-                            <ProjectImportZone onDone={onCancel} />
+                            <ProjectImportZone onDone={onCancel} link={courseLink ?? ''} />
                             {/* A course another chatbot wrote is an import too,
                                 so it is offered HERE rather than from a menu
                                 beside the import button, whose first item would

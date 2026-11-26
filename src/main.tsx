@@ -5,6 +5,11 @@ import App from './App';
 import './index.css';
 import { registerSW } from './sw-register';
 import { i18nReady } from './i18n';
+import { keepOpenedCourseLink } from './utils/openedCourseLink';
+
+// A course link the app was opened with leaves the address before anything
+// routes (see openedCourseLink.ts); the course list offers it once it shows.
+keepOpenedCourseLink();
 
 // The interface language is applied BEFORE the first render: the cached choice
 // is read synchronously, but a non-English locale is a chunk that has to

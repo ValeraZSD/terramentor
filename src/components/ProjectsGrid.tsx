@@ -44,6 +44,7 @@ import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
+import { forgetOpenedCourseLink, openedCourseLink } from '../utils/openedCourseLink';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
@@ -87,6 +88,9 @@ export default function ProjectsGrid() {
 
     const [showCreate, setShowCreate] = useState(false);
     const [draft, setDraft] = useState<CreationInput | null>(null);
+    // A course link the app was opened with: the dialog opens on Import with
+    // the link filled in, so the learner sees the course before adding it.
+    const [courseLink, setCourseLink] = useState<string | null>(null);
     const [activeProject, setActiveProject] = useState<Project | null>(null);
 
     // Each project's pace, open topics and topic extent (`calculatePace` and
@@ -169,9 +173,20 @@ export default function ProjectsGrid() {
         navigate(location.pathname, { replace: true, state: null });
     }, [location.state, location.pathname, navigate]);
 
+    // Read, not spent: if this page is left before the dialog closes (the
+    // welcome's last step moves on), the app comes back here and offers it again.
+    useEffect(() => {
+        const link = openedCourseLink();
+        if (!link) return;
+        setCourseLink(link);
+        setShowCreate(true);
+    }, []);
+
     const closeCreate = () => {
         setShowCreate(false);
         setDraft(null);
+        if (courseLink) forgetOpenedCourseLink();
+        setCourseLink(null);
     };
 
     // Project Grid Drag
@@ -434,7 +449,7 @@ export default function ProjectsGrid() {
                     )}
                 </div>
 
-                <NewProjectModal isOpen={showCreate} draft={draft} onClose={closeCreate} />
+                <NewProjectModal isOpen={showCreate} draft={draft} courseLink={courseLink} onClose={closeCreate} />
             </div>
         </>
     );
