@@ -56,7 +56,7 @@ const throwsWith = (name, fn, pattern) => {
 const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
-    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, GATES_CHECKS,
+    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, lookUpGates, GATES_CHECKS,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -548,16 +548,13 @@ ok('a tag that is already published is refused, and nothing is deleted',
 {
     const sha = 'a'.repeat(40);
     const checkRun = (id, name) => ({ id, name, head_sha: sha, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, check_suite: { id: 77 } });
-    const askGates = async (respond, { delayMs = 0, extra = [] } = {}) => {
+    const askGates = async (respond, { extra = [] } = {}) => {
         const seen = [];
         const server = createServer((req, res) => {
             seen.push(`${req.method} ${req.url}`);
             const [status, json] = respond(req.url);
-            setTimeout(() => {
-                if (res.destroyed) return;
-                res.writeHead(status, { 'content-type': 'application/json' });
-                res.end(JSON.stringify(json));
-            }, delayMs);
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(json));
         });
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         try {
@@ -591,13 +588,34 @@ ok('a tag that is already published is refused, and nothing is deleted',
     });
     ok('…false when a check name has more runs than one page holds (the newest may be on the next)',
         g.status === 0 && /^passed=false$/m.test(g.stdout) && /101/.test(g.stdout), g.stdout.trim());
-    // Three calls, each answered in 0.6 s: every one alone is inside a 1.2 s
-    // deadline, all three are not. The deadline holds the whole lookup.
-    g = await askGates(green, { delayMs: 600, extra: ['--deadline-ms', '1200'] });
-    ok('…false when the whole lookup outlasts its one deadline, though each call alone would not',
-        g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
-    g = await askGates(green, { delayMs: 100, extra: ['--deadline-ms', '5000'] });
-    ok('…and still true when the same slow answers fit inside it', g.status === 0 && /^passed=true$/m.test(g.stdout), g.stdout.trim());
+    g = await askGates(green, { extra: ['--deadline-ms', '-1'] });
+    ok('…false, exiting 0, when the deadline given is out of range', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+
+    // The deadline, with no clock: lookUpGates through a stand-in transport
+    // that records the signal each call carries. One deadline holds the whole
+    // lookup only if every call carries the same signal, and once it fires no
+    // further call is made.
+    // `answered(n)` runs after call n has its answer: the deadline can fire
+    // between two calls, the way a timer would.
+    const stubGet = (calls, answered = () => {}) => async (path, options = {}) => {
+        calls.push({ path, signal: options.signal });
+        if (options.signal?.aborted) throw options.signal.reason;
+        const [status, json] = green(`/repos/o/r${path}`);
+        if (status !== 200) throw new Error(`GitHub answered ${status}`);
+        answered(calls.length);
+        return json;
+    };
+    let calls = [];
+    const deadline = new AbortController();
+    let v = await lookUpGates({ sha, get: stubGet(calls), signal: deadline.signal });
+    ok('lookUpGates: three calls, every one carrying the one deadline it was given',
+        v.passed === true && calls.length === 3 && calls.every((c) => c.signal === deadline.signal),
+        `${v.reason} | ${calls.map((c) => (c.signal === deadline.signal ? 'same' : 'other')).join(',')}`);
+    calls = [];
+    const fired = new AbortController();
+    v = await lookUpGates({ sha, get: stubGet(calls, (n) => { if (n === 2) fired.abort(new Error('deadline passed')); }), signal: fired.signal });
+    ok('…false when the deadline fires mid-lookup, and the call after it is never made',
+        v.passed === false && /deadline passed/.test(v.reason) && calls.length === 2, `${v.reason} | ${calls.length} calls`);
 }
 
 // The plan, image and release jobs run tools/release.mjs straight after the
