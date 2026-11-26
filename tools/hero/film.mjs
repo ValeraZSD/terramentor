@@ -32,7 +32,10 @@ const Database = createRequire(join(ROOT, 'package.json'))('better-sqlite3');
 
 const opt = { recorder: process.env.HERO_RECORDER, cassettes: process.env.HERO_CASSETTES, port: 3536, until: 'end', pass: [] };
 {
-    const argv = process.argv.slice(2);
+    // The server's own HERO_* fallbacks, turned into options so their paths resolve from here.
+    const env = [['--fallback-log', 'HERO_FALLBACK_LOG'], ['--order-logs', 'HERO_ORDER_LOGS'], ['--no-fallback', 'HERO_NO_FALLBACK']]
+        .flatMap(([flag, name]) => (process.env[name] ? [flag, process.env[name]] : []));
+    const argv = [...env, ...process.argv.slice(2)];
     for (let i = 0; i < argv.length; i++) {
         const k = argv[i];
         const v = () => { const x = argv[++i]; if (x === undefined) throw new Error(`${k} needs a value`); return x; };
@@ -88,8 +91,8 @@ const dbq = (sql, ...a) => { const db = new Database(join(LIB, 'library.db'), { 
 const logPath = join(WORK, 'server.log');
 const serverArgs = [join(ROOT, 'tools', 'hero', 'serve.mjs'), '--library', LIB, '--port', String(opt.port), '--cassettes', resolve(opt.cassettes), ...opt.pass, ...(opt.stepped ? ['--film-clock'] : [])];
 // Something already answering the port (an earlier run's server) would be driven instead.
-if (await fetch(`${BASE}/api/build`).then(() => true, () => false)) throw new Error(`port ${opt.port} is already in use; pass another --port`);
-const server = spawn(process.execPath, serverArgs,{ cwd: ROOT, stdio: ['ignore', openSync(logPath, 'a'), openSync(logPath, 'a')] });
+if (await fetch(`${BASE}/api/build`, { signal: AbortSignal.timeout(3000) }).then(() => true, (e) => e?.name === 'TimeoutError')) throw new Error(`port ${opt.port} is already in use; pass another --port`);
+const server = spawn(process.execPath, serverArgs, { cwd: ROOT, stdio: ['ignore', openSync(logPath, 'a'), openSync(logPath, 'a')] });
 let up = false;
 for (let i = 0; i < 240 && !up; i++) {
     await sleep(500);

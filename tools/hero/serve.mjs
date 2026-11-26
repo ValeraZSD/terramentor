@@ -67,7 +67,8 @@ if (opt.record && !process.env.ANTHROPIC_API_KEY) throw new Error('--record need
 if (!existsSync(opt.cassettes)) throw new Error(`no cassette folder at ${opt.cassettes}`);
 
 // ---- the scratch library, named before any server module is imported --------------------
-for (const key of Object.keys(process.env)) if (/^(AI_|OPENAI_|SITE_)/.test(key) || key === 'PORT_FALLBACK') delete process.env[key];
+// The caller's settings for the app (models, hosting, update and fetch overrides) stay out.
+for (const key of Object.keys(process.env)) if (/^(AI_|OPENAI_|SITE_|TERRAMENTOR_|UPDATE_|CHATGPT_|ALLOWED_)/.test(key) || ['PORT_FALLBACK', 'ALLOW_PRIVATE_FETCH'].includes(key)) delete process.env[key];
 // Only a library this script made: an existing one may hold real connections and real files.
 const MARK = join(opt.library, '.hero-library');
 if (existsSync(join(opt.library, 'library.db')) && !existsSync(MARK)) throw new Error(`refusing: ${opt.library} holds a library this script did not make`);
@@ -232,6 +233,8 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
     const key = createHash('sha256').update(JSON.stringify({ model: body.model, system: body.system, messages: body.messages, tools: body.tools || null })).digest('hex').slice(0, 24);
     const seqKind = ORDERED.find((p) => label.startsWith(p));
     const seq = seqKind ? (orderSeen[seqKind] = (orderSeen[seqKind] ?? -1) + 1) : -1;
+    // This call's position among the calls of its kind, hits included, as the fallback log counts.
+    const n = (fallbackSeen[label] = (fallbackSeen[label] ?? -1) + 1);
     const hit = load(key);
     if (hit) { log({ how: 'hit', key, ms: hit.ms, label, ...(seq >= 0 ? { seq } : {}) }); return replay(hit, init.signal); }
     if (seqKind) {
@@ -240,8 +243,7 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
         if (c) { log({ how: 'order-hit', key, as, ms: c.ms, label, seq }); return replay(c, init.signal); }
     }
     if (!noFallback?.test(label)) {
-        const n = (fallbackSeen[label] = (fallbackSeen[label] ?? -1) + 1);
-        const as = (fallback[label] || [])[n] || (fallback[label] || []).at(-1);
+        const as =(fallback[label] || [])[n] || (fallback[label] || []).at(-1);
         const c = load(as);
         if (c) { log({ how: 'label-hit', key, as, ms: c.ms, label, n }); return replay(c, init.signal); }
     }
@@ -282,7 +284,12 @@ globalThis.fetch = async function replayFetch(input, init = {}) {
             renameSync(tmp, cassette(key));
         }
         log({ how: 'real', key, ms, label, ...(seq >= 0 ? { seq } : {}), ...use, spent: +spent.toFixed(4) });
-    })().catch((err) => log({ how: 'real-read-fail', label, err: String(err?.message || err) })).finally(() => { running--; });
+    })().catch((err) => {
+        // A reply cut off part way may still be billed: count it at the running average.
+        spent += guess;
+        finished++;
+        log({ how: 'real-read-fail', label, err: String(err?.message || err) });
+    }).finally(() => { running--; });
     return new Response(mine, { status: res.status, headers: res.headers });
 };
 
@@ -313,8 +320,8 @@ if (opt.filmClock) {
     Server.prototype.emit = function (event, req, res, ...rest) {
         if (event === 'request' && req?.url?.startsWith('/__film/clock')) {
             const q = new URL(req.url, 'http://x').searchParams;
-            const t = Number(q.get('t'));
-            if (!Number.isFinite(t)) { res.writeHead(400); res.end(); return true; }
+            const t = Number(q.get('t') || NaN);
+            if (!Number.isFinite(t)){ res.writeHead(400); res.end(); return true; }
             clock.auto = q.get('auto') === '1';
             clock.t = t;
             clock.real = realNow();

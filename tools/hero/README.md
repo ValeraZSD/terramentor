@@ -69,8 +69,9 @@ the cap at the average cost of the calls so far, so several calls started togeth
 it together.
 
 `serve.mjs` only opens a library it made itself (it leaves a `.hero-library` file there), so it
-cannot be pointed at a real one. Without `--record` it also refuses every outbound call except to
-this machine. `HERO_FALLBACK_LOG`, `HERO_ORDER_LOGS` and `HERO_NO_FALLBACK` stand in for the
+cannot be pointed at a real one. Without `--record`, a call through `fetch` to any host but this
+machine is refused; the film's settings turn off the features that fetch pages themselves (web
+search, finding resources, update checks). `HERO_FALLBACK_LOG`, `HERO_ORDER_LOGS` and `HERO_NO_FALLBACK` stand in for the
 options of the same names.
 
 A refused call's whole request is saved as `<work>/library/refused/<hash>.json`, and
