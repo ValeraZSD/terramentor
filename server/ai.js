@@ -10,6 +10,7 @@ import { textTag } from './logText.js';
 // parsers are pure and the merge below does the URL vetting — so this is a
 // one-way import, not another cycle.
 import { tavilySearch, braveSearch, jinaSearch } from './searchBackends.js';
+import { userAgent } from './version.js';
 import { getProjectLanguage, languageDirective, languageDirectiveForResponse, learnedWordsRule } from './language.js';
 // One line per model call in the local record. What goes in is the shape of the
 // call — provider, model id, operation, duration, how much came back — never
@@ -2297,7 +2298,7 @@ async function wikipediaSearch(query, maxResults = 4) {
             `&srlimit=${maxResults}&srprop=snippet&format=json&origin=*`;
 
         const res = await fetch(searchUrl, {
-            headers: { 'User-Agent': 'Terramentor/1.0 (educational tool)' },
+            headers: { 'User-Agent': userAgent('educational tool') },
             signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) return [];
@@ -2424,7 +2425,7 @@ async function githubSearch(query, maxResults = 3) {
         const res = await fetch(repoUrl, {
             headers: {
                 'Accept': 'application/vnd.github+json',
-                'User-Agent': 'Terramentor/1.0',
+                'User-Agent': userAgent(),
                 'X-GitHub-Api-Version': '2022-11-28',
             },
             signal: AbortSignal.timeout(8000),
@@ -2460,7 +2461,7 @@ async function searxngSearch(query, maxResults = 4) {
         // address and a redirect are not (netSafety.js localEndpointFetch).
         const res = await localEndpointFetch()(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; Terramentor/1.0)',
+                'User-Agent': `Mozilla/5.0 (compatible; ${userAgent()})`,
                 'Accept': 'application/json',
             },
             signal: AbortSignal.timeout(5000),

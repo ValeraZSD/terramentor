@@ -66,6 +66,8 @@ const ALLOWLIST = {
     'axe-core': 'read as a file, not imported: tools/axe-gates.mjs resolves `axe-core/axe.min.js` and '
         + 'injects its source into each page the browser opens',
     typescript: 'invoked as the `tsc` binary by `npm run check` and by the editor, never imported',
+    '@types/node': 'the types of the `node:` built-ins, named in tsconfig.server.json `types` for the '
+        + 'server modules `npm run check` type-checks; built-ins are never a package import',
     oxlint: 'run as a program, not imported: tools/a11y-lint-gates.mjs resolves `oxlint/package.json` '
         + 'and starts its bin with the jsx-a11y rules in tools/oxlint-a11y.json',
     '@tesseract.js-data/eng': 'the English OCR model. It is DATA: `server/pdfRecovery.js` resolves its '

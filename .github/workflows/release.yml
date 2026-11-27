@@ -181,7 +181,7 @@ jobs:
         run: node tools/release.mjs gates-passed --sha "$REF"
       - run: npm ci
         if: steps.gates.outputs.passed != 'true'
-      - run: npx tsc --noEmit
+      - run: npx tsc --noEmit && npx tsc -p tsconfig.server.json
         if: steps.gates.outputs.passed != 'true'
       - name: Server parses
         if: steps.gates.outputs.passed != 'true'

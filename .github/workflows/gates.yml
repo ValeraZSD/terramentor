@@ -96,7 +96,8 @@ jobs:
 
       - name: Types
         if: matrix.shard == 'rest'
-        run: npx tsc --noEmit
+        # The frontend, then the server modules tsconfig.server.json lists.
+        run: npx tsc --noEmit && npx tsc -p tsconfig.server.json
 
       - name: Server parses
         if: matrix.shard == 'rest'
@@ -168,7 +169,8 @@ jobs:
 
       - name: Types
         if: matrix.shard == 'rest'
-        run: npx tsc --noEmit
+        # The frontend, then the server modules tsconfig.server.json lists.
+        run: npx tsc --noEmit && npx tsc -p tsconfig.server.json
 
       - name: Server parses
         if: matrix.shard == 'rest'

@@ -129,7 +129,7 @@ line, a file or a folder; a `.env` or `.certs` there is never copied.
 
 ```bash
 npm test                            # every guard suite; prints the live per-suite counts
-npm run check                       # frontend types (tsc --noEmit)
+npm run check                       # types: the frontend, then the listed server modules
 node --check server/app.js          # and each server file you touched
 node -e "import('./server/app.js').then(() => process.exit(0))"   # the server links
 npm run build                       # the app builds
@@ -202,6 +202,16 @@ reader** workflow on a Windows runner ([docs/ACCESSIBILITY.md](docs/ACCESSIBILIT
 
 The `tools/*-gates.mjs` scripts are the safety net; if you add a subtle invariant, add a check
 to one of them. A new `*-gates.mjs` file is picked up by `npm test` automatically.
+
+### Type-checked server modules
+
+The server is plain JavaScript, and `node --check` only parses it. Some of its modules are also
+type-checked: `tsconfig.server.json` lists them under `files`, and `npm run check` runs
+`tsc -p tsconfig.server.json` after the frontend's check. To add a module, add its path to that
+list and run `npm run check`. Where TypeScript cannot work out a type, write a JSDoc
+annotation (`/** @param {string} key */`, `/** @type {Map<string, number>} */`); the file stays
+`.js`. Every server module a listed file imports is checked too, so start with modules that
+import little beyond `node:` built-ins and modules already on the list.
 
 ### Pictures in the docs
 

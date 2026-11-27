@@ -39,6 +39,9 @@ import { Agent, fetch as undiciFetch } from 'undici';
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_FETCH === '1';
 const MAX_REDIRECTS = 3;
 
+/** @typedef {{ address: string, family?: number }} Resolved One answer of a name lookup. */
+
+/** @param {string} v4 */
 function isBlockedIPv4(v4) {
     const [a, b, c] = v4.split('.').map(Number);
     if (a === 0 || a === 127) return true;                 // this host / loopback
@@ -69,13 +72,17 @@ function isBlockedIPv4(v4) {
 }
 
 /** An IPv6 literal as its eight 16-bit groups, or null. A trailing dotted quad
- *  (`::ffff:127.0.0.1`) is two groups. */
+ *  (`::ffff:127.0.0.1`) is two groups.
+ *  @param {string} v6
+ *  @returns {number[] | null} */
 function ipv6Groups(v6) {
     const text = v6.replace(/%.*$/, '');                   // a zone id names an interface, not an address
     const halves = text.split('::');
     if (halves.length > 2) return null;
+    /** @param {string} s */
     const part = (s) => {
         if (!s) return [];
+        /** @type {number[]} */
         const out = [];
         for (const piece of s.split(':')) {
             if (net.isIPv4(piece)) {
@@ -97,9 +104,16 @@ function ipv6Groups(v6) {
     return fill < 1 ? null : [...head, ...new Array(fill).fill(0), ...tail];
 }
 
+/**
+ * @param {number} hi
+ * @param {number} lo
+ */
 const groupsToV4 = (hi, lo) => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
 
-/** Is this literal address one an outbound fetch must never be aimed at? */
+/**
+ * Is this literal address one an outbound fetch must never be aimed at?
+ * @param {unknown} ip
+ */
 export function isBlockedAddress(ip) {
     const raw = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
     if (net.isIPv4(raw)) return isBlockedIPv4(raw);
@@ -109,6 +123,10 @@ export function isBlockedAddress(ip) {
     // An IPv4 address carried inside an IPv6 one is judged as the IPv4 address.
     // The URL parser writes [::ffff:127.0.0.1] as [::ffff:7f00:1], so the
     // embedded address has to be read out of the groups, never off the text.
+    /**
+     * @param {number} from
+     * @param {number} to
+     */
     const zero = (from, to) => g.slice(from, to).every(x => x === 0);
     if (zero(0, 5) && g[5] === 0xffff) return isBlockedIPv4(groupsToV4(g[6], g[7]));   // mapped ::ffff:0:0/96
     if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return isBlockedIPv4(groupsToV4(g[6], g[7])); // translated ::ffff:0:0:0/96 (SIIT)
@@ -151,9 +169,11 @@ export function isBlockedAddress(ip) {
  * SearXNG typed as `http://<machine-name>:port`. A literal fe80:: address is
  * still refused: nobody types one for a model server, and refusing the whole
  * link-local range there costs nothing. A zone id (`%12`) is ignored.
+ * @param {unknown} ip
  */
 export function isMetadataAddress(ip, { linkLocal = true } = {}) {
     const raw = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+    /** @param {string} text */
     const v4 = (text) => {
         const [a, b] = text.split('.').map(Number);
         return (a === 169 && b === 254) || text === '100.100.100.200';
@@ -162,6 +182,10 @@ export function isMetadataAddress(ip, { linkLocal = true } = {}) {
     if (!net.isIPv6(raw)) return false;
     const g = ipv6Groups(raw);
     if (!g) return false;
+    /**
+     * @param {number} from
+     * @param {number} to
+     */
     const zero = (from, to) => g.slice(from, to).every(x => x === 0);
     if (zero(0, 5) && g[5] === 0xffff) return v4(groupsToV4(g[6], g[7]));                  // mapped
     if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return v4(groupsToV4(g[6], g[7]));    // translated
@@ -175,16 +199,24 @@ export function isMetadataAddress(ip, { linkLocal = true } = {}) {
 // A name's answer, kept a minute: a model endpoint is asked many times a
 // minute and its name does not move between two of them.
 const METADATA_LOOKUP_TTL_MS = 60 * 1000;
-const metadataLookups = new Map();   // host → { at, addresses }
+/** @typedef {(host: string) => Promise<unknown>} Lookup Resolves a name; anything but an array reads as no answer. */
+/** @type {Map<string, { at: number, addresses: any[] }>} */
+const metadataLookups = new Map();
+/** @type {Lookup} */
 let metadataLookup = (host) => dns.lookup(host, { all: true });
 
 /** For the gate: answer name lookups from `fn` instead of the resolver, and
- *  forget every cached answer. `null` puts the resolver back. */
+ *  forget every cached answer. `null` puts the resolver back.
+ *  @param {Lookup | null} fn */
 export function setMetadataLookupForTest(fn) {
     metadataLookup = fn || ((host) => dns.lookup(host, { all: true }));
     metadataLookups.clear();
 }
 
+/**
+ * @param {string} host
+ * @param {string} [address]
+ */
 function metadataRefusal(host, address) {
     return Object.assign(
         new Error(`${host} is a cloud metadata address${address && address !== host ? ` (${address})` : ''}; the app never sends requests there`),
@@ -203,6 +235,7 @@ function metadataRefusal(host, address) {
  * The answer is not pinned to the socket the way `safeFetch` pins its own: this
  * guards addresses the owner typed, and a name the owner chose answering one
  * way here and another way at connect time is not a case anyone else controls.
+ * @param {unknown} rawUrl
  */
 export async function assertNotMetadata(rawUrl, { resolveNames = true } = {}) {
     let url;
@@ -236,9 +269,14 @@ export async function assertNotMetadata(rawUrl, { resolveNames = true } = {}) {
  * the 3xx it is rather than followed, so the request and its headers go to the
  * address that was typed and nowhere it points. Names are resolved for the
  * check only when the fetch underneath is the real one.
+ * @param {typeof fetch} [fetchImpl]
  */
 export function localEndpointFetch(fetchImpl = fetch) {
     const resolveNames = fetchImpl === fetch;
+    /**
+     * @param {string | URL | Request} input
+     * @param {RequestInit} [init]
+     */
     return async (input, init = {}) => {
         await assertNotMetadata(typeof input === 'string' || input instanceof URL ? input : input?.url, { resolveNames });
         return fetchImpl(input, { ...init, redirect: 'manual' });
@@ -250,6 +288,8 @@ export function localEndpointFetch(fetchImpl = fetch) {
  * Returns the resolved set; every address a name resolves to must pass, since
  * a hostname with one public and one loopback A record is a bypass, not a
  * coincidence.
+ * @param {string} host
+ * @returns {Promise<Resolved[]>}
  */
 async function resolveHost(host) {
     if (net.isIP(host)) return [{ address: host, family: net.isIP(host) }];
@@ -285,15 +325,24 @@ async function resolveHost(host) {
 const DNS_TIMEOUT_MS = 5_000;
 const DNS_MAX_IN_FLIGHT = 2;
 let dnsInFlight = 0;
+/** @type {(() => void)[]} */
 const dnsTurns = [];
 
 function dnsTimeoutError() {
     return Object.assign(new Error('DNS lookup timed out'), { dnsTimeout: true });
 }
 
+/**
+ * @param {string} host
+ * @returns {Promise<Resolved[]>}
+ */
 function boundedLookup(host) {
     return new Promise((resolve, reject) => {
         let done = false;
+        /**
+         * @param {(value: any) => void} fn
+         * @param {any} value
+         */
         const settle = (fn, value) => { if (!done) { done = true; clearTimeout(timer); fn(value); } };
         const timer = setTimeout(() => {
             const waiting = dnsTurns.indexOf(start);
@@ -325,6 +374,7 @@ export function dnsLookupLoad() {
  * internet? The inverse of the outbound vet: a name counts only when EVERY
  * address it resolves to is one `isBlockedAddress` refuses, and a name that
  * does not resolve does not count.
+ * @param {unknown} raw
  */
 export async function isLocalNetworkUrl(raw) {
     let u;
@@ -337,6 +387,7 @@ export async function isLocalNetworkUrl(raw) {
     } catch { return false; }
 }
 
+/** @param {string} host */
 async function resolveAndVet(host) {
     const addresses = await resolveHost(host);
     for (const { address } of addresses) {
@@ -350,13 +401,15 @@ async function resolveAndVet(host) {
 /**
  * Resolve and vet a URL. Returns the parsed URL, or throws with a reason the
  * caller can surface.
+ * @param {unknown} rawUrl
  */
 export async function assertFetchable(rawUrl) {
     return (await vetUrl(rawUrl)).url;
 }
 
 /** assertFetchable's work, plus the addresses it vetted (under
- *  `ALLOW_PRIVATE_FETCH`, the addresses it resolved, metadata ones refused). */
+ *  `ALLOW_PRIVATE_FETCH`, the addresses it resolved, metadata ones refused).
+ *  @param {unknown} rawUrl */
 async function vetUrl(rawUrl) {
     let url;
     try { url = new URL(String(rawUrl)); } catch { throw new Error('not a valid URL'); }
@@ -390,9 +443,16 @@ async function vetUrl(rawUrl) {
  * was just vetted — so the socket never asks the resolver a second time. Node's
  * `net.connect` calls it with `all: true` when it races address families, and
  * without it otherwise; `family` narrows the set the way the OS resolver would.
+ * @param {string} host
+ * @param {Resolved[]} addresses
  */
 function pinnedLookup(host, addresses) {
     const pinned = addresses.map(a => ({ address: a.address, family: a.family || net.isIP(a.address) }));
+    /**
+     * @param {string} hostname
+     * @param {any} options `{ family, all }`, a bare family number, or the callback
+     * @param {any} [callback]
+     */
     return (hostname, options, callback) => {
         if (typeof options === 'function') { callback = options; options = {}; }
         const family = typeof options === 'number' ? options : Number(options?.family) || 0;
@@ -427,7 +487,9 @@ const CROSS_ORIGIN_HEADERS = new Set(['accept', 'accept-language', 'user-agent',
 const BODY_HEADERS = new Set(['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']);
 
 /** `headers` (a plain object, an array of pairs or a `Headers`; callers use all
- *  three) as a plain object holding only the names `keep` accepts. */
+ *  three) as a plain object holding only the names `keep` accepts.
+ *  @param {any} raw
+ *  @param {(name: string) => boolean} keep */
 function keepHeaders(raw, keep) {
     if (!raw) return raw;
     // An array is checked FIRST: arrays have an `.entries()` too, which yields
@@ -448,6 +510,9 @@ function keepHeaders(raw, keep) {
  *     the server named is not something any caller here wants either. A 307 or
  *     308 keeps method and body, which is what those codes mean;
  *   - a hop to another origin carries only `CROSS_ORIGIN_HEADERS`.
+ * @param {Record<string, any>} init
+ * @param {number} status
+ * @param {boolean} crossOrigin
  */
 function redirectedInit(init, status, crossOrigin) {
     let out = init;
@@ -494,6 +559,8 @@ function redirectedInit(init, status, crossOrigin) {
  * token sent to be revoked), and a 307/308 keeps method and body, so dropping
  * headers protects nothing there. Such a caller passes `allowRedirect(url)`:
  * every hop is asked, and a refused one throws before anything is sent to it.
+ * @param {string | URL} rawUrl
+ * @param {Record<string, any> & { allowRedirect?: (next: URL) => boolean }} [init] undici's fetch init
  */
 export async function safeFetch(rawUrl, init = {}) {
     let target = String(rawUrl);
@@ -519,8 +586,9 @@ export async function safeFetch(rawUrl, init = {}) {
             dispatcher.destroy().catch(() => {});
             throw err;
         }
-        if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
-            const next = new URL(res.headers.get('location'), url);
+        const location = res.headers.get('location');
+        if (res.status >= 300 && res.status < 400 && location) {
+            const next = new URL(location, url);
             await res.body?.cancel().catch(() => {});
             dispatcher.close().catch(() => {});
             if (allowRedirect && !allowRedirect(next)) throw new Error(`refused a redirect to ${next.origin}`);

@@ -151,6 +151,10 @@ for (const p of PLATFORMS) {
         where[name] = on?.length === 1 ? { shard: on[0], at: steps.indexOf(found[0]) } : null;
         check(`${p.job}: "${name}" runs on exactly one shard`, on?.length === 1, found.map((s) => `if: ${s.if}`).join('\n') || 'no such step');
     }
+    // The server modules tsconfig.server.json lists are type-checked beside the frontend.
+    const types = steps.find((s) => s.name === 'Types');
+    check(`${p.job}: "Types" checks the frontend and tsconfig.server.json`,
+        Boolean(types) && /\bnpx tsc --noEmit\b/.test(types.text) && /\bnpx tsc -p tsconfig\.server\.json\b/.test(types.text), types?.text || 'no such step');
     // The perf table is the file perf-budget-gates writes: it is on the runner that ran that suite or nowhere.
     const perfShard = Object.keys(byShard).find((s) => byShard[s].includes('tools/perf-budget-gates.mjs'));
     const perfRunner = matrixShards.find((v) => v.split(',').includes(perfShard));
@@ -206,6 +210,19 @@ for (const name of ['dco.yml', 'no-ai-attribution.yml', 'screen-reader.yml']) {
     const block = (/\nconcurrency:\n((?: {2}.*\n)+)/.exec(text) || [])[1] || '';
     check(`${name}: cancels only a pull request's older run`,
         /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/.test(block) && /github\.run_id/.test(block), block || 'no concurrency block');
+}
+
+// =============================================================================================
+console.log('\n6. the server type-check runs wherever the frontend one does');
+
+{
+    const checkScript = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).scripts?.check || '';
+    check('npm run check runs tsconfig.server.json after tsconfig.json',
+        /^tsc --noEmit && tsc -p tsconfig\.server\.json$/.test(checkScript), checkScript);
+    const release = readYml('release.yml');
+    const verify = release.slice(release.indexOf('\n  verify:'), release.indexOf('\n  image-arch:'));
+    check('the release verify job type-checks both',
+        /\n {6}- run: npx tsc --noEmit && npx tsc -p tsconfig\.server\.json\n/.test(verify), verify.split('\n').filter((l) => l.includes('tsc')).join('\n') || 'no tsc step');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

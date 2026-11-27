@@ -26,7 +26,10 @@ export const PRIVATE_FILE_MODE = 0o600;
 
 const POSIX = process.platform !== 'win32';
 
-/** Create a directory (and any missing parents) readable by its owner only. */
+/**
+ * Create a directory (and any missing parents) readable by its owner only.
+ * @param {string} dir
+ */
 export function makePrivateDir(dir) {
     fs.mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
 }
@@ -35,6 +38,7 @@ export function makePrivateDir(dir) {
  * Make an existing file owner-only. A file that is missing, or that this
  * account may not change, is left alone: tightening is never a reason for the
  * library not to open.
+ * @param {string} file
  */
 export function makePrivateFile(file) {
     if (!POSIX) return;
@@ -49,6 +53,7 @@ const warned = new Set();
 /**
  * Say, once per folder, that a folder of the library can be read or entered
  * by other accounts on this computer, and how to close it.
+ * @param {string} dir
  */
 export function warnIfOpenToOthers(dir, what = 'The library folder') {
     if (!POSIX || warned.has(dir)) return;

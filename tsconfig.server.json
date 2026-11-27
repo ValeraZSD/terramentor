@@ -1,0 +1,33 @@
+{
+    // Type-checks a growing set of server modules as they are: plain
+    // JavaScript, read with `checkJs` and typed through JSDoc where inference
+    // falls short. `npm run check` runs it after the frontend's tsconfig.json.
+    //
+    // A module joins by one line in `files` (CONTRIBUTING.md, "Type-checked
+    // server modules"). Every server module it imports is checked with it, so
+    // the list grows from the leaves inward.
+    "compilerOptions": {
+        "target": "ES2024",
+        "lib": ["ES2024"],
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "allowJs": true,
+        "checkJs": true,
+        "noEmit": true,
+        "strict": true,
+        // A caught value stays `any`, as a thrown one is everywhere else here:
+        // the readers check `e.code` / `e.message` and fall back themselves.
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "types": ["node"]
+    },
+    "files": [
+        "server/clientError.js",
+        "server/netSafety.js",
+        "server/paths.js",
+        "server/privateFiles.js",
+        "server/secrets.js",
+        "server/settingsSchema.js"
+    ]
+}
