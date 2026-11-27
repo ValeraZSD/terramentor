@@ -841,7 +841,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         auth.requireAuth({ ip, headers, socket: { remoteAddress: ip } }, res, () => { passed = true; });
         return { passed, status, body };
     };
-    const quiet = console.log; console.log = () => {};
+    const quiet = console.log; const printed = []; console.log = (line) => { printed.push(String(line)); };
     try {
         ok('no password: this machine (IPv4 loopback) is let through', run('127.0.0.1').passed);
         ok('no password: this machine (IPv6 loopback) is let through', run('::1').passed && run('::ffff:127.0.0.1').passed);
@@ -853,9 +853,13 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         ok('AUTH_ALLOW_OPEN_REMOTE=1 restores the open LAN', run('192.168.1.20').passed);
         delete process.env.AUTH_ALLOW_OPEN_REMOTE;
 
+        auth.clearSetupCode();
+        printed.length = 0;
         const code = auth.announceSetupCode();
         ok('the setup code is long enough not to guess (12 hex digits)', /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(code));
         ok('the setup code is stable until spent', auth.announceSetupCode() === code);
+        ok('a new code goes to the log once, not on every ask (a polling device would fill it)',
+            printed.filter(l => l.includes(code)).length === 1, JSON.stringify(printed));
         ok('the right code is accepted, typed lowercase or padded', auth.checkSetupCode(code) && auth.checkSetupCode(` ${code.toLowerCase()} `));
         ok('a wrong or missing code is refused', !auth.checkSetupCode('0000-0000-0000') && !auth.checkSetupCode(undefined) && !auth.checkSetupCode(''));
         auth.clearSetupCode();
