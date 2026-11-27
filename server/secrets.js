@@ -80,7 +80,14 @@ export function secretsFile() {
 // as every other write here does (writtenPath); neither helper writes through
 // a link at the other end.
 
-/** A backup of the credentials, to `to`, a name nothing holds yet, owner-only. False when there is none. */
+/** @typedef {Record<string, string>} SecretMap Credential name to its value. */
+/** @typedef {any} SqliteDb A better-sqlite3 database; the package ships no types. */
+/** @typedef {{ path: string, mtimeMs: number, size: number, secrets: SecretMap, unreadable: boolean }} Loaded */
+
+/**
+ * A backup of the credentials, to `to`, a name nothing holds yet, owner-only. False when there is none.
+ * @param {string} to
+ */
 export function copyCredentialsTo(to) {
     let bytes;
     try {
@@ -101,7 +108,10 @@ export function copyCredentialsTo(to) {
     return true;
 }
 
-/** Restoring that backup: `from` (a file, not a link) replaces the file whole, copied beside it first. */
+/**
+ * Restoring that backup: `from` (a file, not a link) replaces the file whole, copied beside it first.
+ * @param {string} from
+ */
 export function replaceCredentialsFrom(from) {
     if (lstatSync(from).isSymbolicLink()) throw new Error(`${from} is a link, not a backup file`);
     const to = writtenPath(secretsFile());
@@ -116,18 +126,22 @@ export function replaceCredentialsFrom(from) {
     cache = null;
 }
 
-let cache = null;   // { path, mtimeMs, size, secrets, unreadable }
+/** @type {Loaded | null} */
+let cache = null;
 let warned = '';
 // Credentials a move that failed on this start left in the library: read from
 // there for this run, so a password stays a password and a key still works,
 // and refused as targets of a change until a start moves them (see below).
+/** @type {SecretMap | null} */
 let heldInLibrary = null;
 
+/** @param {number} ms */
 const wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY', 'EMFILE', 'ENFILE']);
 
 /** The file as it is on disk: null when absent, `unreadable` when it is not
- *  a credentials file. THROWS when it exists and cannot be read. */
+ *  a credentials file. THROWS when it exists and cannot be read.
+ *  @param {string} path */
 function readDisk(path) {
     const st = statSyncOrAbsent(path);
     if (!st) return null;
@@ -140,6 +154,7 @@ function readDisk(path) {
             wait(20);
         }
     }
+    /** @type {SecretMap} */
     const secrets = {};
     try {
         // A byte-order mark is what Notepad and PowerShell 5.1 add on save.
@@ -158,7 +173,10 @@ function readDisk(path) {
     }
 }
 
-/** A path under a FILE (ENOTDIR) cannot exist, so it is absent, not unreadable. */
+/**
+ * A path under a FILE (ENOTDIR) cannot exist, so it is absent, not unreadable.
+ * @param {string} path
+ */
 function statSyncOrAbsent(path) {
     try { return statSync(path, { throwIfNoEntry: false }); } catch (e) {
         if (e.code === 'ENOTDIR') return undefined;
@@ -179,7 +197,11 @@ function load({ fresh = false } = {}) {
     return cache;
 }
 
-/** One credential, or '' when none is saved. */
+/**
+ * One credential, or '' when none is saved.
+ * @param {string} name
+ * @returns {string}
+ */
 export function getSecret(name) {
     if (heldInLibrary) {
         // The move failed this start: the library's copies stand. A name the
@@ -206,6 +228,7 @@ const REF = /^[A-Za-z0-9_-]{8,64}$/;
  * Change several credentials in ONE write: a key and the origin it is bound
  * to land together or not at all. `''` or null deletes. Returns whether the
  * file changed; nothing is written when nothing would.
+ * @param {Record<string, unknown>} changes
  */
 export function setSecrets(changes) {
     if (heldInLibrary) {
@@ -217,6 +240,7 @@ export function setSecrets(changes) {
     return writeChanges(changes);
 }
 
+/** @param {Record<string, unknown>} changes */
 function writeChanges(changes) {
     const current = load({ fresh: true });
     const next = { ...current.secrets };
@@ -236,17 +260,24 @@ function writeChanges(changes) {
     return true;
 }
 
+/**
+ * @param {string} name
+ * @param {unknown} value
+ */
 export function setSecret(name, value) {
     return setSecrets({ [name]: value });
 }
 
+/** @param {...string} names */
 export function deleteSecrets(...names) {
     return setSecrets(Object.fromEntries(names.map(n => [n, ''])));
 }
 
 /** A connection's place in the file. `ref` is random and kept on its row
  *  (`ai_connections.secret_ref`), never the row id: a restored library whose
- *  row 3 is another connection must not find this one's key. */
+ *  row 3 is another connection must not find this one's key.
+ *  @param {string | null | undefined} ref
+ *  @param {string} field */
 export function connectionSecret(ref, field) {
     if (!ref) throw new Error('A connection needs a secret_ref before it can keep a credential');
     return `connection:${ref}:${field}`;
@@ -256,14 +287,22 @@ export function newSecretRef() {
     return randomBytes(12).toString('hex');
 }
 
+/** @param {string} path */
 const tmpPattern = (path) => new RegExp(`^${basename(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]{8}\\.tmp$`);
 
-/** Where a write lands: the file itself, or the target of a link to it. */
+/**
+ * Where a write lands: the file itself, or the target of a link to it.
+ * @param {string} path
+ */
 function writtenPath(path) {
     try { if (lstatSync(path).isSymbolicLink()) return realpathSync(path); } catch { /* absent: written here */ }
     return path;
 }
 
+/**
+ * @param {Loaded} current
+ * @param {SecretMap} secrets
+ */
 function write(current, secrets) {
     // A credentials file that is a link is written where the link points;
     // replacing the link itself would leave its target holding the old keys.
@@ -305,7 +344,9 @@ function write(current, secrets) {
 /** Windows refuses a rename over a file another process (an indexer, an
  *  antivirus scan) holds open for a moment: wait briefly and try again.
  *  Elsewhere a refused rename does not pass by waiting: a file mounted on
- *  its own (a container secret) cannot be replaced at all, and says so. */
+ *  its own (a container secret) cannot be replaced at all, and says so.
+ *  @param {string} from
+ *  @param {string} to */
 function renameOver(from, to) {
     for (let attempt = 0; ; attempt++) {
         try { renameSync(from, to); return; } catch (e) {
@@ -372,14 +413,18 @@ export const MOVED_MARK = 'secrets_moved_at';
  * free pages and in the WAL. So the deletes run with `secure_delete`, and the
  * file is then compacted (VACUUM) and its WAL truncated, once. A compaction
  * that fails (a full disk, the WAL held open) is retried on the next start.
+ * @param {SqliteDb} db
  */
 export function moveSecretsOutOfLibrary(db) {
     heldInLibrary = null;
+    /** @param {string} name */
     const hasTable = (name) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
 
     // 1. What the library holds, read from the library alone: if the
     //    credentials file cannot be used below, this run still has these.
+    /** @type {SecretMap} */
     const fromSettings = {};
+    /** @type {string[]} */
     const settingsKeys = [];
     let marked = false;
     if (hasTable('settings')) {
@@ -397,7 +442,7 @@ export function moveSecretsOutOfLibrary(db) {
     const hasConnections = hasTable('ai_connections');
     let holding = [];
     if (hasConnections) {
-        const cols = db.prepare('PRAGMA table_info(ai_connections)').all().map(c => c.name);
+        const cols = db.prepare('PRAGMA table_info(ai_connections)').all().map((/** @type {{ name: string }} */ c) => c.name);
         if (!cols.includes('secret_ref')) db.exec("ALTER TABLE ai_connections ADD COLUMN secret_ref TEXT NOT NULL DEFAULT ''");
         holding = db.prepare('SELECT id, kind, api_key, key_origin, credentials, secret_ref FROM ai_connections '
             + 'WHERE length(api_key) > 0 OR length(credentials) > 0').all();
@@ -413,10 +458,18 @@ export function moveSecretsOutOfLibrary(db) {
     }
 
     const setRef = hasConnections ? db.prepare('UPDATE ai_connections SET secret_ref = ? WHERE id = ?') : null;
+    /** @type {SecretMap} */
     const plan = {};
+    /** @type {string[]} */
     const kept = [];
+    /** @type {{ id: number, ref: string }[]} */
     const adoptedRows = [];
     let originFromFile = '';
+    /**
+     * @param {any} r a row of `holding`
+     * @param {string} ref
+     * @param {SecretMap} into
+     */
     const own = (r, ref, into) => {
         if (r.api_key) {
             into[connectionSecret(ref, 'api_key')] = r.api_key;
@@ -467,7 +520,7 @@ export function moveSecretsOutOfLibrary(db) {
             plan[key] = fromSettings[key];
             if (key === ACTIVE_KEY) plan[ACTIVE_KEY_ORIGIN] = fromSettings[ACTIVE_KEY_ORIGIN];
         }
-        const taken = new Set(hasConnections ? db.prepare('SELECT secret_ref FROM ai_connections WHERE length(secret_ref) > 0').all().map(r => r.secret_ref) : []);
+        const taken = new Set(hasConnections ? db.prepare('SELECT secret_ref FROM ai_connections WHERE length(secret_ref) > 0').all().map((/** @type {{ secret_ref: string }} */ r) => r.secret_ref) : []);
         for (const r of holding) {
             if (!REF.test(r.secret_ref || '') && !marked && r.kind === 'chatgpt' && r.credentials) {
                 const match = sameAccountEntry(r.credentials, taken);
@@ -481,6 +534,7 @@ export function moveSecretsOutOfLibrary(db) {
             const hadRef = REF.test(r.secret_ref || '');
             r.ref = hadRef ? r.secret_ref : newSecretRef();
             if (r.ref !== r.secret_ref) { setRef.run(r.ref, r.id); taken.add(r.ref); }
+            /** @type {SecretMap} */
             const mine = {};
             own(r, r.ref, mine);
             // A row with its ref already in an UNMARKED library is a copy of
@@ -544,8 +598,10 @@ export function assertCredentialsWritable() {
  * whose move did not finish, which is kept for three upgrades and must not
  * keep them that long. The library itself still has them, and the next start
  * that can write moves them.
+ * @param {SqliteDb} copy
  */
 export function scrubLibraryCopy(copy) {
+    /** @param {string} name */
     const has = (name) => !!copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
     copy.pragma('secure_delete = ON');
     copy.transaction(() => {
@@ -559,7 +615,9 @@ export function scrubLibraryCopy(copy) {
 }
 
 /** The ref of a saved ChatGPT sign-in for the same account and issued client,
- *  if no row of this library already holds it. */
+ *  if no row of this library already holds it.
+ *  @param {string} rawCredentials
+ *  @param {Set<string>} taken */
 function sameAccountEntry(rawCredentials, taken) {
     let wanted;
     try { wanted = JSON.parse(rawCredentials); } catch { return ''; }
@@ -575,6 +633,7 @@ function sameAccountEntry(rawCredentials, taken) {
     return '';
 }
 
+/** @param {SqliteDb} db */
 function compact(db) {
     try {
         db.exec('VACUUM');

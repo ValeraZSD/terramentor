@@ -36,9 +36,17 @@ import { KeyedError, k } from './clientError.js';
 /** A value the reader would not understand; the words are a message key. */
 export class SettingValueError extends KeyedError {}
 
+/** @typedef {(value: unknown) => string} Validate A value in, the string to store out; throws a SettingValueError. */
+/** @typedef {'ui' | 'learning' | 'ai' | 'network' | 'desktop' | 'internal'} Sensitivity */
+/** @typedef {{ writable: 'client' | 'server', sensitivity: Sensitivity, validate?: Validate, apiOnly?: boolean }} SettingSpecEntry */
+
+/** @type {(key: string, params?: import('./clientError.js').KeyParams) => never} */
 const refuse = (key, params) => { throw new SettingValueError(key, params); };
 
-/** A value arrives as JSON; a client sends strings, a script may send a number or a boolean. */
+/**
+ * A value arrives as JSON; a client sends strings, a script may send a number or a boolean.
+ * @param {unknown} value
+ */
 const asText = (value) => {
     if (typeof value === 'string') return value;
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -51,6 +59,10 @@ const asText = (value) => {
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
+/**
+ * @param {number} max
+ * @returns {Validate}
+ */
 const text = (max, { lines = false } = {}) => (value) => {
     // Word and some PDFs paste a vertical tab or a form feed where a line ends.
     const s = lines ? asText(value).replace(/[\u000b\u000c]/g, '\n') : asText(value);
@@ -59,6 +71,10 @@ const text = (max, { lines = false } = {}) => (value) => {
     return s;
 };
 
+/**
+ * @param {...string} allowed
+ * @returns {Validate}
+ */
 const oneOf = (...allowed) => (value) => {
     const s = asText(value);
     return allowed.includes(s) ? s : refuse(k('One of: {{values}}'), { values: allowed.map(a => a || '(empty)').join(', ') });
@@ -66,6 +82,11 @@ const oneOf = (...allowed) => (value) => {
 
 const bool = oneOf('true', 'false');
 
+/**
+ * @param {number} min
+ * @param {number} max
+ * @returns {Validate}
+ */
 const int = (min, max) => (value) => {
     const s = asText(value).trim();
     if (!/^-?\d+$/.test(s)) refuse(k('A whole number'));
@@ -73,12 +94,14 @@ const int = (min, max) => (value) => {
     return n >= min && n <= max ? String(n) : refuse(k('A whole number from {{min}} to {{max}}'), { min, max });
 };
 
+/** @type {Validate} */
 const fraction = (value) => {
     const s = asText(value).trim();
     const n = Number(s);
     return s !== '' && Number.isFinite(n) && n >= 0 && n <= 1 ? String(n) : refuse(k('A number from 0 to 1'));
 };
 
+/** @type {Validate} */
 const hex = (value) => {
     const s = asText(value).trim();
     // Six digits: the readers (appIcon.js hex6) take nothing shorter, and the
@@ -86,6 +109,11 @@ const hex = (value) => {
     return /^#[0-9a-fA-F]{6}$/.test(s) ? s : refuse(k('A colour written #rrggbb'));
 };
 
+/**
+ * @param {number} max
+ * @param {(parsed: unknown) => boolean} isShape
+ * @returns {Validate}
+ */
 const json = (max, isShape) => (value) => {
     const s = asText(value);
     if (s.length > max) refuse(k('At most {{count}} characters'), { count: max });
@@ -93,6 +121,7 @@ const json = (max, isShape) => (value) => {
     try { parsed = JSON.parse(s); } catch { refuse(k('Not valid JSON')); }
     return isShape(parsed) ? s : refuse(k('Not the expected shape'));
 };
+/** @param {unknown} v */
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
@@ -101,8 +130,9 @@ const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
  * line and every error that quotes it), at most 2048 characters. Stored as
  * typed (trimmed), because the readers already normalise a trailing slash or a
  * missing `/v1` (normalizeOpenAIBaseUrl).
+ * @returns {Validate}
  */
-const address = ({ allowEmpty = false } = {}) => (value) => {
+const address =({ allowEmpty = false } = {}) => (value) => {
     const s = asText(value).trim();
     if (s === '' && allowEmpty) return '';
     if (s.length > 2048) refuse(k('That address is too long'));
@@ -123,12 +153,22 @@ const FEED_NUMBERS = {
     feed_max_parts: [1, 5],
 };
 
+/**
+ * @param {Sensitivity} sensitivity
+ * @param {Validate} validate
+ * @param {{ apiOnly?: boolean }} [extra]
+ * @returns {SettingSpecEntry}
+ */
 const client = (sensitivity, validate, extra = {}) => ({ writable: 'client', sensitivity, validate, ...extra });
+/**
+ * @param {Sensitivity} sensitivity
+ * @returns {SettingSpecEntry}
+ */
 const server = (sensitivity) => ({ writable: 'server', sensitivity });
 
 const MODEL_ID = text(256);
 
-/** @type {Record<string, { writable: 'client'|'server', sensitivity: string, validate?: (v: unknown) => string, apiOnly?: boolean }>} */
+/** @type {Record<string, SettingSpecEntry>} */
 export const SETTINGS = {
     // ---- How the app looks ------------------------------------------------------
     // 'system' follows the device's light or dark mode (src/store.ts resolveTheme).
@@ -344,10 +384,11 @@ export const SETTING_SCOPES = Object.freeze({
 /**
  * 'library', 'device', or null for a key no list names (a credential, or a row
  * nobody classed) — which a sync must treat as device: only 'library' travels.
+ * @param {unknown} key
  */
 export function settingScope(key) {
     if (typeof key !== 'string') return null;
-    for (const scope of ['library', 'device']) {
+    for (const scope of /** @type {const} */ (['library', 'device'])) {
         if (SETTING_SCOPES[scope].includes(key)) return scope;
     }
     const family = SETTING_FAMILIES.find(f => key.startsWith(f.prefix) && key.length > f.prefix.length);
@@ -356,7 +397,10 @@ export function settingScope(key) {
         : SETTING_SCOPES.device.includes(family.prefix) ? 'device' : null;
 }
 
-/** The entry for `key`, or null for a name this table does not know. */
+/**
+ * The entry for `key`, or null for a name this table does not know.
+ * @param {unknown} key
+ */
 export function settingSpec(key) {
     if (typeof key !== 'string') return null;
     if (Object.hasOwn(SETTINGS, key)) return SETTINGS[key];

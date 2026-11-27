@@ -391,7 +391,7 @@ network, so they run identically on a laptop and on a CI runner:
 
 ```bash
 npm test                                # every suite; prints the live per-suite counts
-npm run check                           # frontend types (tsc --noEmit)
+npm run check                           # types: frontend + tsconfig.server.json's modules
 node --check server/app.js              # (and any other server file)
 ```
 

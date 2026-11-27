@@ -79,6 +79,7 @@ export function userDataDir({ platform = process.platform, env = process.env, ho
  * It is not a secret: somebody who already knows the account name can hash the
  * default path and compare. It is not meant to be — it is meant not to SAY the
  * name, which is the whole of what leaked.
+ * @param {string | null | undefined} dir
  */
 export function libraryId(dir, platform = process.platform) {
     if (!dir) return null;
@@ -90,6 +91,7 @@ export function libraryId(dir, platform = process.platform) {
  * Where a library's credentials live: a file BESIDE the database, never inside
  * it (server/secrets.js). Named after the database, so two libraries in one
  * folder do not share keys: `terramentor.db` → `terramentor.secrets.json`.
+ * @param {string} dbPath
  */
 export function secretsFileFor(dbPath) {
     return `${String(dbPath).replace(/\.db$/i, '')}.secrets.json`;
@@ -125,6 +127,7 @@ export function resolveDataPaths({ env = process.env, root = serverDir } = {}) {
     };
 }
 
+/** @type {ReturnType<typeof resolveDataPaths> | null} */
 let resolved = null;
 
 /**

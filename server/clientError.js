@@ -44,35 +44,64 @@
 
 import crypto from 'node:crypto';
 
-/** Marks an English sentence as a translation key. Identity; the server twin of the app's `k()`. */
+// A thrown value is typed `any` throughout: it is usually an Error carrying
+// some of `code`, `status`, `httpStatus`, `expose`, `messageKey`, `params`,
+// but JavaScript lets anything be thrown, and every reader here checks first.
+
+/** @typedef {Record<string, unknown>} KeyParams The values for a key's `{{name}}` slots. */
+
+/**
+ * Marks an English sentence as a translation key. Identity; the server twin of the app's `k()`.
+ * @param {string} key
+ */
 export const k = (key) => key;
 
 const SLOT = /\{\{\s*(\w+)\s*\}\}/g;
 
-/** The key with its `{{name}}` slots filled from `params`, as i18next fills them: the English text. */
+/**
+ * The key with its `{{name}}` slots filled from `params`, as i18next fills them: the English text.
+ * @param {string} key
+ * @param {KeyParams} [params]
+ */
 export function fillKey(key, params) {
     if (!params) return key;
     return String(key).replace(SLOT, (slot, name) => (params[name] == null ? slot : String(params[name])));
 }
 
-/** The body for a refusal written here: the English sentence, and the key and values the app translates it from. */
+/**
+ * The body for a refusal written here: the English sentence, and the key and values the app translates it from.
+ * @param {string} key
+ * @param {KeyParams} [params]
+ * @returns {{ error: string, messageKey: string, params?: KeyParams }}
+ */
 export function keyed(key, params) {
     return params ? { error: fillKey(key, params), messageKey: key, params } : { error: key, messageKey: key };
 }
 
-/** The fields of a refusal a module returned (`{ ok: false, ...keyed(…) }`), to send on with its key. */
+/**
+ * The fields of a refusal a module returned (`{ ok: false, ...keyed(…) }`), to send on with its key.
+ * @param {{ error?: string, messageKey?: string, params?: KeyParams } | null | undefined} refusal
+ */
 export function errorFields(refusal) {
     const { error, messageKey, params } = refusal || {};
     return { error, ...(messageKey ? { messageKey } : {}), ...(params ? { params } : {}) };
 }
 
-/** The body for a request only a program can get wrong. English on purpose: no learner reads it. */
+/**
+ * The body for a request only a program can get wrong. English on purpose: no learner reads it.
+ * @param {string} text
+ * @returns {{ error: string, messageKey?: undefined, params?: undefined }}
+ */
 export function apiError(text) {
     return { error: text };
 }
 
 /** An error whose message is a key: `errorBody` sends it as `messageKey`, with `params`. */
 export class KeyedError extends Error {
+    /**
+     * @param {string} key
+     * @param {KeyParams} [params]
+     */
     constructor(key, params) {
         super(fillKey(key, params));
         this.messageKey = key;
@@ -80,14 +109,22 @@ export class KeyedError extends Error {
     }
 }
 
-/** A refusal thrown with its HTTP status: `throw statusError(404, 'No such connection')`. */
+/**
+ * A refusal thrown with its HTTP status: `throw statusError(404, 'No such connection')`.
+ * @param {number} status
+ * @param {string} key
+ * @param {KeyParams} [params]
+ */
 export function statusError(status, key, params) {
     return Object.assign(new KeyedError(key, params), { status });
 }
 
 const GENERIC = k('Something went wrong on the server. The server log has the details (ref {{ref}}).');
 
-/** Errors whose message is about this server's insides, whatever status they ride on. */
+/**
+ * Errors whose message is about this server's insides, whatever status they ride on.
+ * @param {any} err
+ */
 function isInternal(err) {
     if (!err || typeof err !== 'object') return false;
     const code = String(err.code || '');
@@ -113,18 +150,26 @@ function isInternal(err) {
 const WINDOWS_PATH = /(?:[A-Za-z]:\\|\\\\)[^\s'"`<>|]*/g;
 const POSIX_PATH = /(^|[\s'"`(=:])\/(?:[^\s'"`<>/]+\/)+[^\s'"`<>]*/g;
 
+/** @param {unknown} text */
 function redactPaths(text) {
     return String(text).replace(WINDOWS_PATH, '<path>').replace(POSIX_PATH, (_m, lead) => `${lead}<path>`);
 }
 
-/** Log the whole error under a fresh reference and return the body that names it. */
+/**
+ * Log the whole error under a fresh reference and return the body that names it.
+ * @param {any} err
+ */
 function referenced(err) {
     const ref = crypto.randomBytes(4).toString('hex');
     console.error(`[error ref ${ref}]`, err);
     return keyed(GENERIC, { ref });
 }
 
-/** The error's own words with paths removed, keyed when it was thrown with a key. */
+/**
+ * The error's own words with paths removed, keyed when it was thrown with a key.
+ * @param {any} err
+ * @returns {{ error: string, messageKey?: string, params?: KeyParams }}
+ */
 export function ownWords(err) {
     const message = err && typeof err === 'object' ? err.message : err;
     if (!message) return referenced(err);
@@ -143,6 +188,8 @@ export function ownWords(err) {
  * An error whose message was written for the learner ("No model selected —
  * choose one in Settings"), so it keeps its words on a 5xx too. Thrown where
  * the code knows what the person should do next.
+ * @param {string} key
+ * @param {KeyParams} [params]
  */
 export function learnerError(key, params) {
     return Object.assign(new KeyedError(key, params), { expose: true });
@@ -151,6 +198,7 @@ export function learnerError(key, params) {
 // What a learner needs from a model endpoint's refusal is its status and what
 // to change; the endpoint's address and the body it answered with stay in the
 // log (and in the task dock's failure record, which is built for bug reports).
+/** @type {Record<number, string>} */
 const AI_ANSWERED = {
     401: k("The AI model's endpoint answered {{status}}. Check the API key in Settings → AI & Models. (ref {{ref}})"),
     403: k("The AI model's endpoint answered {{status}}. Check the API key in Settings → AI & Models. (ref {{ref}})"),
@@ -160,13 +208,16 @@ const AI_ANSWERED = {
 const AI_FAILED = k("The AI model's endpoint answered {{status}}. The endpoint itself failed; try again, or pick another model. (ref {{ref}})");
 const AI_OTHER = k("The AI model's endpoint answered {{status}}. (ref {{ref}})");
 
-/** A model endpoint's refusal (tagged by ai.js), said without its address or body. */
+/**
+ * A model endpoint's refusal (tagged by ai.js), said without its address or body.
+ * @param {any} err
+ */
 function aiSentence(err) {
     // An extension's final refusal (server/extension.js) is its own sentence.
     if (err.emptyReply === true || err.final === true) return ownWords(err);
     const status = Number(err.httpStatus);
     if (!Number.isInteger(status)) return null;
-    const { ref } = referenced(err).params;
+    const { ref } = /** @type {{ ref: string }} */ (referenced(err).params);
     return keyed(AI_ANSWERED[status] || (status >= 500 ? AI_FAILED : AI_OTHER), { status, ref });
 }
 
@@ -174,6 +225,8 @@ function aiSentence(err) {
  * Why an address did not answer, from the timeout, the network code
  * (ECONNREFUSED, ENOTFOUND) or the HTTP status only — never from the message,
  * which can carry a local path or the reply's body.
+ * @param {any} err
+ * @returns {{ kind: keyof typeof REACH_REASON, status?: number, code?: string }}
  */
 function reachOf(err) {
     if (!err || typeof err !== 'object') return { kind: 'unreached' };
@@ -203,6 +256,7 @@ const REACH_REASON = {
  * Why an address the owner typed in (a model endpoint, a search backend) did
  * not answer, in a few English words for a sentence the caller builds (the
  * assistant's check reasons, which a model reads).
+ * @param {any} err
  */
 export function reachReason(err) {
     const reach = reachOf(err);
@@ -235,6 +289,9 @@ const REACH_ENDPOINT = {
  * anything from the network is "<who> <reason>" ("SearXNG timed out",
  * "OpenRouter answered HTTP 429 (…)"). `who` is a service's own name, or
  * null for the endpoint the owner typed in ("The endpoint timed out").
+ * @param {string | null | undefined} who
+ * @param {any} err
+ * @returns {{ error: string, messageKey?: string, params?: KeyParams }}
  */
 export function endpointBody(who, err) {
     const status = Number(err?.status);
@@ -244,12 +301,20 @@ export function endpointBody(who, err) {
     return who ? keyed(REACH_NAMED[kind], { who, ...params }) : keyed(REACH_ENDPOINT[kind], Object.keys(params).length ? params : undefined);
 }
 
-/** `endpointBody`'s English text. */
+/**
+ * `endpointBody`'s English text.
+ * @param {string | null | undefined} who
+ * @param {any} err
+ */
 export function endpointError(who, err) {
     return endpointBody(who, err).error;
 }
 
-/** The body for a failure reported on purpose: internal errors become the fixed sentence, paths are removed. */
+/**
+ * The body for a failure reported on purpose: internal errors become the fixed sentence, paths are removed.
+ * @param {any} err
+ * @returns {{ error: string, messageKey?: string, params?: KeyParams }}
+ */
 export function publicBody(err) {
     // The parser's own text quotes a position in the body; what the caller
     // needs is the kind of mistake.
@@ -262,7 +327,10 @@ export function publicBody(err) {
     return ownWords(err);
 }
 
-/** `publicBody`'s English text, for a line inside a successful response. */
+/**
+ * `publicBody`'s English text, for a line inside a successful response.
+ * @param {any} err
+ */
 export function publicMessage(err) {
     return publicBody(err).error;
 }
@@ -271,6 +339,9 @@ export function publicMessage(err) {
  * The body for a response with this status. 4xx answers and errors marked
  * `expose` keep their (path-free) words; any other 5xx is the fixed sentence
  * with a reference into the server log. Keyed whenever the words are.
+ * @param {any} err
+ * @param {number | string} [status]
+ * @returns {{ error: string, messageKey?: string, params?: KeyParams }}
  */
 export function errorBody(err, status = 500) {
     if (Number(status) < 500 || err?.expose === true) return publicBody(err);
@@ -281,7 +352,11 @@ export function errorBody(err, status = 500) {
     return referenced(err);
 }
 
-/** `errorBody`'s English text, for a place that keeps only the words (a task's record). */
+/**
+ * `errorBody`'s English text, for a place that keeps only the words (a task's record).
+ * @param {any} err
+ * @param {number | string} [status]
+ */
 export function clientError(err, status = 500) {
     return errorBody(err, status).error;
 }
