@@ -353,7 +353,7 @@ function pageKit(browser, base) {
         png: async (selector, margin = 0) => {
             let clip;
             if (selector) {
-                const r = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const b = e.getBoundingClientRect(); const scrolled = [e, ...e.querySelectorAll('*')].some((n) => n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY)); return { x: b.x, y: b.y, w: b.width, h: b.height, W: innerWidth, H: innerHeight, sx: scrollX, sy: scrollY, scrolled }; })()`);
+                const r = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const b = e.getBoundingClientRect(); const scrolls = ${scrollsInside}; const scrolled = [e, ...e.querySelectorAll('*')].some((n) => scrolls(n, getComputedStyle(n))); return { x: b.x, y: b.y, w: b.width, h: b.height, W: innerWidth, H: innerHeight, sx: scrollX, sy: scrollY, scrolled }; })()`);
                 if (!r) throw new Error(`nothing to crop to: ${selector}`);
                 // Cut off by the window, or scrolling inside itself, the picture
                 // would show the very cut a crop is for.
@@ -368,6 +368,15 @@ function pageKit(browser, base) {
     };
     return kit;
 }
+
+/**
+ * Whether an element scrolls inside itself, either way: content past its box
+ * that a scroll bar reaches. Run in the page on each element of a crop, so it
+ * names nothing from this file.
+ */
+export const scrollsInside = (n, style) =>
+    (n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(style.overflowY))
+    || (n.scrollWidth > n.clientWidth + 1 && /(auto|scroll)/.test(style.overflowX));
 
 export const byText = (selector, re) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => ${re}.test((e.textContent || '').trim()))`;
 export const DIALOG = `document.querySelector('[role="dialog"]')`;
