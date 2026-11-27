@@ -130,7 +130,9 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                         // would otherwise hold half a small phone, and only the
                         // button needs to stay in view.
                         <div className={DIALOG_BODY}>
-                            <div className="bg-accent pt-3 text-white" style={band}>
+                            {/* Its top inset is the column's side inset, so the filled
+                                close sits as far from the top edge as from the side. */}
+                            <div className="bg-accent pt-5 text-white" style={band}>
                                 <div className={`${COLUMN} pb-6`}>
                                     {/* At the end, as the app's other close buttons, and
                                         in the same box as while the link is read. */}
@@ -195,7 +197,7 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                         // Being read: a moment, so a spinner rather than a page that
                         // jumps, and no band yet: its colour is the course's.
                         <>
-                            <div className="shrink-0 pt-3"><div className={`${COLUMN} flex justify-end`}>{close(false)}</div></div>
+                            <div className="shrink-0 pt-5"><div className={`${COLUMN} flex justify-end`}>{close(false)}</div></div>
                             <div className="flex flex-1 items-center justify-center" role="status" aria-busy="true">
                                 <Loader2 className="h-6 w-6 animate-spin text-accent-fg" aria-hidden="true" />
                                 <span className="sr-only">{t("Reading it…")}</span>
