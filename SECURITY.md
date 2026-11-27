@@ -17,14 +17,18 @@ your data at all." Those are different claims and we only make the second one.
 The rest of this file is detailed, so here is the shape of it first. Each line below is
 described in full further down, with the file that does it.
 
-- **Who can reach the server.** It listens on `127.0.0.1` unless you choose another address. A
-  web page may call its API only when it was served from an address the app trusts, so a site
-  you visit cannot use it through your browser (`server/originGuard.js`). With no password, the
-  app answers this computer, the devices you connected with a one-time code, and the computer's
-  own Tailscale account if you leave that switch on. In the desktop app, "this computer" means
-  the account that owns the library: its window and its local programs prove that with a key
-  only that account can read. With a password set, every other request needs the password,
-  the API key or a connected device.
+- **Who can reach the server.** It listens on `127.0.0.1` unless you choose another address
+  (the Docker image listens on every address inside its container, and its compose file
+  publishes the port on `127.0.0.1` only). A web page may call its API only when the app served
+  that page itself (same scheme, name and port as the request) or from an address you listed, so
+  a site you visit cannot use it through your browser (`server/originGuard.js`; browsers older
+  than Safari 16.4 or Firefox 90 get an older form of this check). With no password, the app
+  answers this computer, the devices you connected with a one-time code, and the computer's own
+  Tailscale account if you leave that switch on. In the desktop app, "this computer" means the
+  account that owns the library: its window and its local programs prove that with
+  `instance.key`, a key in the library's folder that other ordinary accounts cannot read when
+  that folder is yours alone. With a password set, every other request needs the password, the
+  API key or a connected device.
 - **What a caller may change.** A page may write only the settings `server/settingsSchema.js`
   lists, each in the shape its reader expects. Where the app sends requests (model addresses,
   keys, the search address) and the desktop's own controls (quit, updates, restoring a
@@ -33,26 +37,31 @@ described in full further down, with the file that does it.
 - **What leaves the computer.** A short, closed list of connections, each named below, and no
   telemetry. A request whose address came from content (a link in a course, a page the model
   picked) goes through `server/netSafety.js`, and so do the hosted search engines, the update
-  download and the ChatGPT sign-in: private and loopback addresses are refused, the connection is pinned to the address that was checked,
-  every redirect is checked again, and a redirect to another site loses the request's keys.
-  Addresses you typed yourself (a model server, SearXNG) may be on your own network, as such
-  servers are, and are never followed through a redirect.
+  download and the ChatGPT sign-in: private and loopback addresses are refused, the connection
+  is pinned to the address that was checked, every redirect is checked again, and a redirect to
+  another origin loses the request's keys. Addresses you typed yourself (a model server,
+  SearXNG) may be on your own network, as such servers are, and are never followed through a
+  redirect. The few fixed public hosts the code names itself (the built-in DuckDuckGo,
+  Wikipedia and GitHub searches, the update check, OpenRouter's key exchange) are called
+  directly.
 - **Where credentials live.** Provider and search keys, sign-in tokens, the password hash and
-  the API key are kept in `terramentor.secrets.json` beside the library, never in the library file, so a
-  library you copy or share carries none of them. A provider key is sent only to the address it
+  the API key are kept in `terramentor.secrets.json` beside the library, never in the library
+  file, so a library file you copy or share carries none of them (a copy of the whole data
+  folder does). A provider key is sent only to the address it
   was saved for.
 - **What runs content the app did not write.** The page runs only the app's own scripts
   (Content-Security-Policy). AI-drawn visuals and code answers run in sandboxed frames that
-  cannot send anything out, and a picture from another site loads only when you press it.
+  are given no way to send anything out, and a picture from another site loads only when you press it.
 - **How updates are trusted.** The update check ships off, and nothing downloads until you
   press the button. A one-click update installs only a release whose manifest is signed with a
   key the installed copy already holds, every file is checked against that manifest, and a
   separate updater checks it all again and goes back to the previous version if the new one
   does not start.
 
-These layers keep your library from the network, from sites you visit, and from other
-accounts on the same computer. A program that runs under your own account is a different case,
-covered with the other limits under "What is NOT protected".
+These layers keep your library from the network and from sites you visit. On a computer with
+other accounts, the desktop app also keeps it from their programs, fully once a password is
+set. A program that runs under your own account, and an administrator of the computer, are
+different cases, covered with the other limits under "What is NOT protected".
 
 ## What is protected
 
@@ -61,7 +70,7 @@ covered with the other limits under "What is NOT protected".
   - **(a) The AI endpoint configured in Settings.** Embeddings go to the same endpoint once you
     have set one up, never to a built-in default address and never to a connection that has no
     embeddings, such as an Anthropic key or a ChatGPT plan; or to your Ollama address if you
-    route them there. With it go the one key exchange of *Connect OpenRouter* when you press
+    route them there. Besides it: the one key exchange of *Connect OpenRouter* when you press
     it, the test calls of a connection you add or test (including OpenRouter's `/key` route,
     and its public model list for the thinking levels a model offers), and with *Continue with
     ChatGPT* the sign-in, token refresh and revocation at `auth.openai.com` (all below).
@@ -121,24 +130,26 @@ covered with the other limits under "What is NOT protected".
   someone sent you could otherwise point the server at a service on your own computer or
   network (a local model server, your router, a cloud metadata address) and bring its answer
   back as course material. So before every such request:
-  - the address must be `http` or `https`, with no name or password inside it and no bare
-    number as its host;
-  - every address its name resolves to must be public: loopback, private ranges, link-local,
-    carrier-grade NAT (where Tailscale lives), documentation, multicast and reserved blocks are
-    refused, in IPv4 and IPv6 alike (an IPv4 address written inside an IPv6 one is judged as
-    itself),
-    and one bad answer among good ones refuses the name;
+  - the address must be `http` or `https`, with no name or password inside it;
+  - every address its host resolves to, including a number written in an unusual form, must be
+    public. In IPv4, loopback, the private ranges, link-local, carrier-grade NAT (where
+    Tailscale lives), the documentation ranges, multicast and the reserved blocks are refused;
+    in IPv6, loopback, unique-local, link-local, site-local, multicast, discard-only and Teredo
+    are, and an IPv4 address written inside an IPv6 one is judged as itself. One bad answer
+    among good ones refuses the name. One rarely routed block, `198.18.0.0/15`, is left open on
+    purpose: proxy tools in fake-IP mode answer every public name from it, and refusing it
+    would refuse every fetch on such a machine;
   - the connection is pinned to the addresses that were just checked, so a name that answers
     differently a moment later (DNS rebinding) cannot move it; the URL keeps its name, so the
     TLS certificate is still checked against that name;
   - a redirect is not followed blindly: each hop is resolved, checked and pinned again, three
-    at most, and a hop to another site carries only `Accept`, `Accept-Language`, `User-Agent`
+    at most, and a hop to another origin (scheme, host or port) carries only `Accept`, `Accept-Language`, `User-Agent`
     and `Content-Type`, so a search engine's API key cannot be redirected to someone else; a
     caller whose body holds a credential (the ChatGPT sign-in) also names which hosts a
     redirect may reach, and any other is refused before anything is sent.
 
-  `ALLOW_PRIVATE_FETCH=1` opens your own network again for course material that lives on it
-  (a wiki on your LAN); metadata addresses stay refused even then. Addresses you typed into
+  `ALLOW_PRIVATE_FETCH=1` opens your own computer and network again for course material that
+  lives there (a wiki on your LAN); only metadata addresses stay refused then. Addresses you typed into
   Settings yourself are handled separately, under "A model request goes to the address you
   entered" below.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
@@ -260,7 +271,9 @@ covered with the other limits under "What is NOT protected".
     requests arrive from outside, so the Docker image asks for the code on first use
     (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
     cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks
-    exactly like this computer; set a password before running one.
+    exactly like this computer; set a password before running one. (The desktop app also asks
+    such a request for the owner proof below, which a tunnel does not carry, so there it reads
+    nothing from the library.)
   - **In the desktop app, "this computer" means the account that owns the library.** Every
     account on a computer can reach `127.0.0.1`, so when the desktop launcher starts the server
     (`TERRAMENTOR_DESKTOP=1`), a loopback request with no password also has to show that it can
@@ -372,7 +385,8 @@ covered with the other limits under "What is NOT protected".
     most a minute old. **Without a password, a program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
     `Host: localhost` along makes the outside look like this computer** (see "what the app
-    cannot see" above): set a password before running one. Settings can also run `tailscale serve` for the user (a free
+    cannot see" above), except in the desktop app, which also asks for the owner proof: set a
+    password before running one. Settings can also run `tailscale serve` for the user (a free
     HTTPS port, never one another site holds, never Funnel, and nothing at all when the
     current serve configuration cannot be read); that is a call to the local Tailscale CLI by
     its installed path and opens no outbound connection of its own.
@@ -588,24 +602,23 @@ with it, and a copy built from this repository loads none.
 These are the edges of what the app can promise, and what to do at each one.
 
 - **A program running as you is trusted like you.** The protections above keep your library
-  from the network, from sites you visit and from other accounts on the computer. A program
-  that runs under your own account is inside all three: it can read the library,
+  from the network, from sites you visit and, in the desktop app, from other accounts'
+  programs. A program that runs under your own account is inside all three: it can read the library,
   `terramentor.secrets.json` and `instance.key` as you can, so it can send requests as the
   owner, read your saved keys and change the app's files. That is the line the operating system
-  draws for every program you run. Run software you trust, and keep the system's own
+  draws for every program you run, and an administrator (root on Linux and macOS) can read
+  every account's files the same way. Run software you trust, and keep the system's own
   protections (its updates, its malware scanner, full-disk encryption) on.
 - **On a computer shared with other accounts, set a password.** Without one, the desktop app
   answers only the account that owns the library (see "In the desktop app, 'this computer'
-  means the account that owns the library"), with these exceptions:
+  means the account that owns the library"), with two exceptions:
   - the computer's own Tailscale account, while that switch is on, because any program on the
     computer can send the headers `tailscale serve` adds;
-  - a raw TCP tunnel running on the computer, which makes whatever it forwards look like this
-    computer;
   - a page another account serves on another port of `127.0.0.1`, if you open it in the app's
     window: a browser sends a site's cookies to every port of that site, so the page receives
     the window's owner cookie, and the server accepts a copy of it for up to 30 days.
 
-  With a password set, none of these count: every request needs the password, the API key or a
+  With a password set, neither counts: every request needs the password, the API key or a
   connected device, whichever account sends it. One thing a password does not change is who
   can read the files. A library in a folder other accounts can read (on Windows, a portable
   copy's `data` folder or one on another drive takes that folder's permissions) is readable to
@@ -624,7 +637,9 @@ These are the edges of what the app can promise, and what to do at each one.
   machine. Do not run this as a shared service for a class.
 - **The password is built for your own networks.** It keeps other people on your LAN or
   tailnet out (scrypt hashing, the sign-in throttle and server-side sign-ins described above).
-  The app has no second factor, and it is not built or tested as a public web service. Reach it from elsewhere over a private network (Tailscale, WireGuard),
+  The app has no second factor, and it is not built or tested as a public web service. Over
+  plain HTTP on a local network, anyone who can read that network's traffic can read the
+  password and the sign-in cookie as they pass; Tailscale and HTTPS encrypt them. Reach it from elsewhere over a private network (Tailscale, WireGuard),
   never by forwarding a port to the internet.
 - **Your prompts go to whatever endpoint you configure.** If you point the app at a hosted API,
   your lesson content, questions, notes-in-context, photographed paper and your learner profile
