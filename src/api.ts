@@ -5,6 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import { serverText } from './utils/serverText';
+import { readSse } from './utils/sse';
 import { clientExtension } from './clientExtension';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
@@ -563,9 +564,10 @@ interface ChatStreamHandlers {
  * gone — and on a phone that happens without any error ever being raised: the
  * OS drops the connection when the app goes to the background and, on return,
  * `reader.read()` simply never resolves. Meanwhile the task finished on the
- * server. Every stream reader below races each read against this deadline;
- * a timer is suspended along with the page, so on foreground it fires at once
- * and the caller reconnects or re-reads the persisted state. The same rule
+ * server. Every task-backed stream below hands this deadline to `readSse`,
+ * which then ends the stream as closed; a timer is suspended along with the
+ * page, so on foreground it fires at once and the caller reconnects or
+ * re-reads the persisted state. The same rule
  * every large chat client applies: the socket is a view of the server's
  * state, never the state itself.
  */
@@ -623,21 +625,6 @@ function filenameFrom(res: Response, fallback: string): string {
     return plain ? plain[1].trim() : fallback;
 }
 
-async function readOrStale<T>(reader: { read(): Promise<T>; cancel(): Promise<void> | void }): Promise<T> {
-    let timer: number | undefined;
-    const stale = new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => {
-            try { reader.cancel(); } catch { /* already closed */ }
-            reject(Object.assign(new Error('the connection went quiet — reconnecting.'), { stale: true }));
-        }, SSE_STALE_MS);
-    });
-    try {
-        return await Promise.race([reader.read(), stale]);
-    } finally {
-        window.clearTimeout(timer);
-    }
-}
-
 /**
  * One assistant turn over SSE: `taskId` first, then `chunk` / `thinking` /
  * `thinkingChunk` deltas, then a terminal `done` or `cancelled`. It carries
@@ -670,78 +657,47 @@ async function* streamChatSse(
     const body = response.body;
     if (!body) throw new Error('No response body');
 
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-        while (true) {
-            let chunk: ReadableStreamReadResult<Uint8Array>;
-            try {
-                chunk = await readOrStale(reader);
-            } catch (e) {
-                // User stopped the stream — end the generator cleanly so the
-                // caller keeps whatever was produced so far.
-                if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) return;
-                throw e;
-            }
-            const { done, value } = chunk;
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                    const json = JSON.parse(line.slice(6));
-                    // First frame of a task subscription — lets the caller
-                    // remember the task id for Stop (server-side cancel) and
-                    // later reattach.
-                    if (typeof json.taskId === 'string') onTask?.(json.taskId);
-                    if (typeof json.conversationId === 'number') onConversation?.(json.conversationId);
-                    if (json.chunk) yield json.chunk;
-                    // Running reasoning-character count while the model thinks
-                    // (before any content arrives) — drives the live
-                    // "Thinking (N chars)…" indicator.
-                    if (typeof json.thinking === 'number') onThinking?.(json.thinking);
-                    // Raw reasoning text delta — accumulated by the caller into
-                    // a collapsible "Reasoning" panel (not just its length).
-                    if (typeof json.thinkingChunk === 'string') onThinkingChunk?.(json.thinkingChunk);
-                    // Pre-model status ("Searching the web…").
-                    if (typeof json.note === 'string') onNote?.(json.note);
-                    // What the turn is looking up: announced before each lookup
-                    // runs, and again when it lands. Not from the terminal
-                    // frame, whose list is the STORED one (below) — measured in
-                    // the stored text, not in the streamed text still on screen.
-                    if (Array.isArray(json.actions) && !json.done && !json.cancelled) onActions?.(json.actions as AiAction[]);
-                    if (json.error) throw new Error(serverText(json) ?? String(json.error));
-                    if (json.done || json.cancelled) {
-                        // On cancel the server already persisted the partial
-                        // turn (with reasoning) — same finalize path as done.
-                        // `content` is the STORED answer: the streamed text with
-                        // its `[[src:N]]` grounding markers resolved into the
-                        // documents they named (server/citations.js). The caller
-                        // swaps it in, so what stays on screen is what a reload
-                        // would show — and `actions` with it, whose positions
-                        // are measured in that same stored text.
-                        onDone?.({
-                            assistantMessageId: json.assistantMessageId ?? null,
-                            cancelled: !!json.cancelled,
-                            content: typeof json.content === 'string' ? json.content : null,
-                            actions: Array.isArray(json.actions) ? json.actions as AiAction[] : null,
-                        });
-                        return;
-                    }
-                } catch (e) {
-                    if (e instanceof SyntaxError) continue;
-                    throw e;
-                }
-            }
+    // User stopped the stream: end the generator cleanly so the caller keeps
+    // whatever was produced so far.
+    for await (const json of readSse(body, { signal, endOnAbort: true, staleMs: SSE_STALE_MS })) {
+        // First frame of a task subscription — lets the caller
+        // remember the task id for Stop (server-side cancel) and
+        // later reattach.
+        if (typeof json.taskId === 'string') onTask?.(json.taskId);
+        if (typeof json.conversationId === 'number') onConversation?.(json.conversationId);
+        if (json.chunk) yield json.chunk;
+        // Running reasoning-character count while the model thinks
+        // (before any content arrives) — drives the live
+        // "Thinking (N chars)…" indicator.
+        if (typeof json.thinking === 'number') onThinking?.(json.thinking);
+        // Raw reasoning text delta — accumulated by the caller into
+        // a collapsible "Reasoning" panel (not just its length).
+        if (typeof json.thinkingChunk === 'string') onThinkingChunk?.(json.thinkingChunk);
+        // Pre-model status ("Searching the web…").
+        if (typeof json.note === 'string') onNote?.(json.note);
+        // What the turn is looking up: announced before each lookup
+        // runs, and again when it lands. Not from the terminal
+        // frame, whose list is the STORED one (below) — measured in
+        // the stored text, not in the streamed text still on screen.
+        if (Array.isArray(json.actions) && !json.done && !json.cancelled) onActions?.(json.actions as AiAction[]);
+        if (json.error) throw new Error(serverText(json) ?? String(json.error));
+        if (json.done || json.cancelled) {
+            // On cancel the server already persisted the partial
+            // turn (with reasoning) — same finalize path as done.
+            // `content` is the STORED answer: the streamed text with
+            // its `[[src:N]]` grounding markers resolved into the
+            // documents they named (server/citations.js). The caller
+            // swaps it in, so what stays on screen is what a reload
+            // would show — and `actions` with it, whose positions
+            // are measured in that same stored text.
+            onDone?.({
+                assistantMessageId: json.assistantMessageId ?? null,
+                cancelled: !!json.cancelled,
+                content: typeof json.content === 'string' ? json.content : null,
+                actions: Array.isArray(json.actions) ? json.actions as AiAction[] : null,
+            });
+            return;
         }
-    } finally {
-        try { reader.cancel(); } catch { }
     }
 }
 
@@ -753,7 +709,6 @@ async function* streamChatSse(
  */
 async function* streamCreationSse(path: string, payload: unknown, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> {
     let response: Response;
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
         try {
@@ -790,65 +745,24 @@ async function* streamCreationSse(path: string, payload: unknown, signal?: Abort
         const body = response.body;
         if (!body) throw new Error('No response body received from server');
 
-        reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        let abortReason: string | null = null;
-        const onAbort = () => {
-            abortReason = 'Aborted by user';
-            try { reader?.cancel(); } catch { }
-        };
-        signal?.addEventListener('abort', onAbort, { once: true });
-
+        // A cancel we asked for ends the run quietly; any other failed read
+        // comes out as the interrupted-connection frame.
         try {
-            while (true) {
-                let done: boolean;
-                let value: Uint8Array | undefined;
-
-                try {
-                    const result = await reader.read();
-                    done = result.done;
-                    value = result.value;
-                } catch (readError: any) {
-                    if (abortReason || signal?.aborted) {
-                        return;
-                    }
-                    const errorMsg = readError.name === 'AbortError'
-                        ? 'Stream was cancelled'
-                        : `Failed to read server response: ${readError.message}`;
-                    yield {
-                        phase: 'error',
-                        message: errorMsg,
-                        task: 'Connection to the server was interrupted',
-                        error: readError.message || 'Stream read error'
-                    };
-                    return;
-                }
-
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        try {
-                            const json = JSON.parse(data) as AIProjectProgress;
-                            yield json;
-                            if (json.done || json.error) return;
-                        } catch (e) {
-                            if (e instanceof SyntaxError) continue;
-                            throw e;
-                        }
-                    }
-                }
+            for await (const json of readSse(body, { signal, endOnAbort: true })) {
+                yield json as AIProjectProgress;
+                if (json.done || json.error) return;
             }
-        } finally {
-            signal?.removeEventListener('abort', onAbort);
-            try { reader.cancel(); } catch { }
+        } catch (readError: any) {
+            const errorMsg = readError.name === 'AbortError'
+                ? 'Stream was cancelled'
+                : `Failed to read server response: ${readError.message}`;
+            yield {
+                phase: 'error',
+                message: errorMsg,
+                task: 'Connection to the server was interrupted',
+                error: readError.message || 'Stream read error'
+            };
+            return;
         }
     } catch (error: any) {
         if (error.message === 'Request cancelled.' || error.name === 'AbortError') {
@@ -1263,41 +1177,16 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const data = line.slice(6);
-                    try {
-                        const json = JSON.parse(data);
-                        if (typeof json.progress === 'number') onProgress?.(json.progress);
-                        if (typeof json.thinking === 'number') onThinking?.(json.thinking);
-                        if (json.cancelled) {
-                            throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
-                        }
-                        if (json.error) {
-                            throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
-                        }
-                        if (json.done) return { stats: json.stats, insights: json.insights };
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
+        for await (const json of readSse(body, { signal })) {
+            if (typeof json.progress === 'number') onProgress?.(json.progress);
+            if (typeof json.thinking === 'number') onThinking?.(json.thinking);
+            if (json.cancelled) {
+                throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
             }
-        } finally {
-            try { reader.cancel(); } catch { }
+            if (json.error) {
+                throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
+            }
+            if (json.done) return { stats: json.stats, insights: json.insights };
         }
         throw new Error('Insights stream ended without a result');
     },
@@ -1408,31 +1297,9 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    try {
-                        const json = JSON.parse(line) as PullProgress;
-                        yield json;
-                        if (json.done || json.error) return;
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
-            }
-        } finally {
-            try { reader.cancel(); } catch { }
+        for await (const json of readSse(body)) {
+            yield json as PullProgress;
+            if (json.done || json.error) return;
         }
     },
 
@@ -1576,21 +1443,10 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        // Handle one SSE `data:` line: updates progress, or returns the parsed
-        // result / throws on an error event. Returns undefined for progress-only
-        // lines so the caller keeps reading. Shared by the streaming loop and the
-        // final-buffer flush below (so a terminal `done`/`error` event that lands
-        // in the very last read — without a trailing newline — is never dropped
-        // and mistaken for "stream ended without a result").
-        const handleLine = (line: string): { id: number; questions: Quiz['questions'] } | undefined => {
-            if (!line.startsWith('data: ')) return undefined;
-            const data = line.slice(6);
-            let json: any;
-            try { json = JSON.parse(data); } catch { return undefined; } // partial/keepalive line
+        // A terminal `done`/`error` frame in the very last read, with no line end
+        // after it, still arrives (readSse gives out a last unended frame), so it
+        // is never mistaken for "stream ended without a result".
+        for await (const json of readSse(body, { signal })) {
             if (typeof json.taskId === 'string') opts?.onTask?.(json.taskId);
             if (typeof json.progress === 'number') onProgress?.(json.progress);
             if (typeof json.thinking === 'number') onThinking?.(json.thinking);
@@ -1605,28 +1461,6 @@ export const api = {
                 throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
             }
             if (json.done) return { id: json.id, questions: json.questions };
-            return undefined;
-        };
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    const result = handleLine(line);
-                    if (result) return result;
-                }
-            }
-            // Stream closed: flush a trailing event still sitting in the buffer.
-            const result = handleLine(buffer);
-            if (result) return result;
-        } finally {
-            try { reader.cancel(); } catch { }
         }
         // Clean EOF with no terminal `done`/`error` frame: the connection to the AI
         // server was cut before generation finished (e.g. the model server dropped
@@ -1881,49 +1715,23 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let fixed = '';
-
-        try {
-            while (true) {
-                // Task-backed (keepalives every 15s), so a quiet socket is dead.
-                const { done, value } = await readOrStale(reader);
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const data = line.slice(6);
-                    try {
-                        const json = JSON.parse(data);
-                        if (typeof json.taskId === 'string') onTask?.(json.taskId);
-                        // A replayed frame carries the task's running length as
-                        // `progress` (tasks.js keeps that, not `chars`); a live
-                        // frame carries both. Either moves the bar.
-                        if (typeof json.chars === 'number' || typeof json.thinking === 'number' || typeof json.progress === 'number') {
-                            onProgress?.({
-                                phase: json.phase, chars: json.chars ?? json.progress ?? 0,
-                                thinking: json.thinking || 0, est: json.est || 0,
-                            });
-                        }
-                        if (json.cancelled) throw Object.assign(new Error('the rebuild was cancelled.'), { cancelled: true });
-                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
-                        if (json.done) { fixed = json.code || ''; return { code: fixed, redrawn: !!json.redrawn }; }
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
+        // Task-backed (keepalives every 15s), so a quiet socket is dead.
+        for await (const json of readSse(body, { signal, staleMs: SSE_STALE_MS })) {
+            if (typeof json.taskId === 'string') onTask?.(json.taskId);
+            // A replayed frame carries the task's running length as
+            // `progress` (tasks.js keeps that, not `chars`); a live
+            // frame carries both. Either moves the bar.
+            if (typeof json.chars === 'number' || typeof json.thinking === 'number' || typeof json.progress === 'number') {
+                onProgress?.({
+                    phase: json.phase, chars: json.chars ?? json.progress ?? 0,
+                    thinking: json.thinking || 0, est: json.est || 0,
+                });
             }
-        } finally {
-            try { reader.cancel(); } catch { }
+            if (json.cancelled) throw Object.assign(new Error('the rebuild was cancelled.'), { cancelled: true });
+            if (json.error) throw new Error(serverText(json) ?? String(json.error));
+            if (json.done) return { code: json.code || '', redrawn: !!json.redrawn };
         }
-        return { code: fixed, redrawn: false };
+        return { code: '', redrawn: false };
     },
 
     // Compile a ```widget functional spec into one self-contained sandbox HTML
@@ -1967,52 +1775,27 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const data = line.slice(6);
-                    try {
-                        const json = JSON.parse(data);
-                        if (typeof json.status === 'string') {
-                            onEvent?.({ status: json.status, queuePosition: json.queuePosition ?? null });
-                        }
-                        if (typeof json.thinking === 'number') onEvent?.({ thinking: json.thinking });
-                        if (typeof json.progress === 'number') onEvent?.({ progress: json.progress });
-                        if (json.cancelled) {
-                            throw Object.assign(new Error('the widget build was cancelled.'), { cancelled: true });
-                        }
-                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
-                        if (json.miss) {
-                            return {
-                                html: '', cached: false,
-                                ...(typeof json.declined === 'string' ? { declined: json.declined } : {}),
-                                ...(typeof json.lastError === 'string' ? { lastError: json.lastError } : {}),
-                            };
-                        }
-                        if (json.done) {
-                            if (!json.html) throw new Error('the build produced no HTML.');
-                            return { html: json.html as string, cached: !!json.cached };
-                        }
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
+        for await (const json of readSse(body, { signal })) {
+            if (typeof json.status === 'string') {
+                onEvent?.({ status: json.status, queuePosition: json.queuePosition ?? null });
             }
-        } finally {
-            try { reader.cancel(); } catch { }
+            if (typeof json.thinking === 'number') onEvent?.({ thinking: json.thinking });
+            if (typeof json.progress === 'number') onEvent?.({ progress: json.progress });
+            if (json.cancelled) {
+                throw Object.assign(new Error('the widget build was cancelled.'), { cancelled: true });
+            }
+            if (json.error) throw new Error(serverText(json) ?? String(json.error));
+            if (json.miss) {
+                return {
+                    html: '', cached: false,
+                    ...(typeof json.declined === 'string' ? { declined: json.declined } : {}),
+                    ...(typeof json.lastError === 'string' ? { lastError: json.lastError } : {}),
+                };
+            }
+            if (json.done) {
+                if (!json.html) throw new Error('the build produced no HTML.');
+                return { html: json.html as string, cached: !!json.cached };
+            }
         }
         throw new Error('the widget build stream ended without a result.');
     },
@@ -2050,53 +1833,29 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-            while (true) {
-                // Task-backed, so the server keeps it alive with comments; a
-                // silent socket here is the phone having been put down.
-                const { done, value } = await readOrStale(reader);
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    try {
-                        const json = JSON.parse(line.slice(6));
-                        if (typeof json.status === 'string') {
-                            onEvent?.({ status: json.status, queuePosition: json.queuePosition ?? null });
-                        }
-                        if (typeof json.thinking === 'number') onEvent?.({ thinking: json.thinking });
-                        if (typeof json.progress === 'number') onEvent?.({ progress: json.progress });
-                        if (json.cancelled) {
-                            throw Object.assign(new Error('the drawing was cancelled.'), { cancelled: true });
-                        }
-                        if (json.error) throw new Error(serverText(json) ?? String(json.error));
-                        if (json.miss) {
-                            return {
-                                spec: '', cached: false,
-                                ...(typeof json.declined === 'string' ? { declined: json.declined } : {}),
-                                ...(typeof json.lastError === 'string' ? { lastError: json.lastError } : {}),
-                            };
-                        }
-                        if (json.done) {
-                            if (!json.spec) throw new Error('the specialist produced nothing.');
-                            return { spec: json.spec as string, cached: !!json.cached };
-                        }
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
+        // Task-backed, so the server keeps it alive with comments; a
+        // silent socket here is the phone having been put down.
+        for await (const json of readSse(body, { signal, staleMs: SSE_STALE_MS })) {
+            if (typeof json.status === 'string') {
+                onEvent?.({ status: json.status, queuePosition: json.queuePosition ?? null });
             }
-        } finally {
-            try { reader.cancel(); } catch { }
+            if (typeof json.thinking === 'number') onEvent?.({ thinking: json.thinking });
+            if (typeof json.progress === 'number') onEvent?.({ progress: json.progress });
+            if (json.cancelled) {
+                throw Object.assign(new Error('the drawing was cancelled.'), { cancelled: true });
+            }
+            if (json.error) throw new Error(serverText(json) ?? String(json.error));
+            if (json.miss) {
+                return {
+                    spec: '', cached: false,
+                    ...(typeof json.declined === 'string' ? { declined: json.declined } : {}),
+                    ...(typeof json.lastError === 'string' ? { lastError: json.lastError } : {}),
+                };
+            }
+            if (json.done) {
+                if (!json.spec) throw new Error('the specialist produced nothing.');
+                return { spec: json.spec as string, cached: !!json.cached };
+            }
         }
         throw new Error('the visual authoring stream ended without a result.');
     },
@@ -2156,41 +1915,16 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const data = line.slice(6);
-                    try {
-                        const json = JSON.parse(data);
-                        if (typeof json.progress === 'number') onProgress?.(json.progress);
-                        if (typeof json.thinking === 'number') onThinking?.(json.thinking);
-                        if (json.cancelled) {
-                            throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
-                        }
-                        if (json.error) {
-                            throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
-                        }
-                        if (json.done) return { count: json.count, ids: json.ids };
-                    } catch (e) {
-                        if (e instanceof SyntaxError) continue;
-                        throw e;
-                    }
-                }
+        for await (const json of readSse(body, { signal })) {
+            if (typeof json.progress === 'number') onProgress?.(json.progress);
+            if (typeof json.thinking === 'number') onThinking?.(json.thinking);
+            if (json.cancelled) {
+                throw Object.assign(new Error('Generation was cancelled.'), { cancelled: true });
             }
-        } finally {
-            try { reader.cancel(); } catch { }
+            if (json.error) {
+                throw Object.assign(new Error(serverText(json) ?? String(json.error)), { rawResponse: json.rawResponse ?? null });
+            }
+            if (json.done) return { count: json.count, ids: json.ids };
         }
         throw new Error('Flashcard stream ended without a result');
     },
@@ -2736,28 +2470,11 @@ export const api = {
 
         const body = response.body;
         if (!body) throw new Error('No response body');
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    let json: any;
-                    try { json = JSON.parse(line.slice(6)); } catch { continue; }
-                    if (typeof json.written === 'number') onProgress?.(json.written, json.total ?? 0);
-                    if (json.cancelled) throw Object.assign(new Error('Placement was cancelled.'), { cancelled: true });
-                    if (json.error) throw new Error(serverText(json) ?? String(json.error));
-                    if (json.done) return json as PlacementProbe;
-                }
-            }
-        } finally {
-            try { reader.cancel(); } catch { }
+        for await (const json of readSse(body, { signal })) {
+            if (typeof json.written === 'number') onProgress?.(json.written, json.total ?? 0);
+            if (json.cancelled) throw Object.assign(new Error('Placement was cancelled.'), { cancelled: true });
+            if (json.error) throw new Error(serverText(json) ?? String(json.error));
+            if (json.done) return json as PlacementProbe;
         }
         throw new Error('The placement stream ended without finishing.');
     },
@@ -2807,28 +2524,12 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                const { done, value } = await readOrStale(reader);
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    try {
-                        const json = JSON.parse(line.slice(6));
-                        if (Array.isArray(json.tasks)) onList(json.tasks);
-                        const change = json.chatChanged;
-                        if (change && typeof change.conversationId === 'number' && change.from !== WINDOW_ID) onChat?.({ conversationId: change.conversationId });
-                    } catch { /* keepalive/partial */ }
-                }
-            }
-        } finally {
-            try { reader.cancel(); } catch { }
+        for await (const json of readSse(body, { signal, staleMs: SSE_STALE_MS })) {
+            try {
+                if (Array.isArray(json.tasks)) onList(json.tasks);
+                const change = json.chatChanged;
+                if (change && typeof change.conversationId === 'number' && change.from !== WINDOW_ID) onChat?.({ conversationId: change.conversationId });
+            } catch { /* a listener's fault does not end the feed */ }
         }
     },
 
@@ -2844,34 +2545,10 @@ export const api = {
         const body = response.body;
         if (!body) throw new Error('No response body');
 
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                let chunk: ReadableStreamReadResult<Uint8Array>;
-                try {
-                    chunk = await readOrStale(reader);
-                } catch (e) {
-                    // Detached (navigation/unmount) — the task itself keeps running.
-                    if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) return;
-                    throw e;
-                }
-                const { done, value } = chunk;
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    let json: any;
-                    try { json = JSON.parse(line.slice(6)); } catch { continue; }
-                    yield json;
-                    if (json.done || json.error || json.cancelled) return;
-                }
-            }
-        } finally {
-            try { reader.cancel(); } catch { }
+        // Detached (navigation/unmount) ends quietly — the task itself keeps running.
+        for await (const json of readSse(body, { signal, endOnAbort: true, staleMs: SSE_STALE_MS })) {
+            yield json;
+            if (json.done || json.error || json.cancelled) return;
         }
     },
 };
