@@ -6,7 +6,7 @@
 // is a thin client of the app that is already running, and every read and
 // write is the app's own route behind its own password check
 // (server/routes/agent.js). tools/mcp-gates.mjs fails if
-// anything under mcp/ imports server/.
+// anything mcp/ loads reaches server/database.js, however indirectly.
 
 /** Where the app listens by default (`npm run standalone`, the desktop app). */
 export const DEFAULT_URL = 'http://127.0.0.1:3001';
@@ -53,9 +53,11 @@ export function appOrigin(raw = DEFAULT_URL) {
  * On stdio it is built from TERRAMENTOR_API_KEY; on the HTTP listener it is
  * the caller's own header, passed through, never the environment's
  * (mcp/index.js says why). `keyHint` words the "where to put the key" half of
- * the 401 message for that transport.
+ * the 401 message for that transport. `ownerHeaders`, on stdio only, returns
+ * the headers that prove this process runs as the library's owner
+ * (mcp/owner.js), signed afresh for each request.
  */
-export function appClient({ origin, authorization = null, keyHint, clientName = () => null, timeZone = null }) {
+export function appClient({ origin, authorization = null, keyHint, clientName = () => null, timeZone = null, ownerHeaders = null }) {
     async function request(method, path, { query = null, body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
         const url = new URL(path, origin);
         for (const [k, v] of Object.entries(query || {})) {
@@ -67,6 +69,7 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
         const name = clientName();
         if (name) headers['X-Agent-Client'] = String(name).replace(/[^\x20-\x7e]/g, '').slice(0, 80);
         if (body) headers['Content-Type'] = 'application/json';
+        if (ownerHeaders) Object.assign(headers, await ownerHeaders(origin));
 
         let res;
         try {
@@ -97,6 +100,13 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
         if (res.ok && data && typeof data === 'object') return data;
 
         const said = data && typeof data.error === 'string' ? data.error.slice(0, ERROR_CHARS) : '';
+        if (res.status === 401 && data?.launchRequired) {
+            // The desktop app with no password: it answers a program on this
+            // computer that can read the library's key (mcp/owner.js).
+            throw new AppError(ownerHeaders
+                ? `Terramentor at ${origin} answers a program on this computer only when the program can read the library's key, and this MCP server found none. Run it as the same user as the app. If the app keeps its library in a folder you picked yourself, set DATA_DIR to that folder in this server's config (its "env"). Or set a password in Terramentor → Settings → Devices & security and use the API key: ${keyHint}`
+                : `Terramentor at ${origin} has no password, and this listener cannot vouch for whoever calls it. Set a password in Terramentor → Settings → Devices & security, press Generate key in ${KEY_PLACE}, then ${keyHint}`);
+        }
         if (res.status === 401 && data?.setupRequired) {
             // A library with no password answers this computer only; this one
             // reached it as another device (TERRAMENTOR_URL to another machine).

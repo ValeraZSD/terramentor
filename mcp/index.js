@@ -18,7 +18,8 @@
 // this computer that can open a socket, and to any web page able to reach
 // loopback. It binds loopback only, refuses to start on another address, and
 // refuses a foreign Host (DNS rebinding), a foreign Origin, a relayed request
-// and a non-loopback peer.
+// and a non-loopback peer. For the same reason it never sends the owner proof
+// (mcp/owner.js) that the stdio server sends to a desktop app with no password.
 
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -26,6 +27,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { localhostHostValidation, localhostOriginValidation, toNodeHandler } from '@modelcontextprotocol/node';
 import { appClient, appOrigin, isLoopbackHost } from './app.js';
+import { ownerHeaders } from './owner.js';
 import { buildServer } from './tools.js';
 
 const VERSION = (() => {
@@ -67,13 +69,18 @@ function parseArgs(argv) {
 }
 
 /** A client for this call: the app's origin is read per call, so a bad TERRAMENTOR_URL is a tool's answer, not a crash. */
-const clientFor = ({ authorization, keyHint, clientName }) => () => appClient({
-    origin: appOrigin(process.env.TERRAMENTOR_URL),
-    authorization,
-    keyHint,
-    clientName,
-    timeZone,
-});
+const clientFor = ({ authorization, keyHint, clientName, proveOwner = false }) => () => {
+    const origin = appOrigin(process.env.TERRAMENTOR_URL);
+    return appClient({
+        origin,
+        authorization,
+        keyHint,
+        clientName,
+        timeZone,
+        // Only to an app on this computer: the proof means nothing anywhere else.
+        ownerHeaders: proveOwner && isLoopbackHost(new URL(origin).hostname) ? ownerHeaders : null,
+    });
+};
 
 function serveOverStdio() {
     const key = String(process.env.TERRAMENTOR_API_KEY || '').trim();
@@ -85,6 +92,7 @@ function serveOverStdio() {
                 authorization: key ? `Bearer ${key}` : null,
                 keyHint: 'set it as TERRAMENTOR_API_KEY in this MCP server\'s config (its "env"), then restart the server.',
                 clientName: () => server?.server?.getClientVersion?.()?.name || null,
+                proveOwner: true,
             }),
         });
         return server;
