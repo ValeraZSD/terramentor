@@ -61,7 +61,7 @@ const ok = (name, cond, detail) => { checked++; if (!cond) findings.push({ name,
 /** Left-to-right on purpose, each with its reason. */
 const ISLANDS = {
     'src/components/evidence/EstimateChart.tsx': 'a time chart drawn in pixels from the left (dir="ltr")',
-    'src/components/plan/WeeklyChart.tsx': 'a time chart drawn in pixels from the left (dir="ltr")',
+    'src/components/plan/PlanStrip.tsx': 'a timeline from today forward, placed in pixels from the left (dir="ltr"); its labels have dir="auto"',
     'src/components/attachments/MarkedImage.tsx': 'a box on a picture, placed in the picture\'s own left-to-right space (dir="ltr"); its label has dir="auto", so a logical inset would follow the label\'s language',
     'src/components/answer/CodeEditor.tsx': 'program code reads left to right (.cm-editor is direction: ltr)',
 };

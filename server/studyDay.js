@@ -153,6 +153,14 @@ export function studyToday({ now = Date.now(), timeZone = learnerTimeZone() } = 
     return localDate(now, timeZone);
 }
 
+/** The Monday on or before a `YYYY-MM-DD` date (the study-day picker's week), as a date. */
+export function mondayOf(date) {
+    const [y, m, d] = date.split('-').map(Number);
+    const ms = Date.UTC(y, m - 1, d);
+    const back = (new Date(ms).getUTCDay() + 6) % 7;
+    return new Date(ms - back * DAY_MS).toISOString().slice(0, 10);
+}
+
 /** Today for the learner, with the instants it spans (see `dayBounds`). */
 export function studyDay({ now = Date.now(), timeZone = learnerTimeZone() } = {}) {
     return dayBounds(localDate(now, timeZone), timeZone);

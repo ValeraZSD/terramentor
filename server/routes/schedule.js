@@ -17,7 +17,7 @@ import { routeTable } from './routeTable.js';
 import { apiError, errorBody, errorFields, keyed } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
 import { refreshTopicDates } from '../topicDates.js';
-import { libraryPace, projectVerdict } from '../pace.js';
+import { libraryPace, projectVerdict, weekSoFar } from '../pace.js';
 import { libraryCapacity } from '../capacity.js';
 
 let openTopic = null;
@@ -278,6 +278,8 @@ app.get('/api/projects/:id/pace', (req, res) => {
         const library = libraryPace();
         pace.verdict = projectVerdict(id, { library });
         pace.learnerPace = pace.verdict ? library[pace.verdict.unit] : null;
+        // This course's work so far this week, for the line under the strip.
+        pace.weekSoFar = weekSoFar(id, pace.verdict, { today: library.today });
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);

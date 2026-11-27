@@ -48,7 +48,7 @@ const ago = (n, from = TODAY) => dayStr(dayNum(from) - n);
 const ahead = (n, from = TODAY) => dayStr(dayNum(from) + n);
 
 const model = await import('../server/paceModel.js');
-const { learnerPace, judgeDate, BANDS, OFFERS } = model;
+const { learnerPace, judgeDate, weeklyTarget, BANDS, OFFERS, STRIP_BANDS } = model;
 
 /** `perWeek[i]` completions in the block ending `7i + 1` days before today, newest first. */
 function learnerFromWeeks(perWeek, { today = TODAY, sinceWeeks = perWeek.length, bulk = false } = {}) {
@@ -262,6 +262,21 @@ console.log('\n--- offers: who set the date decides ---');
         && judgeDate(crunchPace, { open: 9, deadline: ago(2), today: TODAY, assigned: true }).offers.length === 0);
     check('every offer kind is one of the published set', [out(), tight(), out({ fixed: true })].flatMap(kinds).every(k => OFFERS.includes(k)));
     check('"move the date" is only ever last', [out(), tight()].every(v => kinds(v).indexOf('move_date') === v.offers.length - 1));
+}
+
+console.log('\n--- the week\'s target, fixed from Monday ---');
+{
+    // A Monday by the calendar (8 June 2026 was a Monday), and a date two weeks on.
+    const MON = '2026-06-08', TWO_WEEKS = '2026-06-22';
+    const target = (open, doneThisWeek, deadline = TWO_WEEKS) => (typeof weeklyTarget === 'function'
+        ? weeklyTarget({ open, doneThisWeek, deadline, weekStart: MON }) : undefined);
+    check('6 topics open on Monday, two weeks to the date: 3 a week', target(6, 0) === 3, show(target(6, 0)));
+    check('…and still 3 once 2 of them are closed this week (4 open, 2 done)', target(4, 2) === 3, show(target(4, 2)));
+    check('…and once all 6 are', target(0, 6) === 3, show(target(0, 6)));
+    check('a part of a topic rounds up: 7 or 8 in two weeks is 4', target(7, 0) === 4 && target(8, 0) === 4, show([target(7, 0), target(8, 0)]));
+    check('a date inside this week takes the whole of it: 5 open, due Thursday, is 5', target(5, 0, '2026-06-11') === 5, show(target(5, 0, '2026-06-11')));
+    check('under one a week: no target (1 open, four weeks)', target(1, 0, '2026-07-06') === null, show(target(1, 0, '2026-07-06')));
+    check('no date, or a date before the week: no target', target(6, 0, null) === null && target(6, 0, '2026-06-01') === null);
 }
 
 console.log('\n--- a course measured in cards ---');
@@ -564,6 +579,63 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             && open.length === 6 && open.every(n => n.s && n.s >= TODAY), show({ status: r.status, s: open.map(n => n.s) }));
         const stored = db.prepare('SELECT start_date FROM projects WHERE id = ?').get(underway).start_date;
         check('…and keeps the window\'s own start', stored === ago(30), show(stored));
+
+        console.log('\n--- routes: this week so far, for the line under the plan\'s strip ---');
+        // The week starts on Monday (the study-day picker's ISO week), on the
+        // learner's calendar: 00:30 on Monday in Amsterdam is Sunday evening in
+        // UTC, and counts; 23:30 on the Sunday before does not.
+        // Monday found by its name, walking back from today, not by the code's arithmetic.
+        const weekdayName = (d) => new Intl.DateTimeFormat('en', { weekday: 'long', timeZone: 'UTC' }).format(new Date(`${d}T00:00:00Z`));
+        let monday = TODAY;
+        while (weekdayName(monday) !== 'Monday') monday = ago(1, monday);
+        const amsOffsetH = (d) => (new Date(`${d}T12:00:00Z`).toLocaleString('en-US', { timeZone: AMS, hour: 'numeric', hour12: false }) - 12);
+        const amsAt = (d, h) => iso(dayNum(d) * DAY_MS + (h - amsOffsetH(d)) * 3600_000);
+        const weekly = mkProject('This week', { deadline: ahead(40), start: ago(60) });
+        mkNode(weekly, 'closed Monday just after midnight', null, { status: 'completed', completedAt: amsAt(monday, 0.5) });
+        mkNode(weekly, 'closed this morning', null, { status: 'completed', completedAt: amsAt(TODAY, 10) });
+        mkNode(weekly, 'closed late on the Sunday before', null, { status: 'completed', completedAt: amsAt(ago(1, monday), 23.5) });
+        mkNode(weekly, 'still open', null);
+        const elsewhere = mkProject('Another course', { deadline: ahead(40), start: ago(60) });
+        mkNode(elsewhere, 'closed this morning elsewhere', null, { status: 'completed', completedAt: amsAt(TODAY, 9) });
+        mkNode(elsewhere, 'open elsewhere', null);
+        const wk = await get(`/api/projects/${weekly}/pace`);
+        check('/pace counts this course\'s topics closed since Monday on the learner\'s calendar',
+            wk.weekSoFar?.since === monday && wk.weekSoFar?.count === 2, show(wk.weekSoFar));
+        const wDeck = mkProject('Deck this week', { kind: 'deck', deadline: ahead(40), start: ago(60) });
+        const wStage = mkNode(wDeck, 'Stage', mkNode(wDeck, 'stages', null), { role: 'pagination' });
+        // The unmet card is still new, so the deck has work open and a strip.
+        const wCard = (n, seen = true) => Number(db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, created_at) VALUES (?, 'q', 'a', ?, ?, ?)`)
+            .run(wStage, seen ? 1 : 0, seen ? iso(NOW_MS - DAY_MS) : null, iso(NOW_MS - (20 + n) * DAY_MS).replace('T', ' ').slice(0, 19)).lastInsertRowid);
+        const metToday = wCard(1), metLongAgo = wCard(2), unmet = wCard(3, false);
+        review(metToday, Date.parse(amsAt(TODAY, 8)));
+        review(metLongAgo, Date.parse(amsAt(ago(10, monday), 8)));
+        review(metLongAgo, Date.parse(amsAt(TODAY, 8.5))); // a second look is not a card met
+        const dk = await get(`/api/projects/${wDeck}/pace`);
+        check('…and a deck\'s cards met for the first time since Monday', dk.verdict?.unit === 'cards'
+            && dk.weekSoFar?.count === 1, show({ unit: dk.verdict?.unit, band: dk.verdict?.band, open: dk.verdict?.open, week: dk.weekSoFar, unmet }));
+
+        // The week's target is fixed from Monday: closing topics this week
+        // leaves it where it was. Six open on Monday, two weeks to the date
+        // from Monday: three a week, before and after two of them close.
+        const frozen = mkProject('Fixed target', { deadline: ahead(14, monday), start: ago(60) });
+        const six = Array.from({ length: 6 }, (_, i) => mkNode(frozen, `topic ${i + 1}`, null));
+        const before = await get(`/api/projects/${frozen}/pace`);
+        const close = db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`);
+        close.run(amsAt(TODAY, 10), six[0]);
+        close.run(amsAt(TODAY, 10.5), six[1]);
+        const after = await get(`/api/projects/${frozen}/pace`);
+        check('the week\'s target: 3 a week for 6 topics open on Monday, two weeks to the date',
+            before.weekSoFar?.target === 3 && before.weekSoFar?.count === 0, show(before.weekSoFar));
+        check('…still 3 after 2 of them close this week, with the count at 2',
+            after.weekSoFar?.target === 3 && after.weekSoFar?.count === 2 && after.verdict?.open === 4, show({ week: after.weekSoFar, open: after.verdict?.open }));
+        const passedCourse = mkProject('Passed date', { deadline: ago(3), start: ago(60) });
+        mkNode(passedCourse, 'open', null);
+        const gone = await get(`/api/projects/${passedCourse}/pace`);
+        check('a passed date counts no week (the strip is not drawn)', gone.verdict?.band === 'passed' && gone.weekSoFar === null, show({ band: gone.verdict?.band, week: gone.weekSoFar }));
+        const finished = mkProject('Finished course', { deadline: ahead(20), start: ago(60) });
+        mkNode(finished, 'closed this morning', null, { status: 'completed', completedAt: amsAt(TODAY, 10) });
+        const doneCourse = await get(`/api/projects/${finished}/pace`);
+        check('…nor does a course with nothing left (done)', doneCourse.verdict?.band === 'done' && doneCourse.weekSoFar === null, show({ band: doneCourse.verdict?.band, week: doneCourse.weekSoFar }));
     } finally {
         Date.now = realNow;
         srv.closeAllConnections();
@@ -572,11 +644,18 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
 }
 
 // ---------------------------------------------------------------------------
-// 3. The panel's words (src/components/plan/verdict.tsx): the best month's rate
-// is read once in every band, in the sentences or in the chart's key under
-// them, never twice and never only by a screen reader.
+// 3. The panel's words and its forward strip (src/components/plan/verdict.tsx).
+// Every expected value below comes from the band rules, written out here:
+//   - the strip is drawn while the date is ahead and work is open (on pace,
+//     under pace, tight, out of reach, learning), never once done or passed;
+//   - its range is the recent finish range, its flag is the date, in the
+//     verdict's own colour (the flag and the headline agree);
+//   - the line under it is this week's count against the weekly amount the
+//     date needs, rounded up;
+//   - each fact is said once on the panel: the range's dates, that weekly
+//     amount, the best month's rate (only where the date misses).
 {
-    console.log('\nthe plan panel says the best month\'s rate once:');
+    console.log('\nthe plan panel: the strip in every band, each fact once:');
     const { createRequire } = await import('node:module');
     const { pathToFileURL } = await import('node:url');
     const esbuild = createRequire(import.meta.url)('esbuild');
@@ -598,19 +677,146 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     const panel = await import(pathToFileURL(out).href);
     const t = (key, p = {}) => key.replace(/\{\{(\w+)\}\}/g, (_, name) => String(p[name]));
     const num = (v, { decimals = 0 } = {}) => v.toFixed(decimals);
-    const BEST = 2.6; // a rate no other number in the panel reads as
-    for (const band of ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'passed', 'learning', 'done']) {
+    const strip = (v) => (typeof panel.stripFacts === 'function' ? panel.stripFacts(v, t, num, TODAY) : undefined);
+    const week = (v, w) => (typeof panel.weekLine === 'function' ? panel.weekLine(v, w, t, num) : undefined);
+    // The day of month alone, in English: the range's two dates are told apart by it.
+    const md = (d) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${d}T00:00:00Z`));
+    const tokens = (s) => s.match(/\d+(?:\.\d+)?/g) ?? [];
+    const times = (s, token) => tokens(s).filter(x => x === token).length;
+    const count = (s, sub) => s.split(sub).length - 1;
+
+    // The bands with a strip, by the rule above; the server counts the week
+    // for the same ones (server/paceModel.js), the panel draws the same ones.
+    const DRAWN = ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning'];
+    const same = (set) => set && [...set].length === DRAWN.length && DRAWN.every(b => [...set].includes(b));
+    check('the server and the panel draw the strip for the same bands', same(STRIP_BANDS) && same(panel.STRIP_BANDS),
+        show({ server: STRIP_BANDS, panel: panel.STRIP_BANDS && [...panel.STRIP_BANDS] }));
+
+    const BEST = 2.6; // rates no other number in the panel reads as
+    const FROM = ahead(30), TO = ahead(80); // two months apart, so the range names both
+    const base = { unit: 'topics', open: 13, recent: 1.4, best: BEST, quietWeeks: 0, early: false, fits: 9 };
+    const cases = [
+        // band, its date, the needed rate, whether the recent range exists; the date's place by the rule
+        { band: 'on_pace', deadline: ahead(95), needed: 2.3, recent: 3.7, range: true, place: 'after' },
+        { band: 'under_pace', deadline: ahead(40), needed: 1.3, range: true, place: 'inside' },
+        { band: 'tight', deadline: ahead(20), needed: 2.3, range: true, place: 'before' },
+        { band: 'out_of_reach', deadline: ahead(20), needed: 3.4, range: true, place: 'before' },
+        { band: 'out_of_reach', deadline: ahead(20), needed: 3.4, range: false, place: null }, // under four weeks of data
+        { band: 'learning', deadline: ahead(20), needed: 2.3, range: false, place: null },
+        { band: 'passed', deadline: ago(3), needed: null, range: false, place: null },
+        { band: 'done', deadline: ahead(20), needed: null, open: 0, range: false, place: null },
+    ];
+    for (const c of cases) {
         const v = {
-            band, unit: 'topics', open: 13, needed: band === 'out_of_reach' ? 3.4 : 1.1, recent: 1.4, best: BEST,
-            quietWeeks: 0, early: false, fits: 9, deadline: ahead(60), ranges: { recent: null, best: null },
+            ...base, band: c.band, deadline: c.deadline, needed: c.needed, open: c.open ?? base.open,
+            ...(c.recent != null ? { recent: c.recent } : {}),
+            ranges: { recent: c.range ? { from: FROM, to: TO } : null, best: null },
         };
-        const sentences = panel.verdictSentences(v, t, num, TODAY).join(' ');
-        const key = typeof panel.bestKeyName === 'function' ? panel.bestKeyName(band, BEST, t, num) : 'Your best month';
-        const times = `${sentences} | ${key}`.split('2.6').length - 1;
-        check(`${band}: once, in the ${sentences.includes('2.6') ? 'sentences' : 'key'}`, times === 1, show({ sentences, key }));
+        const name = `${c.band}${c.range ? '' : ' (no range)'}`;
+        const drawn = DRAWN.includes(c.band);
+        const s = strip(v);
+        const w = week(v, { since: TODAY, count: 1, target: c.needed == null ? null : Math.ceil(c.needed) });
+        if (!drawn) {
+            check(`${name}: no strip and no week line`, s === null && w === null, show({ s, w }));
+            continue;
+        }
+        const daysToDate = dayNum(c.deadline) - dayNum(TODAY);
+        check(`${name}: the strip puts the date ${daysToDate} days ahead`, s?.dateDay === daysToDate, show(s));
+        check(`${name}: the date falls ${c.place ?? 'against no range'}`, s?.place === c.place, show(s?.place));
+        check(`${name}: the strip reaches past the date and the range`,
+            s?.endDay >= daysToDate && s?.endDay >= (c.range ? dayNum(TO) - dayNum(TODAY) : 0), show(s?.endDay));
+        if (c.range) {
+            check(`${name}: the range is named "Likely done", ${md(FROM)} to ${md(TO)}`,
+                /^Likely done /.test(s?.rangeLabel ?? '') && s.rangeLabel.includes(md(FROM)) && s.rangeLabel.includes(md(TO)), show(s?.rangeLabel));
+        } else {
+            check(`${name}: no range is drawn or named`, s?.range === null && s?.rangeLabel === null, show(s));
+        }
+        check(`${name}: a screen reader hears the strip in one sentence`, typeof s?.sentence === 'string' && s.sentence.endsWith('.')
+            && (c.range ? s.sentence.includes(md(FROM)) : s.sentence.includes(String(daysToDate))), show(s?.sentence));
+        const m = Math.ceil(c.needed);
+        check(`${name}: "This week: 1 of the ${m} topics your date needs"`, w?.text === `This week: 1 of the ${m} topics your date needs` && w?.met === false, show(w));
+
+        // Once each, across everything the panel says above its offers.
+        const words = [panel.verdictHeadline(v, t, TODAY), ...panel.verdictSentences(v, t, num, TODAY),
+            s?.rangeLabel ?? '', w?.text ?? ''].join(' | ');
+        // Numbers are counted with the dates taken out, so a day of the month
+        // never reads as an amount whatever day the gate runs on.
+        const amounts = [c.deadline, FROM, TO].reduce((acc, d) => acc.replaceAll(md(d), 'DATE'), words);
+        check(`${name}: the weekly amount ${m} is said once`, times(amounts, String(m)) === 1, words);
+        if (c.range) {
+            check(`${name}: the range's start (${md(FROM)}) is said once`, count(words, md(FROM)) === 1, words);
+        }
+        const misses = ['under_pace', 'tight', 'out_of_reach'].includes(c.band);
+        check(`${name}: the best month's rate ${misses ? 'once' : 'nowhere'}`, times(amounts, String(BEST)) === (misses ? 1 : 0), words);
     }
-    const chart = readFileSync(join(root, 'src', 'components', 'plan', 'WeeklyChart.tsx'), 'utf8');
-    check('the chart\'s key names the best line with it', /\{bestKeyName\(band, best, t, num\)\}<\/span>/.test(chart));
+
+    // A deck counts new cards; a week already at the amount says so, and one
+    // past it names both numbers once.
+    const deckV = { ...base, unit: 'cards', band: 'under_pace', deadline: ahead(40), needed: 11.2, ranges: { recent: null, best: null } };
+    const wk12 = (count) => ({ since: TODAY, count, target: 12 });
+    check('a deck: "This week: 4 of the 12 new cards your date needs"', week(deckV, wk12(4))?.text === 'This week: 4 of the 12 new cards your date needs', show(week(deckV, wk12(4))));
+    const atAmount = week(deckV, wk12(12));
+    check('…12 of 12 is met', atAmount?.met === true && atAmount.text === 'This week: 12 of the 12 new cards your date needs', show(atAmount));
+    const past = week({ ...deckV, unit: 'topics' }, wk12(15));
+    check('…15 past 12 is met and names each number once', past?.met === true && times(past.text, '15') === 1 && times(past.text, '12') === 1, show(past));
+    check('…and an unknown week draws no line', week(deckV, null) === null, show(week(deckV, null)));
+    const none = week({ ...deckV, unit: 'topics' }, wk12(0));
+    check('a week with nothing closed yet: "This week: 0 of the 12 topics your date needs", not met', none?.text === 'This week: 0 of the 12 topics your date needs' && none.met === false, show(none));
+    const moved = week({ ...deckV, unit: 'topics', needed: 2.1 }, wk12(3));
+    check('the line counts against the week\'s target, not today\'s rate (12, while the rate reads 2.1)', moved?.text === 'This week: 3 of the 12 topics your date needs', show(moved));
+    const tiny = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 0, target: null });
+    check('no target this week (under one a week) draws no line', tiny === null, show(tiny));
+
+    // The strip's edges: a date due today, and a date on the range's first and last days.
+    const rangeV = (deadline) => ({ ...base, band: 'under_pace', deadline, needed: 2, ranges: { recent: { from: FROM, to: TO }, best: null } });
+    const dueToday = strip(rangeV(TODAY));
+    check('a date due today sits at today, before the range, on a week-long strip',
+        dueToday?.dateDay === 0 && dueToday.place === 'before' && dueToday.endDay >= 7, show(dueToday));
+    const todayNoRange = strip({ ...rangeV(TODAY), ranges: { recent: null, best: null } });
+    check('…and with no range a screen reader hears "Your date is today."', todayNoRange?.sentence === 'Your date is today.', show(todayNoRange?.sentence));
+    const onEnd = strip(rangeV(TO));
+    check('a date on the range' + "'" + 's last day falls inside it', onEnd?.place === 'inside', show(onEnd));
+    const onStart = strip(rangeV(FROM));
+    check('…and on its first day too', onStart?.place === 'inside', show(onStart));
+
+    // The labels: wherever the three marks land, no two labels in one lane
+    // overlap and every label stays inside the strip.
+    if (typeof panel.placeLabels !== 'function') {
+        check('the strip places its labels apart (placeLabels)', false, 'no placeLabels export');
+    } else {
+        const ALL = ['above', 'below', 'under'];
+        const W = 360, GAP = 8;
+        let worst = null;
+        for (const dateX of [0, 20, 90, 180, 300, 360]) {
+            for (const rangeX of [0, 40, 120, 200, 340, 360]) {
+                const asks = [
+                    { id: 'today', x: 0, w: 40, start: true, lanes: ['below', 'above', 'under'] },
+                    { id: 'date', x: dateX, w: 70, start: false, lanes: ['below', 'above', 'under'] },
+                    { id: 'range', x: rangeX, w: 150, start: false, lanes: ['above', 'below', 'under'] },
+                ];
+                const got = panel.placeLabels(asks, W, GAP);
+                const boxes = asks.map(a => ({ id: a.id, lane: got[a.id]?.lane, a: got[a.id]?.left, b: (got[a.id]?.left ?? NaN) + a.w }));
+                const bad = boxes.some(x => !ALL.includes(x.lane) || !(x.a >= 0 && x.b <= W))
+                    || boxes.some((x, i) => boxes.some((y, j) => i < j && x.lane === y.lane && x.a < y.b + GAP && y.a < x.b + GAP));
+                if (bad && !worst) worst = { dateX, rangeX, boxes };
+            }
+        }
+        check('the labels never overlap and stay inside the strip, wherever the marks land', worst === null, show(worst));
+        const apart = panel.placeLabels([
+            { id: 'today', x: 0, w: 40, start: true, lanes: ['below', 'above', 'under'] },
+            { id: 'date', x: 300, w: 70, start: false, lanes: ['below', 'above', 'under'] },
+            { id: 'range', x: 150, w: 150, start: false, lanes: ['above', 'below', 'under'] },
+        ], W, GAP);
+        const wide = panel.placeLabels([
+            { id: 'today', x: 0, w: 40, start: true, lanes: ['below', 'above', 'under'] },
+            { id: 'range', x: 200, w: 500, start: false, lanes: ['above', 'below', 'under'] },
+        ], W, GAP);
+        check('a label wider than the strip is given the strip width from its left edge, never more',
+            wide.range?.left === 0 && wide.range.width === W && wide.today?.width === 40, show(wide));
+        check('marks far apart keep their first lanes: today and the date below, the range above',
+            apart.today?.lane === 'below' && apart.date?.lane === 'below' && apart.range?.lane === 'above'
+            && apart.today.left === 0 && apart.date.left === 265 && apart.range.left === 75, show(apart));
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -18,7 +18,7 @@ import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { estimateProven, PROVING_EVIDENCE_TYPES } from './mastery.js';
 import { getSetting } from './settingsStore.js';
-import { learnerTimeZone, localDate, minuteDates } from './studyDay.js';
+import { learnerTimeZone, localDate, minuteDates, mondayOf } from './studyDay.js';
 import { hourDate } from './studyTime.js';
 import { streamActivityLog, logActivity, failureFacts } from './activityLog.js';
 
@@ -71,14 +71,6 @@ function statements() {
         `),
     };
     return stmts;
-}
-
-/** The Monday on or before a `YYYY-MM-DD` date, as a date. */
-function mondayOf(date) {
-    const [y, m, d] = date.split('-').map(Number);
-    const ms = Date.UTC(y, m - 1, d);
-    const back = (new Date(ms).getUTCDay() + 6) % 7;
-    return new Date(ms - back * DAY_MS).toISOString().slice(0, 10);
 }
 
 const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
