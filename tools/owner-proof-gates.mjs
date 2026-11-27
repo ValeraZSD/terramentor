@@ -18,7 +18,9 @@
 //   1. Another account: no cookie and no proof is refused for library data, and
 //      told how to get in (launchRequired), not sent to a setup code.
 //   2. The launcher's one-time URL is taken once, sets an HttpOnly SameSite=Strict
-//      cookie, and redirects to a clean "/" that keeps no proof.
+//      cookie, and redirects to a clean "/" that keeps no proof. It arrives as
+//      another site's navigation (the launcher's page is a file), which the
+//      origin guard lets through for this route alone.
 //   3. A spent, expired, other-port, wrong-key or malformed proof sets nothing,
 //      and a second cookie jar cannot reuse a proof the first one spent.
 //   4. A program on the computer sends a fresh proof per request; a replayed one
@@ -30,6 +32,8 @@
 //   8. The MCP server on stdio reads the key and proves itself; with no key it
 //      is refused and says what to set, and makes none. Its HTTP listener,
 //      which any account can call, sends no proof.
+//   9. The window's owner sets the first password without a code, and from
+//      then on the password decides, not the window's cookie.
 
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -126,8 +130,11 @@ console.log('\n--- 1. another account on this computer ---');
 console.log('\n--- 2. the launcher\'s one-time URL ---');
 let jar = '';
 {
+    // What a browser sends when the launcher's page (a file: page, so another
+    // site to the browser) sends the window on.
+    const FROM_THE_PAGE = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
     const p = proof();
-    const r = await launch(p);
+    const r = await launch(p, { headers: FROM_THE_PAGE });
     ok('a good proof is answered with a redirect', r.status === 303, `status ${r.status}`);
     ok('…to a clean "/" that keeps no proof (nothing left in history)', r.headers.location === '/', r.headers.location);
     const set = ownCookieOf(r);
@@ -139,6 +146,14 @@ let jar = '';
     ok('with the cookie the library answers', data.status === 200, `status ${data.status}`);
     const s = await call('/api/auth/status', { cookie: jar });
     ok('…and the status says signed in', s.body?.authenticated === true && !s.body?.launchRequired, JSON.stringify(s.body));
+
+    // Only the window's navigation gets past the page-origin check: another
+    // site's <img> of the same address, or its navigation to any other route,
+    // is refused as before (server/originGuard.js).
+    const fromImg = await launch(proof(), { headers: { ...FROM_THE_PAGE, 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'image' } });
+    ok('another site\'s image of the launch address is refused, and sets nothing', fromImg.status === 403 && !ownCookieOf(fromImg), `status ${fromImg.status}`);
+    const navElsewhere = await call('/api/projects', { cookie: jar, headers: FROM_THE_PAGE });
+    ok('another site\'s navigation to a library route is still refused', navElsewhere.status === 403, `status ${navElsewhere.status}`);
 
     const again = await launch(p);
     ok('the same URL a second time sets nothing', !ownCookieOf(again), again.setCookie.join(' | '));
@@ -267,7 +282,7 @@ console.log('\n--- 8. the MCP server a harness starts ---');
     ok('on stdio it reads the key beside the library and is let in', !own.error && own.text.includes(PROJECT), own.text.slice(0, 200));
     const elsewhere = mkdtempSync(join(tmpdir(), 'owner-proof-gates-other-'));
     const none = await overStdio({ TERRAMENTOR_URL: appUrl, DATA_DIR: elsewhere });
-    ok('with no key to read it is refused, and told what to set', none.error && !none.text.includes(PROJECT) && /found none/.test(none.text) && /DATA_DIR/.test(none.text), none.text.slice(0, 200));
+    ok('with no key to read it is refused, and told what to set', none.error && !none.text.includes(PROJECT) && /did not find that library's key/.test(none.text) && /DATA_DIR/.test(none.text), none.text.slice(0, 200));
     ok('…and it made no key where it looked', !existsSync(join(elsewhere, 'instance.key')));
     rmSync(elsewhere, { recursive: true, force: true });
 
@@ -296,6 +311,15 @@ console.log('\n--- 8. the MCP server a harness starts ---');
     } else ok('the HTTP listener started', false);
     h.kill();
     Date.now = () => clockAt;
+}
+
+console.log('\n--- 9. the owner sets the first password (last: it ends the no-password rules above) ---');
+{
+    const own = ownCookieOf(await launch(proof())).split(';')[0];
+    const setup = await call('/api/auth/setup', { method: 'POST', cookie: own, body: { password: 'a-long-password-1' } });
+    ok('from the app\'s window, without a setup code', setup.status === 200, `status ${setup.status} ${JSON.stringify(setup.body)}`);
+    const after = await call('/api/projects', { cookie: own });
+    ok('…after which the window cookie alone opens nothing: the password decides', after.status === 401, `status ${after.status}`);
 }
 
 server.close();
