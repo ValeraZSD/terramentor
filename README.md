@@ -213,3 +213,11 @@ GitHub's form for you to check and send.
 Copyright © 2026 Valerii Kozhevets (ValeraZSD). **AGPL-3.0-or-later**, see [LICENSE](LICENSE);
 third-party code is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The running app
 links to its own source under Settings → Library & about → About.
+
+**What you make is yours.** The licence covers the app's code, not what you make with it. Your
+courses, cards and notes, and the files you export (`.studyvault`, JSON, `.apkg`), belong to you:
+keep them, share them or sell them, on any terms you choose. Material you brought in from someone
+else (a book, class notes, a deck) keeps its own owner and licence, and text a model wrote falls
+under your model provider's terms and your country's copyright law. You may say a course was made
+with Terramentor; you may not sell it as an official Terramentor course or use the name and logo as
+its brand ([TRADEMARKS.md](TRADEMARKS.md)).
