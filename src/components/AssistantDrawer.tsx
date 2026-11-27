@@ -28,7 +28,8 @@ import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } fro
 import AiModelBadge from './AiModelBadge';
 import AiDisclosure from './AiDisclosure';
 import AIUnavailableNotice from './AIUnavailableNotice';
-import { isAIUsable } from '../utils/aiStatus';
+import { isAIUsable, isAINotConnected } from '../utils/aiStatus';
+import ConnectAIActions from './ConnectAIActions';
 import CopyButton from './CopyButton';
 import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
@@ -1821,6 +1822,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         keptIn={turnError.keptIn}
                         onRetry={() => { const t = turnError.text; setTurnError(null); send(t); }}
                         onDismiss={() => setTurnError(null)}
+                        /* With no model connected a retry meets the same
+                            refusal: the card offers the way to connect one,
+                            the same buttons as the notice it stands in for. */
+                        action={isAINotConnected(status)
+                            ? <ConnectAIActions returnTo={window.location.pathname} onLeave={() => { if (!docked) onClose(); }} />
+                            : undefined}
                     />
                 )}
 
@@ -1850,8 +1857,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 {/* Said BEFORE the learner types, not after a send fails: with AI
                     off the header still names the model, and the first sign of
                     trouble was an error under a question already written. Only
-                    on a status the server gave — `null` is "not asked yet". */}
-                {status && !streaming && !isAIUsable(status) && (
+                    on a status the server gave — `null` is "not asked yet".
+                    While a failed turn's card says no model is connected and
+                    carries the connect buttons, it stands in for this notice. */}
+                {status && !streaming && !isAIUsable(status) && !(turnError && isAINotConnected(status)) && (
                     <AIUnavailableNotice status={status} onLeave={() => { if (!docked) onClose(); }} />
                 )}
                 {stoppedPartial && !streaming && !showList && (

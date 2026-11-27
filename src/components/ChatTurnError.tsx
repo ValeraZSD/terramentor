@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
@@ -23,8 +24,12 @@ import { Button, IconButton } from './ui/Button';
  * turn that failed as a background task is spliced back into the transcript as
  * its own bubble (the server had already dropped the row). The third line
  * points at whichever of the two happened.
+ *
+ * `action` takes the retry's place when sending again cannot work yet: with no
+ * model connected the way on is to connect one, not to send the same question
+ * into the same refusal.
  */
-export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabled = false, keptIn = 'composer' }: {
+export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabled = false, keptIn = 'composer', action }: {
     /** Why it failed, as the server or the transport put it. */
     message: string;
     onRetry: () => void;
@@ -33,6 +38,8 @@ export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabl
     retryDisabled?: boolean;
     /** Where the learner's text went: back into the composer, or kept as its own bubble above. */
     keptIn?: 'composer' | 'chat';
+    /** Shown instead of "Try again". */
+    action?: ReactNode;
 }) {
     const { t } = useTranslation();
     return (
@@ -49,9 +56,11 @@ export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabl
                         ? t("Your question is kept above.")
                         : t("Your message is back in the box below.")}
                 </p>
-                <Button size="sm" onClick={onRetry} disabled={retryDisabled} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}>
-                    {t("Try again")}
-                </Button>
+                {action ?? (
+                    <Button size="sm" onClick={onRetry} disabled={retryDisabled} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}>
+                        {t("Try again")}
+                    </Button>
+                )}
             </div>
             <IconButton size="sm" onClick={onDismiss} label={t("Dismiss")} tooltip={false} icon={<X className="w-4 h-4" />} className="-m-1.5" />
         </div>

@@ -23,6 +23,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const scratch = mkdtempSync(join(tmpdir(), 'no-model-gates-'));
 process.env.DB_PATH = join(scratch, 'scratch.db');
@@ -36,6 +38,122 @@ const check = (label, cond, extra = '') => {
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
 const listen = (srv) => new Promise(ok => srv.listen(0, '127.0.0.1', () => ok(srv.address().port)));
+
+// The REAL failure card (jsdom), once with an action and once without: which
+// buttons each shows.
+async function renderTurnError() {
+    const require = createRequire(import.meta.url);
+    const { JSDOM } = require('jsdom');
+    const code = (await require('esbuild').build({
+        stdin: {
+            contents: `
+                import ChatTurnError from './src/components/ChatTurnError';
+                import { createElement as h, act } from 'react';
+                import { createRoot } from 'react-dom/client';
+                window.__gate = { ChatTurnError, h, act, createRoot };`,
+            resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'tsx',
+        },
+        bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
+        define: { 'process.env.NODE_ENV': '"development"' },
+        loader: { '.css': 'empty', '.svg': 'dataurl', '.png': 'dataurl' },
+    })).outputFiles[0].text;
+    const w = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true }).window;
+    w.IS_REACT_ACT_ENVIRONMENT = true;
+    w.eval(code);
+    const { ChatTurnError, h, act, createRoot } = w.__gate;
+    const shot = (action) => {
+        const el = w.document.createElement('div');
+        w.document.body.appendChild(el);
+        const r = createRoot(el);
+        act(() => r.render(h(ChatTurnError, { message: NO_MODEL, onRetry: () => { }, onDismiss: () => { }, action })));
+        const words = [...el.querySelectorAll('button')].map(b => b.textContent.trim());
+        act(() => r.unmount());
+        return { retry: words.includes('Try again'), hasAction: words.includes('Connect here'), words };
+    };
+    const withAction = shot(h('button', { type: 'button' }, 'Connect here'));
+    const plain = shot(undefined);
+    w.close();
+    return { withAction, plain };
+}
+
+// The REAL connect group (jsdom) with the three buttons, laid out in a group
+// whose width the case sets. jsdom lays nothing out, so widths are given: each
+// button is 7.5 rem wide (120 px at the base text size, 0 while hidden) and
+// the group's width is `groupPx`, announced by a window resize as the hook
+// hears it. Stacked = the group is a column of full-width buttons.
+async function renderConnectGroup() {
+    const require = createRequire(import.meta.url);
+    const { JSDOM } = require('jsdom');
+    const code = (await require('esbuild').build({
+        stdin: {
+            contents: `
+                import ConnectAIActions from './src/components/ConnectAIActions';
+                import { createElement as h, act } from 'react';
+                import { createRoot } from 'react-dom/client';
+                import { MemoryRouter } from 'react-router-dom';
+                window.__gate = { mount: (el, chatbot = true) => { const r = createRoot(el); act(() => r.render(h(MemoryRouter, null, h(ConnectAIActions, { returnTo: '/', onChatbot: chatbot ? () => { } : undefined })))); return r; }, act };`,
+            resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'tsx',
+        },
+        bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
+        define: { 'process.env.NODE_ENV': '"development"' },
+        loader: { '.css': 'empty', '.svg': 'dataurl', '.png': 'dataurl' },
+    })).outputFiles[0].text;
+    const w = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true }).window;
+    w.IS_REACT_ACT_ENVIRONMENT = true;
+    w.MessageChannel = MessageChannel;
+    let groupPx = 600, hidden = false;
+    const rootPx = () => parseFloat(w.document.documentElement.style.fontSize) || 16;
+    Object.defineProperty(w.HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return this.tagName === 'BUTTON' && !hidden ? 7.5 * rootPx() : 0; } });
+    Object.defineProperty(w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.tagName === 'DIV' && !hidden ? groupPx : 0; } });
+    w.eval(code);
+    const { mount, act } = w.__gate;
+    const settle = async () => { await act(async () => { for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r)); }); };
+    const resize = async (px) => { groupPx = px; await act(async () => { w.dispatchEvent(new w.Event('resize')); }); await settle(); };
+    const el = w.document.createElement('div');
+    w.document.body.appendChild(el);
+    const layout = () => {
+        const group = [...el.querySelectorAll('div')].find(d => d.querySelectorAll(':scope > button').length === 3);
+        const buttons = group ? [...group.querySelectorAll(':scope > button')] : [];
+        return { stacked: !!group && group.className.includes('flex-col') && buttons.every(b => b.className.includes('w-full')), buttons: buttons.map(b => b.textContent.trim()) };
+    };
+    // A framed button has a border or a fill at rest; a quiet one has neither
+    // (its fill is a hover's).
+    const framed = () => {
+        const group = [...el.querySelectorAll('div')].find(d => d.querySelector(':scope > button'));
+        return group ? [...group.querySelectorAll(':scope > button')].map(b => /(^|\s)(border|bg-[a-z])/.test(b.className)) : [];
+    };
+    const seen = {};
+    // Room for the row (3 x 120 = 360 of 600), then not (300), then again.
+    let r = mount(el); await settle();
+    seen.wide = layout();
+    await resize(300); seen.narrow = layout();
+    await resize(600); seen.wideAgain = layout();
+    act(() => r.unmount());
+    // Mounted hidden (no width anywhere), then shown in a narrow place.
+    hidden = true; groupPx = 300;
+    r = mount(el); await settle();
+    hidden = false; await resize(300);
+    seen.shownNarrow = layout();
+    act(() => r.unmount());
+    // The row fits 400 at the base size; the text size goes up (16 -> 20 px:
+    // 3 x 150 = 450), so the same 400 no longer holds it.
+    r = mount(el); await resize(400);
+    seen.beforeBigText = layout();
+    await act(async () => { w.document.documentElement.style.fontSize = '20px'; });
+    await settle(); await resize(400);
+    seen.bigText = layout();
+    act(() => r.unmount());
+    // The two-button group (home card, assistant): in a row "Other ways" is
+    // quiet beside the primary; stacked, it is framed like the primary.
+    w.document.documentElement.style.fontSize = '';
+    r = mount(el, false); await resize(600);
+    seen.pairRow = framed();
+    await resize(150);
+    seen.pairStack = framed();
+    act(() => r.unmount());
+    w.close();
+    return seen;
+}
 
 // The sentence, written out here rather than imported: the gate states what
 // the learner reads.
@@ -178,6 +296,31 @@ try {
             && /const dropped = !terminal && !controller\.signal\.aborted && taskId != null;/.test(drawer));
     } else {
         check('the turn names its conversation', false, 'no conversationId frame');
+    }
+    {
+        // With no model connected the failure card and the composer's notice
+        // said the same thing twice, and the card's "Try again" sent the
+        // question into the same refusal. The card is the one place: it
+        // carries the connect buttons, and the notice steps aside while it shows.
+        const drawer = readFileSync(new URL('../src/components/AssistantDrawer.tsx', import.meta.url), 'utf8');
+        check('the failure card offers the connect buttons in place of a retry when no model is connected, and only then',
+            /<ChatTurnError\b[^]{0,1500}?action=\{isAINotConnected\(status\)\s*\?\s*<ConnectAIActions returnTo=\{window\.location\.pathname\} onLeave=\{\(\) => \{ if \(!docked\) onClose\(\); \}\} \/>\s*:\s*undefined\}/.test(drawer));
+        check('…and the composer\'s no-model notice steps aside while that card shows',
+            /!isAIUsable\(status\) && !\(turnError && isAINotConnected\(status\)\) && \(\s*<AIUnavailableNotice/.test(drawer));
+        const shown = await renderTurnError();
+        check('a card given an action shows it and no "Try again"', shown.withAction.hasAction && !shown.withAction.retry, JSON.stringify(shown));
+        check('…and without one it keeps "Try again"', shown.plain.retry, JSON.stringify(shown));
+        // The connect group, with the chatbot as its third way (the New course
+        // form): one row while the row fits, one even stack when it does not.
+        const g = await renderConnectGroup();
+        const says = JSON.stringify(g);
+        check('the three ways on stand in one row where they fit', g.wide.buttons.length === 3 && !g.wide.stacked, says);
+        check('…stack evenly where they do not', g.narrow.stacked, says);
+        check('…and return to a row when the room comes back', !g.wideAgain.stacked, says);
+        check('…a group mounted hidden measures once it is shown', g.shownNarrow.stacked, says);
+        check('…and a larger text size re-measures them', !g.beforeBigText.stacked && g.bigText.stacked, says);
+        check('the two-button group keeps "Other ways" quiet in a row and frames it in a stack',
+            g.pairRow.length === 2 && g.pairRow[0] && !g.pairRow[1] && g.pairStack.length === 2 && g.pairStack.every(Boolean), says);
     }
 
     console.log('\n--- an embedding pass ---');
