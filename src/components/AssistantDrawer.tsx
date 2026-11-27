@@ -489,7 +489,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      *
      * Resolves null, and changes nothing, when another conversation was opened
      * while it was in flight: that one owns the panel now. A conversation
-     * deleted elsewhere (404) leaves a new chat.
+     * deleted elsewhere (404) leaves a new chat, and resolves its empty list.
      *
      * Two loads of one conversation can overlap (a change heard on the feed
      * while the turn's own reload is in flight) and answer out of order. An
@@ -510,8 +510,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 rows = await api.getConversationMessages(id);
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
-                if (conversationIdRef.current === id) switchTo(null);
-                return null;
+                if (conversationIdRef.current !== id) return null;
+                // Gone: deleted elsewhere, or a first turn that failed and was
+                // dropped with its conversation. The panel becomes a new chat
+                // and the caller gets its empty list, so a failure card it is
+                // about to raise still has a place to stand.
+                switchTo(null);
+                id = null;
             } finally {
                 loadsInFlightRef.current--;
             }
@@ -1048,6 +1053,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // it would take the question off the screen. It is outdated instead,
         // and the conversation is read again once the turn settles.
         const outdated = loadsInFlightRef.current > 0;
+        // A new chat learns its id from the turn; if the turn fails, the
+        // server drops that conversation, so the panel goes back to none.
+        const startedNew = conversationIdRef.current == null;
         shownLoadRef.current = ++loadSeqRef.current;
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
@@ -1203,6 +1211,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setInput(cur => (cur.trim() ? cur : message));
                 composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
+                if (startedNew) switchTo(null);
             }
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
