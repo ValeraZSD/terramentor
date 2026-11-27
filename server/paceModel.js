@@ -305,13 +305,18 @@ export function judgeDate(pace, {
     };
 }
 
+/** The bands the plan's strip and its "this week" line are drawn for: a date still ahead with work open. */
+export const STRIP_BANDS = ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning'];
+
 /**
- * The weekly amount the "this week" line counts against, fixed for the whole
- * week: the work that was open on Monday (open now plus what closed since)
- * over the weeks left from Monday, rounded up (a topic is closed whole). Read
- * from today's open count it would shrink as the week's work is done, so the
- * goal would move while the learner meets it. Null under one a week, where
- * "0 of 1" would ask for more than the date needs, and with no date ahead.
+ * The weekly amount the "this week" line counts against: the course's open
+ * work plus what it closed this week, over the weeks left from Monday,
+ * rounded up (a topic is closed whole). Closing work leaves it where it was;
+ * read from today's open count alone it would shrink as the week's work is
+ * done, so the goal would move while the learner meets it. A topic skipped,
+ * added or reopened, a card met by an import, and a new date do move it: they
+ * change the work itself. Null under one a week, where "0 of 1" would ask for
+ * more than the date needs, and with no date ahead.
  *
  * @param {{ open: number, doneThisWeek: number, deadline: string|null, weekStart: string }} week
  * @returns {number|null}

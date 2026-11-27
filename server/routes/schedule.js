@@ -279,7 +279,7 @@ app.get('/api/projects/:id/pace', (req, res) => {
         pace.verdict = projectVerdict(id, { library });
         pace.learnerPace = pace.verdict ? library[pace.verdict.unit] : null;
         // This course's work so far this week, for the line under the strip.
-        pace.weekSoFar = weekSoFar(id, pace.verdict);
+        pace.weekSoFar = weekSoFar(id, pace.verdict, { today: library.today });
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);

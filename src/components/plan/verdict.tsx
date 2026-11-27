@@ -169,7 +169,7 @@ export function sentencesGiveBest(band: VerdictBand): boolean {
 const DAY_MS = 86_400_000;
 const dayNum = (d: string) => Math.round(Date.parse(`${d}T00:00:00Z`) / DAY_MS);
 
-/** The bands the plan's strip is drawn for: a date still ahead with work open. */
+/** The bands the plan's strip is drawn for: a date still ahead with work open (the server's STRIP_BANDS, server/paceModel.js). */
 export const STRIP_BANDS: ReadonlySet<VerdictBand> = new Set(['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning']);
 
 /** Where the learner's date falls against the likely-done range. */
@@ -262,13 +262,14 @@ export interface LabelAsk {
     lanes: StripLane[];
 }
 
+/** Where a label goes, and its width: its own, or the strip's when it is wider. */
+export interface PlacedLabel { left: number; lane: StripLane; width: number }
+
 /**
  * Places the strip's labels: each, in the order given, takes the first of its
  * lanes where it stays `gap` clear of every label already there, kept inside
  * the strip. Three labels that each accept all three lanes never overlap.
- * `width` is the room each gets: its own, or the strip's when it is wider.
  */
-export interface PlacedLabel { left: number; lane: StripLane; width: number }
 export function placeLabels(asks: LabelAsk[], width: number, gap: number): Partial<Record<StripLabel, PlacedLabel>> {
     const out: Partial<Record<StripLabel, PlacedLabel>> = {};
     const taken: { lane: StripLane; a: number; b: number }[] = [];

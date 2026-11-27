@@ -48,7 +48,7 @@ const ago = (n, from = TODAY) => dayStr(dayNum(from) - n);
 const ahead = (n, from = TODAY) => dayStr(dayNum(from) + n);
 
 const model = await import('../server/paceModel.js');
-const { learnerPace, judgeDate, weeklyTarget, BANDS, OFFERS } = model;
+const { learnerPace, judgeDate, weeklyTarget, BANDS, OFFERS, STRIP_BANDS } = model;
 
 /** `perWeek[i]` completions in the block ending `7i + 1` days before today, newest first. */
 function learnerFromWeeks(perWeek, { today = TODAY, sinceWeeks = perWeek.length, bulk = false } = {}) {
@@ -266,14 +266,14 @@ console.log('\n--- offers: who set the date decides ---');
 
 console.log('\n--- the week\'s target, fixed from Monday ---');
 {
-    // A Monday by the calendar (1 June 2026 was a Monday), and a date two weeks on.
+    // A Monday by the calendar (8 June 2026 was a Monday), and a date two weeks on.
     const MON = '2026-06-08', TWO_WEEKS = '2026-06-22';
     const target = (open, doneThisWeek, deadline = TWO_WEEKS) => (typeof weeklyTarget === 'function'
         ? weeklyTarget({ open, doneThisWeek, deadline, weekStart: MON }) : undefined);
     check('6 topics open on Monday, two weeks to the date: 3 a week', target(6, 0) === 3, show(target(6, 0)));
     check('…and still 3 once 2 of them are closed this week (4 open, 2 done)', target(4, 2) === 3, show(target(4, 2)));
     check('…and once all 6 are', target(0, 6) === 3, show(target(0, 6)));
-    check('a whole amount is not rounded past itself: 6 in two weeks is 3, not 4', target(6, 0) === 3);
+    check('a part of a topic rounds up: 7 or 8 in two weeks is 4', target(7, 0) === 4 && target(8, 0) === 4, show([target(7, 0), target(8, 0)]));
     check('a date inside this week takes the whole of it: 5 open, due Thursday, is 5', target(5, 0, '2026-06-11') === 5, show(target(5, 0, '2026-06-11')));
     check('under one a week: no target (1 open, four weeks)', target(1, 0, '2026-07-06') === null, show(target(1, 0, '2026-07-06')));
     check('no date, or a date before the week: no target', target(6, 0, null) === null && target(6, 0, '2026-06-01') === null);
@@ -632,6 +632,10 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         mkNode(passedCourse, 'open', null);
         const gone = await get(`/api/projects/${passedCourse}/pace`);
         check('a passed date counts no week (the strip is not drawn)', gone.verdict?.band === 'passed' && gone.weekSoFar === null, show({ band: gone.verdict?.band, week: gone.weekSoFar }));
+        const finished = mkProject('Finished course', { deadline: ahead(20), start: ago(60) });
+        mkNode(finished, 'closed this morning', null, { status: 'completed', completedAt: amsAt(TODAY, 10) });
+        const doneCourse = await get(`/api/projects/${finished}/pace`);
+        check('…nor does a course with nothing left (done)', doneCourse.verdict?.band === 'done' && doneCourse.weekSoFar === null, show({ band: doneCourse.verdict?.band, week: doneCourse.weekSoFar }));
     } finally {
         Date.now = realNow;
         srv.closeAllConnections();
@@ -681,6 +685,13 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     const times = (s, token) => tokens(s).filter(x => x === token).length;
     const count = (s, sub) => s.split(sub).length - 1;
 
+    // The bands with a strip, by the rule above; the server counts the week
+    // for the same ones (server/paceModel.js), the panel draws the same ones.
+    const DRAWN = ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning'];
+    const same = (set) => set && [...set].length === DRAWN.length && DRAWN.every(b => [...set].includes(b));
+    check('the server and the panel draw the strip for the same bands', same(STRIP_BANDS) && same(panel.STRIP_BANDS),
+        show({ server: STRIP_BANDS, panel: panel.STRIP_BANDS && [...panel.STRIP_BANDS] }));
+
     const BEST = 2.6; // rates no other number in the panel reads as
     const FROM = ahead(30), TO = ahead(80); // two months apart, so the range names both
     const base = { unit: 'topics', open: 13, recent: 1.4, best: BEST, quietWeeks: 0, early: false, fits: 9 };
@@ -702,7 +713,7 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             ranges: { recent: c.range ? { from: FROM, to: TO } : null, best: null },
         };
         const name = `${c.band}${c.range ? '' : ' (no range)'}`;
-        const drawn = ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning'].includes(c.band);
+        const drawn = DRAWN.includes(c.band);
         const s = strip(v);
         const w = week(v, { since: TODAY, count: 1, target: c.needed == null ? null : Math.ceil(c.needed) });
         if (!drawn) {

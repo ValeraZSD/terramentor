@@ -33,9 +33,8 @@ import db from './database.js';
 import { WORK_LEAF, OPEN_WORK_LEAF } from './today.js';
 import { projectCountsInCards } from './progress.js';
 import { probeAvailability } from './placement.js';
-import { dayBounds, learnerTimeZone, localDate, studyToday } from './studyDay.js';
-import { OFFERS, judgeDate, learnerPace, weeklyTarget } from './paceModel.js';
-import { mondayOf } from './studySummary.js';
+import { dayBounds, learnerTimeZone, localDate, mondayOf, studyToday } from './studyDay.js';
+import { OFFERS, STRIP_BANDS, judgeDate, learnerPace, weeklyTarget } from './paceModel.js';
 
 const BURST_SECONDS = 2;
 // julianday() carries about a tenth of a millisecond of float error: two rows
@@ -215,9 +214,6 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     return { ...verdict, otherCourses };
 }
 
-/** The bands the plan's strip is drawn for: a date still ahead with work open. */
-const STRIP_BANDS = new Set(['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning']);
-
 /**
  * One course's work closed this week so far, Monday (the study-day picker's
  * week) to today on the learner's calendar, in the verdict's unit, and the
@@ -226,12 +222,15 @@ const STRIP_BANDS = new Set(['on_pace', 'under_pace', 'tight', 'out_of_reach', '
  * progress on this one. Null where the strip is not drawn.
  *
  * @param {{ band: string, unit: string, open: number, deadline: string|null }} verdict
+ * @param {{ today?: string, now?: number, timeZone?: string }} [opts] `today`:
+ *   the day the verdict was judged on (`libraryPace().today`), so the count and
+ *   the verdict's open work are read for the same day, even across midnight.
  * @returns {{ since: string, count: number, target: number|null } | null}
  */
-export function weekSoFar(projectId, verdict, { now = Date.now(), timeZone = learnerTimeZone() } = {}) {
-    if (!verdict || !STRIP_BANDS.has(verdict.band)) return null;
+export function weekSoFar(projectId, verdict, { today = null, now = Date.now(), timeZone = learnerTimeZone() } = {}) {
+    if (!verdict || !STRIP_BANDS.includes(verdict.band)) return null;
     const s = statements();
-    const today = studyToday({ now, timeZone });
+    today ??= studyToday({ now, timeZone });
     const since = mondayOf(today);
     const from = dayBounds(since, timeZone).start;
     const to = dayBounds(today, timeZone).end;

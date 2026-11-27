@@ -56,8 +56,11 @@ function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }
     const refs = { today: useRef<HTMLSpanElement>(null), date: useRef<HTMLSpanElement>(null), range: useRef<HTMLSpanElement>(null) };
     const [widths, setWidths] = useState<Record<StripLabel, number>>({ today: 0, date: 0, range: 0 });
     const texts = `${t("Today")}|${t("Your date")}|${facts.rangeLabel ?? ''}`;
+    // Each label's own width, read from its text (an inner span that is never
+    // cut), rounded up: the box a label is cut to would read back as its width
+    // and never grow again once the strip or the text does.
     useLayoutEffect(() => {
-        const w = (id: StripLabel) => refs[id].current?.offsetWidth ?? 0;
+        const w = (id: StripLabel) => Math.ceil(refs[id].current?.getBoundingClientRect().width ?? 0);
         const next = { today: w('today'), date: w('date'), range: w('range') };
         setWidths(cur => (cur.today === next.today && cur.date === next.date && cur.range === next.range ? cur : next));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,9 +78,10 @@ function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }
     const deep = Object.values(placed).some(p => p?.lane === 'under');
     const labelStyle = (id: StripLabel) => {
         const p = placed[id];
-        // A label never runs past the strip: one wider than it is given the
-        // strip's width and ends in "…" (the strip's own name says it whole).
-        return p ? { left: p.left, top: LANE_TOP[p.lane], maxWidth: p.width } : { left: 0, top: 0, visibility: 'hidden' as const };
+        // A label never runs past the strip: only one wider than it is cut,
+        // to the strip's width, ending in "…" (its title holds it whole).
+        const cut = p && p.width < widths[id] ? { maxWidth: p.width } : {};
+        return p ? { left: p.left, top: LANE_TOP[p.lane], ...cut } : { left: 0, top: 0, visibility: 'hidden' as const };
     };
     const label = 'absolute truncate text-sm leading-5';
 
@@ -112,15 +116,15 @@ function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }
                     </span>
                 </>
             )}
-            <span ref={refs.today} aria-hidden="true" dir="auto" className={`${label} text-slate-600 dark:text-slate-300`} style={labelStyle('today')}>
-                {t("Today")}
+            <span aria-hidden="true" dir="auto" title={t("Today")} className={`${label} text-slate-600 dark:text-slate-300`} style={labelStyle('today')}>
+                <span ref={refs.today}>{t("Today")}</span>
             </span>
-            <span ref={refs.date} aria-hidden="true" dir="auto" className={`${label} font-medium text-slate-800 dark:text-slate-100`} style={labelStyle('date')}>
-                {t("Your date")}
+            <span aria-hidden="true" dir="auto" title={t("Your date")} className={`${label} font-medium text-slate-800 dark:text-slate-100`} style={labelStyle('date')}>
+                <span ref={refs.date}>{t("Your date")}</span>
             </span>
             {facts.rangeLabel && (
-                <span ref={refs.range} aria-hidden="true" dir="auto" className={`${label} font-medium text-slate-800 dark:text-slate-100`} style={labelStyle('range')}>
-                    {facts.rangeLabel}
+                <span aria-hidden="true" dir="auto" title={facts.rangeLabel} className={`${label} font-medium text-slate-800 dark:text-slate-100`} style={labelStyle('range')}>
+                    <span ref={refs.range}>{facts.rangeLabel}</span>
                 </span>
             )}
         </div>
