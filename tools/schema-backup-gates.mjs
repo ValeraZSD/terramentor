@@ -193,10 +193,11 @@ function blockedLibrary() {
     const msg = r.error?.message || '';
     check('the error carries the refusal\'s key',
         typeof r.error?.messageKey === 'string' && r.error.messageKey.startsWith('This version of Terramentor'), JSON.stringify(r.error));
-    check('the refusal says the library was not changed',
-        /^This version of Terramentor changes how your library is stored/.test(msg) && /so nothing was changed/.test(msg), msg);
-    check('it names the copy it could not write', msg.includes(`terramentor.db.pre-${OLD}.bak`), msg);
-    check('it names the way to go on without a copy', msg.includes('MIGRATE_WITHOUT_BACKUP=1'), msg);
+    check('the refusal says the update did not run',
+        /^This version of Terramentor has to update your library/.test(msg) && /so the update did not run and your courses and progress are as they were/.test(msg), msg);
+    check('it names the folder it could not write to', msg.includes(` in ${lib.dir}.`), msg);
+    check('it names the way to go on without a copy, and what that risks',
+        msg.includes('MIGRATE_WITHOUT_BACKUP=1') && /there is no copy to go back to/.test(msg), msg);
     check('no copy and no partial file under the real name', lib.baks().length === 0, JSON.stringify(lib.baks()));
 }
 
@@ -381,8 +382,8 @@ console.log('\n--- which copy a start takes, and what a refusal says ---');
     check('the code cannot be read: a copy', snapshotLabel({ ...same, code: null }) !== null);
 
     const full = snapshotRefusal({ target: '/lib/terramentor.db.pre-1.6.0.bak', cause: 'ENOSPC', free: 12.3e6, needed: 845.6e6, lang: 'en' });
-    check('a full disk names both sizes in MB',
-        /needs about 846 MB/.test(full.message) && /has 12 MB free/.test(full.message), full.message);
+    check('a full disk names both sizes in MB, and how much to free',
+        /needs about 846 MB/.test(full.message) && /has 12 MB free/.test(full.message) && /Free about 834 MB/.test(full.message), full.message);
     check('it carries its key and values for a translation', typeof full.messageKey === 'string' && full.params?.needed === 846);
     const other = snapshotRefusal({ target: '/lib/x.bak', cause: 'EPERM', lang: 'en' });
     check('another cause is named by its code', /\(EPERM\)/.test(other.message) && other.messageKey !== full.messageKey, other.message);

@@ -96,8 +96,10 @@ export function roomForCopy(dbFile) {
     return { free, needed: size(dbFile) + size(`${dbFile}-wal`) };
 }
 
-const DISK_FULL = k('This version of Terramentor changes how your library is stored, and first copies it to {{target}}. The copy needs about {{needed}} MB and the disk has {{free}} MB free, so nothing was changed. Free up space and start Terramentor again, or start it once with MIGRATE_WITHOUT_BACKUP=1 to change the library without a copy.');
-const NOT_WRITTEN = k('This version of Terramentor changes how your library is stored, and first copies it to {{target}}. The copy could not be written ({{reason}}), so nothing was changed. Make that folder writable and start Terramentor again, or start it once with MIGRATE_WITHOUT_BACKUP=1 to change the library without a copy.');
+// "Courses and progress", not "the library": keys may already have left the
+// file for the secrets file, which every start does before the copy (secrets.js).
+const DISK_FULL = k('This version of Terramentor has to update your library, and first makes a safety copy of it. The copy needs about {{needed}} MB and the drive holding {{folder}} has {{free}} MB free, so the update did not run and your courses and progress are as they were. Free about {{short}} MB on that drive and start Terramentor again. Only if you cannot: start it once with MIGRATE_WITHOUT_BACKUP=1 to update without a copy; if that update fails, there is no copy to go back to.');
+const NOT_WRITTEN = k('This version of Terramentor has to update your library, and first makes a safety copy of it in {{folder}}. The copy could not be written there ({{reason}}), so the update did not run and your courses and progress are as they were. Check that the folder is not read-only or blocked by a sync or security program, and start Terramentor again. Only if you cannot: start it once with MIGRATE_WITHOUT_BACKUP=1 to update without a copy; if that update fails, there is no copy to go back to.');
 
 const FULL_CODES = new Set(['ENOSPC', 'SQLITE_FULL', 'EDQUOT']);
 
@@ -109,10 +111,11 @@ const FULL_CODES = new Set(['ENOSPC', 'SQLITE_FULL', 'EDQUOT']);
  */
 export function snapshotRefusal({ target, cause, free, needed, lang }) {
     const mb = (bytes) => Math.round(bytes / 1e6);
+    const folder = dirname(target);
     const full = FULL_CODES.has(cause) && Number.isFinite(free) && Number.isFinite(needed);
     const err = full
-        ? new KeyedError(DISK_FULL, { target, needed: mb(needed), free: mb(free) })
-        : new KeyedError(NOT_WRITTEN, { target, reason: cause || 'unknown' });
+        ? new KeyedError(DISK_FULL, { folder, needed: mb(needed), free: mb(free), short: Math.max(1, Math.ceil((needed - free) / 1e6)) })
+        : new KeyedError(NOT_WRITTEN, { folder, reason: cause || 'unknown' });
     err.code = 'SNAPSHOT_FAILED';
     err.message = translated(lang, err.messageKey, err.params);
     return err;
