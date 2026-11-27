@@ -160,7 +160,8 @@ whole when it ends, a failing one's under its `FAIL` line, and the run ends with
 suites. A suite that runs past its time limit is stopped together with every process it started.
 CI splits the suites over several runners per platform with `--shard`: `axe` (axe-gates alone),
 `browser` (the other browser suites) and `rest`; `npm test -- --shard rest --list` prints what
-one shard runs.
+one shard runs. `npm test -- security dns-pinning` runs only `tools/security-gates.mjs` and
+`tools/dns-pinning-gates.mjs`; a name that matches no suite is refused.
 A suite therefore must not take a fixed port, a fixed temp folder or a fixed file in the repo
 that another suite also uses: take a free port (`listen(0)`) and an `mkdtemp` folder.
 

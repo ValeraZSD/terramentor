@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -44,6 +44,40 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let pass = 0;
 const failures = [];
 const ok = (label, cond) => { if (cond) pass++; else failures.push(label); };
+
+// What the outbound fetch helpers and the SearXNG probe route DO, measured in a
+// child (tools/fixtures/outbound-fetch-probe.mjs) and read in sections 4 and 5.
+// Started first because the page reader's 15 s deadline makes it the slowest
+// part of this file. Private targets (its listeners are loopback) and a scratch
+// library (it boots the app) are set in the child's environment only.
+const outboundProbe = (() => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-outbound-'));
+    const child = spawn(process.execPath, [path.join(root, 'tools/fixtures/outbound-fetch-probe.mjs')], {
+        env: { ...process.env, ALLOW_PRIVATE_FETCH: '1', DB_PATH: path.join(scratch, 'probe.db'), VAULT_ROOT: path.join(scratch, 'vault'), DATA_DIR: path.join(scratch, 'data') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    // A backstop: every wait in the child has its own timeout and it always prints.
+    const kill = setTimeout(() => child.kill(), 60_000);
+    return new Promise((resolve) => {
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(kill);
+            try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
+            // The result is the last line: a new library logs its migrations first.
+            let result = null;
+            try { result = JSON.parse(out.trim().split(/\r?\n/).at(-1)); } catch { /* reported below */ }
+            if (!result || result.crashed) console.error(`outbound probe: ${result?.crashed || `no result\n${out.slice(-1000)}`}\n${err}`);
+            resolve(result);
+        };
+        child.on('close', done);
+        child.on('error', (e) => { err += String(e); done(); });
+    });
+})();
 
 // --- 1. markdown sanitize -------------------------------------------------
 // The schema AND the plugin chain live in TypeScript, so the file is compiled
@@ -322,51 +356,56 @@ for (const u of ['http://127.0.0.1:8888/v1/models', 'http://localhost:11434/api/
 // is exempt from netSafety. That exemption is about the ADDRESS; the endpoint
 // still has to refuse a scheme the learner cannot have meant and must not
 // follow a redirect, or the reply ("reachable" / "status N" / "timed out")
-// answers the same question for anything else on the network. Source scan,
-// because the route is inside the server's own request wiring.
-const indexSrc = (await import('./lib/serverSource.mjs')).httpLayer();
-const probeStart = indexSrc.indexOf("app.post('/api/searxng/test'");
-ok('the SearXNG probe route exists', probeStart > 0);
-// The route ends at the next registration or at the end of its file.
-const probeEnd = Math.min(...['\napp.', '\nexport const ', '\n// ==== server/']
-    .map((s) => indexSrc.indexOf(s, probeStart + 10)).filter((i) => i > 0));
-const probe = indexSrc.slice(probeStart, probeEnd);
-ok('probe refuses a non-http scheme', /SAFE_URL_PROTOCOLS\.includes\(\s*parsed\.protocol\s*\)/.test(probe));
-// The probe sends through `localEndpointFetch` (netSafety.js), which allows a
-// local address, refuses a cloud metadata one and forces `redirect: 'manual'`
-// on whatever it is handed, so both halves are read: the route uses it, and it
-// still forces the redirect mode.
-const netSafetySrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
-const lefStart = netSafetySrc.indexOf('export function localEndpointFetch');
-const lefBody = netSafetySrc.slice(lefStart, netSafetySrc.indexOf('\n}', lefStart) + 2);
-ok('probe does not follow redirects', /localEndpointFetch\(\)\(/.test(probe) && lefStart > 0 && /redirect:\s*'manual'/.test(lefBody));
-ok('probe bounds the URL length', /MAX_URL_LENGTH/.test(probe));
-ok('probe fetches once', (probe.match(/localEndpointFetch\(\)\(|\bfetch\(/g) || []).length === 1);
+// answers the same question for anything else on the network. The real route,
+// called through the real app by the outbound probe (top of this file).
+//
+// In the probe, a `.test` name resolves to a cloud metadata address when the
+// vet asks and to a loopback trap listener when a plain socket asks, so a
+// helper that skips the vet, or vets and lets something else connect, is a
+// request the trap records.
+const probed = await outboundProbe;
+ok('the outbound probe ran', !!probed && !probed.crashed && !!probed.searxng);
+const searx = probed?.searxng || {};
+const trapHits = probed?.trapHits ?? ['(no answer)'];
+ok('probe: a reachable instance answers ok, asked once at <path>/healthz',
+    searx.healthy?.ok === true && JSON.stringify(probed?.searxngHealthyHits) === '["/search/healthz"]');
+// `data:` is the scheme a fetch would answer "reachable" for without any network.
+ok('probe refuses a non-http scheme', searx.dataScheme?.status === 400 && searx.dataScheme?.ok === false
+    && searx.ftpScheme?.status === 400 && searx.ftpScheme?.ok === false);
+ok('probe does not follow redirects', searx.redirect?.ok === false && /302/.test(searx.redirect?.error || '')
+    && Array.isArray(probed?.searxngRedirectTargetHits) && probed.searxngRedirectTargetHits.length === 0);
+ok('probe refuses a name that resolves to a cloud metadata address', searx.metadata?.ok === false
+    && /metadata/.test(searx.metadata?.error || '') && !trapHits.some((h) => h.startsWith('/searx')));
+ok('probe bounds the URL length', searx.longUrl?.status === 400
+    && !(probed?.searxngHealthyHits || []).some((h) => h.length > 2000));
 
 // --- 5. a vetted fetch stays vetted ----------------------------------------
-// assertFetchable vets only the INITIAL url; a bare fetch after it follows
-// redirects un-vetted, so an open redirect hands the connection to an internal
-// address. ai.js therefore never pairs the two: an outside page goes through
-// safeFetch, whose loop re-vets each hop with redirect:'manual'.
-const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
-ok('ai.js never vets a URL and then fetches it bare', !aiSrc.includes('assertFetchable('));
-ok('ai.js fetches outside pages through safeFetch', aiSrc.includes('safeFetch('));
-
-const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
-const sfStart = netSrc.indexOf('export async function safeFetch');
-ok('netSafety exports safeFetch', sfStart > 0);
-const sfBody = netSrc.slice(sfStart, netSrc.indexOf('\n}', sfStart) + 2);
-ok('safeFetch re-vets every hop', /for \(let hop[\s\S]*await vetUrl\(target\)/.test(sfBody));
-ok('safeFetch never follows redirects itself', /redirect:\s*'manual'/.test(sfBody));
-// Where the socket actually goes is measured in tools/dns-pinning-gates.mjs
-// (a resolver that answers the vet and the socket differently); this only
-// keeps the two halves of the pin from drifting apart. Node's built-in fetch
-// with the npm Agent fails at runtime ("invalid onRequestStart method").
-ok('safeFetch connects through a dispatcher pinned to the vetted addresses', /dispatcher = new Agent\(\{[^}]*connect: \{ lookup: pinnedLookup\(/.test(sfBody) && /undiciFetch\([^)]*dispatcher/.test(sfBody));
+// Vetting only the INITIAL url and then fetching it with redirects followed
+// hands the connection to wherever an open redirect points. safeFetch re-vets
+// each hop and takes every redirect itself; the page reader goes through it.
+// Each refusal must be the vet's ("…is a cloud metadata address"): a fetch that
+// failed for any other reason would leave the trap unhit too, but would not
+// show the vet ran. That the socket then goes only to the vetted addresses is
+// measured in tools/dns-pinning-gates.mjs.
+const vetRefused = (msg) => /cloud metadata address/.test(msg || '');
+ok('safeFetch refuses a name its vet resolves to a metadata address', vetRefused(probed?.safeFetchDirect)
+    && !trapHits.includes('/direct'));
+ok('safeFetch re-vets a redirect hop before connecting to it', vetRefused(probed?.safeFetchRedirect)
+    && probed?.hopHits?.includes('/safe') && !trapHits.some((h) => h.startsWith('/after-redirect/safe')));
+ok('…also when the caller asks for redirect:"follow"', vetRefused(probed?.safeFetchFollow)
+    && probed?.hopHits?.includes('/follow') && !trapHits.some((h) => h.startsWith('/after-redirect/follow')));
+ok('the page reader refuses the same name', probed?.pageDirect?.success === false && vetRefused(probed?.pageDirect?.error)
+    && !trapHits.includes('/page-direct'));
+ok('…and the same name behind a redirect', probed?.pageRedirect?.success === false && vetRefused(probed?.pageRedirect?.error)
+    && probed?.hopHits?.includes('/page') && !trapHits.some((h) => h.startsWith('/after-redirect/page')));
+ok('no outbound fetch reached the trap at all', trapHits.length === 0);
 // One Agent per hop, never reused: with keep-alive on, each fetch left its
 // socket open for as long as the server's Keep-Alive hint (600 s measured).
-ok('…with keep-alive off (pipelining: 0), so a per-hop Agent leaves no idle socket', /new Agent\(\{ pipelining: 0,/.test(sfBody));
-ok('…and the Agent and the fetch come from the same undici', /import \{ Agent, fetch as undiciFetch \} from 'undici'/.test(netSrc) && !/(?<![.\w])fetch\(/.test(sfBody));
+ok('a finished safeFetch leaves no socket open, under a 600 s keep-alive hint',
+    probed?.keepAliveBody === 'body' && probed?.keepAliveOpenSockets === 0);
+
+// The server's HTTP layer as text, for the wiring scans below.
+const indexSrc = (await import('./lib/serverSource.mjs')).httpLayer();
 
 // --- 5b. …and the KEY does not travel with it ------------------------------
 // Re-vetting the address says nothing about whether the new host should be
@@ -427,16 +466,14 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     // is what ends it. Anything under the abort budget is a pass; a threshold tight
     // enough to trip on a loaded machine would make this gate flaky for no gain.
     ok('…and does not wait for a body that never ends', typeof endless.ms === 'number' && endless.ms < 5000);
-    // A body that TRICKLES (a byte every few seconds) never reaches the cap, so
-    // time is the only bound: the abort timer must outlive the body read, i.e.
-    // be cleared in a `finally`, never once the headers are in.
-    const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
-    const fpcFrom = aiSrc.indexOf('export async function fetchPageContent(');
-    const fpcEnd = aiSrc.slice(fpcFrom).search(/\r?\n\}\r?\n/);
-    const fpcBody = aiSrc.slice(fpcFrom, fpcEnd > 0 ? fpcFrom + fpcEnd : fpcFrom);
-    const clears = [...fpcBody.matchAll(/clearTimeout\(/g)].map(m => m.index);
-    ok('the page fetch clears its timer only after the body is read', fpcFrom > 0 && clears.length > 0
-        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCappedText(')));
+    // A body that TRICKLES (a byte a second, in the outbound probe) never
+    // reaches the cap, so time is the only bound: the page reader's 15 s
+    // deadline has to outlive the body read, not end when the headers arrive.
+    // The probe stops waiting at 25 s. The floor makes sure it was the deadline
+    // that ended the read, not a fetch that failed at once.
+    const trickle = probed?.tricklePage || {};
+    ok('the page fetch ends a trickling body at its deadline', trickle.raced === false && trickle.success === false
+        && typeof trickle.ms === 'number' && trickle.ms > 10_000 && trickle.ms < 20_000);
 }
 
 // --- 6. the settings dump carries no secrets --------------------------------

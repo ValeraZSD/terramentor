@@ -99,6 +99,16 @@ const bad = runRunner(['--shard', 'axes', '--list']);
 check('an unknown shard is refused with exit 2', bad.status === 2, bad.out);
 const empty = runRunner(['--suites-dir', join(toolsDir, 'fixtures', 'run-gates', 'basic'), '--shard', 'axe']);
 check('a shard with no suite in it fails instead of passing on nothing', empty.status === 1 && !/^PASS/m.test(empty.out), `${empty.status}\n${empty.out}`);
+
+// One suite by name, the way a contributor reruns the one that went red.
+const named = runRunner(['--list', 'security', 'dns-pinning-gates', 'tools/axe-gates.mjs', 'harness', 'tools/dock-harness/run.mjs']);
+check('suites named on the command line are listed, and nothing else',
+    named.status === 0 && JSON.stringify([...named.lines].sort()) === JSON.stringify(['tools/axe-gates.mjs', 'tools/dns-pinning-gates.mjs', 'tools/dock-harness/run.mjs', 'tools/harness/run.mjs', 'tools/security-gates.mjs']),
+    `${named.status}\n${named.out}`);
+const typo = runRunner(['--list', 'security', 'securty']);
+check('a name that matches no suite is refused with exit 2, naming it', typo.status === 2 && /"securty"/.test(typo.out),`${typo.status}\n${typo.out}`);
+const namedRun = runRunner(['--suites-dir', join(toolsDir, 'fixtures', 'run-gates', 'basic'), 'pass']);
+check('a named suite runs alone', namedRun.status === 0 && JSON.stringify(ran(namedRun.out)) === '["pass-gates.mjs"]', namedRun.out);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
 
 // =============================================================================================

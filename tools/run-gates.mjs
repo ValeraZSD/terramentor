@@ -56,6 +56,8 @@
  *   node tools/run-gates.mjs --timeout-ms N   the time limit of a suite that is not a browser suite (default 180000)
  *   node tools/run-gates.mjs --shard axe,browser   only the suites of the named shards (below)
  *   node tools/run-gates.mjs --list           print what would run, one per line, and run nothing
+ *   node tools/run-gates.mjs security dns-pinning   only the named suites (tools/security-gates.mjs and
+ *                                             tools/dns-pinning-gates.mjs; a harness by its folder name)
  *
  * Shards. CI splits the suites over several runners so no one of them waits for
  * the slowest suites in turn. Every suite is in exactly one shard:
@@ -113,7 +115,7 @@ const shardOf = (name, harness) => {
     return BROWSER_SUITES.includes(name) ? 'browser' : 'rest';
 };
 
-const USAGE = 'usage: node tools/run-gates.mjs [--quick] [--jobs N] [--suites-dir DIR] [--timeout-ms N] [--shard axe,browser,rest] [--list]';
+const USAGE = 'usage: node tools/run-gates.mjs [--quick] [--jobs N] [--suites-dir DIR] [--timeout-ms N] [--shard axe,browser,rest] [--list] [SUITE ...]';
 
 function usageError(message) {
     process.stderr.write(`run-gates: ${message}\n${USAGE}\n`);
@@ -127,7 +129,7 @@ function positiveInt(value, name) {
 }
 
 function parseArgs(argv) {
-    const opts = { quick: false, jobs: null, suitesDir: null, timeoutMs: null, shards: null, list: false };
+    const opts = { quick: false, jobs: null, suitesDir: null, timeoutMs: null, shards: null, list: false, names: [] };
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         const eq = arg.startsWith('--') ? arg.indexOf('=') : -1;
@@ -151,6 +153,7 @@ function parseArgs(argv) {
         }
         else if (name === '--list') opts.list = true;
         else if (name === '--help' || name === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
+        else if (!arg.startsWith('-')) opts.names.push(arg);
         else usageError(`unknown argument "${arg}"`);
     }
     return opts;
@@ -200,6 +203,26 @@ const targets = [...suites, ...harnesses].map((script) => {
         timeoutMs: browser ? BROWSER_TIMEOUT_MS : (opts.timeoutMs ?? TIMEOUT_MS),
     };
 }).filter((t) => !opts.shards || opts.shards.has(t.shard));
+
+// Suites named on the command line: "security", "security-gates" and
+// "tools/security-gates.mjs" all name tools/security-gates.mjs; a harness is
+// named by its folder. A name that matches nothing is refused, so a typo cannot
+// pass by running nothing.
+if (opts.names.length) {
+    const keyOf = (t) => (t.harness ? basename(dirname(t.script)) : basename(t.script).replace(/-gates\.mjs$/, ''));
+    // "tools/harness/run.mjs", as --list prints it, names the harness folder.
+    const keyOfName = (n) => {
+        const parts = n.replace(/\\/g, '/').split('/');
+        const file = parts.at(-1) === 'run.mjs' && parts.length > 1 ? parts.at(-2) : parts.at(-1);
+        return file.replace(/\.mjs$/, '').replace(/-gates$/, '');
+    };
+    const keys = new Set(opts.names.map(keyOfName));
+    const unknown = opts.names.filter((n) => !targets.some((t) => keyOf(t) === keyOfName(n)));
+    if (unknown.length) {
+        usageError(`no suite named ${unknown.map((n) => `"${n}"`).join(', ')}${opts.shards || quick ? ' in what this run selects' : ''}`);
+    }
+    targets.splice(0, targets.length, ...targets.filter((t) => keys.has(keyOf(t))));
+}
 
 // A shard that selects nothing would pass by running nothing: a renamed suite
 // must not leave its runner green. --quick empties the browser shards on purpose.
