@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import CardMedia, { CardMediaSides, CardAudioProvider, LineClipsButton, SpeakLineButton, useHasLocalVoice, type CardMediaRef } from './CardMedia';
 import { useContentLang, useCourseLanguages } from '../utils/contentLang';
 import { spokenLine } from '../utils/pronunciation';
+import { lineKey, parseSpeechMarks } from '../../server/speechMarks.js';
 
 interface Props {
     front: string;
@@ -19,6 +20,8 @@ interface Props {
     extraFront?: string | null;
     flipped: boolean;
     media: CardMediaSides;
+    /** The card's speech marks (`flashcards.say`), as stored. See below. */
+    say?: string | null;
     /** Play this side's clips as soon as it is shown. See CardMedia. */
     autoPlay?: boolean;
     /** The question side never spoke by itself here (the feed), so the flip
@@ -65,7 +68,7 @@ interface Props {
  * The three review surfaces (session, node panel, feed) all render through here
  * so they cannot drift apart; only the type scale differs.
  */
-export default function CardFace({ front, back, extra, extraFront, flipped, media, autoPlay = false, sayQuestion = false, size = 'review' }: Props) {
+export default function CardFace({ front, back, extra, extraFront, flipped, media, say, autoPlay = false, sayQuestion = false, size = 'review' }: Props) {
     const review = size === 'review';
     const lang = useContentLang();
     // A review session is read at arm's length for an hour at a time, and
@@ -104,26 +107,42 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     };
     // **A line in the language the course teaches can be said.** Where the
     // card carries no recording of a line, a speaker beside it says it with
-    // the device's own voice for that language, when the device has one. Which
-    // lines are in that language is `spokenLine`'s call; a recording always
-    // wins over the device's voice.
+    // the device's own voice for that language, when the device has one; a
+    // recording always wins over the device's voice.
+    //
+    // **Which lines, and which words, is the card's own call when it has one.**
+    // A card the model wrote in a language course carries speech marks
+    // (`say`, server/speechMarks.js, checked when the card was written): then
+    // exactly the marked lines speak, saying the marked words. A card with
+    // none (an Anki import, an older course, a hand-made card) falls back to
+    // `spokenLine`, the rules that guess from scripts and labels.
     const langs = useCourseLanguages();
     const voiced = useHasLocalVoice(langs?.learning);
+    const marks = parseSpeechMarks(say);
+    const markOf = new Map((marks ?? []).map(m => [lineKey(m.at), m]));
+    const sayFor = (line: string): { text: string; lang?: string } | null => {
+        if (!langs) return null;
+        if (marks) return markOf.get(lineKey(line)) ?? null;
+        const said = spokenLine(line, langs);
+        return said ? { text: said } : null;
+    };
     const speakerFor = (line: string) => {
         if (!langs || !voiced) return null;
-        const said = spokenLine(line, langs);
+        const said = sayFor(line);
+        if (!said) return null;
+        const lang = said.lang ?? langs.learning;
         // Keyed by what it says: a review screen keeps this face mounted from card
         // to card, and a button reused for another card's line would carry on
         // the last card's speech (and, below, its turn between voices).
-        return said ? <SpeakLineButton key={`say:${langs.learning}:${said}`} text={said} lang={langs.learning} /> : null;
+        return <SpeakLineButton key={`say:${lang}:${said.text}`} text={said.text} lang={lang} />;
     };
     // One button per line, however many recordings it carries (two voices
-    // saying the same words share it, see `LineClipsButton`). Named like the
-    // device's speaker, by the learned-language words where they can be told
-    // apart, else by the whole line.
+    // saying the same words share it, see `LineClipsButton`). Named by the
+    // words it says: the recording's own, else the line's mark or rules, else
+    // the whole line.
     const lineButton = (line: string): ReactNode => {
         const clips = clipsFor(line);
-        const name = (langs && spokenLine(line, langs)) || stripCardMarkup(line).trim();
+        const name = clips.find(c => c.say)?.say || sayFor(line)?.text || stripCardMarkup(line).trim();
         if (clips.length) return <LineClipsButton key={`clips:${clips.map(c => c.hash).join(',')}`} items={clips} label={name} />;
         return speakerFor(line);
     };

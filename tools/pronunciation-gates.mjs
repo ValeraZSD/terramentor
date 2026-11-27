@@ -205,7 +205,7 @@ try {
     const M = await load('CardFace', `export { default as CardFace } from './src/components/CardFace'; export { ContentLang } from './src/utils/contentLang';`);
     if (M?.CardFace && M?.ContentLang) {
         const course = (id, content, learning) => ({ id, name: 'Course', description: '', content_language: content, learning_language: learning });
-        globalThis.__st.state = { ...globalThis.__st.state, projects: [course(1, 'ru', 'nl'), course(2, 'nl', ''), course(3, 'nl', 'nl')] };
+        globalThis.__st.state = { ...globalThis.__st.state, projects: [course(1, 'ru', 'nl'), course(2, 'nl', ''), course(3, 'nl', 'nl'), course(4, 'en', 'nl')] };
         const hash = 'a'.repeat(64);
         // The review surfaces flip on a click anywhere on the card: a parent's React onClick.
         let flips = 0;
@@ -298,6 +298,56 @@ try {
         ok('the answer side: word, meaning and example, not the English line',
             JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: de liquiditeit', 'Play: Of je op tijd genoeg geld hebt.', 'Play: Voorbeeld: Ik controleer mijn liquiditeit.']),
             JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
+        // -------------------------------------------------------------------
+        section('a card the model marked: its marks decide, not the rules');
+        // English and Dutch share their letters: the rules cannot tell "het huis"
+        // from "the house", so an unmarked card here has no speaker at all.
+        const enCard = { front: 'the house', back: 'het huis', extra: 'Example: Het huis is groot.' };
+        const enMarks = JSON.stringify([
+            { at: 'het huis', text: 'het huis', voices: 2 },
+            { at: 'Example: Het huis is groot.', text: 'Het huis is groot.', voices: 1 },
+        ]);
+        v = await mount(card(4, enCard));
+        ok('control: unmarked, a Dutch card for English speakers has no speaker', speakers(v.host).length === 0, JSON.stringify(speakers(v.host)));
+        await v.unmount();
+        v = await mount(card(4, { ...enCard, say: enMarks }));
+        ok('marked: the Dutch word and the Dutch sentence speak, the English line does not',
+            JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: het huis', 'Play: Het huis is groot.']), JSON.stringify(speakers(v.host)));
+        await act(() => { v.host.querySelector('button[aria-label="Play: Het huis is groot."]').click(); });
+        ok('a press says the marked words, not the label before them', engine.spoken.at(-1)?.text === 'Het huis is groot.', engine.spoken.at(-1)?.text);
+        await act(() => { v.host.querySelector('button[aria-label^="Stop:"]').click(); });
+        await v.unmount();
+
+        // Marked with nothing to say: silent, though the rules would voice every line.
+        v = await mount(card(3, { front: 'de liquiditeit', back: 'Of je op tijd genoeg geld hebt.', say: '[]' }));
+        ok('marked "nothing to say": no speaker where the rules would put two', speakers(v.host).length === 0, JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
+        // Only the word marked: the example the rules would voice stays silent.
+        v = await mount(card(1, { ...ruCard, say: JSON.stringify([{ at: 'het huiswerk', text: 'het huiswerk', voices: 2 }]) }));
+        ok('marked: only the marked line speaks', JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: het huiswerk']), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
+        // A mark names its line by text; the line is matched with spacing and case set aside.
+        v = await mount(card(4, { ...enCard, extra: 'Example: Het huis is groot.  ', say: enMarks }));
+        ok('a line with Markdown\'s trailing spaces still finds its mark', speakers(v.host).includes('Play: Het huis is groot.'), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
+        // The language of a mark picks the voice: a Belgian mark takes the Belgian voice.
+        engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch'), voice('nl-BE', 'Flemish')];
+        v = await mount(card(4, { ...enCard, say: JSON.stringify([{ at: 'het huis', text: 'het huis', lang: 'nl-BE', voices: 1 }]) }));
+        await act(() => { v.host.querySelector('button[aria-label="Play: het huis"]').click(); });
+        ok('a mark in nl-BE is said by the nl-BE voice', engine.spoken.at(-1)?.voice?.lang === 'nl-BE', engine.spoken.at(-1)?.voice?.lang);
+        await act(() => { v.host.querySelector('button[aria-label^="Stop:"]').click(); });
+        await v.unmount();
+        engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch')];
+
+        // A recording that names its words is named by them, whatever the rules would say.
+        v = await mount(card(3, { front: 'de liquiditeit', back: 'Of je op tijd genoeg geld hebt.', extra: 'Voorbeeld: Ik controleer mijn liquiditeit.',
+            media: { front: [], back: [{ kind: 'audio', hash, at: 'Voorbeeld: Ik controleer mijn liquiditeit.', say: 'Ik controleer mijn liquiditeit.' }] } }));
+        ok('a recording is named by the words it says', speakers(v.host).includes('Play: Ik controleer mijn liquiditeit.'), JSON.stringify(speakers(v.host)));
         await v.unmount();
 
         // -------------------------------------------------------------------

@@ -44,6 +44,8 @@ export interface CardMediaRef {
     alt?: string;
     /** The line of card text this clip was written on, if the deck placed it on one. */
     at?: string;
+    /** The words the clip says (its card's speech mark), when the course named them. */
+    say?: string;
 }
 
 export interface CardMediaSides {

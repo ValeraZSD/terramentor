@@ -251,6 +251,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                             back={currentCard.back}
                             extra={currentCard.extra}
                             extraFront={currentCard.extra_front}
+                            say={currentCard.say}
                             flipped={queue.flipped}
                             media={media}
                             autoPlay

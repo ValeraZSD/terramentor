@@ -859,6 +859,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                         back={currentCard.back}
                                         extra={currentCard.extra}
                                         extraFront={currentCard.extra_front}
+                                        say={currentCard.say}
                                         flipped={queue.flipped}
                                         media={cardMedia}
                                         autoPlay
