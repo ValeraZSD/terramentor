@@ -290,7 +290,7 @@ function openWindow(appUrl, windowMode = DEFAULT_WINDOW_MODE) {
     if (launchPage) forgetLaunchPage(launchPage.page);
     const url = launchPage?.address || appUrl;
     const browser = findBrowser();
-    if (!browser) return openDefault(launchPage?.page || appUrl);
+    if (!browser) return openDefault(launchPage?.address || appUrl);
     return new Promise((done) => {
         // On macOS this is `open -n -a <browser>.app --args …` (lib.js
         // browserCommand), so the browser is an application macOS launched
@@ -311,7 +311,7 @@ function openWindow(appUrl, windowMode = DEFAULT_WINDOW_MODE) {
             started: () => { console.log(`Opened app window with ${browser}`); done(); },
             failed: (e) => {
                 console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
-                openDefault(launchPage?.page || appUrl).then(done);
+                openDefault(launchPage?.address || appUrl).then(done);
             },
             // Quitting stops a window still starting; no other browser then.
             stopped: (e) => { console.log(`The window starting in ${browser} was stopped (${e.signal}); no other browser is opened`); done(); },

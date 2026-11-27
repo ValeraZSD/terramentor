@@ -1988,6 +1988,15 @@ console.log('\n--- the window opens on a one-time page, not a proof on the comma
     const args = made ? desktopLib.browserArgs(made.address, profile) : [];
     ok('the browser\'s command line names the page, never the proof', args[0] === `--app=${made?.address}` && made.address.startsWith('file:') && !args.join(' ').includes(PROOF));
 
+    // One navigation only: a timed refresh beside the script could send a second
+    // request after the first spent the proof, and that one sets no cookie.
+    ok('the page navigates once: its refresh is only for a browser with scripts off',
+        !/<meta http-equiv="refresh"/.test(html.replace(/<noscript>[\s\S]*?<\/noscript>/g, '')) && /<noscript><meta http-equiv="refresh" content="0;/.test(html));
+    // The default browser gets the page through `cmd /c start` on Windows.
+    const oddProfile = join(profile, 'a&b^c');
+    const odd = desktopLib.writeLaunchPage({ appUrl: 'http://127.0.0.1:3017', key, profileDir: oddProfile, proof: () => PROOF });
+    ok('a profile folder with & or ^ in its name gives an address cmd will not split', !!odd && !/[&^]/.test(odd.address) && odd.address.includes('a%26b%5Ec') && fileURLToPath(odd.address) === odd.page, odd?.address);
+
     const hostile = desktopLib.launchPageHtml('http://127.0.0.1:3017/api/auth/launch?proof="></script><script>alert(1)</script>');
     ok('an address that could end the script or the attribute is escaped', !/<\/script><script>/.test(hostile) && !/"><\/script>/.test(hostile));
 

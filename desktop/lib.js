@@ -445,8 +445,8 @@ const LAUNCH_PAGE_NAME = /^launch-[0-9a-f]{16}\.html$/;
  * to a clean "/". A Jupyter server opens its browser through such a file for
  * the same reason.
  *
- * Returns `{ page, address }`: the page's path (for a default browser) and its
- * file: address (for an app window). Null with no key, or when the page cannot
+ * Returns `{ page, address }`: the page's path and its file: address, which
+ * the app window or the default browser opens. Null with no key, or when the page cannot
  * be written: the caller then opens the plain address, where the app explains
  * how to get in.
  */
@@ -463,7 +463,11 @@ export function writeLaunchPage({ appUrl, key, profileDir, proof = ownerProof, n
         sweepLaunchPages(dir, { now, fs });
         const page = join(dir, `launch-${randomBytes(8).toString('hex')}.html`);
         fs.writeFileSync(page, launchPageHtml(target), { mode: 0o600, flag: 'wx' });
-        return { page, address: pathToFileURL(page).href };
+        // The address also goes through `cmd /c start` (defaultBrowserCommand),
+        // where a `&` or `^` in a folder name would split or change it; the file
+        // URL holds them percent-escaped instead, which every browser reads.
+        const address = pathToFileURL(page).href.replace(/[&^]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+        return { page, address };
     } catch {
         return null;
     }
@@ -478,7 +482,10 @@ export function launchPageHtml(target) {
         '<!doctype html>',
         '<meta charset="utf-8">',
         '<meta name="referrer" content="no-referrer">',
-        `<meta http-equiv="refresh" content="1;url=${safe}">`,
+        // A refresh only where scripts are off: one beside the script could start
+        // a second request after the first had spent the proof, and the second
+        // would land without the cookie.
+        `<noscript><meta http-equiv="refresh" content="0;url=${safe}"></noscript>`,
         `<title>${APP_NAME}</title>`,
         `<script>location.replace(${JSON.stringify(safe)});</script>`,
         '',
