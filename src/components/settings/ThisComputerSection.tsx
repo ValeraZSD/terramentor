@@ -8,7 +8,7 @@ import { desktopApi, type DesktopWindowMode, type DesktopAutostartWindow } from 
 import { Button } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import Switch from '../ui/Switch';
-import { GROUP_CAPTION } from '../ui/SettingRow';
+import { GROUP_CAPTION, SettingRow } from '../ui/SettingRow';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 
 /** Settings → Library & about → This computer. `onQuit` hands the quit screen to the
@@ -41,14 +41,18 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                         rows under it already say. */}
                     <h2 className={GROUP_CAPTION}>{tr("This computer")}</h2>
                     <div className="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
-                        <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                            <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-900 dark:text-white">{tr("Your data")}</p>
+                        {/* Every row is a `SettingRow`: its control beside the
+                            name while the row has room, under it when it has
+                            not. They stacked below `sm:`, a viewport width,
+                            which put a phone's every switch under its text. */}
+                        <SettingRow
+                            label={tr("Your data")}
+                            detail={<>
                                 {/* The folder NAME is the readable fact; the whole
                                     path is for support threads and opens on
                                     demand rather than running break-all across
                                     the card. */}
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                <p>
                                     <code className="text-xs">{desktop.dataDir.split(/[\\/]+/).filter(Boolean).pop()}</code>
                                 </p>
                                 <Explain summary={tr("Show the full path")} className="mt-1">
@@ -77,17 +81,16 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                     length; that a new version never touches
                                     the folder is reassurance, not a fact
                                     anyone acts on, so it went. */}
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                <p className="mt-1">
                                     {tr("Back this folder up and you have backed up everything.")}
                                 </p>
-                            </div>
-                            <Button
-                                onClick={() => void desktopApi.openDataDir().catch(() => addToast('error', tr("Could not open the folder")))}
-                                className="self-start shrink-0"
-                            >
-                                {tr("Open folder")}
-                            </Button>
-                        </div>
+                            </>}
+                            control={
+                                <Button onClick={() => void desktopApi.openDataDir().catch(() => addToast('error', tr("Could not open the folder")))}>
+                                    {tr("Open folder")}
+                                </Button>
+                            }
+                        />
                         {/* The lifecycle rows: read once, when needed, closed
                             until then. Their dividers come from THIS wrapper —
                             the card's own divide-y only sees the two children
@@ -117,26 +120,23 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                             true and worth saying, so it moved UP to the section's own
                             summary, where a statement belongs. */}
                         {!desktop.trayHosted && (
-                            <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-slate-900 dark:text-white">{tr("Keep running in the background")}</p>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        {tr("Off: closing the last window stops the app. On: it keeps serving — for your phone, or to open the window again instantly — until you quit it here.")}
-                                    </p>
-                                </div>
-                                <Switch
-                                    label={tr("Keep the server running")}
-                                    checked={!!desktop.keepRunning}
-                                    disabled={desktopBusy}
-                                    className="self-start"
-                                    onChange={async next => {
-                                        setDesktopBusy(true);
-                                        try { await desktopApi.keepRunning(next); await refreshDesktop(); }
-                                        catch { addToast('error', tr("Could not change the setting")); }
-                                        finally { setDesktopBusy(false); }
-                                    }}
-                                />
-                            </div>
+                            <SettingRow
+                                label={tr("Keep running in the background")}
+                                detail={tr("Off: closing the last window stops the app. On: it keeps serving — for your phone, or to open the window again instantly — until you quit it here.")}
+                                control={
+                                    <Switch
+                                        label={tr("Keep the server running")}
+                                        checked={!!desktop.keepRunning}
+                                        disabled={desktopBusy}
+                                        onChange={async next => {
+                                            setDesktopBusy(true);
+                                            try { await desktopApi.keepRunning(next); await refreshDesktop(); }
+                                            catch { addToast('error', tr("Could not change the setting")); }
+                                            finally { setDesktopBusy(false); }
+                                        }}
+                                    />
+                                }
+                            />
                         )}
                         {/* START AT LOGIN — drawn only where it can actually
                             work. A copy the launcher did not start (a dev
@@ -144,31 +144,28 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                             line a login item would need, and a switch that does
                             nothing is worse than no switch. */}
                         {desktop.canStartAtLogin && (
-                            <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-slate-900 dark:text-white">{tr("Start when I sign in")}</p>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        {/* Only point at "keep running" where the reader
-                                            can see it. Behind a tray icon that row is not
-                                            drawn, so naming it sent them looking for a
-                                            switch that is not on the screen. */}
-                                        {desktop.trayHosted
-                                            ? tr("Opens the app as the computer finishes starting, so it is simply always there — including for your phone.")
-                                            : tr("Opens the app as the computer finishes starting. With \"keep running\" on as well, it is simply always there — including for your phone.")}
-                                    </p>
-                                </div>
-                                <Switch
-                                    label={tr("Start when I sign in")}
-                                    checked={login.on}
-                                    disabled={desktopBusy || login.busy}
-                                    className="self-start"
-                                    onChange={async next => {
-                                        setDesktopBusy(true);
-                                        if (!await login.set(next)) addToast('error', tr("Could not change the setting"));
-                                        setDesktopBusy(false);
-                                    }}
-                                />
-                            </div>
+                            <SettingRow
+                                label={tr("Start when I sign in")}
+                                // Only point at "keep running" where the reader
+                                // can see it. Behind a tray icon that row is not
+                                // drawn, so naming it sent them looking for a
+                                // switch that is not on the screen.
+                                detail={desktop.trayHosted
+                                    ? tr("Opens the app as the computer finishes starting, so it is simply always there — including for your phone.")
+                                    : tr("Opens the app as the computer finishes starting. With \"keep running\" on as well, it is simply always there — including for your phone.")}
+                                control={
+                                    <Switch
+                                        label={tr("Start when I sign in")}
+                                        checked={login.on}
+                                        disabled={desktopBusy || login.busy}
+                                        onChange={async next => {
+                                            setDesktopBusy(true);
+                                            if (!await login.set(next)) addToast('error', tr("Could not change the setting"));
+                                            setDesktopBusy(false);
+                                        }}
+                                    />
+                                }
+                            />
                         )}
                         {/* WHAT A SIGN-IN START DOES — drawn only where it can be
                             honoured. Coming up with no window needs somewhere to
@@ -177,16 +174,10 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                             says (desktop/lib.js `shouldOpenWindow`), so the control
                             would be describing something that does not happen. */}
                         {desktop.canStartAtLogin && desktop.trayHosted && (
-                            <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-slate-900 dark:text-white">{tr("When it starts with the computer")}</p>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        {tr("Come up quietly behind the icon, or open a window. This is only about that first start at sign-in — opening the app yourself always opens a window.")}
-                                    </p>
-                                </div>
-                                <SegmentedControl
-                                    className="self-start"
-                                    block="narrow"
+                            <SettingRow
+                                label={tr("When it starts with the computer")}
+                                detail={tr("Come up quietly behind the icon, or open a window. This is only about that first start at sign-in — opening the app yourself always opens a window.")}
+                                control={<SegmentedControl
                                     label={tr("When it starts with the computer")}
                                     value={desktop.autostartWindow || 'hidden'}
                                     onChange={async mode => {
@@ -199,33 +190,16 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                         { value: 'hidden', label: tr("In the background") },
                                         { value: 'show', label: tr("Window") },
                                     ]}
-                                />
-                            </div>
+                                />}
+                            />
                         )}
                         {/* HOW THE WINDOW OPENS — applied by the launcher at the
                             next start, because a window cannot be maximised from
                             inside the page it is showing. */}
-                        <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                            <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-900 dark:text-white">{tr("How the window opens")}</p>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {tr("Takes effect the next time the app starts — a window cannot resize itself once it is open.")}
-                                </p>
-                            </div>
-                            <SegmentedControl
-                                // `self-start`: the control is an `inline-flex` and
-                                // sizes to its labels, but a flex COLUMN stretches its
-                                // children — which drew a full-width track with the
-                                // three chips huddled in its left third.
-                                //
-                                // And no `shrink-0`, which the Button rows beside it
-                                // carry: this one is allowed to lose width and wrap
-                                // rather than push the sentence it belongs to narrow.
-                                // `block="narrow"`: alone on its line in the phone-width
-                                // column, it fills it; beside its sentence from `sm:` up
-                                // (a flex row) it keeps its own width.
-                                className="self-start"
-                                block="narrow"
+                        <SettingRow
+                            label={tr("How the window opens")}
+                            detail={tr("Takes effect the next time the app starts — a window cannot resize itself once it is open.")}
+                            control={<SegmentedControl
                                 label={tr("How the window opens")}
                                 value={desktop.windowMode || 'maximized'}
                                 onChange={async mode => {
@@ -239,21 +213,17 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                     { value: 'maximized', label: tr("Maximised") },
                                     { value: 'fullscreen', label: tr("Full screen") },
                                 ]}
-                            />
-                        </div>
-                        <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                            <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-900 dark:text-white">{tr("Quit")}</p>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {/* The other way out, said where quitting is the
-                                        subject: the tray menu quits it too, and that is
-                                        the one reachable with no window open. */}
-                                    {desktop.trayHosted
-                                        ? tr("Stops the app on this computer — the notification icon's own menu does the same. Version {{version}}, port {{port}}.", { version: desktop.version, port: desktop.port })
-                                        : tr("Stops the app on this computer. Version {{version}}, port {{port}}.", { version: desktop.version, port: desktop.port })}
-                                </p>
-                            </div>
-                            <Button
+                            />}
+                        />
+                        <SettingRow
+                            label={tr("Quit")}
+                            // The other way out, said where quitting is the
+                            // subject: the tray menu quits it too, and that is
+                            // the one reachable with no window open.
+                            detail={desktop.trayHosted
+                                ? tr("Stops the app on this computer — the notification icon's own menu does the same. Version {{version}}, port {{port}}.", { version: desktop.version, port: desktop.port })
+                                : tr("Stops the app on this computer. Version {{version}}, port {{port}}.", { version: desktop.version, port: desktop.port })}
+                            control={<Button
                                 onClick={async () => {
                                     const yes = await showConfirm({ title: tr("Quit the app?"), message: tr("Every open window loses its connection. Your data is saved."), confirmLabel: tr("Quit"), variant: 'danger' });
                                     if (!yes) return;
@@ -264,11 +234,10 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                     onQuit();
                                 }}
                                 variant="danger"
-                                className="self-start shrink-0"
                             >
                                 {tr("Quit")}
-                            </Button>
-                        </div>
+                            </Button>}
+                        />
                             </div>
                         </ExpandableSection>
                     </div>
