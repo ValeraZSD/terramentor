@@ -5,8 +5,11 @@
 //
 // The model: a schedule publishes main as a prerelease when there
 // is something new and the last one is at least six hours old, and a stable
-// release PROMOTES the commit of the latest nightly, so what reaches everyone is
-// the code nightly users already ran. One difference: the stable version is not
+// release PROMOTES the commit of a nightly the maintainer names (the one that
+// was tried), so what reaches everyone is the code nightly users already ran.
+// main keeps moving meanwhile. A fix that release needs goes onto its own
+// branch, `release/X.Y`, started at that nightly's commit, and the stable is
+// then built from that branch. One difference: the stable version is not
 // stamped on at release time. It is the version package.json carries at that
 // commit, written by an ordinary release pull request with its CHANGELOG line,
 // so main, the tag and the running app never disagree about what 1.2.0 is.
@@ -148,40 +151,103 @@ export function nightlyDecision({ last, headSha, lastIsAncestor, now, force = fa
 }
 
 /**
- * The stable release the latest nightly becomes, or an Error saying why not.
+ * The stable release the nightly named `requested` becomes, or an Error saying
+ * why not. `nightly` is that published nightly with its commit.
  *
- * Its version is package.json's at THAT commit: a release pull request (version
- * bump plus its CHANGELOG line) has to have merged and been built by a nightly
- * before there is anything to promote. The refusals are written to be read in
- * the Actions log by the person who pressed the button.
+ * `line` is its release branch (`release/X.Y`, X.Y from `nightlyVersion`,
+ * package.json at the nightly) when one exists: `{ name, sha, containsNightly,
+ * commits }`, `commits` being what the branch adds after the nightly. With a
+ * line, the stable is built from the branch's head, which must contain the
+ * nightly; without one, from the nightly's own commit.
+ *
+ * Its version is package.json's at the commit built (`packageVersion`, and
+ * `changelog` from there too): a release pull request (version bump plus its
+ * CHANGELOG line) has to have merged and been built by a nightly before there
+ * is anything to promote. The refusals are written to be read in the Actions
+ * log by the person who pressed the button.
  */
-export function promotion({ nightly, onMain, packageVersion, tags, changelog, pipelineChanged = [] }) {
-    if (!nightly) throw new Error('No nightly has been published, so there is no build to promote. Run the Nightly workflow first.');
+export function promotion({
+    requested, nightly, onMain, nightlyVersion, line = null, packageVersion, tags, changelog, pipelineChanged = [],
+}) {
+    if (!requested) {
+        throw new Error('Name the nightly to release (the "nightly" input, its tag, e.g. v1.2.0-nightly.20261008.1): '
+            + 'the one that was tried. The latest is not assumed, because main keeps moving while a release is checked.');
+    }
+    if (!NIGHTLY_TAG.test(requested)) throw new Error(`"${requested}" is not a nightly's tag (vX.Y.Z-nightly.YYYYMMDD.N).`);
+    if (!nightly) throw new Error(`${requested} is not a published nightly release, so there is no build of it to promote.`);
     if (!onMain) throw new Error(`${nightly.tag}'s commit ${nightly.sha} is not on main; only main is released.`);
+    const stable = highestStable(tags);
+    if (line && !line.containsNightly) {
+        // Most often the nightly is older than the release pull request, and
+        // the branch is the previous release's: say that, not the branch.
+        if (stable && versionCore(nightlyVersion) && compareVersions(versionCore(nightlyVersion), stable) <= 0) {
+            throw new Error(`package.json at ${nightly.tag} says ${nightlyVersion}, which is not newer than the latest stable ${stable}. `
+                + 'Merge a release pull request first, let a nightly build it, then name that nightly.');
+        }
+        throw new Error(`${line.name} does not contain ${nightly.tag}'s commit ${nightly.sha}. A release branch starts at the `
+            + 'nightly that was tried; name the nightly it was started from.');
+    }
+    // A fix reaches the branch as a cherry-pick, a new commit. A commit that is
+    // also main's arrived by merging main in, and brings untried work with it.
+    if (line?.fromMain?.length) {
+        throw new Error(`${line.name} holds ${line.fromMain.length} commit${line.fromMain.length === 1 ? '' : 's'} of main after `
+            + `${nightly.tag} (${line.fromMain.slice(0, 3).map((s) => s.slice(0, 7)).join(', ')}${line.fromMain.length > 3 ? ', ...' : ''}), `
+            + 'so main was merged into it. A release branch takes cherry-picked fixes only; start it again at the nightly '
+            + 'and cherry-pick the fixes.');
+    }
+    const at = line ? `${line.name} (${line.sha.slice(0, 7)})` : nightly.tag;
     // release.yml comes from main, the scripts it runs from the commit being
     // built. They must be the same files, or main's workflow calls an older
     // tools/release.mjs with flags it does not know.
     if (pipelineChanged.length) {
-        throw new Error(`The release pipeline changed on main since ${nightly.tag} (${pipelineChanged.join(', ')}). `
-            + 'Let a nightly of the current main build first (or run Nightly by hand), then promote that one.');
+        throw new Error(`The release pipeline changed on main since ${at} (${pipelineChanged.join(', ')}). `
+            + (line
+                ? `Cherry-pick that change onto ${line.name} too, then run this again.`
+                : `Name a nightly of the current main instead, or start ${releaseBranch(nightlyVersion || packageVersion)} at `
+                  + `${nightly.tag} and cherry-pick the change onto it.`));
     }
     const v = String(packageVersion || '');
     if (!/^\d+\.\d+\.\d+$/.test(v)) {
-        throw new Error(`package.json at ${nightly.tag} says "${v}"; a stable release needs a plain X.Y.Z.`);
+        throw new Error(`package.json at ${at} says "${v}"; a stable release needs a plain X.Y.Z.`);
     }
-    const stable = highestStable(tags);
+    if (line && releaseBranch(v) !== line.name) {
+        throw new Error(`package.json on ${line.name} says ${v}, which is not a version of that line.`);
+    }
     if (stable && compareVersions(v, stable) <= 0) {
         throw new Error(
-            `package.json at ${nightly.tag} says ${v}, which is not newer than the latest stable ${stable}. `
+            `package.json at ${at} says ${v}, which is not newer than the latest stable ${stable}. `
             + 'Merge a release pull request first (the version in package.json and its CHANGELOG.md line), '
             + 'let a nightly build it (or run Nightly by hand), then promote.');
     }
     // An existing tag v<v> needs no check of its own: it makes the newest
     // stable at least v, so the refusal above has already fired.
     if (!String(changelog || '').includes(`## [${v}]`)) {
-        throw new Error(`CHANGELOG.md at ${nightly.tag} has no "## [${v}]" section; the release notes are that section.`);
+        throw new Error(`CHANGELOG.md at ${at} has no "## [${v}]" section; the release notes are that section.`);
     }
-    return { version: v, tag: `v${v}`, sha: nightly.sha, from: nightly.tag };
+    return {
+        version: v, tag: `v${v}`, sha: line ? line.sha : nightly.sha, from: nightly.tag,
+        line: line ? line.name : '', fixes: line ? line.commits || [] : [],
+    };
+}
+
+/** The branch a release's own fixes go to: `release/X.Y` for any X.Y.Z. */
+export function releaseBranch(version) {
+    const core = versionCore(version);
+    if (!core) throw new Error(`"${version}" is not a version`);
+    return `release/${core.split('.').slice(0, 2).join('.')}`;
+}
+
+/** The repository scripts a workflow runs, by the paths it names under tools/
+ *  (`tools/x.mjs`, `tools/x.sh`; data files such as `.json` are not scripts). */
+export function workflowScripts(workflowText) {
+    const found = String(workflowText || '').match(/\btools\/[\w./-]+\.(?:mjs|js|cjs|sh|ps1)\b/g) || [];
+    return [...new Set(found)].sort();
+}
+
+/** The published nightly release with this tag, as `{ tag, publishedAt }`, or null. */
+export function namedNightly(releases, tag) {
+    const r = (releases || []).find((x) => x && !x.draft && x.published_at && x.tag_name === tag && NIGHTLY_TAG.test(tag || ''));
+    return r ? { tag: r.tag_name, publishedAt: r.published_at } : null;
 }
 
 /**
@@ -196,10 +262,12 @@ export function promotion({ nightly, onMain, packageVersion, tags, changelog, pi
  * moves `nightly`; a suffixed tag (v1.3.0-rc.1) is a prerelease and moves
  * nothing. `movingTags` are those image tags.
  *
- * Anything that publishes must be a commit on main (`onMain`): a tag pushed on
- * a branch, or a run started on one, is refused here rather than released.
+ * Anything that publishes must be a commit on main (`onMain`), or, for a
+ * stable release, on that version's own release branch (`onLine`: release/X.Y
+ * contains it): a tag pushed on any other branch, or a run started on one, is
+ * refused here rather than released. A nightly is main's alone.
  */
-export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = [], onMain = false }) {
+export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = [], onMain = false, onLine = false }) {
     let channel, version, ref, previous, publish;
     if (input.version) {
         ({ channel, version, ref } = input);
@@ -213,7 +281,11 @@ export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = 
     if (channel !== 'stable' && channel !== 'nightly') throw new Error(`Unknown channel: ${channel}`);
     if (!isSemver(version)) throw new Error(`"${version}" is not a version to release`);
     if (!/^[0-9a-f]{40}$/.test(ref || '')) throw new Error(`"${ref}" is not a commit`);
-    if (publish && !onMain) throw new Error(`${ref} is not on main; only main is released.`);
+    if (publish && !onMain && !(channel === 'stable' && onLine)) {
+        throw new Error(channel === 'stable'
+            ? `${ref} is not on main or on ${releaseBranch(version)}; only main and a release's own branch are released.`
+            : `${ref} is not on main; only main is released.`);
+    }
     const prerelease = channel === 'nightly' || version.includes('-');
     const newestOther = highestStable(tags.filter((t) => t !== `v${version}`));
     const latest = channel === 'stable' && !prerelease && (!newestOther || compareVersions(version, newestOther) >= 0);
@@ -251,6 +323,83 @@ export function draftProblems({ release, files, ref }) {
         if (!files.some((f) => f.name === name)) problems.push(`${name} is attached but was not built here`);
     }
     return problems;
+}
+
+/** The checks of the Gates workflow (.github/workflows/gates.yml) that run the
+ *  whole guard suite, by the names GitHub shows for them. A rename there
+ *  without one here costs time, never safety: a release that cannot find them
+ *  runs the suite itself. */
+export const GATES_CHECKS = Object.freeze(['Node 24 on ubuntu-latest', 'Node 24 on windows-latest']);
+export const GATES_WORKFLOW = '.github/workflows/gates.yml';
+
+/**
+ * Whether the Gates workflow already passed the guard suite on exactly `sha`,
+ * so a release of that commit can skip running it again: `{ passed, reason }`.
+ *
+ * `checkRuns` are the check runs GitHub holds for `sha`; `runsBySuite` maps a
+ * check suite's id to the workflow run that made it. A check counts only when
+ * GitHub Actions made it, in a run of the Gates workflow started by a PUSH of
+ * that very commit. A pull request's run does not count: it tests a merge
+ * commit and reports on the head, so a check named here can be green on a
+ * commit whose own tree was never tested. Each named check's newest run must
+ * have finished with success; one still running, failed, cancelled or missing
+ * means no. A check of that name whose workflow run cannot be found is no
+ * when it is newer than that success: it may be Gates' own newer attempt.
+ */
+export function gatesPassed({ sha, checkRuns = [], runsBySuite = {}, names = GATES_CHECKS }) {
+    if (!/^[0-9a-f]{40}$/.test(sha || '')) return { passed: false, reason: `"${sha}" is not a commit.` };
+    for (const name of names) {
+        const named = checkRuns.filter((c) => c?.name === name && c.head_sha === sha && c.app?.slug === 'github-actions');
+        const ours = named.filter((c) => {
+            const run = runsBySuite[c.check_suite?.id];
+            return !!run && run.event === 'push' && run.path === GATES_WORKFLOW && run.head_sha === sha;
+        });
+        if (!ours.length) return { passed: false, reason: `Gates has no "${name}" check from a push of ${sha.slice(0, 7)}.` };
+        const newest = ours.reduce((a, b) => (b.id > a.id ? b : a));
+        const untraced = named.find((c) => c.id > newest.id && !runsBySuite[c.check_suite?.id]);
+        if (untraced) {
+            return { passed: false, reason: `A newer "${name}" check on ${sha.slice(0, 7)} (${untraced.id}) has no workflow run GitHub could name.` };
+        }
+        if (newest.status !== 'completed') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} is ${newest.status}, not finished.` };
+        if (newest.conclusion !== 'success') return { passed: false, reason: `Gates' "${name}" on ${sha.slice(0, 7)} concluded ${newest.conclusion}.` };
+    }
+    return { passed: true, reason: `Gates passed ${sha.slice(0, 7)} on its push: ${names.join(', ')}.` };
+}
+
+/**
+ * Read from GitHub what gatesPassed needs for `sha`, then decide: `{ passed, reason }`.
+ * `get(path, { signal })` makes one API call under `/repos/<owner>/<repo>`.
+ * Every call gets the same `signal`, so one deadline holds the whole lookup;
+ * once it fires no further call is made. Anything GitHub cannot answer, the
+ * deadline included, is `passed: false`; so is a lookup given no `signal`.
+ */
+export async function lookUpGates({ sha, get, signal, names = GATES_CHECKS }) {
+    try {
+        if (!signal) throw new Error('no deadline was given');
+        const call = (path) => {
+            signal.throwIfAborted();
+            return get(path, { signal });
+        };
+        const checkRuns = [];
+        for (const name of names) {
+            const body = await call(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100`);
+            const page = body?.check_runs || [];
+            // The newest check must be among those read; past one page it may not be.
+            if ((body?.total_count ?? page.length) > page.length) {
+                throw new Error(`${body.total_count} "${name}" checks, more than one page`);
+            }
+            checkRuns.push(...page);
+        }
+        const runsBySuite = {};
+        const suites = new Set(checkRuns.map((c) => c?.check_suite?.id).filter(Boolean));
+        for (const id of suites) {
+            const runs = await call(`/actions/runs?check_suite_id=${id}&per_page=1`);
+            if (runs?.workflow_runs?.[0]) runsBySuite[id] = runs.workflow_runs[0];
+        }
+        return gatesPassed({ sha, checkRuns, runsBySuite, names });
+    } catch (e) {
+        return { passed: false, reason: `Could not read the checks of ${sha} (${e.message}).` };
+    }
 }
 
 /** Null when the build may carry `version`; otherwise the reason it may not. */

@@ -11,19 +11,24 @@
 # by hand with "nightly" skips the six-hour wait and retries a failed commit,
 # but never publishes an unchanged one.
 #
-# STABLE. Running it by hand with "stable" releases the commit of the latest
-# nightly, not main's head, so what reaches everyone is the code nightly users
-# already ran (rebuilt from that commit, since the version is part of the
-# build), and work merged since does not ride along. Its version is the one
-# package.json carries at that commit, so the order is:
+# STABLE. Running it by hand with "stable" releases the nightly NAMED in the
+# "nightly" input (its tag: the build that was tried), not main's head and not
+# whichever nightly is newest, so what reaches everyone is the code nightly
+# users already ran (rebuilt, since the version is part of the build), and main
+# can keep merging while it is checked. When a fix for that release was needed,
+# it went onto `release/X.Y`, a branch started at the named nightly's commit,
+# and the stable is built from that branch's head instead. Its version is the
+# one package.json carries at the commit built, so the order is:
 #   1. merge a release pull request (package.json version + its CHANGELOG.md line);
-#   2. let a nightly build it (or run this with "nightly");
-#   3. run this with "stable".
+#   2. let a nightly build it (or run this with "nightly"), and try that build;
+#   3. run this with "stable" and that nightly's tag.
 # It refuses, saying which step is missing, when package.json there is not
 # newer than the latest stable tag or CHANGELOG.md has no section for it.
+# CONTRIBUTING.md (Releasing) has the whole cut, release branch included.
 #
 # Pushing a `vX.Y.Z` tag by hand still releases exactly that commit, through
-# release.yml directly, for the day the commit to ship is not a nightly's.
+# release.yml directly, for the day the commit to ship is not a nightly's; it
+# has to be on main or on release/X.Y.
 #
 # The decisions are tools/release.mjs (plan, promote), unit-tested in
 # tools/release-gates.mjs. `node tools/release.mjs plan` on any clone prints
@@ -41,10 +46,15 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: 'nightly: publish main now if it has new commits. stable: release the latest nightly''s commit.'
+        description: 'nightly: publish main now if it has new commits. stable: release the nightly named below.'
         type: choice
         options: [nightly, stable]
         default: nightly
+      nightly:
+        description: 'stable only: the tag of the nightly that was tried, e.g. v1.7.0-nightly.20261201.1 (built from release/X.Y when that branch exists).'
+        type: string
+        required: false
+        default: ''
 
 # One at a time per channel, and never cancelled: a run that is publishing must
 # finish, and the next one has to see what it published to decide anything.
@@ -90,10 +100,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CHANNEL: ${{ github.event_name == 'schedule' && 'nightly' || inputs.channel }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          NIGHTLY: ${{ inputs.nightly }}
         run: |
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           if [ "$CHANNEL" = stable ]; then
-            node tools/release.mjs promote
+            node tools/release.mjs promote --nightly "$NIGHTLY"
           elif [ "$MANUAL" = true ]; then
             node tools/release.mjs plan --force
           else
@@ -109,6 +120,7 @@ jobs:
       contents: write
       packages: write
       actions: read
+      checks: read          # verify asks whether Gates already passed the commit
       id-token: write       # only release.yml's attest job asks for these two
       attestations: write
     uses: ./.github/workflows/release.yml

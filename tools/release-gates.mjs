@@ -56,7 +56,8 @@ const throwsWith = (name, fn, pattern) => {
 const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
-    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS,
+    stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, lookUpGates, GATES_CHECKS,
+    releaseBranch, namedNightly, workflowScripts,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -149,17 +150,52 @@ check('the newest PUBLISHED nightly, not a draft and not a stable release',
 check('none published', latestNightly([releases[0], releases[2]]), null);
 
 // ---------------------------------------------------------------------------
-// 3. Promoting the latest nightly to stable
+// 3. Promoting a named nightly (or its release branch) to stable
 // ---------------------------------------------------------------------------
 console.log('\n--- stable from nightly ---');
 
 const nightly = { tag: 'v1.2.0-nightly.20261008.1', sha: 'c'.repeat(40) };
 const changelog = '# Changelog\n\n## [1.2.0] - 2026-10-08\n\n**Poster.** It fits.\n\n## [1.0.0] - 2026-10-02\n';
-const good = { nightly, onMain: true, packageVersion: '1.2.0', tags: ['v1.0.0', 'v1.1.0', nightly.tag], changelog };
+const good = { requested: nightly.tag, nightly, onMain: true, nightlyVersion: '1.2.0', packageVersion: '1.2.0', tags: ['v1.0.0', 'v1.1.0', nightly.tag], changelog };
 
-check('the release commit\'s nightly promotes to its package.json version',
-    promotion(good), { version: '1.2.0', tag: 'v1.2.0', sha: nightly.sha, from: nightly.tag });
-throwsWith('no nightly: refuse', () => promotion({ ...good, nightly: null }), /No nightly/);
+check('the named nightly promotes to its package.json version, from its own commit',
+    promotion(good), { version: '1.2.0', tag: 'v1.2.0', sha: nightly.sha, from: nightly.tag, line: '', fixes: [] });
+throwsWith('no nightly named: refuse, never assume the latest', () => promotion({ ...good, requested: '' }), /Name the nightly/);
+throwsWith('a name that is not a nightly\'s tag: refuse', () => promotion({ ...good, requested: 'v1.2.0' }), /not a nightly's tag/);
+throwsWith('a named nightly that is not published: refuse', () => promotion({ ...good, nightly: null }), /not a published nightly/);
+{
+    // Its release branch: started at the nightly's commit, one fix since.
+    const fix = { sha: 'd'.repeat(40), subject: 'Fix the thing 1.2.0 broke' };
+    const line = { name: 'release/1.2', sha: fix.sha, containsNightly: true, commits: [fix] };
+    check('with a release branch, the stable is built from its head and lists what it adds',
+        promotion({ ...good, line }), { version: '1.2.0', tag: 'v1.2.0', sha: fix.sha, from: nightly.tag, line: 'release/1.2', fixes: [fix] });
+    throwsWith('a release branch that does not contain the nightly: refuse, naming the branch',
+        () => promotion({ ...good, line: { ...line, containsNightly: false } }), /release\/1\.2 does not contain v1\.2\.0-nightly/);
+    throwsWith('…unless the nightly predates the release pull request: then say that',
+        () => promotion({ ...good, nightlyVersion: '1.1.0', line: { ...line, name: 'release/1.1', containsNightly: false } }),
+        /says 1\.1\.0, which is not newer than the latest stable 1\.1\.0.*release pull request/s);
+    throwsWith('a release branch whose package.json left its line: refuse',
+        () => promotion({ ...good, line, packageVersion: '1.3.0', changelog: '## [1.3.0]\n' }), /release\/1\.2 says 1\.3\.0, which is not a version of that line/);
+    throwsWith('the pipeline changed on main since the branch: cherry-pick it onto the branch',
+        () => promotion({ ...good, line, pipelineChanged: ['tools/release.mjs'] }), /changed on main since release\/1\.2.*Cherry-pick that change onto release\/1\.2/s);
+    throwsWith('a release branch holding main\'s own commits (main merged in): refuse, naming them',
+        () => promotion({ ...good, line: { ...line, fromMain: ['e'.repeat(40), 'f'.repeat(40)] } }),
+        /release\/1\.2 holds 2 commits of main after v1\.2\.0-nightly\.20261008\.1 \(eeeeeee, fffffff\).*cherry-pick/s);
+    check('the scripts a workflow runs: tools/ scripts by path, once each, not data files',
+        workflowScripts('run: node tools/a.mjs && bash tools/x/b.sh\nrun: node tools/a.mjs tools/budgets.json\nrun: pwsh tools/c.ps1\n'),
+        ['tools/a.mjs', 'tools/c.ps1', 'tools/x/b.sh']);
+    check('a patch on the branch (1.2.1 after 1.2.0) promotes as 1.2.1',
+        promotion({ ...good, line, tags: [...good.tags, 'v1.2.0'], packageVersion: '1.2.1', changelog: '## [1.2.1]\n\nfix\n\n## [1.2.0]\n' }).tag, 'v1.2.1');
+    check('the release branch of a version', [releaseBranch('1.2.0'), releaseBranch('1.10.3'), releaseBranch('2.0.0-nightly.20261008.1')],
+        ['release/1.2', 'release/1.10', 'release/2.0']);
+    const list = [
+        { tag_name: 'v1.2.0-nightly.20261008.2', draft: true, published_at: null },
+        { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, published_at: '2026-10-08T06:00:00Z' },
+        { tag_name: 'v1.1.0', draft: false, published_at: '2026-10-08T09:00:00Z' },
+    ];
+    check('a named nightly is found only when it is published', [namedNightly(list, 'v1.2.0-nightly.20261008.1')?.tag, namedNightly(list, 'v1.2.0-nightly.20261008.2'), namedNightly(list, 'v1.1.0')],
+        ['v1.2.0-nightly.20261008.1', null, null]);
+}
 throwsWith('a nightly commit that is not on main: refuse',
     () => promotion({ ...good, onMain: false }), /not on main/);
 throwsWith('package.json not newer than the latest stable: refuse, and say what to do',
@@ -204,11 +240,61 @@ const promoted = releasePlan({ event: 'workflow_dispatch', refName: 'main', sha:
 check('called for a promotion: Latest, on the nightly\'s commit', [promoted.latest, promoted.ref], [true, SHA40]);
 throwsWith('a commit that is not on main is never published, by tag or by call',
     () => releasePlan({ event: 'push', refName: 'v1.3.0', sha: SHA40, tags: TAGS, onMain: false }), /not on main/);
+check('a stable release from its own release branch is published, by call or by tag',
+    [releasePlan({ event: 'workflow_dispatch', refName: 'main', sha: 'e'.repeat(40), tags: TAGS, onLine: true, input: { channel: 'stable', version: '1.3.0', ref: SHA40 } }).publish,
+        releasePlan({ event: 'push', refName: 'v1.3.1', sha: SHA40, tags: TAGS, onLine: true }).publish], [true, true]);
+throwsWith('…and refused when it is on neither, naming the branch it could have been on',
+    () => releasePlan({ event: 'push', refName: 'v1.3.1', sha: SHA40, tags: TAGS }), /not on main or on release\/1\.3/);
+throwsWith('a nightly never comes from a release branch',
+    () => releasePlan({ event: 'schedule', refName: 'main', sha: 'e'.repeat(40), tags: TAGS, onLine: true,
+        input: { channel: 'nightly', version: '1.3.0-nightly.20261008.1', ref: SHA40 } }), /not on main; only main/);
 const dryRun = releasePlan({ event: 'pull_request', refName: '37/merge', sha: SHA40, dry: { version: '1.3.0-nightly.20261008.1' } });
 check('a pull request publishes nothing (and is not on main, which is fine for a dry run)', [dryRun.publish, dryRun.channel], [false, 'nightly']);
 throwsWith('an unknown channel is refused',
     () => releasePlan({ event: 'workflow_dispatch', sha: SHA40, onMain: true, input: { channel: 'beta', version: '1.0.0', ref: SHA40 } }), /channel/);
 throwsWith('a tag that is not a version is refused', () => fromTag('vbanana'), /not a version/);
+
+console.log('\n--- verify skips the suites only when Gates passed this very commit ---');
+{
+    const sha = 'a'.repeat(40);
+    // The two checks the Gates workflow's matrix makes (gates.yml): written out
+    // here, not taken from GATES_CHECKS, so a rename on one side shows.
+    const linux = 'Node 24 on ubuntu-latest', windows = 'Node 24 on windows-latest';
+    const pushRun = { event: 'push', path: '.github/workflows/gates.yml', head_sha: sha };
+    const prRun = { event: 'pull_request', path: '.github/workflows/gates.yml', head_sha: sha };
+    const cr = (id, name, suite, status = 'completed', conclusion = 'success', extra = {}) =>
+        ({ id, name, head_sha: sha, status, conclusion, app: { slug: 'github-actions' }, check_suite: { id: suite }, ...extra });
+    const both = [cr(1, linux, 10), cr(2, windows, 10)];
+    const verdict = (checkRuns, runsBySuite = { 10: pushRun }, s = sha) => gatesPassed({ sha: s, checkRuns, runsBySuite }).passed;
+    check('the names it looks for are the two Gates jobs', [...GATES_CHECKS], [linux, windows]);
+    check('both checks green from Gates on a push of the commit: skip', verdict(both), true);
+    check('only Linux has finished: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'in_progress', null)]), false);
+    check('Windows failed: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'failure')]), false);
+    check('Windows cancelled: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'cancelled')]), false);
+    check('Windows missing: run the suites', verdict([cr(1, linux, 10)]), false);
+    check('no checks at all: run the suites', verdict([]), false);
+    check('a failed attempt re-run green: the newest attempt counts, skip',
+        verdict([...both, cr(0, windows, 10, 'completed', 'failure')]), true);
+    check('a green attempt re-run and now failing: the newest attempt counts, run the suites',
+        verdict([...both, cr(3, windows, 10, 'completed', 'failure')]), false);
+    check('green from a PULL REQUEST run (it tested a merge commit): run the suites', verdict(both, { 10: prRun }), false);
+    check('green from another workflow with the same job names: run the suites',
+        verdict(both, { 10: { ...pushRun, path: '.github/workflows/other.yml' } }), false);
+    check('green from a run of another commit: run the suites', verdict(both, { 10: { ...pushRun, head_sha: 'b'.repeat(40) } }), false);
+    check('a check not made by GitHub Actions: run the suites',
+        verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { app: { slug: 'some-app' } })]), false);
+    check('a check on another commit: run the suites', verdict([cr(1, linux, 10), cr(2, windows, 10, 'completed', 'success', { head_sha: 'b'.repeat(40) })]), false);
+    check('the run behind a suite unknown: run the suites', verdict(both, {}), false);
+    check('both green, but a NEWER Windows check whose run is unknown: run the suites',
+        verdict([...both, cr(3, windows, 11)], { 10: pushRun }), false);
+    check('both green, but a newer Windows check with no check suite at all: run the suites',
+        verdict([...both, cr(3, windows, undefined)], { 10: pushRun }), false);
+    check('an OLDER check whose run is unknown does not outrank the newest green: skip',
+        verdict([...both, cr(0, windows, 11, 'completed', 'failure')], { 10: pushRun }), true);
+    check('a newer check from a run known to be another workflow is still left out: skip',
+        verdict([...both, cr(3, windows, 11, 'completed', 'failure')], { 10: pushRun, 11: prRun }), true);
+    check('not a commit: run the suites', verdict(both, { 10: pushRun }, 'main'), false);
+}
 
 console.log('\n--- a draft is published only when its files are the ones built ---');
 const built = [
@@ -500,6 +586,93 @@ pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', 'v1.0.0']);
 ok('a tag that is already published is refused, and nothing is deleted',
     pub.status !== 0 && !pub.seen.some((s) => s.startsWith('DELETE')));
 
+// `gates-passed` asks GitHub the way verify does: Gates' two checks on the
+// commit by name, then the workflow run behind each check suite. Anything it
+// cannot read answers false, and exits 0: the suites then run as before.
+{
+    const sha = 'a'.repeat(40);
+    const checkRun = (id, name) => ({ id, name, head_sha: sha, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, check_suite: { id: 77 } });
+    const askGates = async (respond, { extra = [] } = {}) => {
+        const seen = [];
+        const server = createServer((req, res) => {
+            seen.push(`${req.method} ${req.url}`);
+            const answer = respond(req.url);
+            if (!answer) return; // never answered
+            const [status, json] = answer;
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(json));
+        });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        try {
+            const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'gates-passed', '--sha', sha, ...extra], {
+                env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`, GITHUB_REPOSITORY: 'o/r', GITHUB_TOKEN: 'x', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
+                // Only a hang guard: a lookup that ignores its deadline waits
+                // 60 s per call; every case here answers far sooner.
+                timeout: 20_000,
+            });
+            let stdout = '';
+            child.stdout.on('data', (d) => { stdout += d; });
+            const status = await new Promise((resolve) => child.on('close', resolve));
+            return { status, stdout, seen };
+        } finally {
+            server.closeAllConnections();
+            await new Promise((resolve) => server.close(resolve));
+        }
+    };
+    const green = (url) => {
+        if (url.startsWith(`/repos/o/r/commits/${sha}/check-runs?check_name=Node%2024%20on%20ubuntu-latest&`)) return [200, { check_runs: [checkRun(1, 'Node 24 on ubuntu-latest')] }];
+        if (url.startsWith(`/repos/o/r/commits/${sha}/check-runs?check_name=Node%2024%20on%20windows-latest&`)) return [200, { check_runs: [checkRun(2, 'Node 24 on windows-latest')] }];
+        if (url.startsWith('/repos/o/r/actions/runs?check_suite_id=77&')) return [200, { workflow_runs: [{ event: 'push', path: '.github/workflows/gates.yml', head_sha: sha }] }];
+        return [404, {}];
+    };
+    let g = await askGates(green);
+    ok('gates-passed answers true when Gates passed the commit on its push', g.status === 0 && /^passed=true$/m.test(g.stdout), g.stdout.trim() || g.seen.join(' | '));
+    g = await askGates((url) => (url.includes('/actions/runs') ? [200, { workflow_runs: [{ event: 'pull_request', path: '.github/workflows/gates.yml', head_sha: sha }] }] : green(url)));
+    ok('…false when the green checks came from a pull request run', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+    g = await askGates(() => [403, { message: 'Resource not accessible by integration' }]);
+    ok('…false, exiting 0, when GitHub refuses to answer', g.status === 0 && /^passed=false$/m.test(g.stdout) && /403/.test(g.stdout), g.stdout.trim());
+    g = await askGates((url) => {
+        const [status, json] = green(url);
+        return url.includes('windows-latest') ? [status, { ...json, total_count: 101 }] : [status, json];
+    });
+    ok('…false when a check name has more runs than one page holds (the newest may be on the next)',
+        g.status === 0 && /^passed=false$/m.test(g.stdout) && /101/.test(g.stdout), g.stdout.trim());
+    g = await askGates(green, { extra: ['--deadline-ms', '-1'] });
+    ok('…false, exiting 0, when the deadline given is out of range', g.status === 0 && /^passed=false$/m.test(g.stdout), g.stdout.trim());
+    // A call GitHub never answers: the CLI's deadline must reach the request
+    // itself and end it. Without it the call waits out a 60 s default and the
+    // hang guard above kills the child (status null).
+    g = await askGates(() => null, { extra: ['--deadline-ms', '300'] });
+    ok('…false, exiting 0, when a call never answers: the deadline ends the request itself',
+        g.status === 0 && /^passed=false$/m.test(g.stdout), `status ${g.status} ${g.stdout.trim()}`);
+
+    // The deadline, with no clock: lookUpGates through a stand-in transport
+    // that records the signal each call carries. One deadline holds the whole
+    // lookup only if every call carries the same signal, and once it fires no
+    // further call is made.
+    // `answered(n)` runs after call n has its answer: the deadline can fire
+    // between two calls, the way a timer would.
+    const stubGet = (calls, answered = () => {}) => async (path, options = {}) => {
+        calls.push({ path, signal: options.signal });
+        if (options.signal?.aborted) throw options.signal.reason;
+        const [status, json] = green(`/repos/o/r${path}`);
+        if (status !== 200) throw new Error(`GitHub answered ${status}`);
+        answered(calls.length);
+        return json;
+    };
+    let calls = [];
+    const deadline = new AbortController();
+    let v = await lookUpGates({ sha, get: stubGet(calls), signal: deadline.signal });
+    ok('lookUpGates: three calls, every one carrying the one deadline it was given',
+        v.passed === true && calls.length === 3 && calls.every((c) => c.signal === deadline.signal),
+        `${v.reason} | ${calls.map((c) => (c.signal === deadline.signal ? 'same' : 'other')).join(',')}`);
+    calls = [];
+    const fired = new AbortController();
+    v = await lookUpGates({ sha, get: stubGet(calls, (n) => { if (n === 2) fired.abort(new Error('deadline passed')); }), signal: fired.signal });
+    ok('…false when the deadline fires mid-lookup, and the call after it is never made',
+        v.passed === false && /deadline passed/.test(v.reason) && calls.length === 2, `${v.reason} | ${calls.length} calls`);
+}
+
 // The plan, image and release jobs run tools/release.mjs straight after the
 // checkout, with no `npm ci`: everything it imports must be Node's own or
 // another file of this set. A package import there fails only on GitHub.
@@ -551,21 +724,96 @@ const fakeApi = join(scratch, 'releases.json');
 writeFileSync(fakeApi, JSON.stringify([
     { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, prerelease: true, published_at: '2026-10-08T06:00:00Z' },
 ]));
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
+const NIGHTLY_TAG = 'v1.2.0-nightly.20261008.1';
+const promote = (extra = [], env = {}) => cli(['promote', '--releases-file', fakeApi, '--main', 'main', ...extra], repo, env);
+r = promote(['--nightly', NIGHTLY_TAG]);
 check('promote exits 0 for a release commit\'s nightly', r.status, 0);
 ok('promote names the nightly\'s commit, not main\'s head', r.stdout.includes(`ref=${releaseSha}`), r.stdout.trim().replace(/\n/g, ' · '));
 ok('promote answers the version from that commit, not main\'s 1.3.0', /version=1\.2\.0\n/.test(r.stdout));
-r = cli(['promote', '--releases-file', fakeApi], repo);
+r = promote(['--nightly', '']);
+ok('promote with no nightly named refuses (the stable input left empty)', r.status !== 0 && /Name the nightly/.test(r.stderr), (r.stderr || '').trim());
+r = promote(['--nightly', 'v1.2.0-nightly.20261009.1']);
+ok('promote of a nightly that was never published refuses', r.status !== 0 && /not a published nightly/.test(r.stderr), (r.stderr || '').trim());
+r = cli(['promote', '--releases-file', fakeApi, '--nightly', NIGHTLY_TAG], repo);
 ok('promote fails closed when origin/main is not in the clone (never falls back to HEAD)',
     r.status !== 0 && /origin\/main is not in this clone/.test(r.stderr), (r.stderr || '').trim());
+
+// A fix for 1.2.0 found while it was tried: a release branch started at the
+// nightly's commit, the fix on it. main has moved on meanwhile.
+git(repo, 'branch', 'release/1.2', releaseSha);
+git(repo, 'checkout', '-q', 'release/1.2');
+const fixSha = commit('Fix what 1.2.0 broke', { 'fix.txt': 'fixed\n' });
+git(repo, 'checkout', '-q', 'main');
+const summaryFile = join(scratch, 'summary.md');
+writeFileSync(summaryFile, '');
+r = promote(['--nightly', NIGHTLY_TAG], { GITHUB_STEP_SUMMARY: summaryFile });
+ok('with release/1.2, promote builds the branch\'s head, not the nightly\'s commit nor main\'s',
+    r.status === 0 && r.stdout.includes(`ref=${fixSha}`) && /version=1\.2\.0\n/.test(r.stdout), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+ok('…and the run\'s summary lists what the branch adds after the nightly',
+    readFileSync(summaryFile, 'utf8').includes(`\`${fixSha.slice(0, 7)}\` Fix what 1.2.0 broke`), readFileSync(summaryFile, 'utf8'));
+
 mkdirSync(join(repo, 'tools'), { recursive: true });
 commit('pipeline change', { 'tools/release.mjs': '// a newer CLI\n' });
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
-ok('promote refuses when the release pipeline changed on main since the nightly',
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('promote refuses when the release pipeline changed on main since the release branch, and says to cherry-pick it',
+    r.status !== 0 && /pipeline changed.*tools\/release\.mjs.*Cherry-pick that change onto release\/1\.2/s.test(r.stderr), (r.stderr || '').trim());
+git(repo, 'checkout', '-q', 'release/1.2');
+mkdirSync(join(repo, 'tools'), { recursive: true });
+const pickedSha = commit('pipeline change', { 'tools/release.mjs': '// a newer CLI\n' });
+git(repo, 'checkout', '-q', 'main');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('…and promotes once the branch carries it', r.status === 0 && r.stdout.includes(`ref=${pickedSha}`), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+// The other scripts main's release.yml runs are named in the summary when the
+// built commit has different ones, never refused: they build that commit's code.
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflow = { '.github/workflows/release.yml': 'steps:\n  - run: bash tools/smoke.sh\n  - run: node tools/perf.json\n' };
+commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo new\n' });
+git(repo, 'checkout', '-q', 'release/1.2');
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflowPicked = commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo old\n' });
+git(repo, 'checkout', '-q', 'main');
+writeFileSync(summaryFile, '');
+r = promote(['--nightly', NIGHTLY_TAG], { GITHUB_STEP_SUMMARY: summaryFile });
+ok('a script release.yml runs that differs on the branch is named in the summary, and the stable still goes ahead',
+    r.status === 0 && r.stdout.includes(`ref=${workflowPicked}`) && /differ from main's[^]*- `tools\/smoke\.sh`/.test(readFileSync(summaryFile, 'utf8'))
+    && !readFileSync(summaryFile, 'utf8').includes('perf.json'), (r.stderr + readFileSync(summaryFile, 'utf8')).trim());
+// main merged into the branch brings its untried commits along: refuse.
+git(repo, 'checkout', '-q', 'release/1.2');
+const merged = git(repo, 'merge', '-q', '--no-edit', '-X', 'ours', 'main');
+git(repo, 'checkout', '-q', 'main');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('a release branch with main merged into it is refused, naming main\'s commits',
+    merged.status === 0 && r.status !== 0 && /release\/1\.2 holds \d+ commits of main after v1\.2\.0-nightly\.20261008\.1.*cherry-pick/s.test(r.stderr),
+    `${merged.stderr}${r.stdout}${r.stderr}`.trim());
+git(repo, 'branch', '-q', '-f', 'release/1.2', workflowPicked);
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('…and goes ahead again once the branch holds only its own commits', r.status === 0, (r.stdout + r.stderr).trim());
+git(repo, 'branch', '-q', '-D', 'release/1.2');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('with no release branch, promote refuses when the release pipeline changed on main since the nightly',
     r.status !== 0 && /pipeline changed.*tools\/release\.mjs/.test(r.stderr), (r.stderr || '').trim());
+git(repo, 'branch', 'release/1.2', `${releaseSha}~1`);
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('a release branch started before the nightly is refused',
+    r.status !== 0 && /release\/1\.2 does not contain v1\.2\.0-nightly\.20261008\.1/.test(r.stderr), (r.stderr || '').trim());
+
+// release.yml's plan, for the commit the promotion chose: on a release branch
+// it publishes as a stable release; a commit on neither main nor its own
+// branch is refused. The checkout there has both as origin/ refs.
+git(repo, 'branch', '-q', '-f', 'release/1.2', pickedSha);
+git(repo, 'update-ref', 'refs/remotes/origin/main', 'main');
+git(repo, 'update-ref', 'refs/remotes/origin/release/1.2', 'release/1.2');
+const resolveAs = (version, ref) => cli(['resolve'], repo, {
+    GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'main', GITHUB_SHA: git(repo, 'rev-parse', 'main').stdout.trim(),
+    IN_CHANNEL: 'stable', IN_VERSION: version, IN_REF: ref, IN_PREVIOUS: NIGHTLY_TAG,
+});
+r = resolveAs('1.2.0', pickedSha);
+ok('resolve publishes a stable release from its release branch', r.status === 0 && /publish=true/.test(r.stdout) && r.stdout.includes(`ref=${pickedSha}`), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+r = resolveAs('1.3.0', pickedSha);
+ok('…but not as another line\'s version', r.status !== 0 && /not on main or on release\/1\.3/.test(r.stderr), (r.stderr || '').trim());
 
 writeFileSync(fakeApi, JSON.stringify([]));
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
+r = promote(['--nightly', NIGHTLY_TAG]);
 ok('promote with no nightly fails', r.status !== 0, (r.stderr || '').trim());
 
 // `plan` on the same repository: nothing published yet, so a nightly is due,
@@ -610,6 +858,11 @@ ok('nightly runs are serialised and never cancelled mid-publish',
     /concurrency:[\s\S]*?cancel-in-progress:\s*false/.test(nightlyYml));
 ok('nightly decides with this script, not inline YAML', /tools\/release\.mjs plan/.test(nightlyYml));
 ok('the stable dispatch promotes with this script', /tools\/release\.mjs promote/.test(nightlyYml));
+ok('…the nightly it names, from the run\'s input',
+    /\n {6}nightly:\n {8}description: [^\n]+\n {8}type: string\n/.test(nightlyYml)
+    && nightlyYml.includes('NIGHTLY: ${{ inputs.nightly }}') && nightlyYml.includes('node tools/release.mjs promote --nightly "$NIGHTLY"'));
+ok('Gates tests every push to a release branch, whose head a stable is built from',
+    /\n {2}push:\n {4}branches: \[[^\]]*'release\/\*\*'/.test(readYml('gates.yml')));
 ok('nightly refuses to publish from a branch other than main', /refs\/heads\/main/.test(nightlyYml));
 ok('a hand-pushed tag never builds a nightly (they come from the schedule only)',
     /'!v\*-nightly\.\*'/.test(releaseYml));
@@ -644,12 +897,14 @@ ok('a published release attests its zips\' build provenance, in a job of its own
     && jobPermissions(attestJob)['id-token'] === 'write' && jobPermissions(attestJob).attestations === 'write', attestJob);
 ok('…and the signing job holds no OIDC token', !jobPermissions(releaseJob)['id-token'], JSON.stringify(jobPermissions(releaseJob)));
 // nightly.yml calls release.yml; a caller must grant every permission the
-// called jobs ask for, or the nightly fails before it starts.
+// called jobs ask for, read as well as write, or the nightly fails before it
+// starts.
 const callerJob = nightlyYml.slice(nightlyYml.indexOf('\n  release:'), nightlyYml.indexOf('uses: ./.github/workflows/release.yml'));
 const granted = jobPermissions(callerJob);
 const asked = [...releaseYml.split(/\n(?=  [a-z-]+:\n)/)].flatMap((job) => Object.entries(jobPermissions(job)));
-const ungranted = asked.filter(([scope, level]) => level === 'write' && granted[scope] !== 'write').map(([s]) => s);
-ok('nightly grants the release workflow every write permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
+const covers = (have, want) => have === 'write' || (have === 'read' && want === 'read');
+const ungranted = [...new Set(asked.filter(([scope, level]) => !covers(granted[scope], level)).map(([s, l]) => `${s}: ${l}`))];
+ok('nightly grants the release workflow every permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
 // A called workflow's environment secret reads as '' unless the caller passes
 // its secrets on (actions/runner#4453); seven nightlies failed at signing so.
 // The calling job is the file's last, so it runs to the end.
@@ -665,9 +920,58 @@ ok('…after the drafts a failed attempt left are cleared',
 ok('…and published by the step that checks its files, with Latest from the plan',
     /tools\/release\.mjs publish --dir release --version "\$VERSION" --ref "\$REF" --release-id "\$RELEASE_ID" --latest "\$LATEST"/.test(releaseYml)
     && /LATEST: \$\{\{ needs\.plan\.outputs\.latest \}\}/.test(releaseYml));
+// The image: one native build per architecture, pushed by digest with no tag,
+// then joined under the exact version and nothing else.
+const archJob = releaseYml.slice(releaseYml.indexOf('\n  image-arch:'), releaseYml.indexOf('\n  image:'));
 const imageJob = releaseYml.slice(releaseYml.indexOf('\n  image:'), releaseYml.indexOf('\n  desktop:'));
-ok('the image build pushes only its exact version', /tags: \|\n\s*type=raw,value=\$\{\{ needs\.plan\.outputs\.version \}\}\n\n/.test(imageJob)
-    && !/value=latest|value=nightly/.test(imageJob));
+ok('each architecture builds on a runner of its own kind, none under emulation',
+    /- arch: amd64\n\s+runner: ubuntu-24\.04\n/.test(archJob) && /- arch: arm64\n\s+runner: ubuntu-24\.04-arm\n/.test(archJob)
+    && /runs-on: \$\{\{ matrix\.runner \}\}/.test(archJob) && /platforms: linux\/\$\{\{ matrix\.arch \}\}/.test(archJob)
+    && !/setup-qemu/.test(releaseYml), archJob.slice(0, 400));
+ok('…a real release pushes each one by digest only, a dry run loads it and pushes nothing',
+    archJob.includes("outputs: ${{ needs.plan.outputs.publish == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.name.outputs.image) || '' }}")
+    && archJob.includes("load: ${{ needs.plan.outputs.publish != 'true' }}")
+    && archJob.includes("tags: ${{ needs.plan.outputs.publish != 'true' && steps.meta.outputs.tags || '' }}")
+    && !/\n\s+push: /.test(archJob));
+ok('…each one is started and its first visit checked before its digest is handed on',
+    archJob.indexOf('tools/first-visit-smoke.sh') > archJob.indexOf('id: build')
+    && archJob.indexOf('name: image-digest-${{ matrix.arch }}') > archJob.indexOf('tools/first-visit-smoke.sh'));
+ok('the joined image is tagged with its exact version only, from both digests, and hands its digest on',
+    /needs: \[plan, image-arch\]/.test(imageJob)
+    && /docker buildx imagetools create -t "\$image:\$VERSION" "\$\{sources\[@\]\}"/.test(imageJob)
+    && /"\$\{#sources\[@\]\}" != 2/.test(imageJob)
+    && /digest: \$\{\{ steps\.join\.outputs\.digest \}\}/.test(imageJob)
+    && (imageJob.match(/ -t /g) || []).length === 1
+    && !/value=latest|value=nightly|:latest|:nightly/.test(archJob + imageJob), imageJob.slice(0, 400));
+// verify: the suites are skipped only on Gates' word for this exact commit,
+// and only in a run that publishes; the version check always runs.
+const verifyJob = releaseYml.slice(releaseYml.indexOf('\n  verify:'), releaseYml.indexOf('\n  image-arch:'));
+const verifySteps = verifyJob.split('\n      - ').slice(1);
+const gatesStep = verifySteps.find((s) => s.includes('tools/release.mjs gates-passed'));
+ok('verify asks whether Gates passed the planned commit, and only when it publishes',
+    !!gatesStep && /^id: gates\n/.test(gatesStep) && gatesStep.includes("if: needs.plan.outputs.publish == 'true'")
+    && gatesStep.includes('REF: ${{ needs.plan.outputs.ref }}') && gatesStep.includes('--sha "$REF"')
+    && jobPermissions(verifyJob).checks === 'read' && jobPermissions(verifyJob).actions === 'read', gatesStep);
+const suiteSteps = ['npm ci', 'npx tsc --noEmit', 'node --check', 'npm test', 'npm run build'].map((cmd) => verifySteps.find((s) => s.includes(cmd)));
+ok('…each step Gates already ran is skipped on that answer alone',
+    suiteSteps.every((s) => s && s.includes("if: steps.gates.outputs.passed != 'true'")), suiteSteps.map((s) => (s || 'MISSING').split('\n')[0]).join(' | '));
+const versionStep = verifySteps.find((s) => s.includes('tools/release.mjs check-version'));
+ok('…and the version check runs whatever Gates said', !!versionStep && !/\n\s+if:/.test(versionStep), versionStep);
+// The names it looks for are the names Gates' jobs carry: a matrix name with
+// its values filled in, or a job named outright.
+{
+    const gatesYml = readYml('gates.yml');
+    const shown = new Set([...gatesYml.matchAll(/\n {4}name: (.+)\n/g)].map((m) => m[1].trim().replace(/^['"]|['"]$/g, '')));
+    const os = (/\n\s+os: \[([^\]]*)\]/.exec(gatesYml)?.[1] || '').split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    const node = (/\n\s+node: \[([^\]]*)\]/.exec(gatesYml)?.[1] || '').split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    for (const name of [...shown]) {
+        if (!name.includes('${{')) continue;
+        for (const o of os) for (const n of node) shown.add(name.replace('${{ matrix.os }}', o).replace('${{ matrix.node }}', n));
+    }
+    const absent = GATES_CHECKS.filter((n) => !shown.has(n));
+    ok('Gates (gates.yml) still makes every check verify takes as its word', absent.length === 0, `absent: ${absent.join(', ')}`);
+    ok('…and runs on pushes to main, so a squash-merged commit is tested as it is', /\n {2}push:\n {4}branches: \[[^\]]*\bmain\b/.test(gatesYml));
+}
 const tagsJob = releaseYml.slice(releaseYml.indexOf('\n  image-tags:'));
 ok('the moving image tags move after the release is published, from the plan',
     /needs: \[plan, image, release\]/.test(tagsJob) && /needs\.release\.result == 'success'/.test(tagsJob)
