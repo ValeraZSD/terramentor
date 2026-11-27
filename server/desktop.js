@@ -41,13 +41,15 @@
 
 import { Router } from 'express';
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
+import { createReadStream, existsSync, writeFileSync, rmSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { libraryId } from './paths.js';
 import { appPlacement } from './appPlacement.js';
-import { instanceProof, validNonce } from './instanceKey.js';
+import { instanceProof, provesOpenFile, validNonce } from './instanceKey.js';
+import { createOpenedFiles, MAX_OPENED_BYTES } from './openedFiles.js';
 import { apiError, errorBody, keyed } from './clientError.js';
 import { heldUntil as signInHeldUntil } from './signInHold.js';
 
@@ -288,6 +290,7 @@ function openFolder(dir) {
 export function createDesktop({
     dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now,
     placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null, heldUntil = signInHeldUntil,
+    openedFiles = createOpenedFiles({ now }),
 }) {
     const state = {
         startedAt: now(),
@@ -455,8 +458,52 @@ export function createDesktop({
         }
         res.json({ ok: true });
     });
+    // A file the launcher was asked to open (server/openedFiles.js). Public,
+    // because the launcher has no session, and answered only to a proof made
+    // under this library's key: the instance check's key, over the path, the
+    // port the request arrived on and a nonce this server has not seen. A
+    // program talking to the launcher's caller, never to a person, so its
+    // refusals are plain sentences.
+    pub.post('/api/desktop/open-file', (req, res) => {
+        const { path, nonce, proof } = req.body || {};
+        if (!provesOpenFile(proof, { key: instanceKey, nonce, port: req.socket?.localPort, path })) {
+            return res.status(403).json(apiError('Not proved by this library\'s key'));
+        }
+        if (!openedFiles.freshNonce(nonce)) return res.status(403).json(apiError('That proof was already used'));
+        const answer = openedFiles.register(path);
+        if (answer.refused) return res.status(400).json(apiError(`Cannot open that file: ${answer.refused}`));
+        res.json({ token: answer.token });
+    });
 
     const protectedRouter = Router();
+    // The registered file's bytes, for the window that holds its token. The
+    // token is spent here, whether or not the read then succeeds: a reload, or
+    // another window, gets nothing and asks the learner to open the file again.
+    protectedRouter.get('/api/desktop/opened-file/:token', (req, res) => {
+        const entry = openedFiles.take(req.params.token);
+        if (!entry) return res.status(404).json(keyed('This file is no longer waiting to be opened. Open it again.'));
+        // Asked again: the file may have changed since it was registered.
+        let size;
+        try {
+            const st = statSync(entry.path);
+            if (!st.isFile() || st.size === 0 || st.size > MAX_OPENED_BYTES) throw new Error('not openable');
+            size = st.size;
+        } catch {
+            return res.status(404).json(keyed('This file is no longer waiting to be opened. Open it again.'));
+        }
+        res.set({
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(size),
+            'Cache-Control': 'no-store',
+            // The page names the file it shows from this, so a name in any
+            // script survives the header (which carries only Latin-1).
+            'X-File-Name': encodeURIComponent(entry.name),
+        });
+        // No more than the length just sent, should the file grow meanwhile.
+        // pipeline closes the file when the window goes away mid-read, which
+        // pipe() would leave open until the server stops.
+        pipeline(createReadStream(entry.path, { end: size - 1 }), res).catch(() => res.destroy());
+    });
     // The whole picture, for the settings panel and the lost-library card.
     // Mounted below `requireAuth` in createApp (server/app.js), which is the difference between
     // this and the probe above.

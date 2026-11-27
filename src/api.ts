@@ -1157,6 +1157,22 @@ export const api = {
         return res.json();
     },
 
+    /** The course file the desktop app was asked to open, by the one-use token
+     *  its window was opened with (server/openedFiles.js). Imports nothing. */
+    openedFile: async (token: string): Promise<File> => {
+        const res = await apiFetch(`${BASE}/desktop/opened-file/${encodeURIComponent(token)}`);
+        if (!res.ok) {
+            let msg = `Error ${res.status}`;
+            try { const d = await res.json(); msg = serverText(d) ?? msg; } catch { /* non-JSON */ }
+            throw new Error(msg);
+        }
+        let name = '';
+        try { name = decodeURIComponent(res.headers.get('X-File-Name') ?? ''); } catch { /* malformed: the default */ }
+        // The server sends only .studyvault files; the name decides which door imports it.
+        if (!/\.studyvault$/i.test(name)) name = 'course.studyvault';
+        return new File([await res.blob()], name, { type: 'application/octet-stream' });
+    },
+
     // UPDATING AN INSTALLED COURSE FROM A NEWER FILE
 
     /** What a course file would change in the copy of its course already in

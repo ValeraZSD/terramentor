@@ -232,7 +232,7 @@ app.use(cors({
 // desktop heartbeat) take a password, a code or a client id, so they read a
 // small body.
 const publicJson = express.json({ limit: '64kb' });
-const PUBLIC_JSON_PATHS = ['/api/auth', '/api/desktop/ping'];
+const PUBLIC_JSON_PATHS = ['/api/auth', '/api/desktop/ping', '/api/desktop/open-file'];
 // Everything else, after the gate. 25 MB of JSON is a full curriculum with
 // materials several times over (a large project is well under 10 MB of text);
 // a higher limit would let a request park that much in parsed objects in RAM
@@ -431,6 +431,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
         res.status(403).json(keyed('Only on the computer itself, or with the password'));
     };
     app.use('/api/desktop', onTheComputer);
+    // …and the course file the launcher was asked to open is read off the
+    // computer's own disk, so not even reading it is a device's to do.
+    app.use('/api/desktop/opened-file', (req, res, next) =>
+        (ownerPresent(req) ? next() : res.status(403).json(keyed('Only on the computer itself, or with the password'))));
     app.use('/api/updates', onTheComputer);
     // Where prompts, documents and keys go is the computer's to decide too: the
     // same rows the settings writer keeps for it ('network' in

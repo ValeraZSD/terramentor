@@ -158,8 +158,10 @@ your data at all." Those are different claims and we only make the second one.
   every relayed sign-in, so 32 wrong guesses through `tailscale serve` or another local proxy
   refuse every relayed sign-in, your own phone's included, for 15 minutes; signing in on this
   computer is unaffected) covers every `/api` route
-  except the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe,
-  and the app icon and manifest (none of which carries library data). It is
+  except the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe
+  and its request to open a course file (answered only to a proof made with the library's key,
+  see "Opening a course file from the file manager"), and the app icon and manifest (none of
+  which carries library data). It is
   **off by default**, because on a loopback-only bind there is nothing to authenticate against.
   - **A sign-in is a record on the server** (`server/authSessions.js`, table `auth_sessions`):
     the HttpOnly cookie carries a random id signed with the session secret, and the library
@@ -699,6 +701,94 @@ Docker and git installs are shown the command to run instead (see below).
   `docker compose pull && docker compose up -d` with a copy button. A tool that updates
   containers automatically (a Watchtower fork, for example) needs that socket, so it then
   controls your containers, not this app.
+
+## The Windows installer
+
+Windows has two downloads of the same app folder: the zip, which writes nothing to the
+registry, and `Terramentor-<version>-win32-x64-setup.exe` (Inno Setup,
+`desktop/installer/Terramentor.iss`).
+
+- **Per user, never elevated.** The setup runs with `PrivilegesRequired=lowest` and never asks
+  for an administrator. It installs into `%LOCALAPPDATA%\Programs\Terramentor` and writes only
+  under `HKCU`: the entry in Windows' list of installed apps, and the `.studyvault` file type
+  (`Software\Classes\.studyvault` and `Software\Classes\Terramentor.StudyVault`, with its icon
+  and the command `Terramentor.exe --open "%1"`). Nothing is written machine-wide, and no
+  service or scheduled task is installed.
+- **The one-click updater keeps working.** The folder is the user's own, so an update replaces
+  it in place as it does a zip copy (above). The setup's own files sit in `uninstall\` inside
+  it, a name no update moves (`NEVER_MOVED` in `desktop/updateCore.js`). After an update the
+  app sets the version shown in that list of apps: one `reg add` of `DisplayVersion` under its
+  own entry, made only when the entry exists.
+- **Uninstalling never touches the library.** It removes the app folder's files, the Start Menu
+  entry, the file type, the entry in the list of apps, and a "Start when I sign in" shortcut
+  only when that shortcut starts this copy. The library (`%LOCALAPPDATA%\Terramentor`, or
+  wherever it was moved), a `data` folder kept beside the app and `library-location.txt` stay.
+  Files are cleared only from a folder that holds a packaged app (its `build.json`), and a
+  junction inside it is removed without following it.
+- **An older setup does not run over a newer copy.** It reads the installed copy's version
+  from the folder itself (a one-click update changes it without the setup) and stops, changing
+  nothing: an older version may not open a library a newer one has migrated.
+- **How it is built.** In the release workflow, beside the zip and from the same folder. Inno
+  Setup is not on GitHub's Windows runner image, so the workflow downloads it from its own
+  project's GitHub release and refuses it unless its SHA-256 matches the digest pinned in
+  `.github/workflows/release.yml`. The setup is then installed on the runner's own account,
+  reinstalled, refused when older and removed (`tools/installer-check.mjs`) before it can be
+  published. It is not Authenticode-signed either, so Windows SmartScreen warns the first
+  time; `gh attestation verify <setup.exe> -R ValeraZSD/terramentor` shows it was built by this
+  repository's release workflow, as for the zip.
+
+## Opening a course file from the file manager
+
+In the desktop app, a `.studyvault` file opened from the file manager (on Windows through the
+installer's file type, on Linux through the file type `install-desktop-entry.sh` adds), dropped
+on the program, or named with `--open <file>` opens in the app's window on the course's page.
+**Nothing is imported until you press Add there**; a whole library asks first.
+
+- **A file's path never goes into an address.** An address is something any program, web
+  page or link on this computer can open, and a page that read the file an address named would
+  read whatever file that address said. So the launcher that was handed the file registers it
+  with the running server (`POST /api/desktop/open-file`, `server/openedFiles.js`), gets back a
+  random 256-bit token, and opens the window at `/#open-file=<token>`. The token is in the
+  address's fragment, which the browser does not send to any server, and the page removes it
+  from the address as it starts.
+- **Only the library's owner can register a file.** The request is public, because the launcher
+  has no session, so the server answers it only with a proof: an HMAC-SHA256 under the
+  library's `instance.key` (the key the launch and update checks use, readable by this user
+  only) over a fixed label, a fresh random nonce, the port the request arrived on and the path
+  itself. A proof made for one file or one port proves nothing for another. A nonce is refused
+  while the server remembers it (ten minutes, the life of a token); a proof replayed after that
+  registers the same file again, which only the library's owner can then read. Anyone who can
+  read that key can read the file anyway, so a registration gives its sender nothing they did
+  not already have; a web page cannot read the key at all.
+- **What can be registered.** An absolute path of at most 4,096 characters with no NUL byte,
+  ending in `.studyvault`, that names a regular, non-empty file of at most 1 GiB (the import's
+  own ceiling). Windows' device and raw namespaces (`\\.\`, `\\?\`) are refused before the file
+  system is asked. A network path (`\\server\share\course.studyvault`) is read like any other
+  file, with your account, as a double-click on it in Explorer would.
+- **A token is good once, for a short time.** At most 16 files wait at once, and a token not
+  asked for within 10 minutes lapses. The read that hands the file to the page spends the
+  token whether it then succeeds or not, so a reload, a second window or a copy of the address
+  gets nothing. The file is checked again when it is read (still a regular file, not empty,
+  within the ceiling), and no more bytes are sent than that check counted.
+- **Only this computer reads it.** `GET /api/desktop/opened-file/<token>` is behind the password
+  when one is set, and a device connected by its key without the password is refused even with
+  a valid token: the bytes come off this computer's disk. The answer is `Cache-Control:
+  no-store`; the file name travels percent-encoded in a header, never in a path.
+- **A hostile course file.** A `.studyvault` may be anyone's. To show it, the page reads only
+  the one entry it needs (the course's `manifest.json`, or a library's `library.json`), sliced
+  out of the file rather than held whole (`src/utils/courseBundle.ts`): the zip directory is
+  capped at 16 MB, the 64-bit zip forms are refused, the entry is inflated under the server's
+  own ceilings (64 MB for a course, 4 MB for a library's list of at most 1,000 courses) and
+  stops at the ceiling while it streams, and a name listed twice in the directory is refused,
+  since the importer would read one of the two and the page must show the one it reads. What
+  the page shows is display only. Add sends the file through the ordinary import, which reads
+  and checks the archive again from the start under the bounds in "Course and deck archives
+  are bounded where they are decompressed" (above).
+- **On Windows, the double-click.** Explorer runs `Terramentor.exe --open "%1"`, quoting the
+  path itself. When the app is already running, the second start hands the file over through
+  the launcher script and the proof above; the signal that brings an open window forward
+  carries no data. `tools/open-file-gates.mjs` holds the launcher's and the Windows program's
+  reading of the arguments to the same rule, and every refusal above to a case.
 
 ## Web search for answers
 

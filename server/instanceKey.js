@@ -141,6 +141,22 @@ export function instanceProof(key, nonce, port) {
     return createHmac('sha256', key).update(`terramentor-instance\n${nonce}\n${Number(port)}`).digest('hex');
 }
 
+/** The launcher's half of a request to open a file (server/openedFiles.js):
+ *  HMAC-SHA256 under the same key, over another label, the nonce, the port the
+ *  request goes to and the path itself, so a proof made for one file cannot be
+ *  replayed for another. */
+export function openFileProof(key, nonce, port, path) {
+    return createHmac('sha256', key).update(`terramentor-open-file\n${nonce}\n${Number(port)}\n${path}`).digest('hex');
+}
+
+/** Whether `proof` is the launcher's proof for opening `path`. */
+export function provesOpenFile(proof, { key, nonce, port, path }) {
+    if (!key || !validNonce(nonce) || typeof proof !== 'string' || typeof path !== 'string') return false;
+    const want = Buffer.from(openFileProof(key, nonce, port, path), 'utf8');
+    const got = Buffer.from(proof, 'utf8');
+    return got.length === want.length && timingSafeEqual(got, want);
+}
+
 /**
  * Whether a status answer proves it came from the server holding `key`, asked
  * with `nonce` on `port`. False whenever anything is missing: no key here, no

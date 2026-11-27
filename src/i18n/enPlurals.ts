@@ -356,6 +356,8 @@ const enPlurals: Record<string, string> = {
     "Imported \"{{name}}\" with {{count}} notes_other": "Imported \"{{name}}\" with {{count}} notes",
     "In {{length}} days_one": "In {{length}} day",
     "In {{length}} days_other": "In {{length}} days",
+    "It holds a whole library of {{count}} courses. Each is added as a course of its own._one": "It holds a whole library of {{count}} course. Each is added as a course of its own.",
+    "It holds a whole library of {{count}} courses. Each is added as a course of its own._other": "It holds a whole library of {{count}} courses. Each is added as a course of its own.",
     "It moved on {{count}} times since this list was set._one": "It moved on {{count}} time since this list was set.",
     "It moved on {{count}} times since this list was set._other": "It moved on {{count}} times since this list was set.",
     "lessons read_one": "lesson read",
