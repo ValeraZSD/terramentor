@@ -203,6 +203,25 @@ function containerNotViewport(raw, file) {
     }
 }
 
+/* ── 5c. Settings lays out by the width it has, never the window's ──────── */
+//
+// Settings shows full-page, in a phone's single pane and beside the open
+// assistant, so the window's width says nothing about a row's. The About and
+// This computer rows stacked their button under the text below `sm:`: on a
+// phone every one sat under its name with the right half of the card empty,
+// a row away from the Channel menu that sat on the right (his note on a
+// 412px screenshot, 27 Nov 2026). A row is a `SettingRow` (measured on its
+// own box); a field and its button wrap on a flex basis; a grid is
+// `auto-fit`.
+const SETTINGS_WIDTH_SCOPE = [...SETTINGS_SCOPE, 'src/components/OtherDevices.tsx'];
+function settingsFollowTheirWidth(raw, file) {
+    const src = blindComments(raw);
+    for (const m of src.matchAll(/(?<![\w-])(?:sm|md|lg|xl|2xl):[\w.[\]/-]+/g)) {
+        fail('viewport', file, lineOf(src, m.index), `\`${m[0]}\` keys a Settings layout on the window, not on the width the row has`,
+            'a row: `ui/SettingRow` (control beside the name while it fits); a field and its button: `flex flex-wrap` with the field on `flex-[1_1_12rem]`; a grid: `grid-cols-[repeat(auto-fit,minmax(…rem,1fr))]`');
+    }
+}
+
 /* ── 6. an on/off setting is a switch on the right ──────────────────────── */
 //
 // Six on/off settings (four feed dials, resource hunting, "Offer simulations
@@ -332,6 +351,10 @@ for (const file of files(SETTINGS_SCOPE)) {
     rowNeverWraps(src, file);
     switchesNotTicks(src, file);
 }
+for (const file of files(SETTINGS_WIDTH_SCOPE)) {
+    checked++;
+    settingsFollowTheirWidth(read(file), file);
+}
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
 //
@@ -421,6 +444,18 @@ const PRE_FIX = [
         run: containerNotViewport,
         file: 'src/components/ui/Disclosure.tsx',
         src: "<span className={cx('order-last basis-full shrink-0 pl-8 text-sm sm:order-none sm:basis-auto sm:pl-0', !!desc && 'sm:mt-0.5')}>",
+    },
+    {
+        why: 'the About row whose button dropped under its name on every phone',
+        run: settingsFollowTheirWidth,
+        file: 'src/components/settings/AboutSection.tsx',
+        src: '                    <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">',
+    },
+    {
+        why: 'the proving-mode cards squeezed to three columns beside the assistant',
+        run: settingsFollowTheirWidth,
+        file: 'src/components/settings/ProvingModeCards.tsx',
+        src: '        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">',
     },
     {
         why: 'the feed dial ticked on the left under steppers on the right',
