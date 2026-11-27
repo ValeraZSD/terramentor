@@ -64,6 +64,13 @@ export async function readLinkedCourse(text: string): Promise<LinkedCourse> {
 
 /** The content column: one reading width, centred on a wide window. */
 const COLUMN = 'mx-auto w-full max-w-xl px-5';
+/** The close on the course's band: filled like the mark beside it, so it reads
+ *  as a control on a saturated colour where a bare glyph read as a stray mark.
+ *  White glyph and ring: the app's accent ring is the band's own colour there.
+ *  15% and 20% keep the glyph at 3:1 or more on the darkest band a course
+ *  colour can give (its white text at 4.5:1). */
+const ON_BAND = '!bg-white/15 !text-white can-hover:enabled:hover:!bg-white/20 enabled:active:!bg-white/25 '
+    + 'focus-visible:!ring-white disabled:!bg-transparent disabled:!text-white/60';
 /** Rows drawn before "and N more": a link can hold tens of thousands of
  *  topics, and a phone drawing them all stalls. A real course stays under it. */
 const MAX_TOPICS_SHOWN = 200;
@@ -99,7 +106,7 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
             label={t("Close dialog")}
             tooltip={false}
             icon={<X className="h-5 w-5" />}
-            className={onBand ? '-ms-2.5 !text-white can-hover:hover:!bg-white/15' : '-ms-2.5'}
+            className={onBand ? ON_BAND : undefined}
         />
     );
 
@@ -124,7 +131,9 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                         <div className={DIALOG_BODY}>
                             <div className="bg-accent pt-3 text-white" style={band}>
                                 <div className={`${COLUMN} pb-6`}>
-                                    {close(true)}
+                                    {/* At the end, as every close in the app, and in
+                                        the same box as while the link is read. */}
+                                    <div className="flex justify-end">{close(true)}</div>
                                     {/* The name sits beside the mark, as on the course's card. */}
                                     <div className="mt-2 flex items-center gap-4">
                                         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-3xl">
@@ -185,7 +194,7 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                         // Being read: a moment, so a spinner rather than a page that
                         // jumps, and no band yet: its colour is the course's.
                         <>
-                            <div className="shrink-0 pt-3"><div className={COLUMN}>{close(false)}</div></div>
+                            <div className="shrink-0 pt-3"><div className={`${COLUMN} flex justify-end`}>{close(false)}</div></div>
                             <div className="flex flex-1 items-center justify-center" role="status" aria-busy="true">
                                 <Loader2 className="h-6 w-6 animate-spin text-accent-fg" aria-hidden="true" />
                                 <span className="sr-only">{t("Reading it…")}</span>
