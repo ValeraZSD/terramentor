@@ -44,10 +44,13 @@ A start copies the library (`VACUUM INTO <db>.pre-<label>.bak`) before it may ch
 when the version changed, or when the migration code or the schema differs from what the last
 finished start recorded in `settings` (`schema_code`, a hash of `database.js` and the modules it
 imports; `schema_fingerprint`, a hash of `sqlite_master` without the sqlite-vec tables). Both are
-written with `app_version` after the last migration (`server/schemaGuard.js`). A copy that cannot be
-made stops the start before any migration, with a translated message naming the copy and the
-override `MIGRATE_WITHOUT_BACKUP=1`. A column that cannot be added for any reason other than "duplicate
-column", and a table rebuild or rename that fails, stop the start too. Each schema step that runs (a
+written with `app_version` after the last migration (`server/schemaGuard.js`). A same-version copy is
+named `pre-<version>-build-<code>` and only the newest is kept, beside the three newest copies taken
+before a new version. A copy that cannot be made stops the start before any migration, with a
+translated message naming the copy and the override `MIGRATE_WITHOUT_BACKUP=1`. A column that cannot
+be added for any reason other than "duplicate column", and a table rebuild or rename that fails, stop
+the start too, except inside the portable-uuid migrations, whose own blocks log the failure and roll
+back. Each schema step that runs (a
 column added, a table rebuilt or renamed) is written to `schema_ledger` with the version that ran it;
 a library from before the ledger lists only the steps run since. `tools/schema-backup-gates.mjs` boots
 each case on a scratch library.

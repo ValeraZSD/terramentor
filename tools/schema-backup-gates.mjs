@@ -20,8 +20,13 @@
 //   7. a library in the oldest shape (no ledger, nodes.status
 //      CHECK)                                               -> opens, keeps every
 //      row, copied first, the steps that ran are recorded
-// plus the pure parts (which copy a start takes, the refusal's words).
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs';
+//   8. both CHECKs still there, with the views over the
+//      tables already made                                  -> opens, rebuilt
+//   9. many builds of one version                           -> their copies never
+//      push out a copy taken before a new version
+// plus the pure parts (which copy a start takes, the refusal's words, the
+// fingerprint, the room check).
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, writeFileSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -56,12 +61,20 @@ function library() {
         'if (process.argv[2] === "override") process.env.MIGRATE_WITHOUT_BACKUP = "1";',
         'else delete process.env.MIGRATE_WITHOUT_BACKUP;',
         // GATE_DB_MODULE names another copy of the module (the pre-fix one, for the control run).
-        `const m = await import(${JSON.stringify(pathToFileURL(join(root, 'server', process.env.GATE_DB_MODULE || 'database.js')).href)});`,
-        'm.closeDatabase();',
+        // The error a failed start throws is printed as its own line, read below:
+        // the words the launcher shows are that error's, not the crash dump's.
+        'try {',
+        `  const m = await import(${JSON.stringify(pathToFileURL(join(root, 'server', process.env.GATE_DB_MODULE || 'database.js')).href)});`,
+        '  m.closeDatabase();',
+        '} catch (e) {',
+        '  console.log("GATE_ERROR " + JSON.stringify({ message: String(e?.message), messageKey: e?.messageKey ?? null, code: e?.code ?? null }));',
+        '  process.exit(1);',
+        '}',
     ].join('\n'));
     const boot = (mode = '') => {
         const r = spawnSync(process.execPath, [launcher, mode], { cwd: root, encoding: 'utf8' });
-        return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+        const line = (r.stdout || '').split(/\r?\n/).find(l => l.startsWith('GATE_ERROR '));
+        return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}`, error: line ? JSON.parse(line.slice('GATE_ERROR '.length)) : null };
     };
     const open = (opts) => new Database(dbPath, opts);
     const baks = () => readdirSync(dir).filter(f => f.endsWith('.bak')).sort();
@@ -113,8 +126,8 @@ console.log('\n--- 1. same version, schema behind the code ---');
     check('the start succeeds', r.status === 0, tail(r.out));
     const copies = lib.baks();
     check('a copy was taken although the version did not change', copies.length === 1, JSON.stringify(copies));
-    check(`it is named for the version and the build it was taken from (pre-${VERSION}-…)`,
-        copies.length === 1 && copies[0].startsWith(`terramentor.db.pre-${VERSION}-`), copies[0]);
+    check(`it is named for the version and the build it was taken from (pre-${VERSION}-build-…)`,
+        copies.length === 1 && copies[0].startsWith(`terramentor.db.pre-${VERSION}-build-`), copies[0]);
     check('the copy holds the library as it was, without the column',
         copies.length === 1 && !lib.columns(join(lib.dir, copies[0]), 'projects').includes('look_back_skipped_at'));
     check('the library itself has the column again', lib.columns(lib.dbPath, 'projects').includes('look_back_skipped_at'));
@@ -130,7 +143,7 @@ console.log('\n--- 2. same version and schema, other migration code ---');
     check('the start succeeds', r.status === 0, tail(r.out));
     const copies = lib.baks();
     check('a copy was taken: the code that is about to run is not the code that last ran',
-        copies.length === 1 && copies[0] === `terramentor.db.pre-${VERSION}-feedface.bak`, JSON.stringify(copies));
+        copies.length === 1 && copies[0] === `terramentor.db.pre-${VERSION}-build-feedface.bak`, JSON.stringify(copies));
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +162,11 @@ console.log('\n--- 4. the copy cannot be written ---');
 const OLD = '0.0.1-gate';
 function blockedLibrary() {
     const lib = currentLibrary();
-    lib.edit((db) => db.prepare("UPDATE settings SET value = ? WHERE key = 'app_version'").run(OLD));
+    lib.edit((db) => {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'app_version'").run(OLD);
+        // English whatever this machine's own language is ('auto' follows it).
+        db.prepare("INSERT INTO settings (key, value) VALUES ('ui_language', 'en') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    });
     // Where the copy is written first: a folder with a file in it cannot be
     // removed or written over, as a read-only or full place cannot be written.
     const partial = `${lib.dbPath}.pre-${OLD}.bak.partial`;
@@ -172,10 +189,14 @@ function blockedLibrary() {
     check('and nothing waits in its write-ahead log', !existsSync(wal) || readFileSync(wal).length === 0);
     check('its schema is the one it had', JSON.stringify(schemaOf()) === schemaBefore);
     check('it still says the version it was left at', lib.setting('app_version') === OLD, lib.setting('app_version'));
+    // Read from the error the module threw, which is what the launcher shows.
+    const msg = r.error?.message || '';
+    check('the error carries the refusal\'s key',
+        typeof r.error?.messageKey === 'string' && r.error.messageKey.startsWith('This version of Terramentor'), JSON.stringify(r.error));
     check('the refusal says the library was not changed',
-        /this version of Terramentor changes how your library is stored/i.test(r.out) && /so nothing was changed/i.test(r.out), tail(r.out));
-    check('it names the copy it could not write', r.out.includes(`terramentor.db.pre-${OLD}.bak`), tail(r.out));
-    check('it names the way to go on without a copy', r.out.includes('MIGRATE_WITHOUT_BACKUP=1'), tail(r.out));
+        /^This version of Terramentor changes how your library is stored/.test(msg) && /so nothing was changed/.test(msg), msg);
+    check('it names the copy it could not write', msg.includes(`terramentor.db.pre-${OLD}.bak`), msg);
+    check('it names the way to go on without a copy', msg.includes('MIGRATE_WITHOUT_BACKUP=1'), msg);
     check('no copy and no partial file under the real name', lib.baks().length === 0, JSON.stringify(lib.baks()));
 }
 
@@ -202,7 +223,8 @@ console.log('\n--- 6. a column that cannot be added ---');
     });
     const r = lib.boot();
     check('the start fails instead of running without the column', r.status !== 0, `exit ${r.status}: ${tail(r.out)}`);
-    check('it names the column and the cause', /answer_attempts\.subject/.test(r.out) && /Cannot add a column to a view/.test(r.out), tail(r.out));
+    check('it names the column and the cause',
+        /answer_attempts\.subject/.test(r.error?.message) && /Cannot add a column to a view/.test(r.error?.message), JSON.stringify(r.error) || tail(r.out));
     check('the library is not stamped as migrated', lib.setting('app_version') === OLD, lib.setting('app_version'));
     check('the copy taken before it is there', lib.baks().includes(`terramentor.db.pre-${OLD}.bak`), JSON.stringify(lib.baks()));
 }
@@ -274,19 +296,88 @@ console.log('\n--- 7. a library in the oldest shape ---');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n--- 8. both CHECKs, with the views over the tables already made ---');
+{
+    const lib = currentLibrary();
+    // A library whose rebuilds never ran while `live_nodes` and the other views
+    // came in around the tables: each CHECK put back into the stored table text.
+    lib.edit((db) => {
+        db.unsafeMode(true);
+        db.pragma('writable_schema = ON');
+        db.prepare("UPDATE sqlite_master SET sql = replace(sql, 'status TEXT DEFAULT ''not_started''', "
+            + "'status TEXT DEFAULT ''not_started'' CHECK (status IN (''not_started'', ''in_progress'', ''completed'', ''skipped''))') WHERE name = 'nodes'").run();
+        db.prepare("UPDATE sqlite_master SET sql = replace(sql, 'evidence_type TEXT NOT NULL', "
+            + "'evidence_type TEXT NOT NULL CHECK (evidence_type IN (''quiz'', ''flashcard'', ''check''))') WHERE name = 'mastery_evidence'").run();
+        db.pragma('writable_schema = OFF');
+        db.unsafeMode(false);
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'app_version'").run(OLD);
+    });
+    const sqlOf = (db, name) => db.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(name)?.sql || '';
+    {
+        const db = lib.open();
+        try {
+            check('the fixture: both tables carry their CHECK',
+                /CHECK \(status/.test(sqlOf(db, 'nodes')) && /CHECK \(evidence_type/.test(sqlOf(db, 'mastery_evidence')));
+            check('the fixture: a view over the topic table exists', !!sqlOf(db, 'live_nodes'));
+            const project = db.prepare('SELECT id FROM projects LIMIT 1').get().id;
+            const node = db.prepare("INSERT INTO nodes (project_id, title, status) VALUES (?, 'Kept topic', 'completed')").run(project).lastInsertRowid;
+            db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'quiz', 3, 4)").run(node);
+            db.pragma('wal_checkpoint(TRUNCATE)');
+        } finally { db.close(); }
+    }
+    const r = lib.boot();
+    check('it opens', r.status === 0, JSON.stringify(r.error) || tail(r.out));
+    const db = lib.open({ readonly: true });
+    try {
+        check('the topic table lost its CHECK', !/CHECK \(status/.test(sqlOf(db, 'nodes')));
+        check('the evidence table lost its CHECK', !/CHECK \(evidence_type/.test(sqlOf(db, 'mastery_evidence')));
+        check('the topic and its evidence are kept', db.prepare(
+            "SELECT count(*) AS c FROM nodes n JOIN mastery_evidence e ON e.node_id = n.id WHERE n.title = 'Kept topic' AND e.score = 3").get().c === 1);
+        check('the view reads the rebuilt table', db.prepare("SELECT count(*) AS c FROM live_nodes WHERE title = 'Kept topic'").get().c === 1);
+        const names = new Set(db.prepare('SELECT name FROM schema_ledger').all().map(s => s.name));
+        check('the ledger records both rebuilds',
+            names.has('rebuild nodes without the status CHECK') && names.has('rebuild mastery_evidence without the evidence_type CHECK'));
+    } finally { db.close(); }
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- 9. many builds of one version ---');
+{
+    const lib = currentLibrary();
+    // Three copies taken before new versions, older than anything below.
+    const upgrades = ['1.4.0', '1.5.0', '1.6.0'].map(v => `terramentor.db.pre-${v}.bak`);
+    const dayAgo = Date.now() / 1000 - 86400;
+    upgrades.forEach((f, i) => {
+        writeFileSync(join(lib.dir, f), 'copy');
+        utimesSync(join(lib.dir, f), dayAgo + i, dayAgo + i);
+    });
+    // Three builds of this version, each last migrated by other code.
+    for (const code of ['aaaaaaaa00000000', 'bbbbbbbb00000000', 'cccccccc00000000']) {
+        lib.edit((db) => db.prepare("UPDATE settings SET value = ? WHERE key = 'schema_code'").run(code));
+        const r = lib.boot();
+        check(`the start after build ${code.slice(0, 8)} succeeds`, r.status === 0, tail(r.out));
+    }
+    const left = lib.baks();
+    check('every copy taken before a new version is kept', upgrades.every(f => left.includes(f)), JSON.stringify(left));
+    check('of the copies taken between builds, only the newest is kept',
+        JSON.stringify(left.filter(f => f.includes('-build-'))) === JSON.stringify([`terramentor.db.pre-${VERSION}-build-cccccccc.bak`]),
+        JSON.stringify(left));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n--- which copy a start takes, and what a refusal says ---');
 {
     const guard = await import(pathToFileURL(join(root, 'server', 'schemaGuard.js')).href);
-    const { snapshotLabel, snapshotRefusal } = guard;
+    const { snapshotLabel, snapshotRefusal, schemaFingerprint, roomForCopy } = guard;
     const same = { previousVersion: '1.6.0', version: '1.6.0', recordedFingerprint: 'f1', fingerprint: 'f1', recordedCode: 'c0ffee11aa', code: 'c0ffee11aa' };
     check('nothing recorded differs: no copy', snapshotLabel(same) === null);
     check('a version change: named for the version left', snapshotLabel({ ...same, version: '1.7.0' }) === '1.6.0');
     check('a library from before versions were stamped: "unknown"', snapshotLabel({ ...same, previousVersion: null }) === 'unknown');
     check('the schema moved: named for the version and the build left',
-        snapshotLabel({ ...same, fingerprint: 'f2' }) === '1.6.0-c0ffee11');
-    check('the code moved: the same', snapshotLabel({ ...same, code: 'beef' }) === '1.6.0-c0ffee11');
+        snapshotLabel({ ...same, fingerprint: 'f2' }) === '1.6.0-build-c0ffee11');
+    check('the code moved: the same', snapshotLabel({ ...same, code: 'beef' }) === '1.6.0-build-c0ffee11');
     check('nothing recorded yet: a copy, "unrecorded"',
-        snapshotLabel({ ...same, recordedFingerprint: null, recordedCode: null }) === '1.6.0-unrecorded');
+        snapshotLabel({ ...same, recordedFingerprint: null, recordedCode: null }) === '1.6.0-build-unrecorded');
     check('the code cannot be read: a copy', snapshotLabel({ ...same, code: null }) !== null);
 
     const full = snapshotRefusal({ target: '/lib/terramentor.db.pre-1.6.0.bak', cause: 'ENOSPC', free: 12.3e6, needed: 845.6e6, lang: 'en' });
@@ -300,6 +391,23 @@ console.log('\n--- which copy a start takes, and what a refusal says ---');
     check('said in the library\'s interface language', nl.message !== other.message && nl.message.startsWith(nlTable[other.messageKey].slice(0, 20)), nl.message);
     const unknown = snapshotRefusal({ target: '/lib/x.bak', cause: 'EPERM', lang: 'xx' });
     check('a language with no file falls back to English', unknown.message === other.message);
+
+    // The fingerprint leaves out the tables sqlite-vec makes at run time, and nothing else.
+    const mem = new Database(':memory:');
+    try {
+        mem.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY)');
+        const before = schemaFingerprint(mem);
+        mem.exec('CREATE TABLE vec_chunks_rowids (id INTEGER PRIMARY KEY)');
+        check('a table named like sqlite-vec\'s does not move the fingerprint', schemaFingerprint(mem) === before);
+        mem.exec('ALTER TABLE notes ADD COLUMN body TEXT');
+        check('a column added does', schemaFingerprint(mem) !== before);
+    } finally { mem.close(); }
+
+    const sized = join(scratchRoot, 'sized.db');
+    writeFileSync(sized, Buffer.alloc(4096));
+    const room = roomForCopy(sized);
+    check('the room check reads the library\'s size and the free space',
+        room?.needed === 4096 && Number.isFinite(room?.free) && room.free > 0, JSON.stringify(room));
 }
 
 try { rmSync(scratchRoot, { recursive: true, force: true }); } catch { /* Windows may hold a handle briefly */ }

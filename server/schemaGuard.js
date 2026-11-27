@@ -64,16 +64,20 @@ export function schemaFingerprint(db) {
  * `.pre-`), or null when it cannot change the schema.
  *
  * A new version is named for the version left, as it always was. The same
- * version is named for the version and the first 8 characters of the code that
- * last migrated the library, so each build of one version gets its own copy.
+ * version is named `<version>-build-<the first 8 characters of the code that
+ * last migrated the library>`, so each build of one version gets its own copy,
+ * and `-build-` keeps those apart when old copies are pruned (BUILD_COPY).
  * A start that fails half-way records nothing, so its retry gets the same name
  * and keeps the copy of the untouched library (database.js).
  */
 export function snapshotLabel({ previousVersion, version, recordedFingerprint, fingerprint, recordedCode, code }) {
     if (version && previousVersion !== version) return previousVersion || 'unknown';
     if (code && recordedCode === code && recordedFingerprint === fingerprint) return null;
-    return `${previousVersion || 'unknown'}-${recordedCode ? String(recordedCode).slice(0, 8) : 'unrecorded'}`;
+    return `${previousVersion || 'unknown'}-build-${recordedCode ? String(recordedCode).slice(0, 8) : 'unrecorded'}`;
 }
+
+/** A copy's file name, when it was taken between two builds of one version. */
+export const BUILD_COPY = /\.pre-.+-build-[\w]+\.bak$/;
 
 /**
  * The bytes free beside the library and the bytes a copy needs, or null when

@@ -141,8 +141,9 @@ by hand: start it once and what opened the old one
 follows it (the Start Menu shortcut on Windows, and the start-at-sign-in item if
 you turned it on). A copy from before one-click updates is updated by hand once.
 
-Before a release or a nightly changes the database format, the app copies the
-file next to it (the three most recent copies are kept). If that copy cannot be
+The first time a new release or nightly starts, before it may change the
+database format, the app copies the file next to it (the three most recent
+copies are kept). If that copy cannot be
 written, the app does not start, and its message says why and what to do
 ([INSTALL.md](INSTALL.md#updates)).
 

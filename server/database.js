@@ -13,7 +13,7 @@ import { CONTENT_TABLES, FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES,
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
 import { bootMark } from './bootTimes.js';
 import {
-  MIGRATE_WITHOUT_BACKUP, migrationCodeId, roomForCopy, schemaFingerprint, snapshotLabel, snapshotRefusal,
+  BUILD_COPY, MIGRATE_WITHOUT_BACKUP, migrationCodeId, roomForCopy, schemaFingerprint, snapshotLabel, snapshotRefusal,
 } from './schemaGuard.js';
 
 // The app's modules are all read and linked before the first one runs, and
@@ -131,9 +131,13 @@ function currentAppVersion() {
   }
 }
 
-/** Keep the three most recent snapshots. Enough to walk back through a bad
- *  release; bounded, because these are full copies of the whole library. */
+/** Keep the three most recent snapshots taken before a new version: enough to
+ *  walk back through a bad release; bounded, because these are full copies of
+ *  the whole library. Of the copies taken between two builds of one version
+ *  (a checkout whose code moved), only the newest: a checkout can take one a
+ *  day, and they must never push the copy before a release out. */
 const KEEP_BACKUPS = 3;
+const KEEP_BUILD_COPIES = 1;
 
 function pruneBackups() {
   try {
@@ -143,9 +147,11 @@ function pruneBackups() {
       .filter((f) => f.startsWith(base + '.pre-') && f.endsWith('.bak'))
       .map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs }))
       .sort((a, b) => b.at - a.at);
-    for (const { f } of mine.slice(KEEP_BACKUPS)) unlinkSync(join(dir, f));
-    // The ones kept may predate owner-only files.
-    for (const { f } of mine.slice(0, KEEP_BACKUPS)) makePrivateFile(join(dir, f));
+    for (const [pool, keep] of [[mine.filter((c) => !BUILD_COPY.test(c.f)), KEEP_BACKUPS], [mine.filter((c) => BUILD_COPY.test(c.f)), KEEP_BUILD_COPIES]]) {
+      for (const { f } of pool.slice(keep)) unlinkSync(join(dir, f));
+      // The ones kept may predate owner-only files.
+      for (const { f } of pool.slice(0, keep)) makePrivateFile(join(dir, f));
+    }
   } catch { /* housekeeping, never fatal */ }
 }
 
@@ -211,12 +217,15 @@ function backupBeforeMigrations() {
       : `[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
   } catch (e) {
     const cause = e?.code || e?.message || 'unknown';
+    // A copy that died half-way is not kept either way: it is not whole, and a
+    // full disk needs its space back.
+    try { if (existsSync(partial)) unlinkSync(partial); } catch { /* the refusal below names the same place */ }
     if (process.env[MIGRATE_WITHOUT_BACKUP] === '1') {
       console.warn(`[DB] Could not snapshot before migrating (${cause}: ${e?.message}); migrating without a copy because ${MIGRATE_WITHOUT_BACKUP}=1`);
       return;
     }
-    // Nothing has been changed yet; a copy that died half-way is not kept.
-    try { if (existsSync(partial)) unlinkSync(partial); } catch { /* the refusal below names the same place */ }
+    // No migration has run. The credentials move above has, as on every start:
+    // it changes no table a learner reads, and no copy is ever meant to hold them.
     let lang = null;
     try { lang = setting('ui_language'); } catch { /* the message falls back to English */ }
     const refusal = snapshotRefusal({ target, cause, free: room?.free, needed: room?.needed, lang });
@@ -243,10 +252,9 @@ db.exec(`
     ran_at TEXT NOT NULL
   )
 `);
-const recordStep = (name) => {
-  db.prepare('INSERT INTO schema_ledger (name, app_version, ran_at) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING')
-    .run(name, currentAppVersion(), new Date().toISOString());
-};
+const insertStep = db.prepare('INSERT INTO schema_ledger (name, app_version, ran_at) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING');
+const stepVersion = currentAppVersion();
+const recordStep = (name) => insertStep.run(name, stepVersion, new Date().toISOString());
 
 // `addons` -> `search_providers` (0.69). This has to run BEFORE the schema block
 // below, not with the other migrations after it: `CREATE TABLE IF NOT EXISTS
@@ -581,6 +589,24 @@ const copyRowsIntoRebuilt = (fromTable, toTable) => {
   return shared;
 };
 
+// A rebuild drops the table and renames its copy into place, in one transaction
+// with foreign keys off (SQLite's own recipe). The views over a table
+// (`live_nodes`, …) name it, and SQLite's default rename re-checks every view:
+// with the old table dropped that fails ("error in view live_nodes: no such
+// table"), on every start, for a library whose views came before its rebuild.
+// The legacy rename leaves the views as written; they name the table, which is
+// back under that name when the transaction ends.
+const rebuildInPlace = (work) => {
+  db.pragma('foreign_keys = OFF');
+  db.pragma('legacy_alter_table = ON');
+  try {
+    db.transaction(work)();
+  } finally {
+    db.pragma('legacy_alter_table = OFF');
+    db.pragma('foreign_keys = ON');
+  }
+};
+
 addColumnIfMissing('nodes', 'is_note', 'INTEGER DEFAULT 0');
 addColumnIfMissing('projects', 'summary', "TEXT DEFAULT ''");
 addColumnIfMissing('projects', 'ai_generating', 'INTEGER DEFAULT 0');
@@ -787,8 +813,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_nodes_project_status ON nodes(project_id
 try {
   const nodesSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='nodes'").get();
   if (nodesSql && /CHECK\s*\(\s*status/i.test(nodesSql.sql)) {
-    db.pragma('foreign_keys = OFF');
-    const rebuild = db.transaction(() => {
+    rebuildInPlace(() => {
       db.exec(`
         CREATE TABLE nodes_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -819,8 +844,6 @@ try {
         CREATE INDEX IF NOT EXISTS idx_nodes_project_status ON nodes(project_id, status, is_note);
       `);
     });
-    rebuild();
-    db.pragma('foreign_keys = ON');
     recordStep('rebuild nodes without the status CHECK');
     console.log('[Migration] Relaxed nodes.status CHECK constraint (enables "skipped" state)');
   }
@@ -828,7 +851,6 @@ try {
   // The rebuild is one transaction, so the table is as it was. Going on would
   // leave the CHECK in place, refusing every "skipped" topic for good, and
   // nothing would say why: the start stops here and the next one tries again.
-  db.pragma('foreign_keys = ON');
   console.error(`[Migration] Could not rebuild nodes without the status CHECK (${e.code || 'error'}): ${e.message}`);
   throw e;
 }
@@ -999,8 +1021,7 @@ try {
 try {
   const evidenceSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mastery_evidence'").get();
   if (evidenceSql && /CHECK\s*\(\s*evidence_type/i.test(evidenceSql.sql)) {
-    db.pragma('foreign_keys = OFF');
-    const rebuild = db.transaction(() => {
+    rebuildInPlace(() => {
       db.exec(`
         CREATE TABLE mastery_evidence_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1021,15 +1042,12 @@ try {
         CREATE INDEX IF NOT EXISTS idx_evidence_type ON mastery_evidence(evidence_type);
       `);
     });
-    rebuild();
-    db.pragma('foreign_keys = ON');
     recordStep('rebuild mastery_evidence without the evidence_type CHECK');
     console.log('[Migration] Relaxed mastery_evidence.evidence_type CHECK (enables "drill" and "paper" evidence)');
   }
 } catch (e) {
   // As for nodes above: one transaction, so nothing half-done; stop rather than
   // keep a CHECK that refuses every drill and paper result.
-  db.pragma('foreign_keys = ON');
   console.error(`[Migration] Could not rebuild mastery_evidence without the evidence_type CHECK (${e.code || 'error'}): ${e.message}`);
   throw e;
 }

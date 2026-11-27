@@ -95,13 +95,13 @@ check is opt-in: **Check now**, and a **Check automatically** switch (every four
 installs the update in two presses, never on its own ([DESKTOP.md](DESKTOP.md#updating)); a copy
 from 1.2.0 or older, Docker and a source checkout are updated by hand. Nightly builds of `main` are
 on the releases page as pre-releases, and the desktop app's *Channel* setting follows them. Before a
-start changes the database's schema, the app copies the library to
+start that may change the database's schema, the app copies the library to
 `terramentor.db.pre-<the version you are leaving>.bak` (updating from 1.2.0 writes
-`terramentor.db.pre-1.2.0.bak`), so a bad release is recoverable. A nightly or a source checkout
-that changes the schema without changing the version writes
-`terramentor.db.pre-<version>-<8 characters naming the build>.bak`. The three newest copies are
-kept. If the copy cannot be written (a full disk, a folder the app may not write to), the app does
-not start and says why, and the library is left as it was: free the space and start again, or set
+`terramentor.db.pre-1.2.0.bak`), so a bad release is recoverable. The three newest of these are
+kept. A source checkout whose database code changed without a new version writes
+`terramentor.db.pre-<version>-build-<8 characters naming the build>.bak`, and only the newest of
+those is kept. If the copy cannot be written (a full disk, a folder the app may not write to), the
+app does not start and says why, and no migration runs: free the space and start again, or set
 `MIGRATE_WITHOUT_BACKUP=1` for one start to change the library without a copy. The copy holds the
 library only: keys and sign-ins live in `terramentor.secrets.json` beside it. A minor version may
 migrate the database and a patch never does; every [changelog](../CHANGELOG.md) entry says which.
