@@ -165,7 +165,7 @@ export function RunStatus({ run }: { run: CreationRun }) {
             ? t("{{n}} topics were written before it stopped, and all of them are saved.", { count: track.topicsDone, n: fmt(track.topicsDone) })
             : t("What was written before it stopped is saved.");
     } else if (run.status === 'error') {
-        headline = t("An error occurred");
+        headline = run.failure?.noModel ? t("No AI model connected") : t("An error occurred");
     } else if (current === 'queued') {
         headline = t("Waiting for another generation to finish");
         detail = run.queuePosition != null ? t("Place in line: {{n}}", { n: fmt(run.queuePosition) }) : null;
@@ -202,7 +202,8 @@ export function RunStatus({ run }: { run: CreationRun }) {
                     {run.status === 'error' && run.error && (cause ? (
                         <>
                             <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{t(cause.messageKey, cause.params)}</p>
-                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>
+                            {/* A final refusal's sentence IS the message: its English copy under it would say it twice. */}
+                            {!run.failure?.final && <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>}
                         </>
                     ) : (
                         <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{run.error}</p>

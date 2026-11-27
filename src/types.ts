@@ -689,6 +689,8 @@ export interface AITaskFailure {
     finishReason?: string | null;
     /** A refusal that says it is final (server/tasks.js finalSentence), with its own keyed sentence. */
     final?: boolean | null;
+    /** The final refusal is "no AI model is connected" (server/ai.js noModelError). */
+    noModel?: boolean | null;
     messageKey?: string | null;
     params?: Record<string, unknown> | null;
     responseBody: string | null;
@@ -1537,6 +1539,8 @@ export interface AtlasData {
     /** false when the topic space can't be read — `reason` says why. */
     available: boolean;
     reason: string | null;
+    /** The library has no topics at all: nothing to map, whatever the model. */
+    empty?: boolean;
     stats: {
         topics: number;
         mapped: number;
@@ -1677,6 +1681,7 @@ export interface LessonWrite {
     reasoningTokens?: number | null;
     thinkingChars?: number | null;
     final?: boolean | null;
+    noModel?: boolean | null;
     messageKey?: string | null;
     params?: Record<string, unknown> | null;
 }
@@ -1989,7 +1994,7 @@ export interface EmbeddingStatus {
         total: number;
         vectors: number;
     };
-    probe: { ok: boolean; dim?: number | null; model?: string; reason?: string } | null;
+    probe: { ok: boolean; dim?: number | null; model?: string | null; reason?: string; error?: string; messageKey?: string; noModel?: boolean } | null;
 }
 
 // Per-file result returned by POST /api/documents/upload.

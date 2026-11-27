@@ -21,8 +21,10 @@
 // box of fixed size (`COURSE_DIALOG_SIZE`). Appearance is a single tile rather
 // than a set of open controls beside the form.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { ChevronRight, FileInput, Link2, MessageSquare, PenLine } from 'lucide-react';
+import { Bot, ChevronRight, FileInput, Link2, MessageSquare, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import ConnectAIActions from './ConnectAIActions';
+import { isAINotConnected } from '../utils/aiStatus';
 import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
@@ -152,6 +154,16 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     const openProject = useStore(s => s.openProject);
     const projects = useStore(s => s.projects);
     const uiLanguage = useStore(s => s.uiLanguage);
+    // No model connected: writing a course cannot start, and the form says so
+    // before anything is typed, with the two ways that need no model here.
+    // Unknown (not asked yet, or the ask failed) is not "none": the run itself
+    // still says it in that case.
+    const [noModel, setNoModel] = useState(false);
+    useEffect(() => {
+        let live = true;
+        api.getAIStatus().then(s => { if (live) setNoModel(isAINotConnected(s)); }).catch(() => { });
+        return () => { live = false; };
+    }, []);
 
     // A plain open asks first: create or import. A form handed back (a run's
     // Back, the assistant's "Open in New course") opens on the form itself.
@@ -376,7 +388,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     const name = newName.trim();
     // What the button waits for, said beside it rather than left to a greyed
     // button to imply.
-    const blockedAI = reading ? t("Reading your material…")
+    const blockedAI = noModel ? t("Connect an AI model to create a course.")
+        : reading ? t("Reading your material…")
         : !name && !usable.length ? t("Type a name, or add a link or a file, to start.")
             : '';
     // A link pasted into the Name: the learner meant it as material.
@@ -410,12 +423,19 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     // view that replaced it, the way the dialog's own open does
     // (`useDialogFocus`), or a keyboard or a screen reader is left on the page.
     const moved = useRef(false);
-    const go = (mode: typeof createMode) => { moved.current = true; setCreateMode(mode); };
+    // The view the chatbot view was opened from: the import view, or the form
+    // when no model is connected.
+    const externalFrom = useRef<'import' | 'ai'>('import');
+    const go = (mode: typeof createMode) => {
+        moved.current = true;
+        if (mode === 'external') externalFrom.current = createMode === 'ai' ? 'ai' : 'import';
+        setCreateMode(mode);
+    };
     // Past the first choice, the title's ← says how to come back. The chatbot
-    // view is reached FROM the import view, so its ← goes there. Before paint,
+    // view's ← goes back to the view it was opened from. Before paint,
     // with the height (`onChoosing`), so the head never shows the old step's.
     useLayoutEffect(() => {
-        onBack(createMode === 'choose' ? null : () => go(createMode === 'external' ? 'import' : 'choose'));
+        onBack(createMode === 'choose' ? null : () => go(createMode === 'external' ? externalFrom.current : 'choose'));
         // Gone with the step: a closed window opens again without the last one's ←.
         return () => onBack(null);
         // `go` only sets state and a ref.
@@ -593,6 +613,28 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                         </div>
                     ) : (
                         <div className="space-y-4">
+                            {/* Nothing connected: say so before anything is typed,
+                                with the two ways that need no model here. The
+                                connect buttons are the home card's and the
+                                assistant's; the chatbot route is the import
+                                view's own button. */}
+                            {noModel && (
+                                <>
+                                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
+                                        <Bot className="mt-px h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t("Writing a course needs an AI model")}</p>
+                                            <p className="mt-0.5 text-sm text-amber-800 dark:text-amber-300">
+                                                {t("Connect one, or have a chatbot you already use write the course and import it here.")}
+                                            </p>
+                                            <div className="mt-3"><ConnectAIActions returnTo={window.location.pathname} onLeave={onCancel} /></div>
+                                        </div>
+                                    </div>
+                                    <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => go('external')}>
+                                        {t("Or make a course with an external chatbot")}
+                                    </Button>
+                                </>
+                            )}
                             {form}
                         </div>
                     )}
