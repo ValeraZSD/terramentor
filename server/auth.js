@@ -713,8 +713,10 @@ const SETUP_CODE_REPRINT_MS = 10 * 60 * 1000;
 /** The line goes to the log when the code is new, then at most every ten
  *  minutes: a device polling its status would otherwise fill the log. */
 function printSetupLine(line) {
-    if (setupCodePrinted.code === setupCode && Date.now() - setupCodePrinted.at < SETUP_CODE_REPRINT_MS) return;
-    setupCodePrinted = { code: setupCode, at: Date.now() };
+    const now = Date.now();
+    // A clock set back counts as the time gone, so the line is never held back for long.
+    if (setupCodePrinted.code === setupCode && now >= setupCodePrinted.at && now - setupCodePrinted.at < SETUP_CODE_REPRINT_MS) return;
+    setupCodePrinted = { code: setupCode, at: now };
     console.log(line);
 }
 /**

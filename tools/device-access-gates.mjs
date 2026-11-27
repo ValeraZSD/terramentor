@@ -675,6 +675,29 @@ console.log('\n--- the first password, set from a device ---');
     ok('…the one that set it is not', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
     ok('…and its status no longer says elsewhere', (await call('/api/auth/status', { from: PHONE, cookie: phoneCookie })).body?.elsewhere === undefined);
     auth.clearAuth();
+
+    // An app left open to the network: another machine reaches it, but may not
+    // pair a device of its own, whose key would outlast the opening.
+    process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
+    let openPair, openServe;
+    // The app already passed on to the tailnet, where the button answers with
+    // a code at once.
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    cli.serveStatus = { TCP: { 8443: { HTTPS: true } }, Web: { 'desk.tail1234.ts.net:8443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } };
+    const servedBefore = cli.served.length;
+    try {
+        openPair = await call('/api/devices/pair', { method: 'POST', from: '192.168.1.90' });
+        openServe = await call('/api/devices/tailscale/serve', { method: 'POST', from: '192.168.1.90' });
+    } finally {
+        delete process.env.AUTH_ALLOW_OPEN_REMOTE;
+        cli.serveStatus = null;
+        devices.setTailscaleOwnerForTest(null);
+    }
+    ok('an app open to the network gives another machine no pairing code while there is no password',
+        openPair.status === 403 && !JSON.stringify(openPair.body).includes('#pair='), `${openPair.status} ${JSON.stringify(openPair.body)}`);
+    ok('…nor through the button that passes the app on to the tailnet, which it may not press either',
+        openServe.status === 403 && !JSON.stringify(openServe.body).includes('#pair=') && cli.served.length === servedBefore, `${openServe.status} ${JSON.stringify(openServe.body)}`);
+    ok('…while this computer still gets one', (await call('/api/devices/pair', { method: 'POST' })).status === 200);
 }
 
 // ── removing a device ──────────────────────────────────────────────────────────
