@@ -1054,8 +1054,10 @@ export const api = {
     // as an account that is not the computer's ('other-account').
     // `exposed`: no password, and the server is set up to be reachable from
     // other machines (HOST beyond loopback, a listed public name); the app
-    // shows a banner until a password is set.
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; site?: boolean }>('/auth/status', { timeout: 4000 }),
+    // shows a banner until a password is set. `elsewhere`: no password, and
+    // this is a device let in without one; setting the first one here takes
+    // the setup code, like the lock screen.
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; site?: boolean; elsewhere?: boolean }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
