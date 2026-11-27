@@ -1150,6 +1150,7 @@
   "Enter a full address starting with http:// or https://": "http:// または https:// で始まる完全なアドレスを入力してください",
   "Enter the key": "キーを入力",
   "Enter the provider's API address first.": "先にプロバイダーのAPIアドレスを入力してください。",
+  "Enter the setup code from the server log.": "サーバーのログにあるセットアップコードを入力してください。",
   "Enter your password to unlock this app.": "このアプリのロックを解除するにはパスワードを入力してください。",
   "Error code": "エラーコード",
   "Error Details": "エラー詳細",

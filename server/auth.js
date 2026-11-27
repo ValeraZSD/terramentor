@@ -683,11 +683,21 @@ export function identifyRemoteAccess(req, res, next) {
 }
 
 let setupCode = null;
+let setupCodePrinted = { code: null, at: 0 };
+const SETUP_CODE_REPRINT_MS = 10 * 60 * 1000;
+/** The line goes to the log when the code is new, then at most every ten
+ *  minutes: a device polling its status would otherwise fill the log. */
+function printSetupLine(line) {
+    if (setupCodePrinted.code === setupCode && Date.now() - setupCodePrinted.at < SETUP_CODE_REPRINT_MS) return;
+    setupCodePrinted = { code: setupCode, at: Date.now() };
+    console.log(line);
+}
 /**
  * The one-time code for setting the first password from another machine.
  * Made on first need, kept in memory (a restart makes a new one), and printed
- * to the log each time it is made or asked for, because the log is the channel
- * only the person running the server can read (`docker compose logs`).
+ * to the log when it is made and again while it is asked for, because the log
+ * is the channel only the person running the server can read
+ * (`docker compose logs`).
  */
 export function announceSetupCode() {
     // A hosted copy given a setup token by its operator (server/hosted.js)
@@ -696,14 +706,14 @@ export function announceSetupCode() {
     const token = operatorSetupToken();
     if (token) {
         setupCode = token.toUpperCase();
-        console.log('[security] No password is set. Open the app and enter the setup token you were given to set one.');
+        printSetupLine('[security] No password is set. Open the app and enter the setup token you were given to set one.');
         return null;
     }
     if (!setupCode) {
         const raw = crypto.randomBytes(6).toString('hex').toUpperCase();
         setupCode = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
     }
-    console.log(`[security] No password is set, so this app answers only its own machine. To set one from another device, open the app there and enter this setup code: ${setupCode}`);
+    printSetupLine(`[security] No password is set, so this app answers only its own machine. To set one from another device, open the app there and enter this setup code: ${setupCode}`);
     return setupCode;
 }
 export function checkSetupCode(code) {

@@ -1597,6 +1597,7 @@
   "Enter a full address starting with http:// or https://": "Введите полный адрес, начинающийся с http:// или https://",
   "Enter the key": "Ввести ключ",
   "Enter the provider's API address first.": "Сначала введите адрес API провайдера.",
+  "Enter the setup code from the server log.": "Введите код настройки из журнала сервера.",
   "Enter your password to unlock this app.": "Введите пароль, чтобы разблокировать приложение.",
   "Error code": "Код ошибки",
   "Error Details": "Подробности ошибки",

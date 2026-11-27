@@ -189,9 +189,10 @@ function PasswordSecurity() {
     const doSetup = async () => {
         if (newPass.length < 10) return flash('err', t("Password must be at least 10 characters."));
         if (newPass !== confirmPass) return flash('err', t("Passwords do not match."));
+        if (elsewhere && !setupCode.trim()) return flash('err', t("Enter the setup code from the server log."));
         setBusy(true);
         try {
-            await api.setupPassword(newPass, elsewhere ? setupCode : undefined);
+            await api.setupPassword(newPass, elsewhere ? setupCode.trim() : undefined);
             await loadAuth();
             setNewPass(''); setConfirmPass(''); setSetupCode('');
             flash('ok', t("Password set. Other devices will need it to sign in."));

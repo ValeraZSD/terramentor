@@ -1448,6 +1448,7 @@
   "Enter a full address starting with http:// or https://": "Introduza um endereço completo, começado por http:// ou https://",
   "Enter the key": "Introduzir a chave",
   "Enter the provider's API address first.": "Indique primeiro o endereço da API do fornecedor.",
+  "Enter the setup code from the server log.": "Introduza o código de configuração do registo do servidor.",
   "Enter your password to unlock this app.": "Introduza a sua palavra-passe para desbloquear esta aplicação.",
   "Error code": "Código de erro",
   "Error Details": "Detalhes do erro",

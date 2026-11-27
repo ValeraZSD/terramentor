@@ -44,14 +44,19 @@ app.get('/api/auth/status', async (req, res) => {
     // `exposed`: no password, and the app is set up to be reachable from
     // other machines (auth.js exposedWithoutPassword). The page says so until
     // a password is set.
-    // `elsewhere`: no password, and this is a device let in without one (a
+    // `elsewhere`: no password, and this request is not from the computer (a
     // connected phone, the owner's Tailscale). The first password is set on
     // the computer (a phone that set it would make itself the owner and sign
     // the computer out), so its settings say where instead of offering a form.
+    // Any request from another machine counts (a stranger let in under
+    // AUTH_ALLOW_OPEN_REMOTE too), and the code is announced now so the log
+    // holds it by the time the form points there.
+    const elsewhere = !enabled && !isLocalRequest(req);
+    if (elsewhere) announceSetupCode();
     res.json({
         enabled, authenticated,
         ...(exposedWithoutPassword() ? { exposed: true } : {}),
-        ...(!enabled && req.remoteAccess ? { elsewhere: true } : {}),
+        ...(elsewhere ? { elsewhere: true } : {}),
     });
 });
 

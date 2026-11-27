@@ -1299,6 +1299,7 @@
   "Enter a full address starting with http:// or https://": "Voer een volledig adres in dat begint met http:// of https://",
   "Enter the key": "Sleutel invoeren",
   "Enter the provider's API address first.": "Vul eerst het API-adres van de aanbieder in.",
+  "Enter the setup code from the server log.": "Voer de instelcode uit het serverlogboek in.",
   "Enter your password to unlock this app.": "Voer je wachtwoord in om deze app te ontgrendelen.",
   "Error code": "Foutcode",
   "Error Details": "Foutdetails",

@@ -1379,6 +1379,7 @@
   "Enter a full address starting with http:// or https://": "http:// veya https:// ile başlayan tam bir adres girin",
   "Enter the key": "Anahtarı girin",
   "Enter the provider's API address first.": "Önce sağlayıcının API adresini girin.",
+  "Enter the setup code from the server log.": "Sunucu günlüğündeki kurulum kodunu girin.",
   "Enter your password to unlock this app.": "Bu uygulamanın kilidini açmak için parolanızı girin.",
   "Error code": "Hata kodu",
   "Error Details": "Hata ayrıntıları",

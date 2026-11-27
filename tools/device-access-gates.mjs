@@ -134,17 +134,17 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
 const cookieOf = (r, name) => (r.setCookie.find(c => c.startsWith(`${name}=`)) || '').split(';')[0];
 const codeOf = (r) => (r.body?.url || '').split('#pair=')[1] || '';
 /**
- * Every press on the update panel from the phone holding `cookie`, as
- * "path status". A press that gets past the guard may ask GitHub (Check now),
- * so `fetch` answers offline for the duration: a gate reaches no network.
- */
-/**
  * What each press answers once it is past the guard, on this scratch copy:
  * the handler's own refusals (a copy that cannot download or install itself
  * 409s; a channel left out is a 400), never the guard's 403, a 401 or a 429.
  */
 const PAST_THE_GUARD = '/api/updates/download 409, /api/updates/restart 409, /api/updates/cancel 200, '
     + '/api/updates/check 200, /api/updates/auto 200, /api/updates/channel 400';
+/**
+ * Every press on the update panel from the phone holding `cookie`, as
+ * "path status". A press that gets past the guard may ask GitHub (Check now),
+ * so `fetch` answers offline for the duration: a gate reaches no network.
+ */
 async function pressUpdates(cookie) {
     const realFetch = globalThis.fetch;
     globalThis.fetch = async () => { throw new Error('offline in this gate'); };
@@ -651,13 +651,20 @@ console.log('\n--- the first password, set from a device ---');
     ok('a connected device\'s status says it is in from elsewhere', st.body?.authenticated === true && st.body?.elsewhere === true, JSON.stringify(st.body));
     ok('…which this computer\'s does not', (await call('/api/auth/status')).body?.elsewhere === undefined);
     ok('…nor a device the app does not know (it meets the setup screen)', (await call('/api/auth/status', { from: '192.168.1.99' })).body?.elsewhere === undefined);
+    process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
+    const open = await call('/api/auth/status', { from: '192.168.1.99' });
+    delete process.env.AUTH_ALLOW_OPEN_REMOTE;
+    ok('…but a stranger let in by AUTH_ALLOW_OPEN_REMOTE is told it too', open.body?.authenticated === true && open.body?.elsewhere === true, JSON.stringify(open.body));
 
     const bare = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG } });
-    ok('a connected device needs the setup code for the first password', bare.status === 403 && !auth.isAuthEnabled(), bare.status);
+    ok('a connected device needs the setup code for the first password',
+        bare.status === 403 && bare.body?.setupRequired === true && !auth.isAuthEnabled(), JSON.stringify(bare.body));
     devices.setTailscaleOwnerForTest(OWNER, PC);
     devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER });
+    const tsStatus = await call('/api/auth/status', { serve: true, login: OWNER });
+    ok('…the owner\'s Tailscale account is told it is elsewhere', tsStatus.body?.authenticated === true && tsStatus.body?.elsewhere === true, JSON.stringify(tsStatus.body));
     const viaTs = await call('/api/auth/setup', { method: 'POST', serve: true, login: OWNER, body: { password: LONG } });
-    ok('…and so does the owner\'s Tailscale account', viaTs.status === 403 && !auth.isAuthEnabled(), viaTs.status);
+    ok('…and needs the code too', viaTs.status === 403 && viaTs.body?.setupRequired === true && !auth.isAuthEnabled(), JSON.stringify(viaTs.body));
     devices.setTailscaleOwnerForTest(null);
 
     const witness = cookieOf(await call('/api/auth/pair', { method: 'POST', from: '192.168.1.72', body: { code: await freshCode() } }), 'sp_dev');
