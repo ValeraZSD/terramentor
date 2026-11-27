@@ -12,6 +12,9 @@ import {
 import { CONTENT_TABLES, FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
 import { bootMark } from './bootTimes.js';
+import {
+  MIGRATE_WITHOUT_BACKUP, migrationCodeId, roomForCopy, schemaFingerprint, snapshotLabel, snapshotRefusal,
+} from './schemaGuard.js';
 
 // The app's modules are all read and linked before the first one runs, and
 // this is the first that does real work (server/index.js imports it right
@@ -100,9 +103,12 @@ try {
 // the author's. It is not fine during months of fast releases against other
 // people's libraries, where a single bad migration is somebody's year of study.
 //
-// So: whenever the app version changes, copy the database first. Once per
-// version transition, not once per start — otherwise a machine that restarts the
-// server twenty times a day fills the disk with identical copies.
+// So: whenever this start may change the schema, copy the database first. That
+// is when the version changed, and also when the version is the same but the
+// migration code or the schema is not what the last finished start recorded
+// (a nightly, a checkout: server/schemaGuard.js). Once per change, not once
+// per start — otherwise a machine that restarts the server twenty times a day
+// fills the disk with identical copies.
 //
 // `VACUUM INTO` rather than a file copy: it is SQLite's own snapshot, it folds in
 // whatever is sitting in the WAL, and it is synchronous, which matters because
@@ -110,9 +116,9 @@ try {
 // WAL-mode database copies the main file and leaves the recent writes behind in
 // a `-wal` it does not take.
 //
-// Every failure here is swallowed. A backup is insurance; refusing to start the
-// app because the insurance could not be written is a worse outcome than the one
-// it insures against.
+// A copy that cannot be made (a full disk, a folder that cannot be written)
+// stops the start before anything is changed, with a message saying why and
+// what to do. MIGRATE_WITHOUT_BACKUP=1 lets that one start migrate without it.
 
 /** Version of the code about to touch this database. Read from package.json
  *  directly rather than imported from version.js, which would make the schema
@@ -143,37 +149,45 @@ function pruneBackups() {
   } catch { /* housekeeping, never fatal */ }
 }
 
+/** The migration code about to run (server/schemaGuard.js), recorded with the schema once it has run. */
+const MIGRATION_CODE = migrationCodeId();
+
 function backupBeforeMigrations() {
   const version = currentAppVersion();
-  if (!version) return;
-  let previous = null;
-  try {
-    // No settings table means a database this app has never opened — there is
-    // nothing to migrate FROM, so there is nothing worth snapshotting.
-    const hasSettings = db.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").get();
-    if (!hasSettings) return;
-    previous = db.prepare("SELECT value FROM settings WHERE key='app_version'").get()?.value || null;
-  } catch {
+  // No settings table means a database this app has never opened — there is
+  // nothing to migrate FROM, so there is nothing worth snapshotting.
+  const hasSettings = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").get();
+  if (!hasSettings) return;
+  const setting = (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value || null;
+  // `previous` is null the first time this feature exists on an old library —
+  // still worth a snapshot, and 'unknown' says honestly which build it was.
+  const previous = setting('app_version');
+  const label = snapshotLabel({
+    previousVersion: previous, version,
+    recordedFingerprint: setting('schema_fingerprint'), fingerprint: schemaFingerprint(db),
+    recordedCode: setting('schema_code'), code: MIGRATION_CODE,
+  });
+  if (!label) return;                           // same code, same schema: nothing will move
+  const target = `${DB_FILE}.pre-${label.replace(/[^\w.-]/g, '_')}.bak`;
+  // A snapshot already under this name IS the original: the version stamp and
+  // the schema record are written only after every migration has run, so a
+  // start that failed half-way arrives here again with the same name, and
+  // replacing the snapshot then would swap the untouched library for a
+  // half-migrated one — at exactly the moment it is needed.
+  if (existsSync(target)) {
+    console.log(`[DB] Keeping the snapshot taken before the first attempt at this upgrade: ${target}`);
     return;
   }
-  if (previous === version) return;             // same build: nothing has moved
+  // Written under a temporary name and renamed only once complete, so a failed
+  // or interrupted VACUUM never leaves a partial file under the real name.
+  const partial = `${target}.partial`;
+  let room = null;
   try {
-    // `previous` is null the first time this feature exists on an old library —
-    // still worth a snapshot, and 'unknown' says honestly which build it was.
-    const target = `${DB_FILE}.pre-${(previous || 'unknown').replace(/[^\w.-]/g, '_')}.bak`;
-    // A snapshot already named for this source version IS the original: the
-    // version stamp is written only after every migration has run, so a start
-    // that failed half-way arrives here again with the same `previous`, and
-    // replacing the snapshot then would swap the untouched library for a
-    // half-migrated one — at exactly the moment it is needed.
-    if (existsSync(target)) {
-      console.log(`[DB] Keeping the snapshot taken before the first attempt at this upgrade: ${target}`);
-      return;
+    room = roomForCopy(DB_FILE);
+    if (room && room.free < room.needed) {
+      throw Object.assign(new Error(`${room.free} bytes free, the copy needs about ${room.needed}`), { code: 'ENOSPC' });
     }
-    // Written under a temporary name and renamed only once complete, so a failed
-    // or interrupted VACUUM never leaves a partial file under the real name.
-    const partial = `${target}.partial`;
     if (existsSync(partial)) unlinkSync(partial);  // VACUUM INTO refuses to overwrite
     db.prepare('VACUUM INTO ?').run(partial);
     // A start whose credentials could not be moved still has them in the
@@ -192,13 +206,47 @@ function backupBeforeMigrations() {
     makePrivateFile(partial);
     renameSync(partial, target);
     pruneBackups();
-    console.log(`[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
+    console.log(previous === version
+      ? `[DB] Snapshot before this build of ${version} changes the schema: ${target}`
+      : `[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
   } catch (e) {
-    console.warn('[DB] Could not snapshot before migrating (continuing):', e.message);
+    const cause = e?.code || e?.message || 'unknown';
+    if (process.env[MIGRATE_WITHOUT_BACKUP] === '1') {
+      console.warn(`[DB] Could not snapshot before migrating (${cause}: ${e?.message}); migrating without a copy because ${MIGRATE_WITHOUT_BACKUP}=1`);
+      return;
+    }
+    // Nothing has been changed yet; a copy that died half-way is not kept.
+    try { if (existsSync(partial)) unlinkSync(partial); } catch { /* the refusal below names the same place */ }
+    let lang = null;
+    try { lang = setting('ui_language'); } catch { /* the message falls back to English */ }
+    const refusal = snapshotRefusal({ target, cause, free: room?.free, needed: room?.needed, lang });
+    console.error(`[DB] Could not snapshot before migrating (${cause}: ${e?.message}); the library was not changed.`);
+    db.close();
+    throw refusal;
   }
 }
 
 backupBeforeMigrations();
+
+// --- WHICH SCHEMA STEPS RAN ----------------------------------------------------
+//
+// Every step below that changes the schema (a column added, a table rebuilt or
+// renamed) writes its name here the first time it runs, with the version that
+// ran it, so a later change can ask whether one has run on this library. A
+// library from before the ledger has none of its earlier steps listed: they ran
+// before there was a place to say so, and its schema is compared by fingerprint
+// (schemaGuard.js), not by this list.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schema_ledger (
+    name TEXT PRIMARY KEY,
+    app_version TEXT,
+    ran_at TEXT NOT NULL
+  )
+`);
+const recordStep = (name) => {
+  db.prepare('INSERT INTO schema_ledger (name, app_version, ran_at) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING')
+    .run(name, currentAppVersion(), new Date().toISOString());
+};
 
 // `addons` -> `search_providers` (0.69). This has to run BEFORE the schema block
 // below, not with the other migrations after it: `CREATE TABLE IF NOT EXISTS
@@ -210,6 +258,7 @@ try {
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
   if (has('addons') && !has('search_providers')) {
     db.exec('ALTER TABLE addons RENAME TO search_providers');
+    recordStep('rename addons to search_providers');
     console.log('[DB] Renamed addons -> search_providers');
   }
   // `installed_at` was named for a framing this never had; a provider is saved,
@@ -219,10 +268,14 @@ try {
     const cols = db.prepare('PRAGMA table_info(search_providers)').all().map(c => c.name);
     if (cols.includes('installed_at') && !cols.includes('created_at')) {
       db.exec('ALTER TABLE search_providers RENAME COLUMN installed_at TO created_at');
+      recordStep('rename search_providers.installed_at to created_at');
     }
   }
 } catch (e) {
-  console.warn('[DB] search_providers rename skipped:', e.message);
+  // Going on would let the schema below make an EMPTY search_providers, and the
+  // learner's providers would stay in `addons` for good: stop the start instead.
+  console.error(`[Migration] Could not rename addons to search_providers (${e.code || 'error'}): ${e.message}`);
+  throw e;
 }
 
 try {
@@ -473,14 +526,16 @@ const addColumnIfMissing = (table, column, definition) => {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   } catch (e) {
     // "duplicate column name" is the expected answer on every boot after the
-    // first. Anything else (a missing table, a bad definition, a locked file)
-    // means the column is NOT there, and code reading it will fail later and
-    // far away — so it is said here, where the cause is. Not thrown: one
-    // missing optional column must not stop the app from opening a library.
-    if (!/duplicate column name/i.test(String(e?.message))) {
-      console.error(`[Migration] Could not add ${table}.${column}: ${e.message}`);
-    }
+    // first. Anything else (a missing table, a bad definition, a full disk)
+    // means the column is NOT there, and code reading it would fail later and
+    // far away. So the start stops here, where the cause is: the copy taken
+    // above holds the library as it was, the version stamp at the end is not
+    // written, and the next start tries again.
+    if (/duplicate column name/i.test(String(e?.message))) return;
+    console.error(`[Migration] Could not add ${table}.${column} (${e.code || 'error'}): ${e.message}`);
+    throw new Error(`Could not add the column ${table}.${column} to the library: ${e.message}`, { cause: e });
   }
+  recordStep(`add column ${table}.${column}`);
 };
 
 // A table rebuild (the two CHECK-constraint drops below) recreates the table from
@@ -508,13 +563,14 @@ const copyRowsIntoRebuilt = (fromTable, toTable) => {
     const add = (tail) => db.exec(`ALTER TABLE ${toTable} ADD COLUMN "${c.name}" ${c.type}${tail}`);
     try {
       add(`${notNull}${dflt}`);
-    } catch {
+    } catch (e) {
       // SQLite refuses a non-constant default (CURRENT_TIMESTAMP, a parenthesised
       // expression) on ALTER — but only while the table has ROWS, and this one is
       // still empty, so today nothing reaches here. Fall back to a bare column
-      // rather than let one unusual default abort the whole rebuild: the caller's
-      // try/catch swallows the throw, so the CHECK would silently stay forever.
-      // The values are copied below either way; only the DEFAULT clause is lost.
+      // rather than let one unusual default abort the whole rebuild. The values
+      // are copied below either way; only the DEFAULT clause is lost. Any other
+      // error fails the rebuild, and the rebuild's failure stops the start.
+      if (!/non-constant default/i.test(String(e?.message))) throw e;
       add('');
     }
     have.add(c.name);
@@ -765,11 +821,16 @@ try {
     });
     rebuild();
     db.pragma('foreign_keys = ON');
+    recordStep('rebuild nodes without the status CHECK');
     console.log('[Migration] Relaxed nodes.status CHECK constraint (enables "skipped" state)');
   }
 } catch (e) {
-  console.error('[Migration] Failed to relax nodes.status constraint (non-fatal):', e.message);
-  try { db.pragma('foreign_keys = ON'); } catch (_) { }
+  // The rebuild is one transaction, so the table is as it was. Going on would
+  // leave the CHECK in place, refusing every "skipped" topic for good, and
+  // nothing would say why: the start stops here and the next one tries again.
+  db.pragma('foreign_keys = ON');
+  console.error(`[Migration] Could not rebuild nodes without the status CHECK (${e.code || 'error'}): ${e.message}`);
+  throw e;
 }
 
 // Default configuration for the mastery / gating engine. These make the
@@ -962,10 +1023,15 @@ try {
     });
     rebuild();
     db.pragma('foreign_keys = ON');
+    recordStep('rebuild mastery_evidence without the evidence_type CHECK');
     console.log('[Migration] Relaxed mastery_evidence.evidence_type CHECK (enables "drill" and "paper" evidence)');
   }
 } catch (e) {
-  console.error('[Migration] Failed to relax mastery_evidence.evidence_type constraint (non-fatal):', e.message);
+  // As for nodes above: one transaction, so nothing half-done; stop rather than
+  // keep a CHECK that refuses every drill and paper result.
+  db.pragma('foreign_keys = ON');
+  console.error(`[Migration] Could not rebuild mastery_evidence without the evidence_type CHECK (${e.code || 'error'}): ${e.message}`);
+  throw e;
 }
 
 // Compiled interactive-widget cache (```widget visual kind): the tutor emits a
@@ -1492,24 +1558,37 @@ try {
   removed += db.prepare(`DELETE FROM quiz_attempts WHERE quiz_id NOT IN (SELECT id FROM quizzes)`).run().changes;
   removed += db.prepare(`DELETE FROM documents WHERE node_id IS NOT NULL AND node_id NOT IN (SELECT id FROM nodes)`).run().changes;
   removed += db.prepare(`DELETE FROM document_chunks WHERE document_id NOT IN (SELECT id FROM documents)`).run().changes;
+  // The sweeps below are over tables that may not be there yet: made by a later
+  // block on a first boot, or by sqlite-vec once embeddings are stored (and not
+  // readable at all without the extension). Those are skipped by name; any
+  // other failure is logged with its table and the next sweep still runs.
+  const sweepIfThere = (table, sql, needsVec = false) => {
+    if (needsVec && !vecAvailable) return;
+    if (!db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(table)) return;
+    try {
+      removed += db.prepare(sql).run().changes;
+    } catch (e) {
+      console.error(`[Cleanup] Orphan sweep of ${table} failed (${e.code || 'error'}): ${e.message}`);
+    }
+  };
   // vec_chunks (sqlite-vec) is keyed by chunk id but is NOT a real FK, so the
   // cascade above can't reach it — sweep any vector whose chunk is gone.
-  try { removed += db.prepare(`DELETE FROM vec_chunks WHERE rowid NOT IN (SELECT id FROM document_chunks)`).run().changes; } catch (_) { /* table not created yet / vec unavailable */ }
+  sweepIfThere('vec_chunks', `DELETE FROM vec_chunks WHERE rowid NOT IN (SELECT id FROM document_chunks)`, true);
   // vec_nodes is the same story one level up: keyed by node id, no FK, so a
   // deleted topic leaves its vector behind to be matched against forever.
-  try { removed += db.prepare(`DELETE FROM vec_nodes WHERE rowid NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
+  sweepIfThere('vec_nodes', `DELETE FROM vec_nodes WHERE rowid NOT IN (SELECT id FROM nodes)`, true);
   removed += db.prepare(`DELETE FROM chat_messages WHERE node_id IS NOT NULL AND node_id NOT IN (SELECT id FROM nodes)`).run().changes;
   // A conversation is deleted with its messages in one transaction; this is the
   // net under that, and the table does not exist before its migration has run.
-  try { removed += db.prepare(`DELETE FROM chat_messages WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM chat_conversations)`).run().changes; } catch (_) { }
-  // Study time is created after this sweep on a first boot, hence the try.
-  try { removed += db.prepare(`DELETE FROM study_time WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
+  sweepIfThere('chat_conversations', `DELETE FROM chat_messages WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM chat_conversations)`);
+  // Study time is created after this sweep on a first boot.
+  sweepIfThere('study_time', `DELETE FROM study_time WHERE node_id NOT IN (SELECT id FROM nodes)`);
 
   // Optional tables (created in later migration blocks).
-  try { removed += db.prepare(`DELETE FROM node_mastery WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
-  try { removed += db.prepare(`DELETE FROM mastery_evidence WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
-  try { removed += db.prepare(`DELETE FROM feed_items WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
-  try { removed += db.prepare(`DELETE FROM paper_attempts WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
+  sweepIfThere('node_mastery', `DELETE FROM node_mastery WHERE node_id NOT IN (SELECT id FROM nodes)`);
+  sweepIfThere('mastery_evidence', `DELETE FROM mastery_evidence WHERE node_id NOT IN (SELECT id FROM nodes)`);
+  sweepIfThere('feed_items', `DELETE FROM feed_items WHERE node_id NOT IN (SELECT id FROM nodes)`);
+  sweepIfThere('paper_attempts', `DELETE FROM paper_attempts WHERE node_id NOT IN (SELECT id FROM nodes)`);
 
   if (removed > 0) {
     console.log(`[Cleanup] Removed ${removed} orphaned row(s) left over from before foreign-key enforcement`);
@@ -1524,7 +1603,9 @@ try {
        WHERE is_note = 1 AND (scheduled_start IS NOT NULL OR scheduled_end IS NOT NULL)`
     ).run().changes;
     if (fixed > 0) console.log(`[Cleanup] Cleared schedule dates from ${fixed} note(s)`);
-  } catch (_) { }
+  } catch (e) {
+    console.error(`[Cleanup] Clearing schedule dates from notes failed (${e.code || 'error'}): ${e.message}`);
+  }
 } catch (e) {
   console.error('[Cleanup] Orphan cleanup failed (non-fatal):', e.message);
 }
@@ -2481,10 +2562,23 @@ db.transaction(() => {
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw
 // halfway, and the next start would skip both the migration and its snapshot.
+// With the version go the code that migrated and the schema it left
+// (schemaGuard.js): the next start compares them to know whether it will
+// change anything, whatever the version says.
 try {
-  const v = currentAppVersion();
-  if (v) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('app_version', v);
-} catch { /* a stamp is bookkeeping; never fatal */ }
+  const stamp = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  db.transaction(() => {
+    const v = currentAppVersion();
+    if (v) stamp.run('app_version', v);
+    stamp.run('schema_fingerprint', schemaFingerprint(db));
+    if (MIGRATION_CODE) stamp.run('schema_code', MIGRATION_CODE);
+    else db.prepare("DELETE FROM settings WHERE key = 'schema_code'").run();
+  })();
+} catch (e) {
+  // Not fatal: the library is migrated. Without the stamp the next start only
+  // takes one more copy than it needed.
+  console.error(`[DB] Could not record the version and schema this start left (${e.code || 'error'}): ${e.message}`);
+}
 bootMark('schema');
 
 /** The file this process opened — for the desktop status panel and the logs. */

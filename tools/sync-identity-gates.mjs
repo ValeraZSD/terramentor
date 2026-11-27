@@ -312,8 +312,9 @@ for (const f of [OLD, COPY]) {
 }
 const after = counts(OLD);
 // `settings` is left out: every boot writes its own rows (the version stamp,
-// defaults), and the per-project rows are checked one by one below.
-check('every table keeps every row', Object.keys(before).filter(t => t !== 'settings' && before[t] !== after[t])
+// defaults), and the per-project rows are checked one by one below. So is
+// `schema_ledger`: a boot that migrates writes a row per step it ran.
+check('every table keeps every row', Object.keys(before).filter(t => !['settings', 'schema_ledger'].includes(t) && before[t] !== after[t])
     .map(t => `${t} ${before[t]} -> ${after[t]}`), []);
 const uA = uuidsOf(OLD), uB = uuidsOf(COPY);
 check('every row of every uuid table has a uuid', UUID_TABLES.filter(t => uA[t].some(r => !r.uuid)), []);

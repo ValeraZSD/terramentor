@@ -3433,6 +3433,8 @@
   "This topic is behind schedule ·": "このトピックはスケジュール遅延中 ·",
   "This topic's lesson couldn't be written.": "このトピックのレッスンを作成できませんでした。",
   "This version cannot be installed with one click. Download it from the release page instead.": "このバージョンはワンクリックではインストールできません。代わりにリリースページからダウンロードしてください。",
+  "This version of Terramentor changes how your library is stored, and first copies it to {{target}}. The copy could not be written ({{reason}}), so nothing was changed. Make that folder writable and start Terramentor again, or start it once with MIGRATE_WITHOUT_BACKUP=1 to change the library without a copy.": "このバージョンの Terramentor はライブラリの保存方法を変更するため、先に {{target}} へコピーします。コピーを書き込めなかった ({{reason}}) ため、何も変更していません。そのフォルダーを書き込み可能にしてから Terramentor をもう一度起動するか、MIGRATE_WITHOUT_BACKUP=1 を付けて一度だけ起動すると、コピーなしでライブラリを変更します。",
+  "This version of Terramentor changes how your library is stored, and first copies it to {{target}}. The copy needs about {{needed}} MB and the disk has {{free}} MB free, so nothing was changed. Free up space and start Terramentor again, or start it once with MIGRATE_WITHOUT_BACKUP=1 to change the library without a copy.": "このバージョンの Terramentor はライブラリの保存方法を変更するため、先に {{target}} へコピーします。コピーには約 {{needed}} MB 必要ですが、ディスクの空きは {{free}} MB しかないため、何も変更していません。空き容量を増やしてから Terramentor をもう一度起動するか、MIGRATE_WITHOUT_BACKUP=1 を付けて一度だけ起動すると、コピーなしでライブラリを変更します。",
   "This video has no captions to read. A course can be written from its title alone, without the video.": "この動画には読み取れる字幕がありません。動画を使わず、タイトルだけからコースを作成できます。",
   "This video is for the channel's members only. If you can watch it, paste its transcript.": "この動画はチャンネルのメンバー限定です。視聴できる場合は、文字起こしを貼り付けてください。",
   "This video is not available: it was removed, or the link is wrong.": "この動画は利用できません。削除されたか、リンクが間違っています。",

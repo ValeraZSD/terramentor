@@ -562,7 +562,12 @@ async function finishInterruptedSwap() {
         server = await import(pathToFileURL(join(appRoot, 'server', 'index.js')).href);
         ready = await server.serverReady;
     } catch (e) {
-        fatal(`The server failed to start.\n\n${e?.message || e}\n\nThe full log is in logs/app.log beside your library.`, 1);
+        // A refusal the server wrote for the person (a key with its values, the
+        // text already in the library's language: the copy before a schema
+        // change that could not be made) says what happened and what to do.
+        fatal(e?.messageKey
+            ? e.message
+            : `The server failed to start.\n\n${e?.message || e}\n\nThe full log is in logs/app.log beside your library.`, 1);
     }
     console.log(`Serving at ${ready.url}`);
 
