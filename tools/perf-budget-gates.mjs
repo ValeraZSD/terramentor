@@ -26,12 +26,16 @@
 //     library into the first load shows as bytes, on every machine alike.
 //   * SERVER START: a new process to its "Server running at" line, on a new
 //     scratch library (first start, the schema written) and again on the same
-//     library (a restart). The median of three runs each.
+//     library (a restart). The median of five runs each, after one untimed run.
 //   * FIRST SCREEN, in a headless browser with an empty cache: from navigation
 //     to the welcome screen's heading on a new library, and to the home screen
 //     once the welcome is done. Twice: a desktop window on loopback, and a
 //     phone (390 x 844, CPU four times slower, 1.6 Mbit/s down, 150 ms round
-//     trip, the "slow 4G" profile page-speed tools use). Median of three.
+//     trip, the "slow 4G" profile page-speed tools use). Median of five, after
+//     one untimed visit.
+//   A cold CI runner makes its first run, and sometimes its second, several
+//   times slower than the rest; the untimed run takes the first, the median of
+//   five absorbs two more.
 //   * PACKAGE (--package only): each release zip, by the platform in its name.
 //     The zips are built in the release workflow and in the Gates job's Linux
 //     leg, after the build; this run has none to look at.
@@ -92,6 +96,8 @@ const done = () => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+// Timed runs per measurement, each after one untimed run.
+const RUNS = 5;
 const show = (n, unit) => unit === 'ms' ? `${Math.round(n)} ms`
     : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${(n / 1024).toFixed(1)} kB`;
 
@@ -231,9 +237,15 @@ async function startServer(dir) {
 }
 
 async function checkServerStart(scratchRoot) {
-    console.log('\nServer start (median of three)');
+    console.log(`\nServer start (median of ${RUNS}, after one untimed start and restart)`);
     const first = [], again = [];
-    for (let i = 0; i < 3; i++) {
+    {
+        const dir = join(scratchRoot, 'start-warm');
+        mkdirSync(dir, { recursive: true });
+        await (await startServer(dir)).stop();
+        await (await startServer(dir)).stop();
+    }
+    for (let i = 0; i < RUNS; i++) {
         const dir = join(scratchRoot, `start-${i}`);
         mkdirSync(dir, { recursive: true });
         const a = await startServer(dir); first.push(a.ms); await a.stop();
@@ -302,10 +314,11 @@ async function timeScreen(browser, base, marker) {
     return { ms, text: await evaluate('window.__perfScreenText').catch(() => '') };
 }
 
-/** Three empty-cache visits to one screen: the median, and the runs and what they showed in the log. */
-async function timeThree(browser, base, name, marker) {
+/** One untimed visit, then RUNS empty-cache visits to one screen: the median, and the runs and what they showed in the log. */
+async function timeRuns(browser, base, name, marker) {
+    await timeScreen(browser, base, marker);
     const runs = [];
-    for (let i = 0; i < 3; i++) runs.push(await timeScreen(browser, base, marker));
+    for (let i = 0; i < RUNS; i++) runs.push(await timeScreen(browser, base, marker));
     console.log(`  (${name}: ${runs.map((r) => Math.round(r.ms)).join(', ')} ms; the screen read "${runs[0].text}")`);
     return median(runs.map((r) => r.ms));
 }
@@ -320,7 +333,7 @@ async function checkFirstScreen(scratchRoot, browserPath) {
         const health = await fetch(`${server.base}/api/build`).then((r) => r.status, () => 0);
         if (health !== 200) throw new Error(`the scratch server does not answer /api/build (${health})`);
         for (const [name, profile] of Object.entries(PROFILES)) {
-            console.log(`\nFirst screen, ${name} (median of three, empty cache)`);
+            console.log(`\nFirst screen, ${name} (median of ${RUNS} after one untimed visit, empty cache)`);
             const browser = await openBrowser(browserPath, profile.viewport);
             try {
                 const { send } = browser;
@@ -329,9 +342,9 @@ async function checkFirstScreen(scratchRoot, browserPath) {
                 if (profile.network) await send('Network.emulateNetworkConditions', profile.network);
                 // The welcome first, on the new library; then past it, the home screen.
                 await setSetting(server.base, 'welcome_done', 'false');
-                const welcome = await timeThree(browser, server.base, 'welcome', SCREENS.welcome);
+                const welcome = await timeRuns(browser, server.base, 'welcome', SCREENS.welcome);
                 await setSetting(server.base, 'welcome_done', 'true');
-                const home = await timeThree(browser, server.base, 'home', SCREENS.home);
+                const home = await timeRuns(browser, server.base, 'home', SCREENS.home);
                 against(`firstScreenWelcome-${name}`, welcome);
                 against(`firstScreenHome-${name}`, home);
             } finally {
