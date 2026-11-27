@@ -98,7 +98,7 @@ function readPackageVersion() {
  * @param {string} [detail]
  */
 export function userAgent(detail) {
-    const name = `Terramentor/${readPackageVersion()}`;
+    const name = `Terramentor/${appVersion().version}`;
     return detail ? `${name} (${detail})` : name;
 }
 
