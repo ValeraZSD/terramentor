@@ -606,6 +606,8 @@ interface AppState {
     authTailscale: AuthTailscaleHint | null;
     /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
     authExposed: boolean;
+    /** No password, and this is a device let in without one, not the computer (`/api/auth/status` `elsewhere`). */
+    authElsewhere: boolean;
     /** The rest of `/api/auth/status`: fields an extension adds (server/extension.js `authenticate`). */
     authExtra: Record<string, unknown>;
     projects: Project[];
@@ -1066,6 +1068,7 @@ export const useStore = create<AppState>((set, get) => ({
     authLaunchRequired: false,
     authTailscale: null,
     authExposed: false,
+    authElsewhere: false,
     authExtra: {},
     projects: [],
     searchProviders: [],
@@ -1315,10 +1318,10 @@ export const useStore = create<AppState>((set, get) => ({
     loadAuth: async () => {
         try {
             const status = await api.getAuthStatus();
-            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, ...extra } = status;
+            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, elsewhere, ...extra } = status;
             // A client extension may take a signed-out page elsewhere (src/clientExtension.ts).
             if (enabled && !authenticated && clientExtension.onSignedOut?.(status) === true) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authElsewhere: !!elsewhere, authExtra: extra });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1348,13 +1351,15 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, ...extra } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, elsewhere, ...extra } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authLaunchRequired === !!launchRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed && JSON.stringify(before.authExtra) === JSON.stringify(extra)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
+                && before.authSetupRequired === !!setupRequired && before.authLaunchRequired === !!launchRequired
+                && before.authTailscale === (tailscale ?? null)
+                && before.authExposed === !!exposed && before.authElsewhere === !!elsewhere
+                && JSON.stringify(before.authExtra) === JSON.stringify(extra)) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authElsewhere: !!elsewhere, authExtra: extra });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
