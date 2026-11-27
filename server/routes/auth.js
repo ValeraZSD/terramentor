@@ -207,7 +207,14 @@ app.post('/api/auth/disable', wrap(async (req, res) => {
 // must not be able to turn itself into a bearer credential that works from
 // anywhere. Refused with 403 and no `authRequired`, which would lock the page.
 function apiKeyRefused(req, res) {
-    if (!isAuthEnabled() || !isRequestAuthenticated(req)) {
+    // An extension that signs people in itself stands for the password here
+    // too (server/extension.js), with or without a password of the app's own.
+    const ext = extensionAuth(req);
+    if (ext && !ext.signedIn) {
+        res.status(401).json({ ...ext.fields, ...keyed('Sign in again'), authRequired: true });
+        return true;
+    }
+    if ((!ext && !isAuthEnabled()) || !isRequestAuthenticated(req)) {
         res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
         return true;
     }

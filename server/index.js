@@ -102,7 +102,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 // anything listens, so a refused server was never reachable.
 {
     let problem = null;
-    try { problem = hooks.startProblem?.() || null; } catch (e) { problem = e.message; }
+    // A hook that throws refuses the start, whatever it threw.
+    try { problem = hooks.startProblem?.() || null; } catch (e) { problem = String(e?.message || e || '') || 'the startProblem hook failed'; }
     if (problem) {
         console.error(`[server] Refusing to start: ${problem}`);
         process.exit(1);

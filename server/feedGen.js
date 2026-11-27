@@ -1029,6 +1029,11 @@ async function generateOne(f, missing, signal) {
             // about the SPEC: write nothing, and the next burst retries it.
             // Recording it as failed made one outage a permanent verdict on
             // every widget the burst happened to reach.
+            // A final refusal (aiJobs.js fallsOver) stays unrecorded too, but
+            // ends the burst, which backs off: the next burst would pick this
+            // same widget at once, and nothing else asks a model while it
+            // stands.
+            if (err?.final === true) throw err;
             if (isUnavailable(err)) {
                 console.warn(`[FeedGen] Widget pre-build deferred for "${f.title}" (model unavailable): ${err.message}`);
                 return;

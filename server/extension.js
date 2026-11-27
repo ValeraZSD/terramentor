@@ -25,12 +25,17 @@
 //                             leaves the request to the password gate;
 //                             `{ signedIn, fields }` decides it here: signed in,
 //                             or refused with `fields` added to the 401 and to
-//                             GET /api/auth/status. Synchronous; any other
+//                             GET /api/auth/status. Either way the answer is
+//                             final: a refused request is not let in by a
+//                             session, the API key or a connected device, on
+//                             the auth routes too. Synchronous; any other
 //                             answer (false, a promise) is an error, so the
 //                             request fails rather than passing the hook by.
 //   setupCode()               the code that sets the first password from
 //                             another device, when the deployment hands one
-//                             over itself ('' for none). It is never printed.
+//                             over itself ('' for none). It is never printed,
+//                             and asked each time: one withdrawn stops working
+//                             and the server's own code takes its place.
 //   settingRefusal(spec, key) a keyed refusal (clientError.js `k`) for a write
 //                             through PUT /api/settings/:key, or null.
 //   serverControls            false: the update and desktop controls are not
@@ -39,7 +44,9 @@
 //                             (aiJobs.js chainFor), returned as an array,
 //                             synchronously. It may change them or throw;
 //                             an error with `unavailable: true` makes a
-//                             capability probe answer "no model" instead.
+//                             capability probe answer "no model" instead. A
+//                             list of its own is used as a copy that keeps the
+//                             chain's route stamp, so it may be frozen.
 //   modelFetch(fetch, settings)  the fetch every OpenAI-shaped model request
 //                             goes through (aiWire.js wireFetch), wrapped.
 //

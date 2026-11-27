@@ -37,6 +37,9 @@ const scratch = mkdtempSync(join(tmpdir(), 'extension-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 process.env.DATA_DIR = scratch;
+// The credentials file too: a gate below deletes it, and an inherited
+// SECRETS_PATH names the operator's real one.
+process.env.SECRETS_PATH = join(scratch, 'test.secrets.json');
 process.env.HOST = '127.0.0.1';
 delete process.env.TERRAMENTOR_EXTENSION;
 delete process.env.AUTH_ALLOW_OPEN_REMOTE;
@@ -125,7 +128,7 @@ export default {
         if (who === 'odd') return false;
         return null;
     },
-    setupCode: () => 'abcd-1234',
+    setupCode: () => globalThis.__setupCode ?? 'abcd-1234',
     settingRefusal: (spec, key) => (key === 'theme_tint' ? 'Not on this copy' : null),
     serverControls: false,
     modelChain(chain, job) {
@@ -134,13 +137,27 @@ export default {
             throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' } });
         }
         if (job === 'vision') throw Object.assign(new Error('no vision now'), { unavailable: true });
-        if (globalThis.__finalMode) return [{ ...chain[0], provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'final-model', enabled: true }];
+        if (globalThis.__finalMode || globalThis.__shortFinal) return [{ ...chain[0], provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'final-model', enabled: true }];
         return chain.map((s) => ({ ...s, model: 'swapped-' + job }));
     },
     modelFetch: (inner, settings) => async (url, init) => {
         globalThis.__extensionSeen.push(String(url));
         if (globalThis.__finalMode) {
             throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' }, httpStatus: 503 });
+        }
+        if (globalThis.__shortFinal) {
+            // A course run: the shape call says "short", the short course is
+            // refused for good, and any other call is one the run should not make.
+            const body = String(init?.body || '');
+            const kind = body.includes('You decide what shape a new course takes') ? 'shape' : body.includes('SHORT COURSE') ? 'short' : 'other';
+            globalThis.__shortCalls.push(kind);
+            if (kind === 'short' || (kind === 'shape' && globalThis.__shapeFinal)) throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' }, httpStatus: 503 });
+            if (kind === 'other') return new Response('{"error":{"message":"not part of this gate"}}', { status: 400, headers: { 'Content-Type': 'application/json' } });
+            const content = '\`\`\`json\\n{"shape": "short"}\\n\`\`\`';
+            if (/"stream"\\s*:\\s*true/.test(body)) {
+                return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content } }] }) + '\\n\\ndata: [DONE]\\n\\n', { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+            }
+            return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 5 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         return inner(url, init);
     },
@@ -171,7 +188,7 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
             let text = '';
             res.setEncoding('utf8');
             res.on('data', (c) => { text += c; });
-            res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, json }); });
+            res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, json, text }); });
         });
         req.on('error', reject);
         if (body !== undefined) req.write(JSON.stringify(body));
@@ -201,6 +218,19 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const inside = await call('/api/projects', { headers: { 'X-Person': 'in' } });
     ok('signed in by the hook: through', inside.status === 200, `${inside.status}`);
 
+    // The hook's refusal is final on the auth routes mounted before the gate
+    // too: no API key, no connected device, turns it round.
+    const apiKey = auth.regenerateApiKey();
+    const bearer = { authorization: `Bearer ${apiKey}` };
+    const keyOut = await call('/api/auth/apikey', { headers: { 'X-Person': 'out', ...bearer } });
+    ok('signed out by the hook, with the API key as a bearer: the key route refuses (401)', keyOut.status === 401 && !keyOut.json?.apiKey, `${keyOut.status} ${JSON.stringify(keyOut.json)}`);
+    const turned = await call('/api/auth/apikey/regenerate', { method: 'POST', headers: { 'X-Person': 'out', ...bearer } });
+    ok('...and cannot make a new key', turned.status === 401 && auth.getApiKey() === apiKey, `${turned.status}`);
+    ok('...nor does the key count as the password for it', auth.hasPasswordCredential({ headers: { 'x-person': 'out', ...bearer } }) === false);
+    ok('...nor a connected device as a way in', auth.isRequestAuthenticated({ headers: { 'x-person': 'out' }, remoteAccess: { how: 'device' } }) === false);
+    const keyIn = await call('/api/auth/apikey', { headers: { 'X-Person': 'in' } });
+    ok('signed in by the hook, no password of the app\'s own: the key route answers', keyIn.status === 200 && keyIn.json?.apiKey === apiKey, `${keyIn.status} ${JSON.stringify(keyIn.json)}`);
+
     const refused = await call('/api/settings/theme_tint', { method: 'PUT', body: { value: '#336699' } });
     const stored = db.prepare("SELECT value FROM settings WHERE key = 'theme_tint'").get();
     ok('a setting the module refuses: 403 with its keyed sentence, nothing written', refused.status === 403 && refused.json?.messageKey === 'Not on this copy' && !stored, JSON.stringify(refused.json));
@@ -217,10 +247,26 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     try { code = auth.announceSetupCode(); } finally { console.log = log; }
     ok('a given setup code is never printed', code === null && !logged.some((l) => /abcd|ABCD/.test(l)), logged.join(' | '));
     ok('...and is the one a remote first password is checked against', auth.checkSetupCode('ABCD-1234') && auth.checkSetupCode(' abcd-1234 ') && !auth.checkSetupCode('ABCD-1235'));
+    // Withdrawn: the server's own code takes over, and the given one is
+    // neither accepted nor printed.
+    globalThis.__setupCode = '';
+    const withdrawn = [];
+    console.log = (...a) => { withdrawn.push(a.join(' ')); };
+    let own;
+    try { own = auth.announceSetupCode(); } finally { console.log = log; }
+    ok('a withdrawn setup code is no longer accepted', !auth.checkSetupCode('ABCD-1234'));
+    ok('...nor printed: the server\'s own code is', typeof own === 'string' && own !== 'ABCD-1234' && auth.checkSetupCode(own) && !withdrawn.some((l) => /ABCD-1234/i.test(l)), withdrawn.join(' | '));
+    globalThis.__setupCode = undefined;
     auth.clearSetupCode();
 
     const chain = aiJobs.chainFor('courses');
     ok('the model chain is the module\'s', chain.length > 0 && chain.every((s) => s.model === 'swapped-courses'), JSON.stringify(chain.map((s) => s.model)));
+    ok('...and a new array keeps the chain\'s route stamp', chain.listsSet?.job === 'courses' && typeof chain.listsSet?.at === 'string' && !Object.keys(chain).includes('listsSet'), JSON.stringify(chain.listsSet));
+    globalThis.__chainAnswer = Object.freeze([Object.freeze({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'frozen', enabled: true })]);
+    let frozen = null;
+    try { frozen = aiJobs.chainFor('courses'); } catch (e) { frozen = e; }
+    globalThis.__chainAnswer = undefined;
+    ok('...a frozen list too, which the module keeps unchanged', Array.isArray(frozen) && frozen[0]?.model === 'frozen' && frozen.listsSet?.job === 'courses', String(frozen?.message ?? JSON.stringify(frozen?.listsSet)));
     let thrown = null;
     try { aiJobs.chainFor('vision'); } catch (e) { thrown = e; }
     ok('...it may refuse a job', thrown?.unavailable === true);
@@ -262,6 +308,41 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const sent = globalThis.__extensionSeen.length - before;
     ok('a final refusal from the module\'s fetch, through a real model call: sent once, never retried', sent === 1 && called?.final === true, `sent ${sent}, ${called?.message}`);
 
+    // A final refusal of the short course refuses the course: it is not
+    // built in phases instead, which the same refusal would meet call by call.
+    db.prepare("INSERT INTO settings (key, value) VALUES ('ai_enabled', 'true') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    globalThis.__shortFinal = true;
+    globalThis.__shortCalls = [];
+    let run;
+    try { run = await call('/api/ai/create-project', { method: 'POST', body: { name: 'Index funds', description: 'A short look at index funds.' } }); } finally { globalThis.__shortFinal = false; }
+    const frames = String(run.text || '').split('\n\n').filter((b) => b.startsWith('data: ')).map((b) => { try { return JSON.parse(b.slice(6)); } catch { return {}; } });
+    ok('a short course refused for good is not built in phases instead', globalThis.__shortCalls.includes('short') && !globalThis.__shortCalls.includes('other') && !frames.some((f) => f.phase === 'sized' && f.by === 'fallback'),
+        `${globalThis.__shortCalls.join(',')} | ${frames.map((f) => `${f.phase}/${f.shape ?? ''}/${f.by ?? ''}`).join(' ')}`);
+    // The same refusal one call earlier, on the call that decides the shape.
+    globalThis.__shortFinal = true;
+    globalThis.__shapeFinal = true;
+    globalThis.__shortCalls = [];
+    let shaped;
+    try { shaped = await call('/api/ai/create-project', { method: 'POST', body: { name: 'Index funds', description: 'A short look at index funds.' } }); } finally { globalThis.__shortFinal = false; globalThis.__shapeFinal = false; }
+    const shapeFrames = String(shaped.text || '').split('\n\n').filter((b) => b.startsWith('data: ')).map((b) => { try { return JSON.parse(b.slice(6)); } catch { return {}; } });
+    ok('...nor is a course whose shape call was refused for good', globalThis.__shortCalls.join(',') === 'shape' && !shapeFrames.some((f) => f.phase === 'sized' && f.by === 'fallback'),
+        `${globalThis.__shortCalls.join(',')} | ${shapeFrames.map((f) => `${f.phase}/${f.shape ?? ''}/${f.by ?? ''}`).join(' ')}`);
+
+    // A final refusal of a widget build leaves the widget unrecorded and ends
+    // the run, rather than asking for the same widget again at once.
+    const course = db.prepare("INSERT INTO projects (name) VALUES ('Waves')").run().lastInsertRowid;
+    const topic = db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Wave speed')").run(course).lastInsertRowid;
+    db.prepare("INSERT INTO feed_items (node_id, kind, seq, content) VALUES (?, 'plan', 0, '{\"parts\":[]}')").run(topic);
+    const lesson = db.prepare("INSERT INTO feed_items (node_id, kind, seq, content) VALUES (?, 'lesson', 1, ?)").run(topic, 'Waves move.\n\n```widget\nA slider for the wave speed.\n```\n').lastInsertRowid;
+    globalThis.__finalMode = true;
+    const sentBefore = globalThis.__extensionSeen.length;
+    let widgetErr = null;
+    try { await feedGen.generateForNode(topic); } catch (e) { widgetErr = e; } finally { globalThis.__finalMode = false; }
+    const widgetMeta = JSON.parse(db.prepare('SELECT meta FROM feed_items WHERE id = ?').get(lesson).meta || '{}');
+    ok('a widget build refused for good: asked once, the run ends with the refusal, the widget not marked failed',
+        widgetErr?.final === true && globalThis.__extensionSeen.length - sentBefore === 1 && !widgetMeta.widget?.failed,
+        `sent ${globalThis.__extensionSeen.length - sentBefore}, ${widgetErr?.message}, ${JSON.stringify(widgetMeta)}`);
+
     // The credentials backup and restore a module may use: a linked credentials
     // file is read and replaced where it points, as the app's own writes do;
     // neither writes through a link at the other end.
@@ -269,6 +350,8 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     const file = secrets.secretsFile();
     const target = join(scratch, 'target.secrets.json');
     writeFileSync(target, '{"format":"terramentor-secrets","version":1,"secrets":{"a":"1"}}');
+    ok('the credentials file the gate replaces is the scratch one', file.startsWith(scratch), file);
+    if (!file.startsWith(scratch)) { console.error(`refusing: the credentials file is ${file}, not a scratch one`); process.exit(2); }
     rmSync(file, { force: true });
     let linked = true;
     try { symlinkSync(target, file, 'file'); } catch { linked = false; }
@@ -303,7 +386,7 @@ server.close();
 console.log('\n--- 4. start ---');
 function start(moduleFile, waitFor, ms = 60_000) {
     const dir = mkdtempSync(join(scratch, 'start-'));
-    const env = { ...process.env, DB_PATH: join(dir, 'test.db'), VAULT_ROOT: join(dir, 'vault'), DATA_DIR: dir, PORT: '0', HOST: '127.0.0.1', TERRAMENTOR_EXTENSION: moduleFile, NODE_ENV: 'production' };
+    const env = { ...process.env, DB_PATH: join(dir, 'test.db'), VAULT_ROOT: join(dir, 'vault'), DATA_DIR: dir, SECRETS_PATH: join(dir, 'test.secrets.json'), PORT: '0', HOST: '127.0.0.1', TERRAMENTOR_EXTENSION: moduleFile, NODE_ENV: 'production' };
     return new Promise((resolve) => {
         const child = spawn(process.execPath, [join(repoRoot, 'server', 'index.js')], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '';
@@ -321,6 +404,13 @@ function start(moduleFile, waitFor, ms = 60_000) {
     writeFileSync(refuse, "export default { startProblem: () => 'the fixture says no' };\n");
     const r = await start(refuse);
     ok('a start problem stops the server before it listens', r.code === 1 && /Refusing to start: the fixture says no/.test(r.out) && !/Server running at|listening on its socket/.test(r.out), `${r.code} ${r.out.slice(-300)}`);
+
+    for (const [label, thrown] of [['an Error with no message', 'new Error()'], ['an empty string', "''"]]) {
+        const file = join(scratch, `throws-${label.length}.mjs`);
+        writeFileSync(file, `export default { startProblem: () => { throw ${thrown}; } };\n`);
+        const t = await start(file, /Server running at/);
+        ok(`a start problem hook that throws ${label} stops the server too`, t.code === 1 && /Refusing to start/.test(t.out) && !/Server running at/.test(t.out), `${t.code} ${t.out.slice(-300)}`);
+    }
 
     const misspelt = join(scratch, 'misspelt.mjs');
     const m = await start(misspelt);

@@ -374,6 +374,10 @@ export function isSecureRequest(req) {
 /** Does this request already carry valid credentials (a connected device or the
  *  computer's Tailscale account — see devices.js — a session cookie, or a bearer)? */
 export function isRequestAuthenticated(req) {
+    // An extension's answer is final either way: a request it refused is not
+    // let in by a connected device or a password credential.
+    const ext = extensionAuth(req);
+    if (ext) return ext.signedIn;
     return !!req.remoteAccess || hasPasswordCredential(req);
 }
 
@@ -413,8 +417,10 @@ export function extensionAuth(req) {
  * there to prevent; scripts and bots use the API key.
  */
 export function hasPasswordCredential(req) {
-    // An extension that signs people in itself stands for the password.
-    if (extensionAuth(req)?.signedIn === true) return true;
+    // An extension that signs people in itself stands for the password, and a
+    // request it refused carries none, whatever cookie or bearer it sends.
+    const ext = extensionAuth(req);
+    if (ext) return ext.signedIn;
     const authz = req.headers.authorization || '';
     if (authz.startsWith('Bearer ')) {
         const token = authz.slice(7).trim();
@@ -606,6 +612,7 @@ function isLoopbackHost(hostHeader) {
  * sensitivity 'network').
  */
 export function ownerPresent(req) {
+    if (extensionAuth(req)) return hasPasswordCredential(req);
     return !req.remoteAccess || hasPasswordCredential(req);
 }
 
@@ -700,9 +707,10 @@ export function announceSetupCode() {
     // An extension that hands over a code of its own (server/extension.js
     // `setupCode`) uses that instead, and it is never printed: whoever holds it
     // has it already.
+    // `setupCode` holds only this server's own code; the extension's is asked
+    // each time, so one it withdrew stops working at once.
     const token = extensionSetupCode();
     if (token) {
-        setupCode = token.toUpperCase();
         console.log('[security] No password is set. Open the app and enter the setup token you were given to set one.');
         return null;
     }
@@ -718,10 +726,9 @@ function extensionSetupCode() {
     return typeof give === 'function' ? String(give() || '').trim() : '';
 }
 export function checkSetupCode(code) {
-    const token = extensionSetupCode();
-    if (token) setupCode = token.toUpperCase();
-    if (!setupCode || typeof code !== 'string') return false;
-    return timingEqual(code.trim().toUpperCase(), setupCode);
+    const expected = extensionSetupCode().toUpperCase() || setupCode;
+    if (!expected || typeof code !== 'string') return false;
+    return timingEqual(code.trim().toUpperCase(), expected);
 }
 /** The code is spent once a password exists. */
 export function clearSetupCode() {

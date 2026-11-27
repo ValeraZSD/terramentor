@@ -216,7 +216,11 @@ export function chainFor(job, options = {}) {
     if (!Array.isArray(changed) || changed.length === 0 || !changed.every((s) => s && typeof s === 'object')) {
         throw new Error('The extension\'s modelChain hook answered no list of connections');
     }
-    return changed;
+    // A list of the module's own (chain.map, a frozen constant) carries this
+    // chain's route stamp on a copy, so a fallback is still noted against the
+    // lists that were set (noteFallback).
+    if (changed === chain) return chain;
+    return Object.defineProperty([...changed], 'listsSet', { value: chain.listsSet, enumerable: false });
 }
 
 function chainOf(job, { model = null } = {}) {

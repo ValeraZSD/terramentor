@@ -72,7 +72,8 @@ MATERIAL: ${block ? `${words} words in all.${block}` : 'none'}`,
  * Short or phased, for a creation about to start. `src` and `words` describe
  * the learner's material (sourceMaterial.js creationSources, a word count per
  * source). Never throws for the model's sake: a failed call is a course in
- * phases. A cancel still throws (the run stops).
+ * phases. A cancel still throws (the run stops), and so does a final refusal
+ * (aiJobs.js fallsOver): the phases would meet it call by call.
  *
  * Returns `{ shape, by }`: `by` is 'bounds', 'model' or 'fallback'.
  */
@@ -88,7 +89,7 @@ export async function decideCourseShape({ name = '', goal = '', src = null, word
         const shape = readShapeReply(raw);
         return shape ? { shape, by: 'model', words: total } : { shape: 'phased', by: 'fallback', words: total };
     } catch (err) {
-        if (signal?.aborted) throw err;
+        if (signal?.aborted || err?.final === true) throw err;
         console.log(`[AI] Course shape call failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
         return { shape: 'phased', by: 'fallback', words: total };
     }

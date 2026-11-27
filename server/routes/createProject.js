@@ -750,7 +750,8 @@ app.post('/api/ai/create-project', (req, res) => {
                 });
             } catch (err) {
                 // Its files gone to another course: in phases they are gone too.
-                if (signal?.aborted || err?.name === 'AbortError' || err instanceof StagedClaimedError) throw err;
+                // A final refusal (aiJobs.js fallsOver) refuses the phases too.
+                if (signal?.aborted || err?.name === 'AbortError' || err?.final === true || err instanceof StagedClaimedError) throw err;
                 // The short course is made only from a good answer (nothing is
                 // half-written), so a failed one builds the course in phases.
                 console.log(`[AI] Short course failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
