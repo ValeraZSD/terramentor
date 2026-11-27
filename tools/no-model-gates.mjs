@@ -138,6 +138,10 @@ try {
         errFrame?.failure?.messageKey === NO_MODEL && errFrame?.failure?.final === true && errFrame?.failure?.noModel === true, JSON.stringify(errFrame?.failure));
     check('…naming no provider', !namesOllama(errFrame), words(errFrame));
     check('no project was made', db.prepare('SELECT COUNT(*) n FROM projects').get().n === 0);
+    const progress = readFileSync(new URL('../src/components/creation/CreationProgress.tsx', import.meta.url), 'utf8');
+    check('the run\'s title says it, once: no sentence repeats it under the title',
+        /run\.failure\?\.noModel \? t\("No AI model connected"\)/.test(progress)
+        && /run\.status === 'error' && run\.error && !run\.failure\?\.noModel && \(cause \?/.test(progress));
 
     console.log('\n--- the assistant ---');
     const turn = await frames(await api('/api/ai/assistant/stream', { method: 'POST', body: JSON.stringify({ message: 'What should I study first?' }) }));

@@ -199,7 +199,9 @@ export function RunStatus({ run }: { run: CreationRun }) {
                         {right && <p className="text-sm font-medium tabular-nums text-accent-fg">{right}</p>}
                     </div>
                     {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600 dark:text-slate-300">{detail}</p>}
-                    {run.status === 'error' && run.error && (cause ? (
+                    {/* No model: the headline says it and "Set up AI" is the way
+                        on, so the sentence under it would only say it again. */}
+                    {run.status === 'error' && run.error && !run.failure?.noModel && (cause ? (
                         <>
                             <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{t(cause.messageKey, cause.params)}</p>
                             {/* A final refusal's sentence IS the message: its English copy under it would say it twice. */}
