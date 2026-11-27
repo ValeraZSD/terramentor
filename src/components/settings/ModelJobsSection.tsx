@@ -22,6 +22,7 @@ import type { AtlasNamingStats } from '../../types';
 import type { EmbeddingStatusHandle } from './useEmbeddingStatus';
 import { settingTargetId } from '../../utils/settingTarget';
 import { switchSaver } from '../../utils/switchSaver';
+import { serverText } from '../../utils/serverText';
 
 // How to recover math from PDFs whose text layer drops formulas. One UI control
 // over two backend settings (pdf_math_recovery + pdf_recovery_vision).
@@ -558,7 +559,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                     {embStatus?.probe && !embStatus.probe.ok && (
                                         <p className="text-sm text-amber-600 dark:text-amber-400">
                                             {tr("No embedding model reachable — using keyword search only.")}
-                                            {embStatus.probe.reason ? <span className="block text-sm text-slate-500 dark:text-slate-400 mt-0.5 break-words">{embStatus.probe.reason}</span> : null}
+                                            {embStatus.probe.reason ? <span className="block text-sm text-slate-500 dark:text-slate-400 mt-0.5 break-words">{serverText(embStatus.probe) || embStatus.probe.reason}</span> : null}
                                         </p>
                                     )}
                                     {/* `flex-wrap` below: the count is a sentence whose

@@ -602,6 +602,22 @@ export default function AtlasView() {
     // apologising or pretending the feature is broken. In plain words first:
     // "embedding model" is the name Settings uses, so it is given as that name,
     // not as the explanation.
+    // No course yet: the model is not what is missing, the topics are.
+    if (data && !data.available && data.empty) {
+        return (
+            <div className="max-w-lg mx-auto mt-16 px-4 text-center">
+                <MapIcon className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-4" aria-hidden="true" />
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">{tr("Nothing to map yet")}</h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                    {tr("Once you have a course, its topics appear here, grouped by meaning.")}
+                </p>
+                <Button variant="primary" onClick={() => navigate('/projects', { state: { create: true } })}>
+                    {tr("New course")}
+                </Button>
+            </div>
+        );
+    }
+
     if (data && !data.available) {
         return (
             <div className="max-w-lg mx-auto mt-16 px-4 text-center">

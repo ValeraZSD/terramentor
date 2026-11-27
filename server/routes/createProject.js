@@ -58,7 +58,7 @@ function screenFailure(record, error, shown) {
         httpStatus: record.httpStatus, model: record.model, attempts: record.attempts,
         looped: record.looped, emptyReply: record.emptyReply, reasoningTokens: record.reasoningTokens,
         produced: record.produced,
-        final: record.final, messageKey: record.messageKey, params: record.params,
+        final: record.final, noModel: record.noModel, messageKey: record.messageKey, params: record.params,
     };
 }
 
@@ -668,6 +668,10 @@ app.post('/api/ai/create-project', (req, res) => {
     run.go(async () => {
         let projectSummary = '';
         let thinkingText = '';
+
+        // No model connected: the one sentence that says so, before the first
+        // call (sizing, naming and the notes below each swallow a failure).
+        chainFor('courses');
 
         // `curateResources` is read once, above, beside the tracker it sizes.
         const EST_EL_PER_CAT = 4, EST_SE_PER_EL = 4, EST_RES_PER_SE = curateResources ? 2 : 0;

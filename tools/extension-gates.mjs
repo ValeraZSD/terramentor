@@ -133,6 +133,7 @@ export default {
     serverControls: false,
     modelChain(chain, job) {
         if (globalThis.__chainAnswer !== undefined) return globalThis.__chainAnswer;
+        if (globalThis.__passThrough) return chain;
         if (job === 'conversation' && globalThis.__chainFinal) {
             throw Object.assign(new Error('Paused until June'), { final: true, messageKey: 'Paused until {{when}}', params: { when: 'June' } });
         }
@@ -267,6 +268,13 @@ function call(path, { method = 'GET', headers = {}, body } = {}) {
     try { frozen = aiJobs.chainFor('courses'); } catch (e) { frozen = e; }
     globalThis.__chainAnswer = undefined;
     ok('...a frozen list too, which the module keeps unchanged', Array.isArray(frozen) && frozen[0]?.model === 'frozen' && frozen.listsSet?.job === 'courses', String(frozen?.message ?? JSON.stringify(frozen?.listsSet)));
+    // Nothing is connected in this library: a hook that only looks at the
+    // chain and hands it back must not send it to the default address.
+    globalThis.__passThrough = true;
+    let passedOn = null;
+    try { passedOn = aiJobs.chainFor('courses'); } catch (e) { passedOn = e; }
+    globalThis.__passThrough = false;
+    ok('...a chain handed back as it came, with nothing connected, is refused as "no model"', passedOn?.noModel === true && passedOn?.final === true, String(passedOn?.message ?? JSON.stringify(passedOn)));
     let thrown = null;
     try { aiJobs.chainFor('vision'); } catch (e) { thrown = e; }
     ok('...it may refuse a job', thrown?.unavailable === true);

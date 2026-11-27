@@ -165,7 +165,7 @@ export function RunStatus({ run }: { run: CreationRun }) {
             ? t("{{n}} topics were written before it stopped, and all of them are saved.", { count: track.topicsDone, n: fmt(track.topicsDone) })
             : t("What was written before it stopped is saved.");
     } else if (run.status === 'error') {
-        headline = t("An error occurred");
+        headline = run.failure?.noModel ? t("No AI model connected") : t("An error occurred");
     } else if (current === 'queued') {
         headline = t("Waiting for another generation to finish");
         detail = run.queuePosition != null ? t("Place in line: {{n}}", { n: fmt(run.queuePosition) }) : null;
@@ -199,10 +199,13 @@ export function RunStatus({ run }: { run: CreationRun }) {
                         {right && <p className="text-sm font-medium tabular-nums text-accent-fg">{right}</p>}
                     </div>
                     {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600 dark:text-slate-300">{detail}</p>}
-                    {run.status === 'error' && run.error && (cause ? (
+                    {/* No model: the headline says it and "Set up AI" is the way
+                        on, so the sentence under it would only say it again. */}
+                    {run.status === 'error' && run.error && !run.failure?.noModel && (cause ? (
                         <>
                             <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{t(cause.messageKey, cause.params)}</p>
-                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>
+                            {/* A final refusal's sentence IS the message: its English copy under it would say it twice. */}
+                            {!run.failure?.final && <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>}
                         </>
                     ) : (
                         <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{run.error}</p>

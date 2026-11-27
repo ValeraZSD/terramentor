@@ -282,7 +282,7 @@ export default function WelcomeFlow() {
                             </ul>
                             {!ai.ready && (
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                                    {t("Without a model you can still build or import courses and study their saved lessons, questions and flashcards. New lessons, questions, visuals and the tutor need one: connect it in Settings → AI & Models whenever you are ready.")}
+                                    {t("Without a model you can still import courses, including one another chatbot wrote, and study their saved lessons, questions and flashcards. New lessons, questions, visuals and the tutor need one: connect it in Settings → AI & Models whenever you are ready.")}
                                 </p>
                             )}
                             {/* Desktop only, and off until ticked: an app that

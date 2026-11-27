@@ -28,7 +28,8 @@ import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } fro
 import AiModelBadge from './AiModelBadge';
 import AiDisclosure from './AiDisclosure';
 import AIUnavailableNotice from './AIUnavailableNotice';
-import { isAIUsable } from '../utils/aiStatus';
+import { isAIUsable, isAINotConnected } from '../utils/aiStatus';
+import ConnectAIActions from './ConnectAIActions';
 import CopyButton from './CopyButton';
 import ChatTurnError from './ChatTurnError';
 import ReasoningPanel from './ReasoningPanel';
@@ -488,8 +489,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * only the server knows the real ones.
      *
      * Resolves null, and changes nothing, when another conversation was opened
-     * while it was in flight: that one owns the panel now. A conversation
-     * deleted elsewhere (404) leaves a new chat.
+     * while it was in flight: that one owns the panel now. A conversation that
+     * is gone (404: deleted elsewhere, or dropped with the failed first turn
+     * that made it) leaves a new chat and resolves its empty list, so a failure
+     * card the caller raises still shows.
      *
      * Two loads of one conversation can overlap (a change heard on the feed
      * while the turn's own reload is in flight) and answer out of order. An
@@ -510,8 +513,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 rows = await api.getConversationMessages(id);
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
-                if (conversationIdRef.current === id) switchTo(null);
-                return null;
+                if (conversationIdRef.current !== id) return null;
+                switchTo(null);
+                id = null;
             } finally {
                 loadsInFlightRef.current--;
             }
@@ -1043,6 +1047,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // A new chat learns its id from the turn; if the turn fails, the
+        // server drops that conversation, so the panel goes back to none.
+        const startedNew = conversationIdRef.current == null;
         // A load still in flight (a change heard on the feed, a return to the
         // page) read the conversation before this question, and applied now
         // it would take the question off the screen. It is outdated instead,
@@ -1081,6 +1088,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // the rows streamed live are measured in the streamed text, and cutting
         // the stored one at their positions lands a few characters off.
         let settledActions: AiAction[] | null = null;
+        // Reasoning arrived: the server keeps a failed turn that got this far
+        // (its question and the trace), so its failure is read from history.
+        let reasoned = false;
         setShowList(false);
         try {
             const stream = api.streamAssistant(message, {
@@ -1094,7 +1104,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }, {
                 signal: controller.signal,
                 onDone: meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; stopped = !!meta.cancelled; },
-                onThinkingChunk: delta => appendReasoning(assistantId, delta),
+                onThinkingChunk: delta => { if (delta.trim()) reasoned = true; appendReasoning(assistantId, delta); },
                 onTask: id => { taskId = id; liveTaskRef.current = id; attachedRef.current.add(id); },
                 onNote: setNote,
                 onActions: trackActions,
@@ -1108,6 +1118,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setStreamed(full);
             }
         } catch (e: any) {
+            // The server's error frame on a turn that produced nothing (no
+            // model, a refused key): the server dropped the turn, so it is
+            // settled here and the card below says why. A turn that wrote or
+            // reasoned first is kept by the server; it stays on the follow-up
+            // path, which reads it back and raises the card under it.
+            if (e?.turnEnded && !full.trim() && !reasoned) terminal = true;
             if (!controller.signal.aborted) {
                 failed = e.message || 'the request failed.';
                 missing = Array.isArray(e?.data?.missing) ? e.data.missing.map(Number) : [];
@@ -1203,6 +1219,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setInput(cur => (cur.trim() ? cur : message));
                 composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
+                if (startedNew) switchTo(null);
             }
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
@@ -1797,7 +1814,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
                 {turnError && (
                     <ChatTurnError
-                        message={turnError.message}
+                        /* With no model connected the card carries the connect
+                            buttons below, so it says the fact alone, not the
+                            way to Settings beside a button that goes there. */
+                        message={isAINotConnected(status) ? tr("No AI model is connected.") : turnError.message}
                         /* A followed turn whose question text did not survive in the
                             task's meta has nothing to retry — an empty send would
                             silently do nothing. */
@@ -1805,6 +1825,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         keptIn={turnError.keptIn}
                         onRetry={() => { const t = turnError.text; setTurnError(null); send(t); }}
                         onDismiss={() => setTurnError(null)}
+                        /* With no model connected a retry meets the same
+                            refusal: the card offers the way to connect one,
+                            the same buttons as the notice it stands in for. */
+                        action={isAINotConnected(status)
+                            ? <ConnectAIActions returnTo={window.location.pathname} onLeave={() => { if (!docked) onClose(); }} />
+                            : undefined}
                     />
                 )}
 
@@ -1834,8 +1860,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 {/* Said BEFORE the learner types, not after a send fails: with AI
                     off the header still names the model, and the first sign of
                     trouble was an error under a question already written. Only
-                    on a status the server gave — `null` is "not asked yet". */}
-                {status && !streaming && !isAIUsable(status) && (
+                    on a status the server gave — `null` is "not asked yet".
+                    While a failed turn's card says no model is connected and
+                    carries the connect buttons, it stands in for this notice. */}
+                {status && !streaming && !isAIUsable(status) && !(turnError && isAINotConnected(status)) && (
                     <AIUnavailableNotice status={status} onLeave={() => { if (!docked) onClose(); }} />
                 )}
                 {stoppedPartial && !streaming && !showList && (

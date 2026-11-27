@@ -452,9 +452,11 @@ let shortRows = [];
 const reads = [];      // { body, answer(r) }
 const discarded = [];  // staged ids let go
 const sent = [];       // creation bodies
+let aiStatus = null;   // set by a case: /api/ai/status answers it, else never
 w.fetch = (url, init = {}) => {
     const u = String(url);
     const method = (init.method || 'GET').toUpperCase();
+    if (/\/api\/ai\/status(\?|$)/.test(u) && aiStatus) return Promise.resolve(json(aiStatus));
     if (/\/api\/projects(\?|$)/.test(u)) return Promise.resolve(json(library));
     if (/\/api\/short-courses(\?|$)/.test(u) && method === 'GET') return Promise.resolve(json({ courses: shortRows }));
     if (/\/api\/settings(\?|$)/.test(u)) return Promise.resolve(json({}));
@@ -520,6 +522,33 @@ const linkField = () => [...all().querySelectorAll('input')].find(i => /Paste a 
 section('5. the New course window');
 let r = null;
 try {
+    // No model connected: the form's notice holds every way on as ONE group,
+    // the chatbot route beside the two connect buttons, not a lone button
+    // under the notice. The notice is found by its title, the buttons by
+    // their words.
+    aiStatus = { enabled: true, connected: false, available: false, provider: 'ollama', model: '' };
+    await act(async () => { r = mountModal(el, null); });
+    await settle();
+    const start = buttons().find(b => b.textContent.includes('Create a course'));
+    if (start) await click(start);
+    const noticeTitle = () => [...all().querySelectorAll('p')].find(p => p.textContent === 'Writing a course needs an AI model');
+    const notice = noticeTitle()?.parentElement?.parentElement;
+    const named = (re) => buttons().filter(b => re.test(b.textContent.trim()));
+    const connectBtn = named(/^Connect OpenRouter$/).find(b => notice?.contains(b));
+    const otherBtn = named(/^Other ways$/).find(b => notice?.contains(b));
+    const chatBtn = named(/chatbot/i).find(b => notice?.contains(b));
+    ok('with no model, the notice\'s three ways on stand in one group: Connect OpenRouter, Other ways, the chatbot',
+        !!notice && !!connectBtn && !!otherBtn && !!chatBtn && connectBtn.parentElement === otherBtn.parentElement && chatBtn.parentElement === connectBtn.parentElement,
+        notice ? named(/chatbot|Connect OpenRouter|Other ways/i).map(b => `${b.textContent.trim()}${notice.contains(b) ? '' : ' (outside)'}`) : 'no notice');
+    ok('…and no second chatbot button stands outside it', !!notice && named(/chatbot/i).every(b => notice.contains(b)),
+        named(/chatbot/i).map(b => b.textContent.trim()));
+    if (chatBtn) await click(chatBtn);
+    const onBrief = all().textContent.includes('Make a course with an external chatbot');
+    await press('Back');
+    ok('…the chatbot one opens the chatbot path, and its ← comes back to the form', onBrief && !!nameField() && !!noticeTitle(), all().textContent.slice(0, 200));
+    act(() => r.unmount());
+    aiStatus = null;
+
     await act(async () => { r = mountModal(el, null); });
     await settle();
     ok('a plain open asks first: create a course, or import one', (buttons().some(b => b.textContent.includes('Create a course')) && buttons().some(b => b.textContent.includes('Import a course'))), all().textContent.slice(0, 300));

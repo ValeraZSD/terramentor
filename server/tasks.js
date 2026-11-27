@@ -216,11 +216,13 @@ function isActive(task) {
  */
 const CAP = { message: 500, stack: 4000, body: 2000, causes: 5 };
 
-/** `{ final, messageKey, params }` of a final refusal; nothing for any other error. */
+/** `{ final, messageKey, params }` of a final refusal (and `noModel` when it
+ *  is "no model connected", ai.js noModelError); nothing for any other error. */
 export function finalSentence(err) {
     if (err?.final !== true) return {};
     return {
         final: true,
+        ...(err.noModel === true ? { noModel: true } : {}),
         ...(typeof err.messageKey === 'string' ? { messageKey: err.messageKey } : {}),
         ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}),
     };

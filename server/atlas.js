@@ -1425,6 +1425,11 @@ async function buildAtlasNow({
     includeArchived = false,
     refresh = false,
 } = {}, sig) {
+    // A library with no topics has nothing to map, whatever the model; that
+    // is the reason to give, not the embedding model.
+    if (!db.prepare('SELECT 1 FROM live_nodes n JOIN live_projects p ON p.id = n.project_id WHERE n.is_note = 0 LIMIT 1').get()) {
+        return { ...unavailable('There is nothing to map yet.'), empty: true };
+    }
     if (!vecAvailable) return unavailable('sqlite-vec is not loaded on this build, so topics are not mapped.');
     if (!embeddingReady()) return unavailable('Semantic search is switched off, so topics are not mapped.');
     if (!vecTableExists('vec_nodes')) return unavailable('No topics have been mapped yet.');

@@ -24,7 +24,7 @@ import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
-import { endpointBody, keyed, learnerError, ownWords, publicBody } from './clientError.js';
+import { endpointBody, k, keyed, KeyedError, learnerError, ownWords, publicBody } from './clientError.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -216,8 +216,12 @@ export function getAISettings() {
     };
     let ollamaModel = '';
     let openaiModel = '';
+    let providerRow = false;
     settings.forEach(s => {
-        if (s.key === 'ai_provider' && s.value) result.provider = s.value === 'openai' ? 'openai' : 'ollama';
+        if (s.key === 'ai_provider' && s.value) {
+            providerRow = true;
+            result.provider = s.value === 'openai' ? 'openai' : 'ollama';
+        }
         if (s.key === 'ai_ollama_url') result.ollamaUrl = s.value;
         if (s.key === 'ai_openai_base_url' && s.value) result.baseUrl = s.value;
         if (s.key === 'ai_model') ollamaModel = s.value;
@@ -243,6 +247,10 @@ export function getAISettings() {
     if (process.env.AI_BASE_URL) result.baseUrl = process.env.AI_BASE_URL;
     if (process.env.AI_OLLAMA_URL) result.ollamaUrl = process.env.AI_OLLAMA_URL;
     if (process.env.AI_MODEL) result.model = process.env.AI_MODEL;
+    // Whether anyone said where the model is: a provider row (a connection in
+    // use, or the welcome's own address card) or the environment. Without
+    // either, `provider: 'ollama'` above is only the default (nothingConnected).
+    result.chosen = providerRow || aiEnvOverride();
 
     // The key goes only to the ORIGIN it was saved for. The base URL is an
     // ordinary preference (the generic settings writer takes it), so without
@@ -268,6 +276,35 @@ export function getAISettings() {
     }
     result.apiKeyWithheld = !result.apiKey && !!(saved.stored || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
     return result;
+}
+
+/** The environment names the model for this process (a batch tool, a
+ *  deployment): its settings win over the library's (aiJobs.js chainOf). */
+export const aiEnvOverride = () => !!(process.env.AI_PROVIDER || process.env.AI_BASE_URL
+    || process.env.AI_OLLAMA_URL || process.env.AI_MODEL);
+
+/** What a library with no model connected is told, by every surface that
+ *  would have called one. */
+export const NO_MODEL = k('No AI model is connected. Connect one in Settings → AI & Models.');
+
+/**
+ * Nothing connected: no provider row, no saved connection, no model, and no
+ * environment override (a new install, or a library whose last connection was
+ * removed). The `ollama` provider such settings carry is a default nobody
+ * chose, so no call goes to its address and nothing names it. A settings
+ * object built from a saved connection carries no `chosen` and counts as
+ * connected; one `firstChoice` marked `noModel` does not.
+ */
+export function nothingConnected(settings) {
+    if (settings?.noModel === true) return true;
+    return settings?.chosen === false && !settings.connectionId && settings.provider !== 'openai' && !settings.model;
+}
+
+/** The refusal a call makes with nothing connected: final (no other model is
+ *  asked, nothing retries), and `unavailable` like an extension's "no model
+ *  for now", so a capability probe answers "no model" (aiJobs.js firstChoice). */
+export function noModelError() {
+    return Object.assign(new KeyedError(NO_MODEL), { noModel: true, unavailable: true, final: true, expose: true });
 }
 
 /** The settings row that records which origin the saved provider key belongs
@@ -906,7 +943,7 @@ export async function modelSupportsThinking(model = getAISettings().model, setti
     // have no equivalent — we never send `think`, but reasoning models behind
     // llama.cpp/OpenRouter surface their channel as `reasoning_content` in the
     // stream, which streamResponse maps to 'thinking' events anyway.
-    if (settings.provider !== 'ollama') return false;
+    if (settings.provider !== 'ollama' || nothingConnected(settings)) return false;
     // Keyed by server too: a job may run on a second Ollama with its own models.
     const key = `${settings.ollamaUrl}|${model}`;
     if (thinkingSupportCache.has(key)) return thinkingSupportCache.get(key);
@@ -971,7 +1008,7 @@ const visionSupportCache = new Map(); // model (or `base|model`) → { result, a
 // `unknown`: what an Ollama probe that failed answers; 'no' for the callers
 // about to send a picture, 'maybe' for a screen that only describes the model.
 export async function visionAvailability(model = getAISettings().model, settings = getAISettings(), { unknown = 'no' } = {}) {
-    if (!settings.enabled || !model) return 'no';
+    if (!settings.enabled || !model || nothingConnected(settings)) return 'no';
     if (settings.provider !== 'ollama') return catalogueVision(settings, model);
     const cached = visionSupportCache.get(`${settings.ollamaUrl}|${model}`);
     if (cached && Date.now() - cached.at < VISION_CACHE_TTL_MS) return cached.result;
@@ -1240,6 +1277,7 @@ export async function tinyReplyFor(settings, { signal } = {}) {
  *  connection in use unless a caller names the one it will ask (a job's first
  *  choice, aiJobs.js). */
 export async function checkOllamaHealth(settings = getAISettings()) {
+    if (nothingConnected(settings)) return { available: false, noModel: true, ...keyed(NO_MODEL) };
     if (settings.provider === 'openai') {
         try {
             const models = await openAIListModels(settings);
@@ -1354,9 +1392,16 @@ export function statusHealth(settings = getAISettings(), { check = checkOllamaHe
 // another model behind it (the call moves on by itself, aiJobs.js fallsOver).
 // A job whose connections were all removed throws, as the call itself would.
 export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
-    const chain = job ? (await aiJobs()).chainFor(job) : [getAISettings()];
+    let chain;
+    try {
+        chain = job ? (await aiJobs()).chainFor(job) : [getAISettings()];
+    } catch (err) {
+        if (err?.noModel) return { ok: false, noModel: true, ...keyed(NO_MODEL) };
+        throw err;
+    }
     const settings = chain[0];
     if (!settings.enabled) return { ok: false, ...keyed('AI features are disabled') };
+    if (nothingConnected(settings)) return { ok: false, noModel: true, ...keyed(NO_MODEL) };
     if (!settings.model) return { ok: false, ...keyed('No model selected — choose one in Settings → AI & Models') };
     try {
         if (settings.provider === 'openai') {
@@ -1392,6 +1437,7 @@ export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
 
 export async function getInstalledModels() {
     const settings = getAISettings();
+    if (nothingConnected(settings)) return { success: false, noModel: true, ...keyed(NO_MODEL), models: [] };
     if (settings.provider === 'openai') {
         try {
             const models = await openAIListModels(settings, { timeoutMs: 10000 });
@@ -1424,6 +1470,7 @@ export async function getInstalledModels() {
 // Model Management
 
 export async function* pullModel(modelName) {
+    if (nothingConnected(getAISettings())) throw noModelError();
     if (getAISettings().provider !== 'ollama') {
         throw learnerError('Installing models is only available with the Ollama provider');
     }
@@ -1436,6 +1483,7 @@ export async function* pullModel(modelName) {
 }
 
 export async function deleteModel(modelName) {
+    if (nothingConnected(getAISettings())) return { success: false, noModel: true, ...keyed(NO_MODEL) };
     if (getAISettings().provider !== 'ollama') {
         return { success: false, ...keyed('Removing models is only available with the Ollama provider') };
     }
