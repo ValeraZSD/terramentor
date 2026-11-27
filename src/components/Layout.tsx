@@ -1,5 +1,5 @@
 import { ReactNode, CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { useStore } from '../store';
 import { ArrowLeft, ChevronDown, Loader2, MessageSquare, Settings } from 'lucide-react';
 import SearchBar from './SearchBar';
@@ -226,7 +226,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     const headerWidth = useElementWidth(headerRef);
     const rootPx = useRootFontSize();
 
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const currentProject = projects.find(p => p.id === currentProjectId);
     const { isProjectGenerating, openGenerationModal } = useAICreationContext();
     const isGenerating = currentProjectId ? isProjectGenerating(currentProjectId) : false;

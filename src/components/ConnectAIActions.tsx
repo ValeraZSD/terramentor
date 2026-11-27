@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { ExternalLink } from 'lucide-react';
 import { connectOpenRouter } from '../utils/openRouterConnect';
 import { Button } from './ui/Button';
@@ -18,7 +18,7 @@ export default function ConnectAIActions({ returnTo, onLeave }: {
     onLeave?: () => void;
 }) {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const [connecting, setConnecting] = useState(false);
 
     const settings = () => { onLeave?.(); navigate('/settings#ai'); };

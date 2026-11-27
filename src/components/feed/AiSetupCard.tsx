@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { Bot, RefreshCw, X } from 'lucide-react';
 import { api } from '../../api';
 import type { AIStatus } from '../../types';
@@ -34,7 +34,7 @@ const DISMISS_KEY = 'ai_setup_dismissed';
  */
 export default function AiSetupCard() {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const [status, setStatus] = useState<AIStatus | null | undefined>(undefined);
     const [dismissed, setDismissed] = useState<boolean | null>(null);
     const [checking, setChecking] = useState(false);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { ArrowRight, Play, RotateCcw } from 'lucide-react';
 import { useStore } from '../../store';
 import { MOD_KEY, usePhysicalKeyboard, usePointerVerb } from '../../utils/platform';
@@ -73,7 +73,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
     const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
     const hasKeyboard = usePhysicalKeyboard();
     const pointerVerb = usePointerVerb();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const system = useSystemPreferences();
     const canSpeak = speechAvailable();
     const voices = useVoiceLanguages(active && a11y.readAloud);

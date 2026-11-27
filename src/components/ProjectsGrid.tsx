@@ -29,7 +29,8 @@ import {
     SortableContext,
     rectSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
@@ -158,7 +159,7 @@ export default function ProjectsGrid() {
     // arrives asking for the creation dialog, not the list it sits behind. The
     // request is cleared as it is taken, so Back and a reload show the list.
     const location = useLocation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     // The same request carries a run's "Back": a creation that failed before it
     // made a project hands the form back with what was typed in it.
     useEffect(() => {

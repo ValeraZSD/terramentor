@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { Check, ChevronDown, Compass, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
@@ -55,7 +55,7 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
     const { t } = useTranslation();
     // Straight into the creation dialog, which is what the button names
     // (ProjectsGrid reads the `create` request off the route).
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const [status, setStatus] = useState<OnboardingStatus | null>(null);
     const [hidden, setHidden] = useState(false);
     const [expanded, setExpanded] = useState(true);

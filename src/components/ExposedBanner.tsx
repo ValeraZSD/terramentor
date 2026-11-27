@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { useTranslation } from 'react-i18next';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -19,7 +19,7 @@ import { useStore } from '../store';
  */
 export default function ExposedBanner() {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const exposed = useStore(s => s.authExposed);
     if (!exposed) return null;
     return (
