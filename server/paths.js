@@ -48,6 +48,7 @@ export const DB_FILE_NAME = 'terramentor.db';
  *            multi-GB library must not be synced to a domain profile)
  *   macOS    ~/Library/Application Support/Terramentor
  *   Linux    $XDG_DATA_HOME/Terramentor, else ~/.local/share/Terramentor
+ * @param {{ platform?: string, env?: Record<string, string | undefined>, home?: string }} [options]
  */
 export function userDataDir({ platform = process.platform, env = process.env, home = homedir() } = {}) {
     if (platform === 'win32') {
@@ -80,6 +81,7 @@ export function userDataDir({ platform = process.platform, env = process.env, ho
  * default path and compare. It is not meant to be — it is meant not to SAY the
  * name, which is the whole of what leaked.
  * @param {string | null | undefined} dir
+ * @param {string} [platform]
  */
 export function libraryId(dir, platform = process.platform) {
     if (!dir) return null;

@@ -132,7 +132,7 @@ const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
  * missing `/v1` (normalizeOpenAIBaseUrl).
  * @returns {Validate}
  */
-const address =({ allowEmpty = false } = {}) => (value) => {
+const address = ({ allowEmpty = false } = {}) => (value) => {
     const s = asText(value).trim();
     if (s === '' && allowEmpty) return '';
     if (s.length > 2048) refuse(k('That address is too long'));
@@ -317,6 +317,7 @@ export const SETTINGS = {
  * Rows named at run time from a fixed prefix (a project id, an operation).
  * All are written by the server or by a route of their own.
  */
+/** @type {(SettingSpecEntry & { prefix: string, perProject?: boolean })[]} */
 export const SETTING_FAMILIES = [
     // Per project, named by the project's uuid (server/projectSettings.js).
     { prefix: 'deck_new_per_day_', writable: 'server', sensitivity: 'learning', perProject: true },

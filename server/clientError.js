@@ -46,7 +46,8 @@ import crypto from 'node:crypto';
 
 // A thrown value is typed `any` throughout: it is usually an Error carrying
 // some of `code`, `status`, `httpStatus`, `expose`, `messageKey`, `params`,
-// but JavaScript lets anything be thrown, and every reader here checks first.
+// but JavaScript lets anything be thrown, and every reader here checks its
+// shape first or is called only after such a check.
 
 /** @typedef {Record<string, unknown>} KeyParams The values for a key's `{{name}}` slots. */
 
