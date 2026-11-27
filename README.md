@@ -34,8 +34,9 @@ own key, covered by a ChatGPT plan you already have, or run on your own computer
 A chatbot explains anything you ask, and the AI companies' study modes add quizzes and
 flashcards, but their own pages describe no reviews timed to when you are about to forget and no
 check you must pass before a topic counts. Anki times the reviews, once you have written the
-cards or found a deck. Terramentor runs the whole loop. Each step below says what it does, and
-where research backs it, what the research found. The pictures come from one physics course.
+cards or found a deck. Terramentor runs the whole loop. Each step below says what it does and,
+where there is research behind it, what that research found. The pictures come from one physics
+course.
 
 ### Discover
 
@@ -138,7 +139,7 @@ write weaker lessons, slowly; the ones that teach well want 24 GB of video memor
 lesson is written once and kept, so you pay for writing it, never for reading it again, and the
 provider's dashboard shows what you have spent.
 
-Settings → AI & Models connects any of these, and the welcome screens all but the ChatGPT plan:
+Settings → AI & Models connects any of these; the welcome screens offer all but the ChatGPT plan:
 
 - **OpenRouter**: **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you
   own, for models from every major lab on one account.
