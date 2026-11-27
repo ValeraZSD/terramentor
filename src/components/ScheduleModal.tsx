@@ -13,7 +13,7 @@ import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
 import Checkbox from './Checkbox';
-import WeeklyChart from './plan/WeeklyChart';
+import PlanStrip from './plan/PlanStrip';
 import { VerdictIcon, oneStop, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
 
 /**
@@ -195,8 +195,8 @@ export default function ScheduleModal() {
                 if (v.unit === 'cards') return null;
                 return {
                     key: offer.kind,
-                    title: t("Study the {{n}} topics that fit", { count: offer.count, n: num(offer.count) }),
-                    // The sentence above already says how many fit and by when.
+                    // The sentence above says how many fit and by when.
+                    title: t("Study only the topics that fit"),
                     body: t("Choose in the outline what to study and skip the rest."),
                     action: t("Choose topics"),
                     run: () => { setWorkspaceView('tree'); setOpen(false); },
@@ -215,15 +215,15 @@ export default function ScheduleModal() {
                 // window that starts later is laid out from its start, not
                 // from today.
                 const from = project.start_date || today;
-                const to = date;
                 return {
                     key: offer.kind,
-                    // The same rounding as "That is N a week" above: the
-                    // offer's own whole-number ceiling read 9 beside an 8.
-                    title: t("Plan {{n}} a week", { n: num(perWeek(v.needed)) }),
+                    // The weekly amount, the topics left and the date are
+                    // each on the panel once already: the strip's line, the
+                    // sentences and the headline.
+                    title: t("Plan your weeks"),
                     body: from > today
-                        ? t("Lays the {{open}} open topics out from {{from}} to {{date}}, on your study days.", { open: num(v.open), from: shortDay(from, today), date: to })
-                        : t("Lays the {{open}} open topics out from today to {{date}}, on your study days.", { open: num(v.open), date: to }),
+                        ? t("Lays the open topics out on your study days, from {{from}} up to your date.", { from: shortDay(from, today) })
+                        : t("Lays the open topics out on your study days, up to your date."),
                     action: dirty ? t("Save and plan") : t("Plan it"),
                     run: dirty ? save : planWeekly,
                     disabled: dirty && !canSave,
@@ -249,8 +249,9 @@ export default function ScheduleModal() {
                 return {
                     key: offer.kind,
                     title: t("Move the date"),
+                    // The recent range is drawn on the strip above.
                     body: recent
-                        ? t("At your recent pace everything is done between {{from}} and {{to}}.", span(recent))
+                        ? t("Pick a date inside the likely-done range or after it.")
                         : best
                             ? t("At your best pace everything is done between {{from}} and {{to}}.", span(best))
                             : t("Pick a date your pace can reach."),
@@ -320,9 +321,7 @@ export default function ScheduleModal() {
                         </p>
                     )}
 
-                    {verdict && pace?.learnerPace && pace.learnerPace.weeksOfData > 0 && (
-                        <WeeklyChart pace={pace.learnerPace} needed={verdict.needed} band={verdict.band} unit={verdict.unit} />
-                    )}
+                    {verdict && <PlanStrip verdict={verdict} week={pace?.weekSoFar} today={today} />}
 
                     {offers.length > 0 && (
                         <section aria-labelledby={`${titleId}-offers`}>
