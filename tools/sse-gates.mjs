@@ -9,8 +9,8 @@
 //
 //   1. The reader (src/utils/sse.ts `readSse`) fed byte streams by hand: one
 //      fixture holding `\r\n`, `\n` and `\r` line ends, a comment, a field with
-//      no space after the colon, a multi-line `data:`, a frame that is not
-//      JSON, a Cyrillic word and an emoji, and a last frame with no blank line
+//      no space after the colon, a multi-line `data:`, frames that are not
+//      JSON objects, a Cyrillic word and an emoji, and a last frame with no blank line
 //      after it, cut at every byte position (and every pair of positions),
 //      inside the `\r\n` pairs and the multi-byte characters included. The
 //      frames it must give back are written out below by hand, not computed by
@@ -137,6 +137,7 @@ if (sse?.readSse) {
         'id: 5\r\nretry: 10\ndata: {"d":\r\ndata: 2}\n\n',
         'data: [DONE]\n\n',
         'data\n\n',
+        'data: null\n\ndata: 5\n\ndata: []\n\ndata: "text"\n\n',
         'data: {"e":true}',
     ].join('');
     const WANT = [{ a: 1 }, { b: 'Привет' }, { c: '🌍 ок' }, { d: 2 }, { e: true }];
@@ -224,6 +225,42 @@ if (sse?.readSse) {
         try { for await (const f of readSse(s.stream, { signal: ctl.signal })) got.push(f); } catch (e) { thrown = e; }
         ok('a signal aborted before the first read reads nothing and throws AbortError', got.length === 0 && thrown?.name === 'AbortError', { got, thrown: String(thrown) });
         ok('…and cancels the reader', s.cancelled);
+    }
+    // A frame read in the same turn the abort came in is still given out, as
+    // the loops before the reader did; the next read then ends on the abort.
+    {
+        const ctl = new AbortController();
+        let sent = false;
+        const stream = new ReadableStream({
+            pull(c) {
+                if (sent) return new Promise(() => {});
+                sent = true;
+                c.enqueue(enc.encode('data: {"done":true}\n\n'));
+                ctl.abort();
+            },
+        }, { highWaterMark: 0 });
+        const got = [];
+        let thrown = null;
+        try { for await (const f of readSse(stream, { signal: ctl.signal })) got.push(f); } catch (e) { thrown = e; }
+        ok('a frame that arrives with the abort is still given out, then the abort throws',
+            same(got, [{ done: true }]) && thrown?.name === 'AbortError', { got, thrown: String(thrown) });
+    }
+    // The abort listener goes when the stream does.
+    {
+        const ctl = new AbortController();
+        let live = 0;
+        const add = ctl.signal.addEventListener.bind(ctl.signal), remove = ctl.signal.removeEventListener.bind(ctl.signal);
+        ctl.signal.addEventListener = (...a) => { live++; add(...a); };
+        ctl.signal.removeEventListener = (...a) => { live--; remove(...a); };
+        await collect(source([enc.encode('data: {"n":1}\n\n')]).stream, { signal: ctl.signal, staleMs: 30 });
+        ok('a finished stream leaves no abort listener behind', live === 0, `live listeners: ${live}`);
+        const pending = new Set();
+        const [set, clear] = [globalThis.setTimeout, globalThis.clearTimeout];
+        globalThis.setTimeout = (fn, ms, ...r) => { const id = set(() => { pending.delete(id); fn(); }, ms, ...r); if (ms === 30) pending.add(id); return id; };
+        globalThis.clearTimeout = (id) => { pending.delete(id); clear(id); };
+        try { await collect(source([enc.encode('data: {"n":1}\n\n'), enc.encode('data: {"n":2}\n\n')]).stream, { staleMs: 30 }); }
+        finally { globalThis.setTimeout = set; globalThis.clearTimeout = clear; }
+        ok('…and no stale timer still running', pending.size === 0, `timers left: ${pending.size}`);
     }
     // The caller leaves early, or throws.
     {
@@ -367,6 +404,9 @@ if (api) {
     eq('task list: a quiet socket ends the feed (the store reconnects)',
         await transcript((note) => api.streamTaskList((t) => note('list', t)), { parts: [enc.encode(frames({ tasks: [] }))], hang: true }),
         [['list', []], ['end', null]]);
+    // Pinned as it is, not as it should be: VisualBlock reads an empty fix as
+    // an unusable repair, while its connection-failure check looks for a
+    // `stale` error this outcome never carried.
     eq('repair: a quiet socket ends with an empty fix',
         await transcript((note) => api.repairVisual('mermaid', 'graph', 'bad'), { parts: [], hang: true }),
         [['end', { code: '', redrawn: false }]]);
@@ -525,6 +565,27 @@ if (api) {
         await settle();
         eq('attach: detached mid-run ends quietly', got, [['yield', { chunk: 'a' }], ['end', null]]);
         ok('attach: detached mid-run leaves no rejection unhandled', unhandled.length === 0, unhandled.map(String));
+    }
+
+    // Every other caller that takes a signal: closed mid-run, it throws the
+    // AbortError the browser gives, and leaves nothing unhandled.
+    const ABORTABLE = {
+        insights: (s) => api.streamGetInsights(1, undefined, undefined, s),
+        flashcards: (s) => api.streamGenerateFlashcards(1, 5, undefined, undefined, s),
+        repair: (s) => api.repairVisual('mermaid', 'graph', 'bad', s),
+        widget: (s) => api.compileWidget('spec', {}, undefined, s),
+        author: (s) => api.authorVisual('p5', 'brief', {}, undefined, s),
+        placement: (s) => api.startPlacement(1, undefined, s),
+        'task list': (s) => api.streamTaskList(() => {}, s),
+    };
+    for (const [name, call] of Object.entries(ABORTABLE)) {
+        unhandled.length = 0;
+        const ctl = new AbortController();
+        const got = await transcript(() => { const p = call(ctl.signal); realSetTimeout(() => ctl.abort(), 5); return p; },
+            { parts: [enc.encode(frames({ progress: 1 }))], hang: true });
+        await settle();
+        eq(`${name}: closed mid-run throws the AbortError`, got, [['threw', { message: 'This operation was aborted' }]]);
+        ok(`${name}: closed mid-run leaves no rejection unhandled`, unhandled.length === 0, unhandled.map(String));
     }
 
     // The model download: the server sends `data:` frames like every other

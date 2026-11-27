@@ -79,7 +79,7 @@ export async function* readSse(
         for (const raw of ready.splice(0)) {
             let json: unknown;
             try { json = JSON.parse(raw); } catch { continue; }
-            if (json && typeof json === 'object') yield json as any;
+            if (json && typeof json === 'object' && !Array.isArray(json)) yield json as any;
         }
     }
     const stopped = () => {
@@ -105,9 +105,11 @@ export async function* readSse(
             } finally {
                 clearTimeout(timer);
             }
-            // A cancel on abort ends the read as if the stream had closed.
-            if (signal?.aborted) return stopped();
-            if (chunk.done) break;
+            if (chunk.done) {
+                // A cancel on abort ends the read as if the stream had closed.
+                if (signal?.aborted) return stopped();
+                break;
+            }
             text += decoder.decode(chunk.value, { stream: true });
             takeLines(false);
             yield* parsed();
