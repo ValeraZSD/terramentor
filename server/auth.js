@@ -584,8 +584,8 @@ function isLoopbackHost(hostHeader) {
  * password? A device let in WITHOUT the password (a paired phone, the owner's
  * Tailscale account, see devices.js) is not, for the things that act on the
  * computer or decide where the app sends what it knows: the desktop's own
- * controls, updating, and the addresses in the settings (settingsSchema.js,
- * sensitivity 'network').
+ * controls, updating while a password is set (mayPressUpdates), and the
+ * addresses in the settings (settingsSchema.js, sensitivity 'network').
  */
 export function ownerPresent(req) {
     return !req.remoteAccess || hasPasswordCredential(req);
@@ -656,6 +656,31 @@ export function exposedWithoutPassword() {
 /** No password, not this machine, not a device it knows, and nobody opted in: refuse, offer setup. */
 export function remoteSetupRequired(req) {
     return !isAuthEnabled() && !isLocalRequest(req) && !openRemoteAllowed() && !req?.remoteAccess;
+}
+
+/**
+ * Must the FIRST password, set from this request, come with the setup code?
+ * The code stops whoever reaches an unlocked app first from choosing its
+ * password. A device this computer let in (a phone it paired, its own
+ * Tailscale account) is not that stranger: it reads and changes the whole
+ * library already, and without this the phone had no way to lock the app at
+ * all. Still yes where a device proves nothing: AUTH_ALLOW_OPEN_REMOTE lets
+ * anyone in to pair one, and a hosted copy's operator token stays its only door.
+ */
+export function setupCodeNeeded(req) {
+    if (isLocalRequest(req)) return false;
+    return !(req?.remoteAccess && !openRemoteAllowed() && !operatorSetupToken());
+}
+
+/**
+ * May this request press the update panel (check, download, install, the
+ * channel and the automatic check)? The owner (ownerPresent), and, while no
+ * password is set, any device that is in: the most a press does is install
+ * the newest signed release, which puts the previous one back if it does not
+ * start, and a device with no password to sign in with had no way to update.
+ */
+export function mayPressUpdates(req) {
+    return ownerPresent(req) || !isAuthEnabled();
 }
 
 /**

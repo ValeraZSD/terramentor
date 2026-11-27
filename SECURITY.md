@@ -184,7 +184,10 @@ your data at all." Those are different claims and we only make the second one.
     it to `127.0.1.1`, so `http://<name>:3001` opened on the machine itself is still this
     machine; only its own hosts file answers that name). Anything else is refused, and setting the first password from
     another device takes a one-time setup code printed in the server's log, so whoever
-    reaches an unlocked app first cannot choose its password. A container always sees its
+    reaches an unlocked app first cannot choose its password. A device this computer already
+    let in (below: one it connected, or its own Tailscale account) sets it without the code,
+    except under `AUTH_ALLOW_OPEN_REMOTE=1`, where anyone may connect one, and on a hosted
+    copy, whose operator's setup token stays the only way. A container always sees its
     requests arrive from outside, so the Docker image asks for the code on first use
     (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
     cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks
@@ -242,7 +245,8 @@ your data at all." Those are different claims and we only make the second one.
     is listed with a Remove that ends it on its next request; one unused for 180 days is
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
-    start at login, window mode, restore a library, download or install an update) or
+    start at login, window mode, restore a library, and, while a password is set, download or
+    install an update) or
     change where the app sends requests (the model connections and addresses, the models each
     job runs on, the search address, the hosted search keys, the embeddings provider, the
     ChatGPT sign-in, pulling or deleting a local model): those stay with this computer or a password session. A connected device cannot read or change the API key, which
@@ -686,9 +690,10 @@ Docker and git installs are shown the command to run instead (see below).
   from a key kept in the data folder (`instance.key`, readable by this user only), the same
   check the launcher uses to decide that a copy is already running; another program answering
   on the port does not count.
-- **Who may press it:** this computer, or a session signed in with the password. A device
-  connected by its key without the password (see "What is protected") reads the update panel but
-  cannot download, install, check or change the update settings. So the most anyone who may
+- **Who may press it:** this computer, or a session signed in with the password. While no
+  password is set, a device that is in (see "What is protected") may press it too: it has no
+  password to sign in with. Once one is set, a device connected by its key without the password
+  reads the update panel but cannot download, install, check or change the update settings. So the most anyone who may
   press the button can do is make your copy install the newest official release, which is
   what pressing it does.
 - **What it never touches:** your library. It lives outside the app's folder (or in the
