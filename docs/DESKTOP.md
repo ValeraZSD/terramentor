@@ -322,6 +322,15 @@ Design decisions worth knowing before changing it:
   proof made from the data directory's own key (`instance.key`, readable by
   this user only, `server/instanceKey.js`) counts as "already running"; the
   updater asks the same question before it calls a new version started.
+- **The window proves it is the owner's.** With no password, a server the
+  launcher started answers a loopback request only when it proves it can read
+  that same key (`server/auth.js`), because every account on a shared computer
+  reaches `127.0.0.1`. The launcher opens the window on a one-time page it
+  writes into the window's profile folder (`lib.js` `writeLaunchPage`), never on
+  an address in the command line, which other accounts can read on Linux and
+  macOS. The page hands a proof to `/api/auth/launch`, which takes it once,
+  sets the window's cookie and redirects to `/`. `--check` and the MCP server
+  send a fresh proof with each request instead (`X-Terramentor-Proof`).
 - **Data lives outside the application folder** (`server/paths.js`):
   `DB_PATH`/`VAULT_ROOT` if set, else `DATA_DIR`, else the historical layout
   under `server/` for a checkout. The launcher sets `DATA_DIR` in-process
