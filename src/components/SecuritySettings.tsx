@@ -305,7 +305,7 @@ function PasswordSecurity() {
                         <FieldRow>
                             {elsewhere && (
                                 <TextInput
-                                    className="min-w-[14rem] flex-1 font-mono"
+                                    className="min-w-[14rem] flex-1 font-mono placeholder:font-sans"
                                     autoComplete="one-time-code"
                                     autoCapitalize="characters"
                                     spellCheck={false}
