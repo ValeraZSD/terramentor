@@ -210,7 +210,12 @@ const targets = [...suites, ...harnesses].map((script) => {
 // pass by running nothing.
 if (opts.names.length) {
     const keyOf = (t) => (t.harness ? basename(dirname(t.script)) : basename(t.script).replace(/-gates\.mjs$/, ''));
-    const keyOfName = (n) => basename(n.replace(/\\/g, '/')).replace(/\.mjs$/, '').replace(/-gates$/, '');
+    // "tools/harness/run.mjs", as --list prints it, names the harness folder.
+    const keyOfName = (n) => {
+        const parts = n.replace(/\\/g, '/').split('/');
+        const file = parts.at(-1) === 'run.mjs' && parts.length > 1 ? parts.at(-2) : parts.at(-1);
+        return file.replace(/\.mjs$/, '').replace(/-gates$/, '');
+    };
     const keys = new Set(opts.names.map(keyOfName));
     const unknown = opts.names.filter((n) => !targets.some((t) => keyOf(t) === keyOfName(n)));
     if (unknown.length) {
