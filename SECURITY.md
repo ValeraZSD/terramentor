@@ -381,10 +381,11 @@ different cases, covered with the other limits under "What is NOT protected".
     computer could send the same headers, which is why it counts only when there is no
     password. That includes programs of other accounts on the same computer, which the
     desktop app's owner proof (above) cannot ask for here, because `tailscale serve` relays the
-    request and adds no proof. On a computer you share with other accounts, set a password or
-    turn this switch off in Settings.
+    request and adds no proof. On a computer you share with other accounts, leave this switch
+    off or set a password.
     100.64.0.0/10 is also carrier-NAT space, which is why both the Host and whois are checked.
-    On by default, one switch in Settings; the owner and each address's owner are re-read at
+    Off until you turn it on in Settings → Devices & security → *Other devices* (a switch you
+    already set keeps its setting). The owner and each address's owner are re-read at
     most a minute old. **Without a password, a program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
     `Host: localhost` along makes the outside look like this computer** (see "what the app
