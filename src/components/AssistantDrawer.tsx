@@ -488,8 +488,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * only the server knows the real ones.
      *
      * Resolves null, and changes nothing, when another conversation was opened
-     * while it was in flight: that one owns the panel now. A conversation
-     * deleted elsewhere (404) leaves a new chat, and resolves its empty list.
+     * while it was in flight: that one owns the panel now. A conversation that
+     * is gone (404: deleted elsewhere, or dropped with the failed first turn
+     * that made it) leaves a new chat and resolves its empty list, so a failure
+     * card the caller raises still shows.
      *
      * Two loads of one conversation can overlap (a change heard on the feed
      * while the turn's own reload is in flight) and answer out of order. An
@@ -511,10 +513,6 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
                 if (conversationIdRef.current !== id) return null;
-                // Gone: deleted elsewhere, or a first turn that failed and was
-                // dropped with its conversation. The panel becomes a new chat
-                // and the caller gets its empty list, so a failure card it is
-                // about to raise still has a place to stand.
                 switchTo(null);
                 id = null;
             } finally {
@@ -1048,14 +1046,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // A new chat learns its id from the turn; if the turn fails, the
+        // server drops that conversation, so the panel goes back to none.
+        const startedNew = conversationIdRef.current == null;
         // A load still in flight (a change heard on the feed, a return to the
         // page) read the conversation before this question, and applied now
         // it would take the question off the screen. It is outdated instead,
         // and the conversation is read again once the turn settles.
         const outdated = loadsInFlightRef.current > 0;
-        // A new chat learns its id from the turn; if the turn fails, the
-        // server drops that conversation, so the panel goes back to none.
-        const startedNew = conversationIdRef.current == null;
         shownLoadRef.current = ++loadSeqRef.current;
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
