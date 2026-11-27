@@ -4,7 +4,7 @@ import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
 import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
-import { hasPasswordCredential } from '../auth.js';
+import { mayPressUpdates } from '../auth.js';
 import { extension } from '../extension.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -32,8 +32,8 @@ app.get('/api/version', (req, res) => {
 /** Read the last check's result. Deliberately does NOT check: a GET that reaches
  *  the network as a side effect is exactly the ping this design refuses. */
 app.get('/api/updates', (req, res) => {
-    // A device in without the password reads the panel but may press nothing
-    // on it (server/app.js), so the page does not ask it anything.
+    // A device in without the password, while one is set, reads the panel but
+    // may press nothing on it (server/app.js), so the page does not ask it anything.
     res.json(withInstall(req, readUpdateState()));
 });
 
@@ -44,7 +44,7 @@ app.get('/api/updates', (req, res) => {
 function withInstall(req, state) {
     // An extension may take the controls away (server/extension.js `serverControls`).
     const offered = extension().serverControls !== false;
-    return { ...state, install: installState({ latest: state.latest }), controls: offered && (!req.remoteAccess || hasPasswordCredential(req)) };
+    return { ...state, install: installState({ latest: state.latest }), controls: offered && mayPressUpdates(req) };
 }
 
 /**
@@ -169,7 +169,7 @@ app.post('/api/updates/result/dismiss', wrap(async (req, res) => {
     res.json(withInstall(req, readUpdateState()));
 }));
 
-// Health check (no DB dependency)
+// Health check: always answers, and says "degraded" when the database does not
 app.get('/api/health', (req, res) => {
     let dbOk = false;
     try {

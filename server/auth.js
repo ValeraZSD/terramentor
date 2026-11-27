@@ -610,8 +610,8 @@ function isLoopbackHost(hostHeader) {
  * password? A device let in WITHOUT the password (a paired phone, the owner's
  * Tailscale account, see devices.js) is not, for the things that act on the
  * computer or decide where the app sends what it knows: the desktop's own
- * controls, updating, and the addresses in the settings (settingsSchema.js,
- * sensitivity 'network').
+ * controls, updating while a password is set (mayPressUpdates), and the
+ * addresses in the settings (settingsSchema.js, sensitivity 'network').
  */
 export function ownerPresent(req) {
     if (extensionAuth(req)) return hasPasswordCredential(req);
@@ -811,6 +811,17 @@ export function remoteSetupRequired(req) {
 }
 
 /**
+ * May this request press the update panel (check, download, install, the
+ * channel and the automatic check)? The owner (ownerPresent), and, while no
+ * password is set, any device that is in: the most a press does is install
+ * the newest signed release, which puts the previous one back if it does not
+ * start, and a device with no password to sign in with had no way to update.
+ */
+export function mayPressUpdates(req) {
+    return ownerPresent(req) || !isAuthEnabled();
+}
+
+/**
  * Before every /api route, the public auth routes included: may this request
  * come in without the password (devices.js)? The answer is kept on
  * `req.remoteAccess`, so every check after it stays synchronous. This
@@ -824,11 +835,23 @@ export function identifyRemoteAccess(req, res, next) {
 }
 
 let setupCode = null;
+let setupCodePrinted = { code: null, at: 0 };
+const SETUP_CODE_REPRINT_MS = 10 * 60 * 1000;
+/** The line goes to the log when the code is new, then at most every ten
+ *  minutes: a device polling its status would otherwise fill the log. */
+function printSetupLine(line) {
+    const now = Date.now();
+    // A clock set back counts as the time gone, so the line is never held back for long.
+    if (setupCodePrinted.code === setupCode && now >= setupCodePrinted.at && now - setupCodePrinted.at < SETUP_CODE_REPRINT_MS) return;
+    setupCodePrinted = { code: setupCode, at: now };
+    console.log(line);
+}
 /**
  * The one-time code for setting the first password from another machine.
  * Made on first need, kept in memory (a restart makes a new one), and printed
- * to the log each time it is made or asked for, because the log is the channel
- * only the person running the server can read (`docker compose logs`).
+ * to the log when it is made and again while it is asked for, because the log
+ * is the channel only the person running the server can read
+ * (`docker compose logs`).
  */
 export function announceSetupCode() {
     // An extension that hands over a code of its own (server/extension.js
@@ -838,14 +861,14 @@ export function announceSetupCode() {
     // each time, so one it withdrew stops working at once.
     const token = extensionSetupCode();
     if (token) {
-        console.log('[security] No password is set. Open the app and enter the setup token you were given to set one.');
+        printSetupLine('[security] No password is set. Open the app and enter the setup token you were given to set one.');
         return null;
     }
     if (!setupCode) {
         const raw = crypto.randomBytes(6).toString('hex').toUpperCase();
         setupCode = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
     }
-    console.log(`[security] No password is set, so this app answers only its own machine. To set one from another device, open the app there and enter this setup code: ${setupCode}`);
+    printSetupLine(`[security] No password is set, so this app answers only its own machine. To set one from another device, open the app there and enter this setup code: ${setupCode}`);
     return setupCode;
 }
 function extensionSetupCode() {
