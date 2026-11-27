@@ -599,6 +599,9 @@ interface AppState {
      *  lock screen says how to connect it (a QR code from the computer, Tailscale,
      *  or the log's setup code). */
     authSetupRequired: boolean;
+    /** A browser on the server's own computer that the desktop app did not open, while no
+     *  password exists: the lock screen says to open the app from its icon (server/auth.js `launchRequired`). */
+    authLaunchRequired: boolean;
     /** What the lock screen may say about Tailscale (`/api/auth/status`). */
     authTailscale: AuthTailscaleHint | null;
     /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
@@ -1060,6 +1063,7 @@ export const useStore = create<AppState>((set, get) => ({
     authenticated: true,
     authChecked: false,
     authSetupRequired: false,
+    authLaunchRequired: false,
     authTailscale: null,
     authExposed: false,
     authExtra: {},
@@ -1311,10 +1315,10 @@ export const useStore = create<AppState>((set, get) => ({
     loadAuth: async () => {
         try {
             const status = await api.getAuthStatus();
-            const { enabled, authenticated, setupRequired, tailscale, exposed, ...extra } = status;
+            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, ...extra } = status;
             // A client extension may take a signed-out page elsewhere (src/clientExtension.ts).
             if (enabled && !authenticated && clientExtension.onSignedOut?.(status) === true) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1344,13 +1348,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed, ...extra } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, launchRequired, tailscale, exposed, ...extra } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
+                && before.authSetupRequired === !!setupRequired && before.authLaunchRequired === !!launchRequired && before.authTailscale === (tailscale ?? null)
                 && before.authExposed === !!exposed && JSON.stringify(before.authExtra) === JSON.stringify(extra)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authLaunchRequired: !!launchRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authExtra: extra });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
