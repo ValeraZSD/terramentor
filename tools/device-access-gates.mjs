@@ -639,47 +639,35 @@ console.log('\n--- with a password set ---');
 
 // ── 4b. the first password, set from a device ──────────────────────────────────
 // The setup code keeps a stranger who reaches an unlocked app first from
-// choosing its password. A device this computer let in is no stranger, and
-// without this the phone had no way to lock the app at all.
+// choosing its password. A device this computer let in needs it too: a
+// password set from it would make it the owner (addresses, the API key, the
+// computer's controls) and sign the computer out, with no reset. Its settings
+// are told so (`elsewhere`) and offer the code field.
 console.log('\n--- the first password, set from a device ---');
 {
     const LONG = 'a phone password';
     clockAt += 31 * 60 * 1000; // the wrong guesses of the sections above are spent
-    const stranger = await call('/api/auth/setup', { method: 'POST', from: '192.168.1.99', body: { password: LONG } });
-    ok('a device the app does not know still needs the setup code', stranger.status === 403 && stranger.body?.setupRequired === true, stranger.status);
-    ok('…and the setup screen still says so', (await call('/api/auth/status', { from: '192.168.1.99' })).body?.setupRequired === true);
-    ok('…and no password was set', !auth.isAuthEnabled());
+    const st = await call('/api/auth/status', { from: PHONE, cookie: phoneCookie });
+    ok('a connected device\'s status says it is in from elsewhere', st.body?.authenticated === true && st.body?.elsewhere === true, JSON.stringify(st.body));
+    ok('…which this computer\'s does not', (await call('/api/auth/status')).body?.elsewhere === undefined);
+    ok('…nor a device the app does not know (it meets the setup screen)', (await call('/api/auth/status', { from: '192.168.1.99' })).body?.elsewhere === undefined);
 
-    // Under AUTH_ALLOW_OPEN_REMOTE anyone is in and may pair a device, so a
-    // device there proves nothing: the code is asked for as before.
-    process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
-    const open = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG } });
-    delete process.env.AUTH_ALLOW_OPEN_REMOTE;
-    ok('with AUTH_ALLOW_OPEN_REMOTE, a connected device needs the code too', open.status === 403 && !auth.isAuthEnabled(), open.status);
-
-    const witness = cookieOf(await call('/api/auth/pair', { method: 'POST', from: '192.168.1.72', body: { code: await freshCode() } }), 'sp_dev');
-    const set = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG } });
-    const phoneSession = cookieOf(set, 'sp_sid');
-    ok('a connected device sets the first password without the code', set.status === 200 && auth.isAuthEnabled(), JSON.stringify(set.body));
-    ok('…and is signed in with it', phoneSession.length > 10
-        && (await call('/api/updates', { from: PHONE, cookie: phoneSession })).body?.controls === true);
-    ok('…every OTHER connected device is ended', (await call('/api/projects', { from: '192.168.1.72', cookie: witness })).status === 401);
-    ok('…the one that set it is not', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
-    ok('…and a second setup is refused', (await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: 'another password' } })).status === 409);
-    auth.clearAuth();
-
-    // The computer's own Tailscale account is in too while no password is set.
+    const bare = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG } });
+    ok('a connected device needs the setup code for the first password', bare.status === 403 && !auth.isAuthEnabled(), bare.status);
     devices.setTailscaleOwnerForTest(OWNER, PC);
     devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER });
     const viaTs = await call('/api/auth/setup', { method: 'POST', serve: true, login: OWNER, body: { password: LONG } });
-    ok('the owner\'s Tailscale account sets the first password without the code', viaTs.status === 200 && auth.isAuthEnabled(), JSON.stringify(viaTs.body));
-    auth.clearAuth();
-    const otherTs = await call('/api/auth/setup', { method: 'POST', serve: true, login: 'stranger@example.com', body: { password: LONG } });
-    ok('…another Tailscale account still needs the code', otherTs.status === 403 && !auth.isAuthEnabled(), otherTs.status);
+    ok('…and so does the owner\'s Tailscale account', viaTs.status === 403 && !auth.isAuthEnabled(), viaTs.status);
     devices.setTailscaleOwnerForTest(null);
-    // Setting it there ended every device, the phone too: connect it again
-    // for the sections below.
-    phoneCookie = cookieOf(await call('/api/auth/pair', { method: 'POST', from: PHONE, body: { code: await freshCode() } }), 'sp_dev');
+
+    const witness = cookieOf(await call('/api/auth/pair', { method: 'POST', from: '192.168.1.72', body: { code: await freshCode() } }), 'sp_dev');
+    const code = auth.announceSetupCode();
+    const set = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG, setupCode: code } });
+    ok('with the code from the log, a connected device sets it', set.status === 200 && auth.isAuthEnabled(), JSON.stringify(set.body));
+    ok('…every OTHER connected device is ended', (await call('/api/projects', { from: '192.168.1.72', cookie: witness })).status === 401);
+    ok('…the one that set it is not', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
+    ok('…and its status no longer says elsewhere', (await call('/api/auth/status', { from: PHONE, cookie: phoneCookie })).body?.elsewhere === undefined);
+    auth.clearAuth();
 }
 
 // ── removing a device ──────────────────────────────────────────────────────────

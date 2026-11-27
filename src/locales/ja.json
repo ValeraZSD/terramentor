@@ -2738,6 +2738,7 @@
   "Set dates": "日付を設定",
   "Set dates for {{name}}": "{{name}} の日付を設定",
   "Set in General, for the whole app.": "「一般」でアプリ全体に設定します。",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "Terramentor が動いているコンピューターで設定してください。画面のないサーバーでは、ログに表示されたセットアップコードを入力します。",
   "Set it up in Settings": "設定で用意する",
   "Set password": "パスワードを設定",
   "Set Schedule": "スケジュールを設定",

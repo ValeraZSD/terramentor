@@ -3114,6 +3114,7 @@
   "Set dates": "Fijar fechas",
   "Set dates for {{name}}": "Pon fechas para {{name}}",
   "Set in General, for the whole app.": "Se ajusta en General, para toda la app.",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "Establécela en el ordenador donde se ejecuta Terramentor. Un servidor sin pantalla: introduce el código de configuración de su registro.",
   "Set it up in Settings": "Configurarlo en Ajustes",
   "Set password": "Establecer contraseña",
   "Set Schedule": "Establecer planificación",

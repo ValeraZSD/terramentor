@@ -184,10 +184,9 @@ your data at all." Those are different claims and we only make the second one.
     it to `127.0.1.1`, so `http://<name>:3001` opened on the machine itself is still this
     machine; only its own hosts file answers that name). Anything else is refused, and setting the first password from
     another device takes a one-time setup code printed in the server's log, so whoever
-    reaches an unlocked app first cannot choose its password. A device this computer already
-    let in (below: one it connected, or its own Tailscale account) sets it without the code,
-    except under `AUTH_ALLOW_OPEN_REMOTE=1`, where anyone may connect one, and on a hosted
-    copy, whose operator's setup token stays the only way. A container always sees its
+    reaches an unlocked app first cannot choose its password. A device already let in (below)
+    needs that code too: a password set from it would make it the owner and sign this computer
+    out. A container always sees its
     requests arrive from outside, so the Docker image asks for the code on first use
     (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
     cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks

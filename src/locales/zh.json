@@ -2738,6 +2738,7 @@
   "Set dates": "设置日期",
   "Set dates for {{name}}": "为 {{name}} 设置日期",
   "Set in General, for the whole app.": "在“通用”中设置，作用于整个应用。",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "请在运行 Terramentor 的电脑上设置。没有屏幕的服务器：输入其日志中的设置码。",
   "Set it up in Settings": "在设置中配置",
   "Set password": "设置密码",
   "Set Schedule": "设置日程",

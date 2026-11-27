@@ -3302,6 +3302,7 @@
   "Set dates": "Ustaw daty",
   "Set dates for {{name}}": "Ustaw daty dla {{name}}",
   "Set in General, for the whole app.": "Ustawiany w sekcji Ogólne, dla całej aplikacji.",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "Ustaw je na komputerze, na którym działa Terramentor. Serwer bez ekranu: wpisz kod konfiguracji z jego dziennika.",
   "Set it up in Settings": "Skonfiguruj w Ustawieniach",
   "Set password": "Ustaw hasło",
   "Set Schedule": "Ustaw harmonogram",

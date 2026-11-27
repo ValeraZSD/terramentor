@@ -3302,6 +3302,7 @@
   "Set dates": "Указати дати",
   "Set dates for {{name}}": "Призначити дати для {{name}}",
   "Set in General, for the whole app.": "Налаштовується в розділі «Загальні», для всього застосунку.",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "Задайте його на комп’ютері, де працює Terramentor. Сервер без екрана: введіть код налаштування з його журналу.",
   "Set it up in Settings": "Налаштувати в налаштуваннях",
   "Set password": "Задати пароль",
   "Set Schedule": "Встановити розклад",

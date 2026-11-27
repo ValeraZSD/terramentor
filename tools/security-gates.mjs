@@ -865,29 +865,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     // The routes: status tells a remote device to set up, setup demands the
     // code from anything but this machine, and the throttle applies to it.
     const setupRoute = indexSrc.slice(indexSrc.indexOf("app.post('/api/auth/setup'"), indexSrc.indexOf("app.post('/api/auth/change'"));
-    ok('setup from another machine checks the code', /if \(setupCodeNeeded\(req\)\)[\s\S]*checkSetupCode\(/.test(setupRoute));
-    {
-        const from = (ip, extra = {}) => ({ ip, socket: { remoteAddress: ip }, headers: { host: ip === '127.0.0.1' ? 'localhost' : 'desk.example' }, ...extra });
-        ok('…which this machine does not need', auth.setupCodeNeeded(from('127.0.0.1')) === false);
-        ok('…another machine does', auth.setupCodeNeeded(from('192.168.1.20')) === true);
-        ok('…a device this computer let in does not', auth.setupCodeNeeded(from('192.168.1.20', { remoteAccess: 'device' })) === false
-            && auth.setupCodeNeeded(from('100.101.102.103', { remoteAccess: 'tailscale' })) === false);
-        process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
-        const open = auth.setupCodeNeeded(from('192.168.1.20', { remoteAccess: 'device' }));
-        delete process.env.AUTH_ALLOW_OPEN_REMOTE;
-        ok('…but under AUTH_ALLOW_OPEN_REMOTE, where anyone could connect one, it does', open === true);
-        // A hosted copy keeps the code (or its operator's token) as its only door,
-        // with a token and without one.
-        const hostedNeeds = [];
-        for (const token of ['an operator token long enough', undefined]) {
-            process.env.TERRAMENTOR_HOSTED = '1';
-            if (token) process.env.TERRAMENTOR_SETUP_TOKEN = token; else delete process.env.TERRAMENTOR_SETUP_TOKEN;
-            hostedNeeds.push(auth.setupCodeNeeded(from('192.168.1.20', { remoteAccess: 'device' })));
-        }
-        delete process.env.TERRAMENTOR_HOSTED;
-        delete process.env.TERRAMENTOR_SETUP_TOKEN;
-        ok('…and on a hosted copy, token or not, it does', hostedNeeds.every((n) => n === true), hostedNeeds.join(','));
-    }
+    ok('setup from another machine checks the code', /if \(!isLocalRequest\(req\)\)[\s\S]*checkSetupCode\(/.test(setupRoute));
     ok('...under the login throttle', setupRoute.includes('loginBlocked(') && setupRoute.includes('recordLoginFailure('));
     ok('...and a set password spends the code', setupRoute.includes('clearSetupCode()'));
     const statusRoute = indexSrc.slice(indexSrc.indexOf("app.get('/api/auth/status'"), indexSrc.indexOf("app.post('/api/auth/login'"));

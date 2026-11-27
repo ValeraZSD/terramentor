@@ -3064,6 +3064,7 @@
   "Set dates": "Tarih belirle",
   "Set dates for {{name}}": "Tarih belirle: {{name}}",
   "Set in General, for the whole app.": "Genel bölümünde, tüm uygulama için ayarlanır.",
+  "Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.": "Parolayı Terramentor'un çalıştığı bilgisayarda belirleyin. Ekranı olmayan bir sunucu: günlüğünde yazan kurulum kodunu girin.",
   "Set it up in Settings": "Ayarlar'dan kurun",
   "Set password": "Parolayı belirle",
   "Set Schedule": "Programı ayarla",
