@@ -47,6 +47,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                             which put a phone's every switch under its text. */}
                         <SettingRow
                             label={tr("Your data")}
+                            alignTop
                             detail={<>
                                 {/* The folder NAME is the readable fact; the whole
                                     path is for support threads and opens on
@@ -177,7 +178,9 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                             <SettingRow
                                 label={tr("When it starts with the computer")}
                                 detail={tr("Come up quietly behind the icon, or open a window. This is only about that first start at sign-in — opening the app yourself always opens a window.")}
+                                fill
                                 control={<SegmentedControl
+                                    block="narrow"
                                     label={tr("When it starts with the computer")}
                                     value={desktop.autostartWindow || 'hidden'}
                                     onChange={async mode => {
@@ -199,7 +202,9 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                         <SettingRow
                             label={tr("How the window opens")}
                             detail={tr("Takes effect the next time the app starts — a window cannot resize itself once it is open.")}
+                            fill
                             control={<SegmentedControl
+                                block="narrow"
                                 label={tr("How the window opens")}
                                 value={desktop.windowMode || 'maximized'}
                                 onChange={async mode => {

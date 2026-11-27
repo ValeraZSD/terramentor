@@ -142,7 +142,9 @@ const NAME_MIN_REM = 12;
  * So it is measured, on the row's own box. It is measured from the CONTROL's natural width, which
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
- * this reads, and there is no flicker to damp.
+ * this reads, and there is no flicker to damp. (A `block="narrow"` switch is
+ * the one exception: it pads its segments tighter while its line is narrow, so
+ * a row right at the edge may stay under its name. It cannot flicker.)
  */
 function useStacksWhenTight(enabled: boolean) {
     const row = useRef<HTMLDivElement>(null);
@@ -187,7 +189,7 @@ function useStacksWhenTight(enabled: boolean) {
     return { row, control, stacked: enabled && stacked };
 }
 
-export function SettingRow({ id, label, hint, detail, control, more, block = false, fill = false, htmlFor, className = '' }: {
+export function SettingRow({ id, label, hint, detail, control, more, block = false, fill = false, alignTop = false, htmlFor, className = '' }: {
     /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
     id?: string;
     label: React.ReactNode;
@@ -204,6 +206,10 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
      *  such a switch under its name at EVERY width, a short track with the
      *  right half of a desktop card empty beside it. */
     fill?: boolean;
+    /** The control level with the name's first line instead of centred on the
+     *  text: for a detail that opens (a disclosure), which would otherwise
+     *  slide the control down as it grows. */
+    alignTop?: boolean;
     htmlFor?: string;
     className?: string;
 }) {
@@ -248,16 +254,16 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                 The measurement reads the control at `max-content`: a stacked
                 control that fills its line would otherwise measure as the row
                 itself, and a row that stacked once would never come back. */}
-            <div ref={row} className={`flex items-center justify-between gap-4 ${under ? 'mb-3' : ''}`}>
+            <div ref={row} className={`flex ${alignTop ? 'items-start' : 'items-center'} justify-between gap-4 ${under ? 'mb-3' : ''}`}>
                 <div className="min-w-0 flex-1">
                     {name}
                     {hint && (
                         <p id={hintId} className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
                     )}
-                    {/* A <div> in SettingNote's type, not the <p> itself: a
-                        detail may hold blocks (a status line over a note, a
-                        disclosure with a button in it), and a block inside
-                        a <p> is invalid markup the parser closes early. */}
+                    {/* A <div> with the hint's type, not a <p>: a detail may
+                        hold blocks (a status line over a note, a disclosure
+                        with a button in it), and a block inside a <p> is
+                        invalid markup the parser closes early. */}
                     {detail && <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{detail}</div>}
                 </div>
                 {!under && control && <div ref={controlRef} className="shrink-0">{control}</div>}
