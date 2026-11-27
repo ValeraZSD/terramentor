@@ -1,4 +1,4 @@
-import CardText, { LineTail, Ruby } from './CardText';
+import CardText from './CardText';
 import { splitWordReading, hasRichCardText, contextSentence, stripCardMarkup } from '../utils/cardText';
 
 /** A line with markup, readings and spacing removed, for telling twins apart. */
@@ -238,7 +238,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
                         // ordinary parser so each reading lands on its own character.
                         ? <CardText content={rubyWord} tail={frontSound} />
                         : reading && !hasRichCardText(front)
-                            ? <><Ruby base={front} reading={reading} />{frontSound && <LineTail>{frontSound}</LineTail>}</>
+                            ? <CardText content={front} reading={reading} tail={frontSound} />
                             : <CardText content={front} tail={frontSound} />}
                 </span>
             </p>

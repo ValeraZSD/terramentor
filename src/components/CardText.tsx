@@ -114,10 +114,12 @@ const rubyLeading = (segments: CardSegment[]) =>
  * `hideReadings` drops the furigana, for an example sentence on the QUESTION side
  * where the reading would give the answer away.
  */
-const CardText = memo(({ content, className = '', hideReadings = false, tail }: {
+const CardText = memo(({ content, className = '', hideReadings = false, reading, tail }: {
     content: string;
     className?: string;
     hideReadings?: boolean;
+    /** A flat reading lifted onto the whole text, a one-word line (`splitWordReading`). */
+    reading?: string | null;
     /** A control that ends the text (the line's speaker): drawn after its last
      *  word, inside the last line, never on a row of its own. See `LineTail`. */
     tail?: ReactNode;
@@ -141,14 +143,27 @@ const CardText = memo(({ content, className = '', hideReadings = false, tail }: 
         );
     }
 
-    const segments = parseCardText(raw);
-    if (segments.length === 0) return end;
-    if (segments.length === 1 && segments[0].kind === 'text' && !segments[0].strong) {
-        const plain = <MathText content={segments[0].text} className={className} />;
-        return end ? <>{plain}{end}</> : plain;
+    if (reading) {
+        const word = <Ruby base={raw} reading={reading} />;
+        return end ? <span className={className}>{word}{end}</span> : word;
     }
 
-    return <span className={`${hideReadings ? '' : rubyLeading(segments)} ${className}`}>{renderSegments(segments, hideReadings)}{end}</span>;
+    const segments = parseCardText(raw);
+    const first = segments[0];
+    const plain = segments.length === 1 && first.kind === 'text' && !first.strong ? first.text : null;
+    const leading = plain !== null || hideReadings ? '' : rubyLeading(segments);
+    if (!end) {
+        if (segments.length === 0) return null;
+        if (plain !== null) return <MathText content={plain} className={className} />;
+        return <span className={`${leading} ${className}`}>{renderSegments(segments, hideReadings)}</span>;
+    }
+    // With a control at the end, every form of the text has the same root, a
+    // span with the control as its second child: the same line drawn plain on
+    // the question side and with readings on the answer side keeps its button
+    // mounted across the flip. A remount would cut the line mid-speech and
+    // restart a two-voice line at its first voice.
+    const body = segments.length === 0 ? null : plain !== null ? <MathText content={plain} /> : renderSegments(segments, hideReadings);
+    return <span className={`${leading} ${className}`}>{body}{end}</span>;
 });
 
 CardText.displayName = 'CardText';
