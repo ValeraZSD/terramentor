@@ -30,12 +30,15 @@ app.get('/api/devices', wrap(async (req, res) => {
 // says in words instead of showing a code that leads nowhere.
 // `tailscale: true` beside a null url: Tailscale runs here but passes nothing
 // to this app yet, which one press can fix (below).
+// With no password yet, a code comes from this computer or from a device it
+// already let in. A machine reaching an app left open to the network
+// (AUTH_ALLOW_OPEN_REMOTE) gets none, from either route that makes one: a
+// device it paired would count as let in, and could set the first password
+// without the setup code.
+const noCodeForStrangers = (req) => !isAuthEnabled() && !isLocalRequest(req) && !req.remoteAccess;
+
 app.post('/api/devices/pair', wrap(async (req, res) => {
-    // With no password yet, a code comes from this computer or from a device
-    // it already let in. A machine reaching an app left open to the network
-    // (AUTH_ALLOW_OPEN_REMOTE) gets none: a device it paired would count as
-    // let in, and could set the first password without the setup code.
-    if (!isAuthEnabled() && !isLocalRequest(req) && !req.remoteAccess) {
+    if (noCodeForStrangers(req)) {
         return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     }
     if (await passwordRefused(req, res)) return;
@@ -50,7 +53,7 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
     // This changes the computer's own Tailscale setup, so a device let in
     // without the password (a paired phone) may not press it.
-    if (!ownerPresent(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
+    if (!ownerPresent(req) || noCodeForStrangers(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
     if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command, problem: served.problem });

@@ -623,10 +623,24 @@ console.log('\n--- the first password from a connected device ---');
     // An app left open to the network: another machine reaches it, but may not
     // pair a device of its own, which could then set the first password.
     process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
-    let openPair;
-    try { openPair = await call('/api/devices/pair', { method: 'POST', from: '192.168.1.90' }); } finally { delete process.env.AUTH_ALLOW_OPEN_REMOTE; }
+    let openPair, openServe;
+    // The app already passed on to the tailnet, where the button answers with
+    // a code at once.
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    cli.serveStatus = { TCP: { 8443: { HTTPS: true } }, Web: { 'desk.tail1234.ts.net:8443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } };
+    const servedBefore = cli.served.length;
+    try {
+        openPair = await call('/api/devices/pair', { method: 'POST', from: '192.168.1.90' });
+        openServe = await call('/api/devices/tailscale/serve', { method: 'POST', from: '192.168.1.90' });
+    } finally {
+        delete process.env.AUTH_ALLOW_OPEN_REMOTE;
+        cli.serveStatus = null;
+        devices.setTailscaleOwnerForTest(null);
+    }
     ok('an app open to the network gives another machine no pairing code while there is no password',
         openPair.status === 403 && !JSON.stringify(openPair.body).includes('#pair='), `${openPair.status} ${JSON.stringify(openPair.body)}`);
+    ok('…nor through the button that passes the app on to the tailnet, which it may not press either',
+        openServe.status === 403 && !JSON.stringify(openServe.body).includes('#pair=') && cli.served.length === servedBefore, `${openServe.status} ${JSON.stringify(openServe.body)}`);
     ok('…while this computer still gets one', (await call('/api/devices/pair', { method: 'POST' })).status === 200);
 }
 
