@@ -5,7 +5,7 @@
  *
  * A child because `ALLOW_PRIVATE_FETCH` is read once at import and the
  * listeners have to be loopback ones; the gate sets it, plus a scratch
- * `DB_PATH` and `VAULT_ROOT`, in this process's environment only.
+ * `DB_PATH`, `VAULT_ROOT` and `DATA_DIR`, in this child's environment only.
  *
  * The resolver is split the way the code splits it. `node:dns/promises`
  * `lookup` is what the vet asks (netSafety resolves a name before it decides);
@@ -92,7 +92,7 @@ try {
         res.end('body');
     });
     keepAlive.server.keepAliveTimeout = 600_000;
-    const kaRes = await safeFetch(`http://127.0.0.1:${keepAlive.port}/`);
+    const kaRes = await safeFetch(`http://127.0.0.1:${keepAlive.port}/`, { signal: AbortSignal.timeout(5000) });
     out.keepAliveBody = await kaRes.text();
     const kaDeadline = Date.now() + 2000;
     while (keepAlive.sockets.size && Date.now() < kaDeadline) await new Promise((r) => setTimeout(r, 50));
@@ -121,6 +121,7 @@ try {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ url }),
+            signal: AbortSignal.timeout(10_000),
         });
         let body = null;
         try { body = await res.json(); } catch { /* reported as null */ }
@@ -140,13 +141,13 @@ try {
 
     out.tricklePage = await tricklePage;
     out.trapHits = [...trap.hits];
-    process.stdout.write(`\n${JSON.stringify(out)}\n`);
 } catch (e) {
-    process.stdout.write(`\n${JSON.stringify({ ...out, crashed: e?.stack || String(e) })}\n`);
+    out.crashed = e?.stack || String(e);
 } finally {
     dns.lookup = realLookup;
     dnsPromises.lookup = realPromiseLookup;
     for (const s of servers) { s.closeAllConnections?.(); s.close(); }
-    // An aborted read can still hold a handle; everything has been printed.
-    process.exit(0);
+    // An aborted read can still hold a handle, so exit once the line is out
+    // (a write to a pipe is asynchronous on Windows).
+    process.stdout.write(`\n${JSON.stringify(out)}\n`, () => process.exit(0));
 }

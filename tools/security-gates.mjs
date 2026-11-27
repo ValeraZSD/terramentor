@@ -56,17 +56,27 @@ const outboundProbe = (() => {
         env: { ...process.env, ALLOW_PRIVATE_FETCH: '1', DB_PATH: path.join(scratch, 'probe.db'), VAULT_ROOT: path.join(scratch, 'vault'), DATA_DIR: path.join(scratch, 'data') },
         stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let out = '';
+    let out = '', err = '';
     child.stdout.on('data', (d) => { out += d; });
-    child.stderr.resume();
-    // A backstop: the child races its own clock and always prints.
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    // A backstop: every wait in the child has its own timeout and it always prints.
     const kill = setTimeout(() => child.kill(), 60_000);
-    return new Promise((resolve) => child.on('close', () => {
-        clearTimeout(kill);
-        try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
-        // The result is the last line: a new library logs its migrations first.
-        try { resolve(JSON.parse(out.trim().split(/\r?\n/).at(-1))); } catch { resolve(null); }
-    }));
+    return new Promise((resolve) => {
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(kill);
+            try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
+            // The result is the last line: a new library logs its migrations first.
+            let result = null;
+            try { result = JSON.parse(out.trim().split(/\r?\n/).at(-1)); } catch { /* reported below */ }
+            if (!result || result.crashed) console.error(`outbound probe: ${result?.crashed || `no result\n${out.slice(-1000)}`}\n${err}`);
+            resolve(result);
+        };
+        child.on('close', done);
+        child.on('error', (e) => { err += String(e); done(); });
+    });
 })();
 
 // --- 1. markdown sanitize -------------------------------------------------
@@ -459,10 +469,11 @@ const indexSrc = (await import('./lib/serverSource.mjs')).httpLayer();
     // A body that TRICKLES (a byte a second, in the outbound probe) never
     // reaches the cap, so time is the only bound: the page reader's 15 s
     // deadline has to outlive the body read, not end when the headers arrive.
-    // The probe stops waiting at 25 s.
+    // The probe stops waiting at 25 s. The floor makes sure it was the deadline
+    // that ended the read, not a fetch that failed at once.
     const trickle = probed?.tricklePage || {};
     ok('the page fetch ends a trickling body at its deadline', trickle.raced === false && trickle.success === false
-        && typeof trickle.ms === 'number' && trickle.ms < 20_000);
+        && typeof trickle.ms === 'number' && trickle.ms > 10_000 && trickle.ms < 20_000);
 }
 
 // --- 6. the settings dump carries no secrets --------------------------------
