@@ -220,9 +220,9 @@ check('then Today', at() === '/', at());
 section('7. a move with router state is pushed as asked');
 await tab('projects');
 const len7 = w.history.length;
-await act(async () => { w.__raw('/projects', { state: { create: true } }); });
-await settle();
+await link('/projects', { state: { create: true } });
 check('New course from a link: one new entry on Projects', w.history.length === len7 + 1 && at() === '/projects', { before: len7, after: w.history.length });
+check('the new entry carries the state the link asked for', w.history.state?.usr?.create === true, w.history.state);
 
 section('8. no screen navigates around the rule');
 const offenders = [];
