@@ -716,7 +716,10 @@ async function* streamChatSse(
                     // frame, whose list is the STORED one (below) — measured in
                     // the stored text, not in the streamed text still on screen.
                     if (Array.isArray(json.actions) && !json.done && !json.cancelled) onActions?.(json.actions as AiAction[]);
-                    if (json.error) throw new Error(serverText(json) ?? String(json.error));
+                    // An error frame is the turn's last frame: the server ended
+                    // it. `turnEnded` tells the caller this is not a socket that
+                    // died under a running turn, which it would follow again.
+                    if (json.error) throw Object.assign(new Error(serverText(json) ?? String(json.error)), { turnEnded: true });
                     if (json.done || json.cancelled) {
                         // On cancel the server already persisted the partial
                         // turn (with reasoning) — same finalize path as done.

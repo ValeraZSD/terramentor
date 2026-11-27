@@ -1087,6 +1087,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // the rows streamed live are measured in the streamed text, and cutting
         // the stored one at their positions lands a few characters off.
         let settledActions: AiAction[] | null = null;
+        // Reasoning arrived: the server keeps a failed turn that got this far
+        // (its question and the trace), so its failure is read from history.
+        let reasoned = false;
         setShowList(false);
         try {
             const stream = api.streamAssistant(message, {
@@ -1100,7 +1103,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }, {
                 signal: controller.signal,
                 onDone: meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; stopped = !!meta.cancelled; },
-                onThinkingChunk: delta => appendReasoning(assistantId, delta),
+                onThinkingChunk: delta => { if (delta.trim()) reasoned = true; appendReasoning(assistantId, delta); },
                 onTask: id => { taskId = id; liveTaskRef.current = id; attachedRef.current.add(id); },
                 onNote: setNote,
                 onActions: trackActions,
@@ -1114,6 +1117,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setStreamed(full);
             }
         } catch (e: any) {
+            // The server's error frame on a turn that produced nothing (no
+            // model, a refused key): the server dropped the turn, so it is
+            // settled here and the card below says why. A turn that wrote or
+            // reasoned first is kept by the server; it stays on the follow-up
+            // path, which reads it back and raises the card under it.
+            if (e?.turnEnded && !full.trim() && !reasoned) terminal = true;
             if (!controller.signal.aborted) {
                 failed = e.message || 'the request failed.';
                 missing = Array.isArray(e?.data?.missing) ? e.data.missing.map(Number) : [];

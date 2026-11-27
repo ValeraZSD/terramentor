@@ -157,6 +157,21 @@ try {
             /if \(startedNew\) switchTo\(null\)/.test(drawer));
         check('…and a history load answered "not found" resolves an empty list, so the failure card is still raised',
             /not found[^]{0,700}switchTo\(null\);\s*id = null;/.test(drawer));
+        // The error frame arrives AFTER the task id, and a turn with a task id
+        // that ends without a terminal frame is followed again as a dropped
+        // socket, which raised no card: the learner saw only the dock's chip.
+        const taskAt = turn.findIndex(f => typeof f.taskId === 'string');
+        check('the turn names its task before its error frame', taskAt >= 0 && taskAt < turn.findIndex(f => f.error),
+            JSON.stringify(turn).slice(0, 300));
+        const apiSrc = readFileSync(new URL('../src/api.ts', import.meta.url), 'utf8');
+        check('the chat stream throws its error frame as the end of the turn',
+            /if \(json\.error\) throw Object\.assign\([^\n]*\{ turnEnded: true \}\)/.test(apiSrc));
+        // Only a turn that produced nothing: one that wrote or reasoned is kept
+        // by the server and is read back from history with its card under it.
+        check('…and the panel settles a turn that produced nothing, so the failure card shows the sentence',
+            /if \(e\?\.turnEnded && !full\.trim\(\) && !reasoned\) terminal = true;/.test(drawer)
+            && /onThinkingChunk: delta => \{ if \(delta\.trim\(\)\) reasoned = true;/.test(drawer)
+            && /const dropped = !terminal && !controller\.signal\.aborted && taskId != null;/.test(drawer));
     } else {
         check('the turn names its conversation', false, 'no conversationId frame');
     }
