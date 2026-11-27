@@ -12,61 +12,147 @@ That shapes the whole threat model. The security claim here is **architectural, 
 cryptographic**: it is not "we encrypt your data so we can't read it", it is "we never receive
 your data at all." Those are different claims and we only make the second one.
 
+## How the protections fit together
+
+The rest of this file is detailed, so here is the shape of it first. Each line below is
+described in full further down, with the file that does it.
+
+- **Who can reach the server.** It listens on `127.0.0.1` unless you choose another address
+  (the Docker image listens on every address inside its container, and its compose file
+  publishes the port on `127.0.0.1` only). A web page may call its API only when the app served
+  that page itself (same scheme, name and port as the request) or from an address you listed, so
+  a site you visit cannot use it through your browser (`server/originGuard.js`; browsers older
+  than Safari 16.4 or Firefox 90 get an older form of this check). With no password, the app
+  answers this computer, the devices you connected with a one-time code, and the computer's own
+  Tailscale account if you turn that switch on (it starts off). In the desktop app, "this
+  computer" means the account that owns the library: its window and its local programs prove
+  that with
+  `instance.key`, a key in the library's folder that other ordinary accounts cannot read when
+  that folder is yours alone. With a password set, every other request needs the password, the
+  API key or a connected device.
+- **What a caller may change.** A page may write only the settings `server/settingsSchema.js`
+  lists, each in the shape its reader expects. Where the app sends requests (model addresses,
+  keys, the search address) and the desktop's own controls (quit, restoring a library) change
+  only from this computer or with the password; a connected device cannot change them. It may
+  install an update only while no password is set, and only the newest signed release.
+- **What leaves the computer.** A short, closed list of connections, each named below, and no
+  telemetry. A request whose address came from content (a link in a course, a page the model
+  picked) goes through `server/netSafety.js`, and so do the hosted search engines, the update
+  download and the ChatGPT sign-in: private and loopback addresses are refused, the connection
+  is pinned to the address that was checked, every redirect is checked again, and a redirect to
+  another origin loses the request's keys. Addresses you typed yourself (a model server,
+  SearXNG) may be on your own network, as such servers are, and are never followed through a
+  redirect. The few fixed public hosts the code names itself (the built-in DuckDuckGo,
+  Wikipedia and GitHub searches, the update check, OpenRouter's key exchange) are called
+  directly.
+- **Where credentials live.** Provider and search keys, sign-in tokens, the password hash and
+  the API key are kept in `terramentor.secrets.json` beside the library, never in the library
+  file, so a library file you copy or share carries none of them (a copy of the whole data
+  folder does). A provider key is sent only to the address it
+  was saved for.
+- **What runs content the app did not write.** The page runs only the app's own scripts
+  (Content-Security-Policy). AI-drawn visuals and code answers run in sandboxed frames that
+  are given no way to send anything out, and a picture from another site loads only when you press it.
+- **How updates are trusted.** The update check ships off, and nothing downloads until you
+  press the button. A one-click update installs only a release whose manifest is signed with a
+  key the installed copy already holds, every file is checked against that manifest, and a
+  separate updater checks it all again and goes back to the previous version if the new one
+  does not start.
+
+These layers keep your library from the network and from sites you visit. On a computer with
+other accounts, the desktop app also keeps it from their programs, fully once a password is
+set. A program that runs under your own account, and an administrator of the computer, are
+different cases, covered with the other limits under "What is NOT protected".
+
 ## What is protected
 
 - **Your study data never leaves your machine** unless you send it somewhere. The only outbound
-  connections the app makes are (a) to the AI endpoint configured in Settings (embeddings go
-  to the same endpoint once you have set one up, never to a built-in default address and never
-  to a connection that has no embeddings, such as an Anthropic key or a ChatGPT plan; or to your
-  Ollama address if you route them there), plus the one key
-  exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
-  or test (including OpenRouter's `/key` route, and its public model list for the thinking
-  levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
-  revocation at `auth.openai.com` (all below); (b) **resource curation while
-  the AI creates a project**, which is **on by default** (Settings → AI & Models → "Find
-  resources"), and the same curation for one topic when you press **Find resources** on it,
-  whether that switch is on or not; it sends
-  search queries the model writes from each topic's *title* (and, while a project is being
-  created, the one-line description the AI has just written for it), never your notes or documents,
-  to DuckDuckGo, Wikipedia and GitHub,
-  plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
-  saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
-  if its key is saved);
-  (b2) **reading a topic's links while its lessons are written**, which is **on by default**
-  (Settings → AI & Models → Model jobs → "Let lessons read their topic’s links"): when a lesson
-  is written for a topic, the app opens that topic's first two web links (no videos, no PDFs),
-  an ordinary page request (the site sees your IP address, the page's address and a generic
-  browser `User-Agent`, and that a lesson is being written now; nothing about you or the course
-  content is sent), through the same URL vetting (`server/netSafety.js`, a bounded read,
-  15 seconds), and gives the model the one passage of each page that matches the lesson, after
-  the course's own documents and only into the room they leave (`server/lessonSources.js`). The
-  links read are whatever the topic holds, so a course file you imported from someone else can
-  name the pages your machine opens; turn the setting off while you study such a course if that
-  matters. A page is normally opened once every few hours however many lessons the topic has
-  (the app remembers the last 32 pages, forgets them when it restarts, asks a page that timed
-  out or whose server failed again after a few minutes, and a page the site refused or does not
-  have only hours later), and a lesson that used one ends with a link to it; (c) fetching a
-  URL you explicitly asked it to fetch; (c2) **reading a link you add as course material**:
-  in the New course window a link is read when you paste or drop it there, or press Add link
-  (several at once, up to 100 sources in all), and when you press Create on a short course the
-  assistant prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
-  the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
-  own machine or network is refused before any connection unless the server was started with
-  `ALLOW_PRIVATE_FETCH=1`, a redirect is vetted again), with a
-  generic browser `User-Agent` and an `Accept-Language` naming the app's language; a page is
-  read up to 3 MB, a PDF or other file up to 25 MB (a page served under another type is
-  downloaded under that 25 MB limit, and only its first 3 MB decoded and parsed). A YouTube video is read from its captions: up to three
-  requests to YouTube's player API (`www.youtube.com/youtubei/v1/player`, carrying the video's
-  id, the app's language as `hl` and the fixed identity of one of YouTube's own apps, never a
-  cookie or an account; each answer read up to 4 MB), each followed by at most one request for
-  the caption track it names, which is fetched only if it is on `youtube.com` (and a redirect
-  only followed if it stays there) and read up to
-  8 MB. The site sees your IP address, the address or video read and the language asked for,
-  nothing about you or your library; (d) the update check described below, which is **off
-  by default**, and the update download, which happens only when you press the update button;
-  and (e) web search for an ANSWER, described next, which is also **off by
-  default**. Nothing else. There is **no telemetry, no analytics and no crash reporting**;
-  see "Verifying the no-telemetry claim" below, because you should not take our word for it.
+  connections the app makes are these:
+  - **(a) The AI endpoint configured in Settings.** Embeddings go to the same endpoint once you
+    have set one up, never to a built-in default address and never to a connection that has no
+    embeddings, such as an Anthropic key or a ChatGPT plan; or to your Ollama address if you
+    route them there. Besides it: the one key exchange of *Connect OpenRouter* when you press
+    it, the test calls of a connection you add or test (including OpenRouter's `/key` route,
+    and its public model list for the thinking levels a model offers), and with *Continue with
+    ChatGPT* the sign-in, token refresh and revocation at `auth.openai.com` (all below).
+  - **(b) Resource curation while the AI creates a project**, which is **on by default**
+    (Settings → AI & Models → "Find resources"), and the same curation for one topic when you
+    press **Find resources** on it, whether that switch is on or not. It sends search queries
+    the model writes from each topic's *title* (and, while a project is being created, the
+    one-line description the AI has just written for it), never your notes or documents, to
+    DuckDuckGo, Wikipedia and GitHub, plus your own SearXNG if you configured one, plus any
+    hosted search engine whose API key you saved in Settings (Tavily, Brave, Jina: see "Web
+    search for answers"; a host is reached only if its key is saved).
+  - **(b2) Reading a topic's links while its lessons are written**, which is **on by default**
+    (Settings → AI & Models → Model jobs → "Let lessons read their topic’s links"). When a lesson
+    is written for a topic, the app opens that topic's first two web links (no videos, no
+    PDFs), an ordinary page request (the site sees your IP address, the page's address and a
+    generic browser `User-Agent`, and that a lesson is being written now; nothing about you or
+    the course content is sent), through the same URL vetting (`server/netSafety.js`, a bounded
+    read, 15 seconds), and gives the model the one passage of each page that matches the
+    lesson, after the course's own documents and only into the room they leave
+    (`server/lessonSources.js`). The links read are whatever the topic holds, so a course file
+    you imported from someone else can name the pages your machine opens; turn the setting off
+    while you study such a course if that matters. A page is normally opened once every few
+    hours however many lessons the topic has (the app remembers the last 32 pages, forgets them
+    when it restarts, asks a page that timed out or whose server failed again after a few
+    minutes, and a page the site refused or does not have only hours later), and a lesson that
+    used one ends with a link to it.
+  - **(c) Fetching a URL you explicitly asked it to fetch.**
+  - **(c2) Reading a link you add as course material.** In the New course window a link is read
+    when you paste or drop it there, or press Add link (several at once, up to 100 sources in
+    all), and when you press Create on a short course the assistant prepared from a link
+    (`server/linkReader.js`).
+    - A web page or a PDF is one ordinary request to the address you gave, through the same URL
+      vetting (`server/netSafety.js`: an address on your own machine or network is refused
+      before any connection unless the server was started with `ALLOW_PRIVATE_FETCH=1`, a
+      redirect is vetted again), with a generic browser `User-Agent` and an `Accept-Language`
+      naming the app's language; a page is read up to 3 MB, a PDF or other file up to 25 MB (a
+      page served under another type is downloaded under that 25 MB limit, and only its first
+      3 MB decoded and parsed).
+    - A YouTube video is read from its captions: up to three requests to YouTube's player API
+      (`www.youtube.com/youtubei/v1/player`, carrying the video's id, the app's language as `hl`
+      and the fixed identity of one of YouTube's own apps, never a cookie or an account; each
+      answer read up to 4 MB), each followed by at most one request for the caption track it
+      names, which is fetched only if it is on `youtube.com` (and a redirect only followed if
+      it stays there) and read up to 8 MB.
+
+    The site sees your IP address, the address or video read and the language asked for,
+    nothing about you or your library.
+  - **(d) The update check** described below, which is **off by default**, and the update
+    download, which happens only when you press the update button.
+  - **(e) Web search for an ANSWER**, described under "Web search for answers", which is also
+    **off by default**.
+
+  Nothing else. There is **no telemetry, no analytics and no crash reporting**; see "Verifying
+  the no-telemetry claim" below, because you should not take our word for it.
+- **A fetch for content goes only where it was checked to go** (`server/netSafety.js`,
+  `safeFetch`). A course you import, a model choosing pages from search results, or a link
+  someone sent you could otherwise point the server at a service on your own computer or
+  network (a local model server, your router, a cloud metadata address) and bring its answer
+  back as course material. So before every such request:
+  - the address must be `http` or `https`, with no name or password inside it;
+  - every address its host resolves to, including a number written in an unusual form, must be
+    public. In IPv4, loopback, the private ranges, link-local, carrier-grade NAT (where
+    Tailscale lives), the documentation ranges, multicast and the reserved blocks are refused;
+    in IPv6, loopback, unique-local, link-local, site-local, multicast, discard-only and Teredo
+    are, and an IPv4 address written inside an IPv6 one is judged as itself. One bad answer
+    among good ones refuses the name. One rarely routed block, `198.18.0.0/15`, is left open on
+    purpose: proxy tools in fake-IP mode answer every public name from it, and refusing it
+    would refuse every fetch on such a machine;
+  - the connection is pinned to the addresses that were just checked, so a name that answers
+    differently a moment later (DNS rebinding) cannot move it; the URL keeps its name, so the
+    TLS certificate is still checked against that name;
+  - a redirect is not followed blindly: each hop is resolved, checked and pinned again, three
+    at most, and a hop to another origin (scheme, host or port) carries only `Accept`, `Accept-Language`, `User-Agent`
+    and `Content-Type`, so a search engine's API key cannot be redirected to someone else; a
+    caller whose body holds a credential (the ChatGPT sign-in) also names which hosts a
+    redirect may reach, and any other is refused before anything is sent.
+
+  `ALLOW_PRIVATE_FETCH=1` opens your own computer and network again for course material that
+  lives there (a wiki on your LAN); only metadata addresses stay refused then. Addresses you typed into
+  Settings yourself are handled separately, under "A model request goes to the address you
+  entered" below.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
   falls back to OCR, and tesseract.js downloads its language model from a CDN unless it is told
   where the model already is. This app ships the English model inside the install
@@ -188,7 +274,9 @@ your data at all." Those are different claims and we only make the second one.
     requests arrive from outside, so the Docker image asks for the code on first use
     (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
     cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks
-    exactly like this computer; set a password before running one.
+    exactly like this computer; set a password before running one. (The desktop app also asks
+    such a request for the owner proof below, which a tunnel does not carry, so there it reads
+    nothing from the library.)
   - **In the desktop app, "this computer" means the account that owns the library.** Every
     account on a computer can reach `127.0.0.1`, so when the desktop launcher starts the server
     (`TERRAMENTOR_DESKTOP=1`), a loopback request with no password also has to show that it can
@@ -211,10 +299,10 @@ your data at all." Those are different claims and we only make the second one.
       a fresh proof in an `X-Terramentor-Proof` header with each request.
 
     Any other loopback request reads nothing from the library, except one that passes for the
-    computer's own Tailscale account while that switch is on (see "Two ways in without the password" below). The
-    page it opens says to start
-    Terramentor from its icon or to set a password, and setting the first password from there
-    takes the one-time setup code, like any other device. Once a password is set, the password
+    computer's own Tailscale account while that switch is on (see "Two ways in without the
+    password" below; the other limits are under "What is NOT protected"). The page it opens says
+    to start Terramentor from its icon or to set a password, and setting the first password from
+    there takes the one-time setup code, like any other device. Once a password is set, the password
     decides, as it does everywhere. `npm run dev`, `npm run standalone` and the Docker image do
     not ask for the proof: the first two are started by the person at the keyboard, and a
     container's requests never look local, so it already asks for the setup code.
@@ -303,7 +391,8 @@ your data at all." Those are different claims and we only make the second one.
     most a minute old. **Without a password, a program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
     `Host: localhost` along makes the outside look like this computer** (see "what the app
-    cannot see" above): set a password before running one. Settings can also run `tailscale serve` for the user (a free
+    cannot see" above), except in the desktop app, which also asks for the owner proof: set a
+    password before running one. Settings can also run `tailscale serve` for the user (a free
     HTTPS port, never one another site holds, never Funnel, and nothing at all when the
     current serve configuration cannot be read); that is a call to the local Tailscale CLI by
     its installed path and opens no outbound connection of its own.
@@ -516,6 +605,30 @@ with it, and a copy built from this repository loads none.
 
 ## What is NOT protected
 
+These are the edges of what the app can promise, and what to do at each one.
+
+- **A program running as you is trusted like you.** The protections above keep your library
+  from the network, from sites you visit and, in the desktop app, from other accounts'
+  programs. A program that runs under your own account is inside all three: it can read the library,
+  `terramentor.secrets.json` and `instance.key` as you can, so it can send requests as the
+  owner, read your saved keys and change the app's files. That is the line the operating system
+  draws for every program you run, and an administrator (root on Linux and macOS) can read
+  every account's files the same way. Run software you trust, and keep the system's own
+  protections (its updates, its malware scanner, full-disk encryption) on.
+- **On a computer shared with other accounts, set a password.** Without one, the desktop app
+  answers only the account that owns the library (see "In the desktop app, 'this computer'
+  means the account that owns the library"), with two exceptions:
+  - the computer's own Tailscale account, only if you turn that switch on (it starts off),
+    because any program on the computer can send the headers `tailscale serve` adds;
+  - a page another account serves on another port of `127.0.0.1`, if you open it in the app's
+    window: a browser sends a site's cookies to every port of that site, so the page receives
+    the window's owner cookie, and the server accepts a copy of it for up to 30 days.
+
+  With a password set, neither counts: every request needs the password, the API key or a
+  connected device, whichever account sends it. One thing a password does not change is who
+  can read the files. A library in a folder other accounts can read (on Windows, a portable
+  copy's `data` folder or one on another drive takes that folder's permissions) is readable to
+  them directly, so keep it in a folder only you can open.
 - **The database is not encrypted at rest.** `terramentor.db` is a plain SQLite file, kept in
   `%LOCALAPPDATA%\Terramentor`, `~/Library/Application Support/Terramentor` or
   `~/.local/share/Terramentor` by the desktop app, in `/data` in Docker and in `server/` when run
@@ -528,9 +641,12 @@ with it, and a copy built from this repository loads none.
 - **There is no multi-user model.** No roles, no per-user data separation, no record of who did
   what (the Activity log below records what the app did, for one person). One person, one
   machine. Do not run this as a shared service for a class.
-- **The auth gate is a gate, not a hardened perimeter.** It is designed to stop a casual passerby
-  on your LAN or a mesh network, not a determined attacker. Prefer a private network
-  (Tailscale/WireGuard) over port-forwarding, always.
+- **The password is built for your own networks.** It keeps other people on your LAN or
+  tailnet out (scrypt hashing, the sign-in throttle and server-side sign-ins described above).
+  The app has no second factor, and it is not built or tested as a public web service. Over
+  plain HTTP on a local network, anyone who can read that network's traffic can read the
+  password and the sign-in cookie as they pass; Tailscale and HTTPS encrypt them. Reach it from elsewhere over a private network (Tailscale, WireGuard),
+  never by forwarding a port to the internet.
 - **Your prompts go to whatever endpoint you configure.** If you point the app at a hosted API,
   your lesson content, questions, notes-in-context, photographed paper and your learner profile
   (the lines you wrote about yourself, which ride along with every request) go to that provider
@@ -694,7 +810,8 @@ Docker and git installs are shown the command to run instead (see below).
   the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
   starts the new version, and puts the previous one back if it does not start within two
   minutes. "Started" means the new server answered a fresh random challenge with a proof made
-  from a key kept in the data folder (`instance.key`, readable by this user only), the same
+  from a key kept in the data folder (`instance.key`, see "In the desktop app, 'this computer'
+  means the account that owns the library" for who can read it), the same
   check the launcher uses to decide that a copy is already running; another program answering
   on the port does not count.
 - **Who may press it:** this computer, or a session signed in with the password. While no
