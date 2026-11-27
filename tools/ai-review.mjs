@@ -194,11 +194,11 @@ export function readMarker(body) {
 /**
  * What reuse compares: the diff with its blob ids and hunk line numbers taken
  * out (they change when main is merged in) and every other byte kept, so a
- * change of whitespace inside a string still counts as a change.
+ * change of whitespace inside a string, or of line endings, still counts as a change.
  */
 export function patchHash(diff) {
     if (!diff || !diff.trim()) return null;
-    const stable = diff.replace(/\r\n/g, '\n').split('\n')
+    const stable = diff.split('\n')
         .filter((l) => !/^index [0-9a-f]+\.\.[0-9a-f]+/.test(l))
         .map((l) => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@'))
         .join('\n');
@@ -308,8 +308,10 @@ async function reviewHead({ env, fetch, git, gh, finish, log, repo, number, head
     const excludes = excludedPatterns(git.show(base, '.coderabbit.yaml') || '');
     const mergeBase = git.mergeBase(base, head);
     const diff = git.diff(mergeBase, head, excludes);
-    // A binary change shows as one line with no content: nothing a reviewer can read.
-    const binary = [...diff.matchAll(/^Binary files (?:a\/|\/dev\/null)(?:.*?) and (?:b\/)?(.+?) differ$/gm)].map((m) => m[1]);
+    // A binary change shows as one line with no content: nothing a reviewer can read. Any line
+    // that starts "Binary files" is git's own (a content line starts with +, - or a space), and
+    // its paths may be quoted ("a/caf\303\251.wasm"), so the paths are not parsed.
+    const binary = [...diff.matchAll(/^Binary files (.*) differ$/gm)].map((m) => m[1].replace(/^.* and "?(?:b\/)?/, '').replace(/"$/, ''));
     if (binary.length) {
         return { ...(await finish('failure', `binary change, not reviewable (${binary.slice(0, 2).join(', ')}): merge by hand`)), called: false };
     }

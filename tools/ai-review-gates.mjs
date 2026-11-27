@@ -213,6 +213,10 @@ console.log('\n--- nothing left to review, and a crash ---');
     check('so does an added binary file', last(r2.statuses).state === 'failure' && /brand\/new\.png/.test(last(r2.statuses).description)
         && r2.modelCalls.length === 0, JSON.stringify(r2.statuses));
 }
+check('a diff whose only change is LF to CRLF hashes differently', (() => {
+    const added = (eol) => `diff --git a/run.sh b/run.sh\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/run.sh\n@@ -0,0 +1 @@\n+echo hi${eol}\n`;
+    return patchHash(added('')) !== patchHash(added('\r'));
+})());
 {
     const r = await run({ model: modelReply({ summary: 's', findings: [] }) });
     check('the model call carries a time limit', r.modelCalls[0]?.signal instanceof AbortSignal);
@@ -320,6 +324,23 @@ console.log('\n--- the rules file and the real git ---');
         const diff = realGit(dir).diff(from, to, []);
         check("git alone hides the line behind the head's -diff", /Binary files/.test(plain) && !/evil/.test(plain), plain);
         check("the review's diff shows it", /^\+evil\(\);$/m.test(diff) && !/Binary files/.test(diff), diff);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+// A changed binary whose name git quotes (a non-ASCII byte) still fails the review.
+{
+    const dir = mkdtempSync(join(tmpdir(), 'ai-review-bin-'));
+    const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+        g('init', '-q'); g('config', 'user.email', 'gate@example.test'); g('config', 'user.name', 'gate');
+        writeFileSync(join(dir, 'café.wasm'), Buffer.from([0, 1, 2, 0])); g('add', '.'); g('commit', '-qm', 'base');
+        const from = g('rev-parse', 'HEAD').trim();
+        writeFileSync(join(dir, 'café.wasm'), Buffer.from([0, 9, 9, 0])); g('add', '.'); g('commit', '-qm', 'head');
+        const diff = realGit(dir).diff(from, g('rev-parse', 'HEAD').trim(), []);
+        check('git quotes the changed binary\'s name', /^Binary files "a\//m.test(diff), diff);
+        const r = await run({ git: fakeGit({ diff }), model: modelReply({ summary: 's', findings: [] }) });
+        check('and the review still fails it without a model call', last(r.statuses).state === 'failure'
+            && /binary change/.test(last(r.statuses).description) && r.modelCalls.length === 0, JSON.stringify(r.statuses));
     } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
