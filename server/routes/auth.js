@@ -44,7 +44,20 @@ app.get('/api/auth/status', async (req, res) => {
     // `exposed`: no password, and the app is set up to be reachable from
     // other machines (auth.js exposedWithoutPassword). The page says so until
     // a password is set.
-    res.json({ enabled, authenticated, ...(exposedWithoutPassword() ? { exposed: true } : {}) });
+    // `elsewhere`: no password, and this request is not from the computer (a
+    // connected phone, the owner's Tailscale). The first password is set on
+    // the computer (a phone that set it would make itself the owner and sign
+    // the computer out), so its settings say where instead of offering a form.
+    // Any request from another machine counts (a stranger let in under
+    // AUTH_ALLOW_OPEN_REMOTE too), and the code is announced now so the log
+    // holds it by the time the form points there.
+    const elsewhere = !enabled && !isLocalRequest(req);
+    if (elsewhere) announceSetupCode();
+    res.json({
+        enabled, authenticated,
+        ...(exposedWithoutPassword() ? { exposed: true } : {}),
+        ...(elsewhere ? { elsewhere: true } : {}),
+    });
 });
 
 /**
@@ -129,14 +142,12 @@ app.post('/api/auth/sign-out-everywhere', wrap(async (req, res) => {
 //
 // From another machine it also takes the one-time code in the server's log:
 // otherwise whoever reaches an unlocked app first chooses its password. The
-// code attempts share the login throttle. A device this computer already let
-// in (a connected device, its owner's Tailscale) is in like this machine is,
-// so it needs no code.
+// code attempts share the login throttle.
 let firstPasswordPending = false;
 app.post('/api/auth/setup', wrap(async (req, res) => {
     if (isAuthEnabled()) return res.status(409).json(keyed('A password is already set'));
     const password = req.body && req.body.password;
-    if (!isLocalRequest(req) && !req.remoteAccess) {
+    if (!isLocalRequest(req)) {
         const wait = loginBlocked(req);
         if (wait > 0) return res.status(429).json({ ...keyed('Too many attempts. Try again in {{wait}}s.', { wait }), retryAfter: wait });
         if (!checkSetupCode(req.body && req.body.setupCode)) {

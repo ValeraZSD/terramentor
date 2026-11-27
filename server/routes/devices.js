@@ -32,9 +32,8 @@ app.get('/api/devices', wrap(async (req, res) => {
 // to this app yet, which one press can fix (below).
 // With no password yet, a code comes from this computer or from a device it
 // already let in. A machine reaching an app left open to the network
-// (AUTH_ALLOW_OPEN_REMOTE) gets none, from either route that makes one: a
-// device it paired would count as let in, and could set the first password
-// without the setup code.
+// (AUTH_ALLOW_OPEN_REMOTE) gets none, from either route that makes one: the
+// key of a device it paired would outlast the opening.
 const noCodeForStrangers = (req) => !isAuthEnabled() && !isLocalRequest(req) && !req.remoteAccess;
 
 app.post('/api/devices/pair', wrap(async (req, res) => {

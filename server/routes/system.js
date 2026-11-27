@@ -4,7 +4,7 @@ import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
 import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
-import { hasPasswordCredential } from '../auth.js';
+import { mayPressUpdates } from '../auth.js';
 import { isHosted } from '../hosted.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -32,8 +32,8 @@ app.get('/api/version', (req, res) => {
 /** Read the last check's result. Deliberately does NOT check: a GET that reaches
  *  the network as a side effect is exactly the ping this design refuses. */
 app.get('/api/updates', (req, res) => {
-    // A device in without the password reads the panel but may press nothing
-    // on it (server/app.js), so the page does not ask it anything.
+    // A device in without the password, while one is set, reads the panel but
+    // may press nothing on it (server/app.js), so the page does not ask it anything.
     res.json(withInstall(req, readUpdateState()));
 });
 
@@ -43,7 +43,7 @@ app.get('/api/updates', (req, res) => {
  *  answer, because the page replaces its whole status with whichever came last. */
 function withInstall(req, state) {
     // A hosted copy is updated by whoever runs it (server/hosted.js refuses the writes).
-    return { ...state, install: installState({ latest: state.latest }), controls: !isHosted() && (!req.remoteAccess || hasPasswordCredential(req)) };
+    return { ...state, install: installState({ latest: state.latest }), controls: !isHosted() && mayPressUpdates(req) };
 }
 
 /**

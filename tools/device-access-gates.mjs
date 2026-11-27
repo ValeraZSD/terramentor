@@ -134,6 +134,30 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
 const cookieOf = (r, name) => (r.setCookie.find(c => c.startsWith(`${name}=`)) || '').split(';')[0];
 const codeOf = (r) => (r.body?.url || '').split('#pair=')[1] || '';
 /**
+ * What each press answers once it is past the guard, on this scratch copy:
+ * the handler's own refusals (a copy that cannot download or install itself
+ * 409s; a channel left out is a 400), never the guard's 403, a 401 or a 429.
+ */
+const PAST_THE_GUARD = '/api/updates/download 409, /api/updates/restart 409, /api/updates/cancel 200, '
+    + '/api/updates/check 200, /api/updates/auto 200, /api/updates/channel 400';
+/**
+ * Every press on the update panel from the phone holding `cookie`, as
+ * "path status". A press that gets past the guard may ask GitHub (Check now),
+ * so `fetch` answers offline for the duration: a gate reaches no network.
+ */
+async function pressUpdates(cookie) {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error('offline in this gate'); };
+    try {
+        const pressed = [];
+        for (const [method, path] of [['POST', '/api/updates/download'], ['POST', '/api/updates/restart'], ['POST', '/api/updates/cancel'],
+            ['POST', '/api/updates/check'], ['PUT', '/api/updates/auto'], ['PUT', '/api/updates/channel']]) {
+            pressed.push(`${path} ${(await call(path, { method, from: PHONE, cookie, body: {} })).status}`);
+        }
+        return pressed;
+    } finally { globalThis.fetch = realFetch; }
+}
+/**
  * A code asked for from this machine (loopback, Host 127.0.0.1) while
  * `tailscale serve` passes this test port on to the tailnet, so there is an
  * address to put in it. Asking at the tailnet NAME over loopback is not this
@@ -307,14 +331,11 @@ let phoneCookie = '';
     const quit = await call('/api/desktop/quit', { method: 'POST', from: PHONE, cookie: phoneCookie });
     ok('a connected device may not press the computer\'s own controls (quit, open folder…)', quit.status === 403, quit.status);
     ok('…which this computer itself still reaches', (await call('/api/desktop/quit', { method: 'POST' })).status !== 403);
-    // Updating is the computer's own control too: a device reads the update
-    // panel but presses nothing on it.
-    const pressed = [];
-    for (const [method, path] of [['POST', '/api/updates/download'], ['POST', '/api/updates/restart'], ['POST', '/api/updates/cancel'],
-        ['POST', '/api/updates/check'], ['PUT', '/api/updates/auto'], ['PUT', '/api/updates/channel']]) {
-        pressed.push(`${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body: {} })).status}`);
-    }
-    ok('a connected device may not download, install or set up updates', pressed.every((p) => p.endsWith(' 403')), pressed.join(', '));
+    // Updating is not: with no password, a device that is in may update (it
+    // has no password to sign in with, and a press installs only the newest
+    // signed release). Section 4 pins the refusal once a password is set.
+    const pressed = await pressUpdates(phoneCookie);
+    ok('with no password, a connected device may download, install and set up updates', pressed.join(', ') === PAST_THE_GUARD, pressed.join(', '));
     // Passing the app on to the tailnet and the Tailscale switch change the
     // computer's own setup: the same owner-only rule as the controls above.
     const servedBefore = cli.served.length;
@@ -326,7 +347,7 @@ let phoneCookie = '';
         tsOnPhone.every((p) => p.endsWith(' 403')) && cli.served.length === servedBefore, tsOnPhone.join(', '));
     ok('…while this computer still reaches the switch', (await call('/api/devices/tailscale', { method: 'PUT', body: { on: true } })).status === 200);
     const panel = await call('/api/updates', { from: PHONE, cookie: phoneCookie });
-    ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
+    ok('…and the update panel says it may press', panel.status === 200 && panel.body?.controls === true, JSON.stringify(panel.body?.controls));
     ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
     // The page replaces its whole status with whichever update answer came
     // last, so a press's answer says it too (a check, a dismissed note).
@@ -589,6 +610,16 @@ console.log('\n--- with a password set ---');
     ok('a password session on a phone moves an address', typed.status === 200, typed.status);
     const keyOnly = await call('/api/settings/searxng_url', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'https://searx.device.example' } });
     ok('…which a device key alone, with a password set, may not', keyOnly.status === 403, keyOnly.status);
+    // Updating: with a password set, the device key alone presses nothing,
+    // and the panel says so; the password typed on the phone presses.
+    const keyPresses = await pressUpdates(phoneCookie);
+    ok('with a password set, a device key alone may not download, install or set up updates',
+        keyPresses.every((p) => p.endsWith(' 403')), keyPresses.join(', '));
+    ok('…and its update panel says it may not press',
+        (await call('/api/updates', { from: PHONE, cookie: phoneCookie })).body?.controls === false);
+    ok('…while a password session on the phone may',
+        (await call('/api/updates', { from: PHONE, cookie: session })).body?.controls === true
+        && (await pressUpdates(session)).join(', ') === PAST_THE_GUARD);
     ok('a code without the password is refused', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session })).status === 403);
     ok('…with a wrong one too', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'wrong' } })).status === 403);
     ok('…and given with it', codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'correct horse' } })).length >= 32);
@@ -606,22 +637,47 @@ console.log('\n--- with a password set ---');
     auth.clearAuth();
 }
 
-// ── the first password, set from a connected device ───────────────────────────
-// A device connected while there is no password reaches the whole app; the
-// first password set from it needs no code from the server log, which only
-// the computer's owner can read. Anything else from elsewhere still does.
-console.log('\n--- the first password from a connected device ---');
+// ── 4b. the first password, set from a device ──────────────────────────────────
+// The setup code keeps a stranger who reaches an unlocked app first from
+// choosing its password. A device this computer let in needs it too: a
+// password set from it would make it the owner (addresses, the API key, the
+// computer's controls) and sign the computer out, with no reset. Its settings
+// are told so (`elsewhere`) and offer the code field.
+console.log('\n--- the first password, set from a device ---');
 {
-    const stranger = await call('/api/auth/setup', { method: 'POST', from: '192.168.1.90', body: { password: 'stranger pass' } });
-    ok('another machine without the code is refused', stranger.status === 403 && stranger.body?.setupRequired === true, JSON.stringify(stranger.body));
-    ok('…and no password is set', !auth.isAuthEnabled());
-    const set = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: 'phone pass' } });
-    ok('the connected phone sets the first password without a code', set.status === 200 && auth.isAuthEnabled(), `${set.status} ${JSON.stringify(set.body)}`);
-    ok('…and is still let in once it is set', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
+    const LONG = 'a phone password';
+    clockAt += 31 * 60 * 1000; // the wrong guesses of the sections above are spent
+    const st = await call('/api/auth/status', { from: PHONE, cookie: phoneCookie });
+    ok('a connected device\'s status says it is in from elsewhere', st.body?.authenticated === true && st.body?.elsewhere === true, JSON.stringify(st.body));
+    ok('…which this computer\'s does not', (await call('/api/auth/status')).body?.elsewhere === undefined);
+    ok('…nor a device the app does not know (it meets the setup screen)', (await call('/api/auth/status', { from: '192.168.1.99' })).body?.elsewhere === undefined);
+    process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
+    const open = await call('/api/auth/status', { from: '192.168.1.99' });
+    delete process.env.AUTH_ALLOW_OPEN_REMOTE;
+    ok('…but a stranger let in by AUTH_ALLOW_OPEN_REMOTE is told it too', open.body?.authenticated === true && open.body?.elsewhere === true, JSON.stringify(open.body));
+
+    const bare = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG } });
+    ok('a connected device needs the setup code for the first password',
+        bare.status === 403 && bare.body?.setupRequired === true && !auth.isAuthEnabled(), JSON.stringify(bare.body));
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER });
+    const tsStatus = await call('/api/auth/status', { serve: true, login: OWNER });
+    ok('…the owner\'s Tailscale account is told it is elsewhere', tsStatus.body?.authenticated === true && tsStatus.body?.elsewhere === true, JSON.stringify(tsStatus.body));
+    const viaTs = await call('/api/auth/setup', { method: 'POST', serve: true, login: OWNER, body: { password: LONG } });
+    ok('…and needs the code too', viaTs.status === 403 && viaTs.body?.setupRequired === true && !auth.isAuthEnabled(), JSON.stringify(viaTs.body));
+    devices.setTailscaleOwnerForTest(null);
+
+    const witness = cookieOf(await call('/api/auth/pair', { method: 'POST', from: '192.168.1.72', body: { code: await freshCode() } }), 'sp_dev');
+    const code = auth.announceSetupCode();
+    const set = await call('/api/auth/setup', { method: 'POST', from: PHONE, cookie: phoneCookie, body: { password: LONG, setupCode: code } });
+    ok('with the code from the log, a connected device sets it', set.status === 200 && auth.isAuthEnabled(), JSON.stringify(set.body));
+    ok('…every OTHER connected device is ended', (await call('/api/projects', { from: '192.168.1.72', cookie: witness })).status === 401);
+    ok('…the one that set it is not', (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200);
+    ok('…and its status no longer says elsewhere', (await call('/api/auth/status', { from: PHONE, cookie: phoneCookie })).body?.elsewhere === undefined);
     auth.clearAuth();
 
     // An app left open to the network: another machine reaches it, but may not
-    // pair a device of its own, which could then set the first password.
+    // pair a device of its own, whose key would outlast the opening.
     process.env.AUTH_ALLOW_OPEN_REMOTE = '1';
     let openPair, openServe;
     // The app already passed on to the tailnet, where the button answers with

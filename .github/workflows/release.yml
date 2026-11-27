@@ -1,8 +1,8 @@
 # Building and publishing a release, however it was started:
 #
 #   git tag v1.2.0 && git push origin v1.2.0   a stable release of exactly that commit
-#   the Nightly workflow (nightly.yml)         main as a nightly prerelease, or the commit
-#                                              of the latest nightly promoted to stable
+#   the Nightly workflow (nightly.yml)         main as a nightly prerelease, or a named
+#                                              nightly (or its release/X.Y branch) as stable
 #   a pull request touching the files below    all of it, publishing nothing (a dry run)
 #
 # Every path runs the same gates a pull request runs, then builds the container
@@ -128,7 +128,7 @@ jobs:
 
       # Channel, version and commit from how this run started (releasePlan in
       # tools/lib/releaseChannel.mjs). It refuses to publish a commit that is not
-      # on main. A suffixed tag (v1.3.0-rc.1) is a prerelease like a nightly;
+      # on main, or, for a stable release, on its own release/X.Y. A suffixed tag (v1.3.0-rc.1) is a prerelease like a nightly;
       # only a plain stable X.Y.Z, and not an older line's hotfix, becomes
       # Latest and moves the `latest` image.
       - id: plan

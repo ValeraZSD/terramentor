@@ -3,7 +3,7 @@
  * The release workflows' decisions and files, as one script the gates can run.
  *
  *   node tools/release.mjs plan [--force] [--now ISO]      should the schedule publish main now, and as what
- *   node tools/release.mjs promote                         the stable release the latest nightly becomes
+ *   node tools/release.mjs promote --nightly TAG           the stable release that nightly (and its release/X.Y) becomes
  *   node tools/release.mjs resolve                         what release.yml builds (event + inputs from env)
  *   node tools/release.mjs gates-passed --sha SHA          did the Gates workflow already pass this commit's push
  *   node tools/release.mjs check-version --channel C --version V
@@ -29,7 +29,8 @@ import { appendFileSync, createReadStream, readdirSync, readFileSync, statSync, 
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { basename, join } from 'node:path';
 import {
-    buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
+    buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, namedNightly, nightlyBase, nightlyDecision,
+    releaseBranch, versionCore, workflowScripts,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
     draftProblems, lookUpGates,
 } from './lib/releaseChannel.mjs';
@@ -93,6 +94,18 @@ async function releases() {
     // One page of the newest hundred is enough: the newest nightly is among
     // them unless a hundred stable releases came after it.
     return github('/releases?per_page=100');
+}
+
+/** The published nightly release with this tag, or null: asked by tag, so a
+ *  nightly a patch release is cut from months later is still found. */
+async function nightlyRelease(tag) {
+    if (args['releases-file']) return namedNightly(await releases(), tag);
+    try {
+        return namedNightly([await github(`/releases/tags/${encodeURIComponent(tag)}`)], tag);
+    } catch (e) {
+        if (/answered 404 /.test(e.message)) return null;
+        throw e;
+    }
 }
 
 /** The newest SCHEDULED run of the Nightly workflow on this commit that failed
@@ -164,23 +177,60 @@ async function plan() {
 
 async function promote() {
     const tags = tagsHere();
-    const found = latestNightly(await releases());
+    const requested = typeof args.nightly === 'string' ? args.nightly.trim() : '';
+    const found = requested ? await nightlyRelease(requested) : null;
     const nightly = found ? { tag: found.tag, sha: commitOf(found.tag) } : null;
     const main = mainRef();
     const onMain = !!nightly && gitOk('merge-base', '--is-ancestor', nightly.sha, main);
-    const at = (file) => (nightly ? gitTry('show', `${nightly.sha}:${file}`) : null);
-    const changed = nightly ? git('diff', '--name-only', nightly.sha, main, '--', ...PIPELINE_FILES) : '';
+    const show = (sha, file) => gitTry('show', `${sha}:${file}`);
+    const nightlyPkgVersion = nightly ? JSON.parse(show(nightly.sha, 'package.json') || '{}').version : null;
+    // Its release branch, beside main on the same remote (origin/release/X.Y),
+    // when one has been started.
+    let line = null;
+    if (nightly && versionCore(nightlyPkgVersion)) {
+        const name = releaseBranch(nightlyPkgVersion);
+        const lineSha = gitTry('rev-parse', '--verify', '--quiet', `${main.replace(/main$/, name)}^{commit}`);
+        if (lineSha) {
+            const containsNightly = gitOk('merge-base', '--is-ancestor', nightly.sha, lineSha);
+            const log = containsNightly ? git('log', '--no-merges', '--format=%H%x09%s', `${nightly.sha}..${lineSha}`) : '';
+            const commits = log ? log.split('\n').map((l) => { const [sha, ...s] = l.split('\t'); return { sha, subject: s.join('\t') }; }) : [];
+            // Commits after the nightly that main also has: merged in, not cherry-picked.
+            const after = containsNightly ? git('rev-list', lineSha, `^${nightly.sha}`) : '';
+            const own = containsNightly ? git('rev-list', lineSha, `^${nightly.sha}`, `^${main}`) : '';
+            const ownSet = new Set(own.split('\n').filter(Boolean));
+            const fromMain = after.split('\n').filter((s) => s && !ownSet.has(s));
+            line = { name, sha: lineSha, containsNightly, commits, fromMain };
+        }
+    }
+    const built = line?.containsNightly ? line.sha : nightly?.sha;
+    const changed = built ? git('diff', '--name-only', built, main, '--', ...PIPELINE_FILES) : '';
+    // The other scripts main's release.yml runs from the built commit. They may
+    // rightly differ (they build that commit's code), so they are named, not refused.
+    const scripts = workflowScripts(gitTry('show', `${main}:.github/workflows/release.yml`) || '')
+        .filter((f) => !PIPELINE_FILES.includes(f));
+    const scriptsDiffer = built && scripts.length ? git('diff', '--name-only', built, main, '--', ...scripts).split('\n').filter(Boolean) : [];
     const p = promotion({
+        requested,
         nightly,
         onMain,
-        packageVersion: nightly ? JSON.parse(at('package.json') || '{}').version : null,
+        nightlyVersion: nightlyPkgVersion,
+        line,
+        packageVersion: built ? JSON.parse(show(built, 'package.json') || '{}').version : null,
         tags,
-        changelog: at('CHANGELOG.md') || '',
+        changelog: (built && show(built, 'CHANGELOG.md')) || '',
         pipelineChanged: changed.split('\n').filter(Boolean),
     });
+    const from = p.line ? `${p.from} through ${p.line}` : p.from;
+    const fixes = p.fixes.length
+        ? `\n\n${p.line} adds ${p.fixes.length} commit${p.fixes.length === 1 ? '' : 's'} after ${p.from}:\n\n${p.fixes.map((c) => `- \`${c.sha.slice(0, 7)}\` ${c.subject}`).join('\n')}\n`
+        : p.line ? `\n\n${p.line} adds nothing after ${p.from}.\n` : '';
+    const differ = scriptsDiffer.length
+        ? `\n\nThese scripts the release workflow runs differ from main's; if a build step fails on how it calls one, `
+          + `cherry-pick main's change to it:\n\n${scriptsDiffer.map((f) => `- \`${f}\``).join('\n')}\n`
+        : '';
     answer(
-        { publish: true, version: p.version, ref: p.sha, previous: p.from, reason: `Promoting ${p.from} (${p.sha}) as ${p.tag}.` },
-        `### Stable\n\nPromoting **${p.from}** (\`${p.sha.slice(0, 7)}\`) as **${p.tag}**.\n`,
+        { publish: true, version: p.version, ref: p.sha, previous: p.from, reason: `Promoting ${from} (${p.sha}) as ${p.tag}.` },
+        `### Stable\n\nPromoting **${p.from}**${p.line ? ` through **${p.line}**` : ''} (\`${p.sha.slice(0, 7)}\`) as **${p.tag}**.${fixes}${differ}\n`,
     );
 }
 
@@ -190,6 +240,11 @@ function resolve() {
     const env = process.env;
     const candidate = env.IN_VERSION ? env.IN_REF : env.GITHUB_SHA;
     const main = gitOk('rev-parse', '--verify', '--quiet', 'origin/main^{commit}') ? 'origin/main' : null;
+    // A stable release may also come from its own release branch.
+    const version = env.IN_VERSION || String(env.GITHUB_REF_NAME || '').replace(/^v/, '');
+    const line = versionCore(version) ? `origin/${releaseBranch(version)}` : null;
+    const onLine = !!candidate && !!line && gitOk('rev-parse', '--verify', '--quiet', `${line}^{commit}`)
+        && gitOk('merge-base', '--is-ancestor', candidate, line);
     const { movingTags, ...plan } = releasePlan({
         event: env.GITHUB_EVENT_NAME,
         refName: env.GITHUB_REF_NAME,
@@ -198,6 +253,7 @@ function resolve() {
         dry: { version: env.DRY_VERSION, previous: env.DRY_PREVIOUS },
         tags: tagsHere(),
         onMain: !!candidate && !!main && gitOk('merge-base', '--is-ancestor', candidate, main),
+        onLine,
     });
     answer({ ...plan, moving_tags: movingTags.join(' '), built_at: git('show', '-s', '--format=%cI', plan.ref) });
 }

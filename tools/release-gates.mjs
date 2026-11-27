@@ -57,6 +57,7 @@ const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
     stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, lookUpGates, GATES_CHECKS,
+    releaseBranch, namedNightly, workflowScripts,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -149,17 +150,52 @@ check('the newest PUBLISHED nightly, not a draft and not a stable release',
 check('none published', latestNightly([releases[0], releases[2]]), null);
 
 // ---------------------------------------------------------------------------
-// 3. Promoting the latest nightly to stable
+// 3. Promoting a named nightly (or its release branch) to stable
 // ---------------------------------------------------------------------------
 console.log('\n--- stable from nightly ---');
 
 const nightly = { tag: 'v1.2.0-nightly.20261008.1', sha: 'c'.repeat(40) };
 const changelog = '# Changelog\n\n## [1.2.0] - 2026-10-08\n\n**Poster.** It fits.\n\n## [1.0.0] - 2026-10-02\n';
-const good = { nightly, onMain: true, packageVersion: '1.2.0', tags: ['v1.0.0', 'v1.1.0', nightly.tag], changelog };
+const good = { requested: nightly.tag, nightly, onMain: true, nightlyVersion: '1.2.0', packageVersion: '1.2.0', tags: ['v1.0.0', 'v1.1.0', nightly.tag], changelog };
 
-check('the release commit\'s nightly promotes to its package.json version',
-    promotion(good), { version: '1.2.0', tag: 'v1.2.0', sha: nightly.sha, from: nightly.tag });
-throwsWith('no nightly: refuse', () => promotion({ ...good, nightly: null }), /No nightly/);
+check('the named nightly promotes to its package.json version, from its own commit',
+    promotion(good), { version: '1.2.0', tag: 'v1.2.0', sha: nightly.sha, from: nightly.tag, line: '', fixes: [] });
+throwsWith('no nightly named: refuse, never assume the latest', () => promotion({ ...good, requested: '' }), /Name the nightly/);
+throwsWith('a name that is not a nightly\'s tag: refuse', () => promotion({ ...good, requested: 'v1.2.0' }), /not a nightly's tag/);
+throwsWith('a named nightly that is not published: refuse', () => promotion({ ...good, nightly: null }), /not a published nightly/);
+{
+    // Its release branch: started at the nightly's commit, one fix since.
+    const fix = { sha: 'd'.repeat(40), subject: 'Fix the thing 1.2.0 broke' };
+    const line = { name: 'release/1.2', sha: fix.sha, containsNightly: true, commits: [fix] };
+    check('with a release branch, the stable is built from its head and lists what it adds',
+        promotion({ ...good, line }), { version: '1.2.0', tag: 'v1.2.0', sha: fix.sha, from: nightly.tag, line: 'release/1.2', fixes: [fix] });
+    throwsWith('a release branch that does not contain the nightly: refuse, naming the branch',
+        () => promotion({ ...good, line: { ...line, containsNightly: false } }), /release\/1\.2 does not contain v1\.2\.0-nightly/);
+    throwsWith('…unless the nightly predates the release pull request: then say that',
+        () => promotion({ ...good, nightlyVersion: '1.1.0', line: { ...line, name: 'release/1.1', containsNightly: false } }),
+        /says 1\.1\.0, which is not newer than the latest stable 1\.1\.0.*release pull request/s);
+    throwsWith('a release branch whose package.json left its line: refuse',
+        () => promotion({ ...good, line, packageVersion: '1.3.0', changelog: '## [1.3.0]\n' }), /release\/1\.2 says 1\.3\.0, which is not a version of that line/);
+    throwsWith('the pipeline changed on main since the branch: cherry-pick it onto the branch',
+        () => promotion({ ...good, line, pipelineChanged: ['tools/release.mjs'] }), /changed on main since release\/1\.2.*Cherry-pick that change onto release\/1\.2/s);
+    throwsWith('a release branch holding main\'s own commits (main merged in): refuse, naming them',
+        () => promotion({ ...good, line: { ...line, fromMain: ['e'.repeat(40), 'f'.repeat(40)] } }),
+        /release\/1\.2 holds 2 commits of main after v1\.2\.0-nightly\.20261008\.1 \(eeeeeee, fffffff\).*cherry-pick/s);
+    check('the scripts a workflow runs: tools/ scripts by path, once each, not data files',
+        workflowScripts('run: node tools/a.mjs && bash tools/x/b.sh\nrun: node tools/a.mjs tools/budgets.json\nrun: pwsh tools/c.ps1\n'),
+        ['tools/a.mjs', 'tools/c.ps1', 'tools/x/b.sh']);
+    check('a patch on the branch (1.2.1 after 1.2.0) promotes as 1.2.1',
+        promotion({ ...good, line, tags: [...good.tags, 'v1.2.0'], packageVersion: '1.2.1', changelog: '## [1.2.1]\n\nfix\n\n## [1.2.0]\n' }).tag, 'v1.2.1');
+    check('the release branch of a version', [releaseBranch('1.2.0'), releaseBranch('1.10.3'), releaseBranch('2.0.0-nightly.20261008.1')],
+        ['release/1.2', 'release/1.10', 'release/2.0']);
+    const list = [
+        { tag_name: 'v1.2.0-nightly.20261008.2', draft: true, published_at: null },
+        { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, published_at: '2026-10-08T06:00:00Z' },
+        { tag_name: 'v1.1.0', draft: false, published_at: '2026-10-08T09:00:00Z' },
+    ];
+    check('a named nightly is found only when it is published', [namedNightly(list, 'v1.2.0-nightly.20261008.1')?.tag, namedNightly(list, 'v1.2.0-nightly.20261008.2'), namedNightly(list, 'v1.1.0')],
+        ['v1.2.0-nightly.20261008.1', null, null]);
+}
 throwsWith('a nightly commit that is not on main: refuse',
     () => promotion({ ...good, onMain: false }), /not on main/);
 throwsWith('package.json not newer than the latest stable: refuse, and say what to do',
@@ -204,6 +240,14 @@ const promoted = releasePlan({ event: 'workflow_dispatch', refName: 'main', sha:
 check('called for a promotion: Latest, on the nightly\'s commit', [promoted.latest, promoted.ref], [true, SHA40]);
 throwsWith('a commit that is not on main is never published, by tag or by call',
     () => releasePlan({ event: 'push', refName: 'v1.3.0', sha: SHA40, tags: TAGS, onMain: false }), /not on main/);
+check('a stable release from its own release branch is published, by call or by tag',
+    [releasePlan({ event: 'workflow_dispatch', refName: 'main', sha: 'e'.repeat(40), tags: TAGS, onLine: true, input: { channel: 'stable', version: '1.3.0', ref: SHA40 } }).publish,
+        releasePlan({ event: 'push', refName: 'v1.3.1', sha: SHA40, tags: TAGS, onLine: true }).publish], [true, true]);
+throwsWith('…and refused when it is on neither, naming the branch it could have been on',
+    () => releasePlan({ event: 'push', refName: 'v1.3.1', sha: SHA40, tags: TAGS }), /not on main or on release\/1\.3/);
+throwsWith('a nightly never comes from a release branch',
+    () => releasePlan({ event: 'schedule', refName: 'main', sha: 'e'.repeat(40), tags: TAGS, onLine: true,
+        input: { channel: 'nightly', version: '1.3.0-nightly.20261008.1', ref: SHA40 } }), /not on main; only main/);
 const dryRun = releasePlan({ event: 'pull_request', refName: '37/merge', sha: SHA40, dry: { version: '1.3.0-nightly.20261008.1' } });
 check('a pull request publishes nothing (and is not on main, which is fine for a dry run)', [dryRun.publish, dryRun.channel], [false, 'nightly']);
 throwsWith('an unknown channel is refused',
@@ -680,21 +724,96 @@ const fakeApi = join(scratch, 'releases.json');
 writeFileSync(fakeApi, JSON.stringify([
     { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, prerelease: true, published_at: '2026-10-08T06:00:00Z' },
 ]));
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
+const NIGHTLY_TAG = 'v1.2.0-nightly.20261008.1';
+const promote = (extra = [], env = {}) => cli(['promote', '--releases-file', fakeApi, '--main', 'main', ...extra], repo, env);
+r = promote(['--nightly', NIGHTLY_TAG]);
 check('promote exits 0 for a release commit\'s nightly', r.status, 0);
 ok('promote names the nightly\'s commit, not main\'s head', r.stdout.includes(`ref=${releaseSha}`), r.stdout.trim().replace(/\n/g, ' · '));
 ok('promote answers the version from that commit, not main\'s 1.3.0', /version=1\.2\.0\n/.test(r.stdout));
-r = cli(['promote', '--releases-file', fakeApi], repo);
+r = promote(['--nightly', '']);
+ok('promote with no nightly named refuses (the stable input left empty)', r.status !== 0 && /Name the nightly/.test(r.stderr), (r.stderr || '').trim());
+r = promote(['--nightly', 'v1.2.0-nightly.20261009.1']);
+ok('promote of a nightly that was never published refuses', r.status !== 0 && /not a published nightly/.test(r.stderr), (r.stderr || '').trim());
+r = cli(['promote', '--releases-file', fakeApi, '--nightly', NIGHTLY_TAG], repo);
 ok('promote fails closed when origin/main is not in the clone (never falls back to HEAD)',
     r.status !== 0 && /origin\/main is not in this clone/.test(r.stderr), (r.stderr || '').trim());
+
+// A fix for 1.2.0 found while it was tried: a release branch started at the
+// nightly's commit, the fix on it. main has moved on meanwhile.
+git(repo, 'branch', 'release/1.2', releaseSha);
+git(repo, 'checkout', '-q', 'release/1.2');
+const fixSha = commit('Fix what 1.2.0 broke', { 'fix.txt': 'fixed\n' });
+git(repo, 'checkout', '-q', 'main');
+const summaryFile = join(scratch, 'summary.md');
+writeFileSync(summaryFile, '');
+r = promote(['--nightly', NIGHTLY_TAG], { GITHUB_STEP_SUMMARY: summaryFile });
+ok('with release/1.2, promote builds the branch\'s head, not the nightly\'s commit nor main\'s',
+    r.status === 0 && r.stdout.includes(`ref=${fixSha}`) && /version=1\.2\.0\n/.test(r.stdout), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+ok('…and the run\'s summary lists what the branch adds after the nightly',
+    readFileSync(summaryFile, 'utf8').includes(`\`${fixSha.slice(0, 7)}\` Fix what 1.2.0 broke`), readFileSync(summaryFile, 'utf8'));
+
 mkdirSync(join(repo, 'tools'), { recursive: true });
 commit('pipeline change', { 'tools/release.mjs': '// a newer CLI\n' });
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
-ok('promote refuses when the release pipeline changed on main since the nightly',
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('promote refuses when the release pipeline changed on main since the release branch, and says to cherry-pick it',
+    r.status !== 0 && /pipeline changed.*tools\/release\.mjs.*Cherry-pick that change onto release\/1\.2/s.test(r.stderr), (r.stderr || '').trim());
+git(repo, 'checkout', '-q', 'release/1.2');
+mkdirSync(join(repo, 'tools'), { recursive: true });
+const pickedSha = commit('pipeline change', { 'tools/release.mjs': '// a newer CLI\n' });
+git(repo, 'checkout', '-q', 'main');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('…and promotes once the branch carries it', r.status === 0 && r.stdout.includes(`ref=${pickedSha}`), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+// The other scripts main's release.yml runs are named in the summary when the
+// built commit has different ones, never refused: they build that commit's code.
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflow = { '.github/workflows/release.yml': 'steps:\n  - run: bash tools/smoke.sh\n  - run: node tools/perf.json\n' };
+commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo new\n' });
+git(repo, 'checkout', '-q', 'release/1.2');
+mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+const workflowPicked = commit('workflow', { ...workflow, 'tools/smoke.sh': 'echo old\n' });
+git(repo, 'checkout', '-q', 'main');
+writeFileSync(summaryFile, '');
+r = promote(['--nightly', NIGHTLY_TAG], { GITHUB_STEP_SUMMARY: summaryFile });
+ok('a script release.yml runs that differs on the branch is named in the summary, and the stable still goes ahead',
+    r.status === 0 && r.stdout.includes(`ref=${workflowPicked}`) && /differ from main's[^]*- `tools\/smoke\.sh`/.test(readFileSync(summaryFile, 'utf8'))
+    && !readFileSync(summaryFile, 'utf8').includes('perf.json'), (r.stderr + readFileSync(summaryFile, 'utf8')).trim());
+// main merged into the branch brings its untried commits along: refuse.
+git(repo, 'checkout', '-q', 'release/1.2');
+const merged = git(repo, 'merge', '-q', '--no-edit', '-X', 'ours', 'main');
+git(repo, 'checkout', '-q', 'main');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('a release branch with main merged into it is refused, naming main\'s commits',
+    merged.status === 0 && r.status !== 0 && /release\/1\.2 holds \d+ commits of main after v1\.2\.0-nightly\.20261008\.1.*cherry-pick/s.test(r.stderr),
+    `${merged.stderr}${r.stdout}${r.stderr}`.trim());
+git(repo, 'branch', '-q', '-f', 'release/1.2', workflowPicked);
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('…and goes ahead again once the branch holds only its own commits', r.status === 0, (r.stdout + r.stderr).trim());
+git(repo, 'branch', '-q', '-D', 'release/1.2');
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('with no release branch, promote refuses when the release pipeline changed on main since the nightly',
     r.status !== 0 && /pipeline changed.*tools\/release\.mjs/.test(r.stderr), (r.stderr || '').trim());
+git(repo, 'branch', 'release/1.2', `${releaseSha}~1`);
+r = promote(['--nightly', NIGHTLY_TAG]);
+ok('a release branch started before the nightly is refused',
+    r.status !== 0 && /release\/1\.2 does not contain v1\.2\.0-nightly\.20261008\.1/.test(r.stderr), (r.stderr || '').trim());
+
+// release.yml's plan, for the commit the promotion chose: on a release branch
+// it publishes as a stable release; a commit on neither main nor its own
+// branch is refused. The checkout there has both as origin/ refs.
+git(repo, 'branch', '-q', '-f', 'release/1.2', pickedSha);
+git(repo, 'update-ref', 'refs/remotes/origin/main', 'main');
+git(repo, 'update-ref', 'refs/remotes/origin/release/1.2', 'release/1.2');
+const resolveAs = (version, ref) => cli(['resolve'], repo, {
+    GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'main', GITHUB_SHA: git(repo, 'rev-parse', 'main').stdout.trim(),
+    IN_CHANNEL: 'stable', IN_VERSION: version, IN_REF: ref, IN_PREVIOUS: NIGHTLY_TAG,
+});
+r = resolveAs('1.2.0', pickedSha);
+ok('resolve publishes a stable release from its release branch', r.status === 0 && /publish=true/.test(r.stdout) && r.stdout.includes(`ref=${pickedSha}`), (r.stdout + r.stderr).trim().replace(/\n/g, ' · '));
+r = resolveAs('1.3.0', pickedSha);
+ok('…but not as another line\'s version', r.status !== 0 && /not on main or on release\/1\.3/.test(r.stderr), (r.stderr || '').trim());
 
 writeFileSync(fakeApi, JSON.stringify([]));
-r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
+r = promote(['--nightly', NIGHTLY_TAG]);
 ok('promote with no nightly fails', r.status !== 0, (r.stderr || '').trim());
 
 // `plan` on the same repository: nothing published yet, so a nightly is due,
@@ -739,6 +858,11 @@ ok('nightly runs are serialised and never cancelled mid-publish',
     /concurrency:[\s\S]*?cancel-in-progress:\s*false/.test(nightlyYml));
 ok('nightly decides with this script, not inline YAML', /tools\/release\.mjs plan/.test(nightlyYml));
 ok('the stable dispatch promotes with this script', /tools\/release\.mjs promote/.test(nightlyYml));
+ok('…the nightly it names, from the run\'s input',
+    /\n {6}nightly:\n {8}description: [^\n]+\n {8}type: string\n/.test(nightlyYml)
+    && nightlyYml.includes('NIGHTLY: ${{ inputs.nightly }}') && nightlyYml.includes('node tools/release.mjs promote --nightly "$NIGHTLY"'));
+ok('Gates tests every push to a release branch, whose head a stable is built from',
+    /\n {2}push:\n {4}branches: \[[^\]]*'release\/\*\*'/.test(readYml('gates.yml')));
 ok('nightly refuses to publish from a branch other than main', /refs\/heads\/main/.test(nightlyYml));
 ok('a hand-pushed tag never builds a nightly (they come from the schedule only)',
     /'!v\*-nightly\.\*'/.test(releaseYml));
