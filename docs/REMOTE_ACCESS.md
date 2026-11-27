@@ -30,9 +30,9 @@ On the computer:
 On the phone:
 
 4. Install Tailscale, sign in **to the same account**.
-5. Scan the code, or open the computer's `https://…ts.net` address. The same
-   Tailscale account opens the app straight away, with no password. Add it to
-   your home screen.
+5. Scan the code. It connects the phone, which then opens the app at the
+   computer's `https://…ts.net` address with no password. Add it to your home
+   screen.
 
 That is the whole thing. The rest of this page explains each step and what to do
 when one of them does not go to plan.
@@ -94,13 +94,16 @@ computer* on *In the background* and the app is simply always there.
 
 Everyone on your tailnet can REACH the app once step 2 is done. Who gets IN:
 
-- **Your own devices.** A device signed in to Tailscale with the same account
-  as the computer opens the app with no password and no code, from anywhere.
-  Tailscale tells the app which account is connecting and removes any forged
-  claim. It is a switch in Settings → Devices & security → *Other devices*. It works only
-  while no password is set: the claim reaches the app the same way a program
-  running on the computer would, so it is trusted exactly as far as the
-  computer itself is, and a password says you do not trust everything on it.
+- **Your own devices, if you turn it on.** With *Let my Tailscale devices in*
+  on (Settings → Devices & security → *Other devices*; it starts off), a device
+  signed in to Tailscale with the same account as the computer opens the app
+  with no password and no code, from anywhere. Tailscale tells the app which
+  account is connecting and removes any forged claim. It works only while no
+  password is set: the claim reaches the app the same way a program running on
+  the computer would, so it is trusted exactly as far as the computer itself
+  is, and a password says you do not trust everything on it. Leave it off on a
+  computer other people sign in to, since their programs can send the same
+  claim.
 - **Any other device** (a shared machine, someone else's account on your
   tailnet, a phone on your home Wi-Fi) gets a *Connect this device* screen.
   Connect it by scanning the code in Settings → Devices & security → *Other devices* on the
@@ -118,7 +121,7 @@ Everyone on your tailnet can REACH the app once step 2 is done. Who gets IN:
 
 Install Tailscale from the App Store or Play Store, sign in to **the same
 account**, and leave it connected. Open the `https://…ts.net` address in Safari
-or Chrome.
+or Chrome, and connect it with the code from the computer (*Scan code*).
 
 Then install it as an app:
 

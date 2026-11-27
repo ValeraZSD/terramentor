@@ -36,6 +36,8 @@ import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession }
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
 import { extension } from './extension.js';
 import { keyed } from './clientError.js';
+import { dataPaths } from './paths.js';
+import { OWNER_PROOF_HEADER, loadInstanceKey, ownerCookie, ownerCookieAge, readOwnerProof } from './instanceKey.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -637,8 +639,19 @@ export function ownerPresent(req) {
  *
  * A raw TCP forward (`ssh -L`, socat) that sends `Host: localhost` and no proxy
  * header cannot be told apart from this machine; SECURITY.md says so.
+ *
+ * Under the desktop launcher a fourth thing must hold: the caller proves it is
+ * the account that owns the library (ownerProven, below). Every account on a
+ * computer reaches 127.0.0.1, so the three checks above say "this computer",
+ * and on a computer several people sign in to, that is not the owner.
  */
 export function isLocalRequest(req) {
+    if (!fromThisComputer(req)) return false;
+    return !ownerProofRequired() || ownerProven(req);
+}
+
+/** The three checks above: loopback, no proxy header, a loopback or own-name Host. */
+function fromThisComputer(req) {
     const ip = String(req?.ip || req?.socket?.remoteAddress || '');
     if (!isLoopbackIp(ip)) return false;
     const headers = req?.headers || {};
@@ -646,6 +659,120 @@ export function isLocalRequest(req) {
     // This computer's own single-label name counts too (isOwnMachineName):
     // only this machine's hosts file answers it, and the socket is loopback.
     return isLoopbackHost(headers.host) || isOwnMachineName(hostnameOf(headers.host));
+}
+
+// --- the owner of the library, among the accounts of this computer ----------
+//
+// With no password, "this computer" was let in, and a computer can have several
+// accounts: a school or library PC, a family laptop. Any of them could call
+// http://127.0.0.1:3001/api and read or change the library of whoever started
+// the app. So when the desktop launcher started this server, a loopback request
+// counts as this computer only once it proves it can read the library's key
+// (server/instanceKey.js), a file only the owning account can read:
+//
+//   - The app window. The launcher opens it on GET /api/auth/launch with a
+//     one-time proof (desktop/launcher.js `windowAddress`), which this server
+//     swaps for an HttpOnly cookie and a redirect to a clean "/".
+//   - A program the owner runs (the MCP server on stdio) sends a fresh proof
+//     with each request, in the X-Terramentor-Proof header.
+//
+// The same idea as a Jupyter server's token and a VS Code server's connection
+// token. Outside the launcher (npm run dev, npm run standalone) nothing changes:
+// nothing there opens the browser with a proof, and a server run by hand is
+// run by the person at the keyboard. Docker never sees a loopback request from
+// the host (they arrive from the container's bridge), so it already asks for a
+// password from the first visit.
+
+/** Whether this server asks loopback callers to prove they own the library. Read per call. */
+export function ownerProofRequired() {
+    return process.env.TERRAMENTOR_DESKTOP === '1';
+}
+
+/** The cookie a proven window carries. Named for the port: cookies ignore ports,
+ *  and two libraries open in one browser must not overwrite each other's. */
+const ownerCookieName = (req) => `sp_own_${Number(req?.socket?.localPort) || 0}`;
+
+/** A cookie this old is sent again with a new date, so an open window never runs out. */
+const OWNER_COOKIE_RENEW_S = 24 * 60 * 60;
+
+let ownerKeyCache = { dir: null, key: null };
+/** The library's key, read once per data folder. Null when it cannot be read or
+ *  made, and then nothing proves ownership: a password is the way in. */
+function ownerKey() {
+    const dir = dataPaths().dataDir;
+    if (ownerKeyCache.dir !== dir || !ownerKeyCache.key) ownerKeyCache = { dir, key: loadInstanceKey(dir) };
+    return ownerKeyCache.key;
+}
+
+// Proofs already taken, by nonce, until they would have expired anyway. Only a
+// holder of the key can make one, so the list cannot be grown by anyone else;
+// the cap is for the holder's own mistakes, and past it nothing more is taken.
+const spentProofs = new Map(); // nonce -> expiry (seconds)
+const MAX_SPENT_PROOFS = 10_000;
+
+/** Take an owner proof for the port this request arrived on: true once, when it is good. */
+function spendOwnerProof(req, proof) {
+    const read = readOwnerProof(ownerKey(), proof, req?.socket?.localPort);
+    if (!read) return false;
+    const now = Math.floor(Date.now() / 1000);
+    for (const [nonce, expires] of spentProofs) if (expires < now) spentProofs.delete(nonce);
+    if (spentProofs.has(read.nonce) || spentProofs.size >= MAX_SPENT_PROOFS) return false;
+    spentProofs.set(read.nonce, read.expires);
+    return true;
+}
+
+/**
+ * Has this request shown that it comes from the library's owner? A good owner
+ * cookie, or a fresh proof in the header. Asked once per request (kept on
+ * `req`): a header proof is spent the first time it is read.
+ */
+function ownerProven(req) {
+    if (req && Object.prototype.hasOwnProperty.call(req, 'ownerProof')) return !!req.ownerProof;
+    let how = null;
+    const age = ownerCookieAge(ownerKey(), parseCookies(req)[ownerCookieName(req)]);
+    if (age !== null) how = { cookie: true, age };
+    else {
+        const sent = req?.headers?.[OWNER_PROOF_HEADER];
+        if (typeof sent === 'string' && spendOwnerProof(req, sent)) how = { header: true };
+    }
+    if (req) req.ownerProof = how;
+    return !!how;
+}
+
+/** A loopback caller on a launcher-started server that has not proved it owns the library. */
+export function launchRequired(req) {
+    return ownerProofRequired() && fromThisComputer(req) && !ownerProven(req);
+}
+
+function setOwnerCookie(req, res) {
+    const key = ownerKey();
+    if (!key || res.headersSent) return;
+    appendSetCookie(res, [
+        `${ownerCookieName(req)}=${ownerCookie(key)}`,
+        'HttpOnly',
+        'Path=/',
+        'SameSite=Strict',
+    ].join('; '));
+}
+
+/**
+ * GET /api/auth/launch?proof=…: the app window's way in. A good proof that has
+ * not been used becomes the owner cookie; any other answer still goes to "/",
+ * where a browser without the cookie is shown how to get in, never an error
+ * page. The redirect drops the proof, so it is not left in the address bar or
+ * the window's history.
+ */
+export function handleLaunch(req, res) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    const proof = typeof req.query?.proof === 'string' ? req.query.proof : '';
+    if (ownerProofRequired() && fromThisComputer(req) && spendOwnerProof(req, proof)) setOwnerCookie(req, res);
+    res.redirect(303, '/');
+}
+
+/** A proven window whose cookie is a day old gets a new one. */
+function renewOwnerCookie(req, res) {
+    if (req?.ownerProof?.cookie && req.ownerProof.age >= OWNER_COOKIE_RENEW_S) setOwnerCookie(req, res);
 }
 
 /** An operator who wants the old behaviour on a trusted network says so. */
@@ -772,7 +899,13 @@ export function requireAuth(req, res, next) {
         return res.status(401).json({ ...ext.fields, ...keyed('Sign in again'), authRequired: true });
     }
     if (!isAuthEnabled()) {
-        if (!remoteSetupRequired(req)) return next();
+        if (!remoteSetupRequired(req)) {
+            renewOwnerCookie(req, res);
+            return next();
+        }
+        if (launchRequired(req)) {
+            return res.status(401).json({ ...keyed('Open Terramentor from its icon on this computer, or set a password'), authRequired: true, setupRequired: true, launchRequired: true });
+        }
         return res.status(401).json({ ...keyed('Set a password to use this app from another device'), authRequired: true, setupRequired: true });
     }
     if (isRequestAuthenticated(req)) {

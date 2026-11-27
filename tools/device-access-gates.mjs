@@ -10,7 +10,8 @@
 //
 //   1. With no password, a device the app does not know is refused and offered
 //      setup — the behaviour before this change, which must survive it.
-//   2. The computer's own Tailscale account is let in, and only when the
+//   2. The computer's own Tailscale account is let in once the switch is
+//      turned on (a new library has it off), and only when the
 //      request looks like `tailscale serve` and nothing else: THIS computer's
 //      tailnet name as Host, one relayed tailnet address, no other proxy's
 //      headers. Another account, another machine's name, a tunnel's headers,
@@ -190,6 +191,16 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     devices.setTailscaleOwnerForTest(OWNER, PC);
     // Who Tailscale itself says owns each tailnet address (`tailscale whois`).
     devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER, '100.70.1.2': OWNER, '100.80.0.9': 'stranger@example.com' });
+    // A new library has no row for the switch, and then Tailscale sign-in is
+    // OFF: the headers `tailscale serve` adds are ones any program on this
+    // computer could send, another account's included. The owner turns it on.
+    const switchRow = () => db.prepare("SELECT value FROM settings WHERE key = 'auth_tailscale_trust'").get()?.value;
+    ok('a new library has no stored Tailscale switch', switchRow() === undefined, switchRow());
+    const fresh = await call('/api/projects', { serve: true, login: OWNER });
+    ok('a new library lets no Tailscale login in, even the owner\'s through serve', fresh.status === 401, fresh.status);
+    ok('…its devices list shows the switch off', (await call('/api/devices')).body?.tailscale?.on === false);
+    ok('…and the lock screen does not offer Tailscale', (await call('/api/auth/status', { from: PHONE })).body?.tailscale === undefined);
+    ok('turning it on stores "on"…', (await call('/api/devices/tailscale', { method: 'PUT', body: { on: true } })).body?.on === true && switchRow() === 'on', switchRow());
     const mine = await call('/api/projects', { serve: true, login: OWNER });
     ok('the owner\'s account through serve is let in', mine.status === 200, mine.status);
     ok('…whatever the case of the login', (await call('/api/projects', { serve: true, login: 'Owner@Example.com' })).status === 200);

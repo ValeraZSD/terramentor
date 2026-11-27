@@ -41,7 +41,8 @@
 //      refused, it binds no other address, it will not start on one, a path
 //      it cannot parse does not take it down, and its startup line prints no
 //      credential from TERRAMENTOR_URL.
-//   8. Nothing under mcp/ imports the server: one process opens the library.
+//   8. Nothing mcp/ loads reaches the database, however indirectly: one
+//      process opens the library.
 //   9. A library made before `mastery_claims.evidence_mark` gains the column.
 //  10. The views: a host that draws MCP App views gets a mastery check and a
 //      card review in its own window; one that does not gets a link to the
@@ -1926,10 +1927,36 @@ console.log('\n--- one process opens the library ---');
     const serverDir = join(repoRoot, 'server');
     const files = readdirSync(mcpDir).filter(f => f.endsWith('.js') || f.endsWith('.mjs'));
     // Relative specifiers only: `@modelcontextprotocol/server` is a package, not our server.
-    const importsServer = files.filter((f) => [...readFileSync(join(mcpDir, f), 'utf8')
+    const importsOf = (file, read) => [...read(file)
         .matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)['"](\.[^'"]+)['"]/gm)]
-        .some(([, spec]) => resolve(mcpDir, spec).startsWith(serverDir)));
-    ok('nothing under mcp/ imports the server (it would open the library a second time)', files.length > 0 && importsServer.length === 0, importsServer.join(', '));
+        .map(([, spec]) => resolve(dirname(file), spec));
+    /** Every file of ours `starts` load, following relative imports all the way down. */
+    const reachedFrom = (starts, read) => {
+        const seenFiles = new Set();
+        const queue = [...starts];
+        while (queue.length) {
+            const f = queue.shift();
+            if (seenFiles.has(f)) continue;
+            seenFiles.add(f);
+            for (const next of importsOf(f, read)) if (/\.m?js$/.test(next)) queue.push(next);
+        }
+        return seenFiles;
+    };
+    const readOrEmpty = (f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
+    // The few server files that only compute (a path, a key, a proof) and open
+    // nothing: the proof a stdio server sends to the desktop app (mcp/owner.js)
+    // is made with them, the way the launcher makes its own. Anything else
+    // under server/ is a step towards the database.
+    const PURE = new Set(['paths.js', 'privateFiles.js', 'instanceKey.js', 'appPlacement.js'].map(f => join(serverDir, f)));
+    const reached = [...reachedFrom(files.map(f => join(mcpDir, f)), readOrEmpty)];
+    const intoServer = reached.filter(f => f.startsWith(serverDir) && !PURE.has(f)).map(f => f.slice(repoRoot.length + 1));
+    ok('nothing mcp/ loads, however indirectly, reaches the server beyond the pure helpers (it would open the library a second time)',
+        files.length > 0 && intoServer.length === 0, intoServer.join(', '));
+    ok('…and the database module is not among them', !reached.includes(join(serverDir, 'database.js')));
+    // The control: the same walk over a file that reaches the database two steps down.
+    const fake = { [join(mcpDir, 'x.js')]: "import { a } from '../desktop/y.js';", [join(repoRoot, 'desktop', 'y.js')]: "export const a = await import('../server/database.js');" };
+    const fakeReached = reachedFrom([join(mcpDir, 'x.js')], (f) => fake[f] ?? '');
+    ok('control: a database import two files down is found', fakeReached.has(join(serverDir, 'database.js')));
 }
 
 // ---------------------------------------------------------------------------

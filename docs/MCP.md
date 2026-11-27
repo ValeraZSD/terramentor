@@ -42,6 +42,11 @@ and keys are not readable through it.
   API key; if it shows none, press Generate key there. If the library has no password, it
   answers only this computer, and you can leave the key out. An app on another computer
   answers only once it has a password, so set one there first.
+- **With the desktop app and no password: the same user account.** The desktop app then answers
+  only the account that owns the library, and the MCP server shows it is that account by
+  reading the library's `instance.key` (it finds the library the way the app does). Start the
+  other app as the same user. If you start Terramentor with `--data-dir`, set `DATA_DIR` to the
+  same folder in the server's `"env"`.
 
 ### Which command starts it
 
@@ -280,7 +285,9 @@ claude mcp add --transport http terramentor http://127.0.0.1:3002/mcp --header "
 
 For other clients, use the `"url"` and `"headers"` of their server entry. The listener answers
 only this computer. It ignores `TERRAMENTOR_API_KEY`, because a listener holding the key would
-hand the library to every program on the computer. [SECURITY.md](../SECURITY.md#the-mcp-server-an-agent-in-another-app)
+hand the library to every program on the computer. For the same reason it does not vouch for
+its callers to the desktop app, so with the desktop app it needs a password and the key.
+[SECURITY.md](../SECURITY.md#the-mcp-server-an-agent-in-another-app)
 lists everything it refuses.
 
 ## Settings
@@ -289,6 +296,7 @@ lists everything it refuses.
 |---|---|
 | `TERRAMENTOR_URL` | Where the app runs. Default `http://127.0.0.1:3001`. |
 | `TERRAMENTOR_API_KEY` | The library's API key, when it has a password. Read on stdio only. |
+| `DATA_DIR` | The library's folder, when the desktop app was started with `--data-dir`. Read on stdio only, to find `instance.key`. |
 
 The server sends the app your computer's time zone, so "today" in `get_due` is your day.
 
@@ -306,6 +314,12 @@ Each error is the tool's answer, so the agent can tell you what to do:
 - **"This Terramentor library has a password, so the MCP server needs its API key"**: add the
   key as above. If Settings shows no key, press Generate key.
 - **"…refused the API key"**: the key was regenerated or deleted. Copy the current one.
+- **"…did not find that library's key"**: the desktop app has no password, and the server
+  could not read the library's `instance.key`, or read another library's (a `DATA_DIR` that
+  points elsewhere). Start the other app as the same user, set `DATA_DIR`
+  if Terramentor runs with `--data-dir`, or set a password and add the key.
+- **"…cannot vouch for whoever calls it"**: the HTTP listener and the desktop app with no
+  password. Set a password and send the key as a header.
 - **"…has no password yet"**: `TERRAMENTOR_URL` points at an app on another computer, which
   answers only once it has a password. Set one there, press Generate key, and add the key.
 - **"…answered with a redirect"**: `TERRAMENTOR_URL` is an address that forwards elsewhere.

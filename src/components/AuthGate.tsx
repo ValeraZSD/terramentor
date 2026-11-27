@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { KeyRound, Lock, LockOpen, Loader2, Smartphone, QrCode, Globe, Camera, RefreshCw } from 'lucide-react';
+import { KeyRound, Lock, LockOpen, Loader2, Smartphone, QrCode, Globe, Camera, RefreshCw, AppWindow, MonitorSmartphone } from 'lucide-react';
 import QrScanner, { canScanLive, usePhotoScan } from './QrScanner';
 import { useStore } from '../store';
 import { api } from '../api';
@@ -35,6 +35,8 @@ const RECHECK_MS = 10000;
  */
 export default function AuthGate() {
     const setupRequired = useStore(s => s.authSetupRequired);
+    const launchRequired = useStore(s => s.authLaunchRequired);
+    if (launchRequired) return <OpenFromIcon />;
     return setupRequired ? <RemoteSetup /> : <Login />;
 }
 
@@ -120,6 +122,43 @@ function usePairing(recheckRef: RecheckRef) {
 }
 
 const CARD = "w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 sm:p-8";
+
+/**
+ * A browser on the server's own computer that the desktop app did not open,
+ * while no password exists (server/auth.js `launchRequired`). On a computer
+ * several people sign in to, every account reaches this address, so the
+ * library opens only in the window its owner's app opens, or with a password.
+ * Whoever sees this is either another account (nothing here is theirs) or the
+ * owner in another browser, who needs the two ways in. The screen re-asks on
+ * its own, so a password set in the app's window brings the sign-in form here.
+ */
+function OpenFromIcon() {
+    const { t } = useTranslation();
+    useRecheck();
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-8">
+            <div className={CARD}>
+                <div className="flex flex-col items-center text-center mb-5">
+                    <div className="p-3 bg-accent/10 rounded-2xl mb-3">
+                        <Lock className="w-7 h-7 text-accent-fg" aria-hidden="true" />
+                    </div>
+                    <h1 className="text-xl font-semibold text-slate-900 dark:text-white">{t("Open Terramentor from its icon")}</h1>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                        {t("On this computer, your library opens in the window Terramentor starts, so other people who use this computer cannot open it.")}
+                    </p>
+                </div>
+                <ol className="space-y-4">
+                    <Way icon={<AppWindow className="w-5 h-5" aria-hidden="true" />} title={t("Open the app")}>
+                        {t("Start Terramentor from its icon, the way you usually open it. It opens your library in a window of its own.")}
+                    </Way>
+                    <Way icon={<MonitorSmartphone className="w-5 h-5" aria-hidden="true" />} title={t("Use this browser instead")}>
+                        {t("In the app's window, set a password in Settings → Devices & security. This page then asks for it.")}
+                    </Way>
+                </ol>
+            </div>
+        </div>
+    );
+}
 
 /**
  * How a device that is not the server's machine gets in, when no password

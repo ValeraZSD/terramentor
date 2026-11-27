@@ -229,6 +229,19 @@ function isLoopbackSocket(req) {
 }
 
 /**
+ * The desktop window's first request (server/auth.js `handleLaunch`). The
+ * launcher opens the window on a page it wrote to disk, so the browser labels
+ * the step from that page to here as another site's. What it carries is a
+ * proof only the library's owner can make, spent once, and the answer is a
+ * redirect and at most a cookie, so it is let past the page-origin check as a
+ * top-level navigation, and as nothing else. The Host checks still apply.
+ */
+function isLaunchNavigation(req) {
+    return req.method === 'GET' && req.path === '/auth/launch'
+        && String(req.headers['sec-fetch-mode'] || 'navigate').toLowerCase() === 'navigate';
+}
+
+/**
  * Express middleware. Mount on `/api` BEFORE the auth gate: a request that
  * should not have been made at all is refused before it can spend a login
  * attempt or run a handler.
@@ -253,7 +266,7 @@ export function originGuard(req, res, next) {
         });
     }
     const origin = req.headers.origin;
-    if (!isAllowedOrigin(origin, req) || !isOwnFetch(req)) {
+    if (!isLaunchNavigation(req) && (!isAllowedOrigin(origin, req) || !isOwnFetch(req))) {
         return res.status(403).json(apiError('Cross-origin request refused. Only this app may call its own API; set ALLOWED_ORIGINS if you are embedding it deliberately.'));
     }
     next();

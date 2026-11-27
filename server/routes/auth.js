@@ -1,8 +1,8 @@
 // /api/auth: the single-user password gate. Registered before the gate itself.
 import {
     MIN_PASSWORD_LENGTH, announceSetupCode, checkSetupCode, clearAuth, clearSessionCookie, clearSetupCode,
-    deleteApiKey, endEverySession, endRequestSession, exposedWithoutPassword, extensionAuth, getApiKey, hasPasswordCredential, isAuthEnabled,
-    isLocalRequest, isRequestAuthenticated, isSecureRequest, issueToken, loginBlocked, passwordThroughThrottle,
+    deleteApiKey, endEverySession, endRequestSession, exposedWithoutPassword, extensionAuth, getApiKey, handleLaunch, hasPasswordCredential,
+    isAuthEnabled, isLocalRequest, isRequestAuthenticated, isSecureRequest, issueToken, launchRequired, loginBlocked, passwordThroughThrottle,
     recordLoginFailure, recordLoginSuccess, regenerateApiKey, remoteSetupRequired, renewSessionCookie, setDeviceCookie,
     setPassword, setSessionCookie,
 } from '../auth.js';
@@ -32,6 +32,11 @@ app.get('/api/auth/status', async (req, res) => {
     // code from the server's log kept for a server nobody can sit at.
     // `enabled` is true for it because, for that device, the app IS locked.
     if (remoteSetupRequired(req)) {
+        // A browser on this computer that the app did not open (another
+        // account's, or the owner's own other browser) is shown how to get in:
+        // the window from the app's icon, or a password. Not the setup code,
+        // whose log belongs to the account that started the app.
+        if (launchRequired(req)) return res.json({ enabled: true, authenticated: false, setupRequired: true, launchRequired: true });
         announceSetupCode();
         return res.json({ enabled: true, authenticated: false, setupRequired: true, tailscale: await tailscaleHint(req) });
     }
@@ -76,6 +81,11 @@ async function tailscaleHint(req) {
     // owner refused for another reason (Tailscale slow to answer) is told nothing.
     return claim.login.toLowerCase() !== owner.toLowerCase() ? 'other-account' : undefined;
 }
+
+// The app window's way in on a computer several accounts share: the desktop
+// launcher opens it here with a one-time proof that it can read the library's
+// key, and it leaves with a cookie (server/auth.js `handleLaunch`).
+app.get('/api/auth/launch', handleLaunch);
 
 // A device that scanned the QR code in Settings (server/devices.js). The code
 // is one-time and ten minutes long; a wrong one costs a login attempt, so it

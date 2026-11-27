@@ -278,6 +278,26 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
 }
 
 // ---------------------------------------------------------------------------
+section('the Tailscale row with its switch off (a new library) does not say the devices are let in');
+{
+    globalThis.__api = {
+        getDevices: async () => ({ devices: [], tailscale: { login: 'you@example.com', on: false, served: true } }),
+    };
+    globalThis.__setState({ authEnabled: false, showConfirm: async () => false, addToast() { } });
+    await mounted('OtherDevices, switch off', () => h(OtherDevices, { active: true }), async (el) => {
+        await flush();
+        const sw = el.querySelector('[role="switch"]');
+        const row = sw?.closest('.px-4.py-3');
+        check('control: the switch is there and off', sw?.getAttribute('aria-checked') === 'false');
+        const text = row?.textContent ?? '';
+        // The sentence that is true only while the switch is on.
+        check('the row does not say "Your devices … open this app without a password"',
+            !/Your devices signed in to Tailscale as you@example\.com open this app/.test(text), text.slice(0, 240));
+        check('…it says the switch would let them in', /Turn (it )?on/.test(text) && /you@example\.com/.test(text), text.slice(0, 240));
+    });
+}
+
+// ---------------------------------------------------------------------------
 section('a switch whose save fails goes where the stored value is, whatever order the answers come in');
 {
     // On its own (it has no imports), so `--base` can say it is not there yet.

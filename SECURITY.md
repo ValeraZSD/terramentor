@@ -189,6 +189,35 @@ your data at all." Those are different claims and we only make the second one.
     (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
     cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks
     exactly like this computer; set a password before running one.
+  - **In the desktop app, "this computer" means the account that owns the library.** Every
+    account on a computer can reach `127.0.0.1`, so when the desktop launcher starts the server
+    (`TERRAMENTOR_DESKTOP=1`), a loopback request with no password also has to show that it can
+    read `instance.key` in the library's folder (`server/auth.js`, `server/instanceKey.js`).
+    On Linux and macOS the app makes that file readable by the owning account only. On Windows
+    it takes the permissions of its folder: the desktop app's folder under your user profile is
+    yours alone, and a library kept elsewhere (a portable copy's `data` folder, another drive)
+    has that folder's. It shows that in one of two ways:
+    - **The app's window** opens on a small page the launcher writes into its own browser
+      profile folder, inside the library's folder, rather than on an address in the browser's
+      command line, which other accounts can read on Linux and macOS. The page goes straight on
+      to `/api/auth/launch` with a proof signed with the key: it names the port, lasts five
+      minutes and is taken once. The server answers by setting an HttpOnly, `SameSite=Strict`
+      cookie, `sp_own_<port>`, signed with the same key, and redirects to `/`, so the address
+      bar never keeps the proof, and one found later in the browser's history is already
+      spent. The cookie ends when the window's browser closes, and the server stops taking one
+      older than 30 days. While the app is used it is renewed once a day, and every launch
+      makes a new one.
+    - **A program on this computer** (the launcher's own checks, the MCP server on stdio) sends
+      a fresh proof in an `X-Terramentor-Proof` header with each request.
+
+    Any other loopback request reads nothing from the library, except one that passes for the
+    computer's own Tailscale account while that switch is on (see "Two ways in without the password" below). The
+    page it opens says to start
+    Terramentor from its icon or to set a password, and setting the first password from there
+    takes the one-time setup code, like any other device. Once a password is set, the password
+    decides, as it does everywhere. `npm run dev`, `npm run standalone` and the Docker image do
+    not ask for the proof: the first two are started by the person at the keyboard, and a
+    container's requests never look local, so it already asks for the setup code.
   - **The app says when it can be reached from elsewhere with no password.** With `HOST`
     other than a loopback address, `ALLOWED_HOSTS`/`ALLOWED_ORIGINS` naming a host that is
     not this computer, or `AUTH_ALLOW_OPEN_REMOTE=1`, and no password, a strip under the
@@ -263,9 +292,14 @@ your data at all." Those are different claims and we only make the second one.
     Tailscale itself says the relayed address belongs to that login (`tailscale whois`, so a
     header a proxy passed along cannot make an address the owner's). Any program on this
     computer could send the same headers, which is why it counts only when there is no
-    password: it is trusted exactly as far as a request from this computer is.
+    password. That includes programs of other accounts on the same computer, which the
+    desktop app's owner proof (above) cannot ask for here, because `tailscale serve` relays the
+    request and adds no proof. On a computer you share with other accounts, leave this switch
+    off or set a password.
     100.64.0.0/10 is also carrier-NAT space, which is why both the Host and whois are checked.
-    On by default, one switch in Settings; the owner and each address's owner are re-read at
+    Off until you turn it on in Settings → Devices & security → *Other devices*. A switch
+    turned on before this default changed stays on; one never touched is now off, so its
+    devices connect with the one-time code once. The owner and each address's owner are re-read at
     most a minute old. **Without a password, a program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
     `Host: localhost` along makes the outside look like this computer** (see "what the app
@@ -809,7 +843,10 @@ while nobody runs it nothing here changes.
   agents: a program holding it can call any `/api` route the key opens, not only the MCP
   server's tools. Treat a harness config file that holds it like the password. Settings → Devices &
   security → API key → Regenerate key or Delete key ends it. Without a password the app answers only
-  this computer, and the server needs no key.
+  this computer, and the server needs no key. The desktop app with no password also asks for the
+  owner's proof (see "Until it is on" above): on stdio the server reads `instance.key` from the
+  library's folder, found the way the launcher finds it, and signs a fresh proof for each
+  request. It only reads that file and never creates it.
 - **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
   `http://` to another machine is refused, because the key would cross the network unencrypted.
   A redirect from that address is not followed, so the key does not go along to another one.
@@ -825,7 +862,8 @@ while nobody runs it nothing here changes.
     - the peer is not loopback.
   - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
     `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
-    password.
+    password. For the same reason it never sends the owner's proof, so the desktop app with no
+    password answers it nothing: set a password and send the API key.
 - **It is shipped, never started.** The desktop app and the Docker image carry `mcp/`, but
   the app does not run it and nothing listens for it. A harness starts it.
 

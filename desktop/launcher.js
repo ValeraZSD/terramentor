@@ -33,10 +33,10 @@ import {
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
-    whenStarted, START_LOCK, settleStart, markStartLockUp, releaseStartLock,
+    whenStarted, START_LOCK, settleStart, markStartLockUp, releaseStartLock, writeLaunchPage,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
-import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
+import { INSTANCE_KEY_FILE, OWNER_PROOF_HEADER, OWNER_PROOF_TTL_S, newNonce, ownerProof, provesInstance } from '../server/instanceKey.js';
 import { appPlacement } from '../server/appPlacement.js';
 import { bootMark } from '../server/bootTimes.js';
 
@@ -281,9 +281,16 @@ let appProfile = null;
 
 /** Resolves once the start has been answered (and any fallback started), so a
  *  transient launch can wait for it before it exits. */
-function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
+function openWindow(appUrl, windowMode = DEFAULT_WINDOW_MODE) {
+    // The window proves it belongs to this library's owner (server/auth.js):
+    // it opens on a one-time page in the profile folder, never on a command
+    // line other accounts can read (lib.js writeLaunchPage). Without a key it
+    // opens the plain address, where the app says how to get in.
+    const launchPage = writeLaunchPage({ appUrl, key: instanceKey, profileDir });
+    if (launchPage) forgetLaunchPage(launchPage.page);
+    const url = launchPage?.address || appUrl;
     const browser = findBrowser();
-    if (!browser) return openDefault(url);
+    if (!browser) return openDefault(launchPage?.address || appUrl);
     return new Promise((done) => {
         // On macOS this is `open -n -a <browser>.app --args …` (lib.js
         // browserCommand), so the browser is an application macOS launched
@@ -304,7 +311,7 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
             started: () => { console.log(`Opened app window with ${browser}`); done(); },
             failed: (e) => {
                 console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
-                openDefault(url).then(done);
+                openDefault(launchPage?.address || appUrl).then(done);
             },
             // Quitting stops a window still starting; no other browser then.
             stopped: (e) => { console.log(`The window starting in ${browser} was stopped (${e.signal}); no other browser is opened`); done(); },
@@ -371,6 +378,14 @@ process.on('exit', () => {
     } catch { /* leaving anyway; the page's own screen says the app has stopped */ }
 });
 
+/* A launch page is spent within seconds; it is deleted once its proof has
+ * expired. A run that leaves sooner (a transient "already running" open) leaves
+ * it to the next launch's sweep (lib.js sweepLaunchPages). */
+function forgetLaunchPage(page) {
+    setTimeout(() => { try { rmSync(page, { force: true }); } catch { /* gone already */ } }, OWNER_PROOF_TTL_S * 1000).unref();
+}
+
+/** `url` is an address or a launch page's path: the default browser opens either. */
 function openDefault(url) {
     const { cmd, args, byExit = false } = defaultBrowserCommand(url);
     return new Promise((done) => {
@@ -628,7 +643,11 @@ async function finishInterruptedSwap() {
         // Prove the whole thing works end to end, then leave: the build script
         // and CI run this against a packaged copy in a scratch data directory.
         try {
-            const res = await fetch(`${ready.url}/api/version`);
+            // Past the status probe, this server asks every loopback caller to
+            // prove it owns the library (server/auth.js); one fresh proof a request.
+            const port = Number(new URL(ready.url).port);
+            const owner = () => ({ [OWNER_PROOF_HEADER]: instanceKey ? ownerProof(instanceKey, port) : '' });
+            const res = await fetch(`${ready.url}/api/version`, { headers: owner() });
             const v = await res.json();
             const nonce = newNonce();
             const status = await (await fetch(`${ready.url}/api/desktop/status?nonce=${nonce}`)).json();
@@ -640,13 +659,17 @@ async function finishInterruptedSwap() {
             // …and the challenge every later launch will send, so a build whose
             // server cannot answer it fails here rather than quietly opening a
             // second server on every double-click.
-            if (!provesInstance(status, { key: instanceKey, nonce, port: Number(new URL(ready.url).port) })) {
+            if (!provesInstance(status, { key: instanceKey, nonce, port })) {
                 throw new Error('the server did not answer the instance challenge');
             }
+            // …and the rule that keeps other accounts out: a loopback request
+            // that proves nothing is refused for library data.
+            const unproven = await fetch(`${ready.url}/api/version`);
+            if (unproven.status !== 401) throw new Error(`a request without the owner proof was answered ${unproven.status}`);
             console.log(`Check OK: version ${v.version}, ${v.deployment} install, data at ${chosen.dir || 'the checkout layout'}`);
             const info = readFileSync(join(appRoot, 'package.json'), 'utf8');
             if (JSON.parse(info).version !== v.version) throw new Error('version mismatch');
-            await fetch(`${ready.url}/api/desktop/quit`, { method: 'POST' });
+            await fetch(`${ready.url}/api/desktop/quit`, { method: 'POST', headers: owner() });
         } catch (e) {
             console.error('Check FAILED:', e.message);
             process.exit(1);

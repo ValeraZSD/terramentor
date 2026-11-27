@@ -144,10 +144,11 @@ ok('the error handler is the last layer', stack.at(-1).handle.length === 4 && !s
 // discloses nothing (status, the icon, the desktop probe, the empty shell every
 // sketch and widget frame starts as, the one a learner's code runs behind) or checks the session
 // itself before acting (the auth routes that change a password or a key), or
-// spends a one-time code before it lets anyone in (pairing a device by its QR).
+// spends a one-time code before it lets anyone in (pairing a device by its QR,
+// the desktop window's launch proof).
 const PUBLIC = [
     'GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/setup',
-    'POST /api/auth/pair',
+    'POST /api/auth/pair', 'GET /api/auth/launch',
     'POST /api/auth/change', 'POST /api/auth/disable', 'POST /api/auth/sign-out-everywhere',
     'GET /api/auth/apikey', 'POST /api/auth/apikey/regenerate', 'DELETE /api/auth/apikey',
     'GET /api/desktop/status',

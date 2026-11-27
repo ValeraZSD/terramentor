@@ -266,7 +266,11 @@ export default function OtherDevices({ active }: { active: boolean }) {
                 {tailscale?.login && !authEnabled && (
                     <SettingRow
                         label={t("Tailscale")}
-                        hint={t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
+                        // Off is how a new library starts (server/devices.js),
+                        // so the off hint says what the switch would do.
+                        hint={tailscale.on
+                            ? t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })
+                            : t("Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.", { login: tailscale.login })}
                         // The switch is permission and the button is reach: one
                         // lets your devices in, the other shares the app on the
                         // tailnet so they can get to it. Both are said here, with

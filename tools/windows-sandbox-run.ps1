@@ -106,6 +106,16 @@ function Note([string]$text) {
     Say ('note ' + $text)
 }
 
+# With no password, the app answers a caller on this computer only when it
+# proves it runs as the library's owner (server/auth.js). The app's own Node
+# makes the proof the way its MCP server does (mcp/owner.js); a fresh one per
+# request, since each is taken once.
+function Get-OwnerProof([string]$appDir, [int]$port) {
+    $owner = ([Uri](Join-Path $appDir 'mcp\owner.js')).AbsoluteUri
+    $js = "import { ownerHeaders } from '$owner'; const h = await ownerHeaders(process.argv[1]); process.stdout.write(Object.values(h)[0] || '');"
+    try { return [string](& (Join-Path $appDir 'runtime\node.exe') --input-type=module -e $js "http://127.0.0.1:$port") } catch { return '' }
+}
+
 function Save-Screen([string]$name) {
     $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
     $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
@@ -467,7 +477,7 @@ try {
     if ($port) {
         # The page heartbeats once its script runs: one client is a drawn page.
         while ($clients -lt 1 -and $clock.Elapsed.TotalSeconds - $launchAt -lt 240) {
-            try { $clients = (Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/desktop/info" -TimeoutSec 3).clients } catch { }
+            try { $clients = (Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/desktop/info" -Headers @{ 'X-Terramentor-Proof' = (Get-OwnerProof $appDir $port) } -TimeoutSec 3).clients } catch { }
             if ($clients -lt 1) { Start-Sleep -Seconds 1 }
         }
     }
@@ -514,7 +524,7 @@ try {
         $outbound = @(@($outbound) + @(Get-Outbound) | Select-Object -Unique)
         $result.outboundConnections = $outbound
         Step 'no outside connections' ($outbound.Count -eq 0) ($outbound -join ', ')
-        try { Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/desktop/quit" -TimeoutSec 5 | Out-Null } catch { Note ('quit request: ' + $_.Exception.Message) }
+        try { Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/desktop/quit" -Headers @{ 'X-Terramentor-Proof' = (Get-OwnerProof $appDir $port) } -TimeoutSec 5 | Out-Null } catch { Note ('quit request: ' + $_.Exception.Message) }
         $waited = 0
         do { Start-Sleep -Seconds 1; $waited++; $procs = Get-AppProcesses; $left = $procs.Server.Count + $procs.Tray.Count + $procs.Browser.Count }
         while ($left -gt 0 -and $waited -lt 30)

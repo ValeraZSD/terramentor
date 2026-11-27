@@ -148,7 +148,78 @@ export function instanceProof(key, nonce, port) {
  */
 export function provesInstance(status, { key, nonce, port }) {
     if (!key || !validNonce(nonce) || !status || typeof status.proof !== 'string') return false;
-    const want = Buffer.from(instanceProof(key, nonce, port), 'utf8');
-    const got = Buffer.from(status.proof, 'utf8');
+    return sameText(status.proof, instanceProof(key, nonce, port));
+}
+
+function sameText(a, b) {
+    const got = Buffer.from(String(a), 'utf8');
+    const want = Buffer.from(String(b), 'utf8');
     return got.length === want.length && timingSafeEqual(got, want);
+}
+
+// --- the other direction: a caller proving it is the library's owner --------
+//
+// The challenge above lets the launcher check the SERVER. The proofs below let
+// the server check a CALLER: on a computer shared by several accounts, every
+// account reaches 127.0.0.1, so arriving over loopback says "this computer",
+// not "the person whose library this is". Only the account that owns the
+// library can read the key, so only it can make these.
+//
+// An owner proof is `v1.<seconds>.<nonce>.<hmac>`: the time it was made, a
+// fresh nonce, and an HMAC of both and the port it is meant for. The server
+// takes one at most once and only within OWNER_PROOF_TTL_S of its time
+// (server/auth.js keeps the spent nonces). The desktop window carries one to
+// GET /api/auth/launch and gets a cookie for it; a program on the computer
+// (the MCP server) sends a fresh one with every request.
+
+/** How long an owner proof may wait before it is used. The app window is the
+ *  slow user: a cold browser start on a busy computer can take most of a minute. */
+export const OWNER_PROOF_TTL_S = 5 * 60;
+/** The header a program sends its owner proof in. */
+export const OWNER_PROOF_HEADER = 'x-terramentor-proof';
+/** How long a window's cookie lasts without being renewed (auth.js renews one a day old). */
+export const OWNER_COOKIE_TTL_S = 30 * 24 * 60 * 60;
+
+/** An owner proof and a window cookie alike: version, seconds, nonce, HMAC. */
+const TOKEN_TEXT = /^v1\.(\d{1,12})\.([A-Za-z0-9_-]{16,128})\.([0-9a-f]{64})$/;
+
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+/** A one-time proof that the caller holds `key`, for the server on `port`. */
+export function ownerProof(key, port, { now = nowSeconds(), nonce = newNonce() } = {}) {
+    const mac = createHmac('sha256', key).update(`terramentor-owner\n${now}\n${nonce}\n${Number(port)}`).digest('hex');
+    return `v1.${now}.${nonce}.${mac}`;
+}
+
+/**
+ * Read an owner proof for the server on `port`: `{ nonce, expires }` (seconds)
+ * when it is well made, made with `key`, for this port and within its time;
+ * else null. Whether its nonce was already spent is the caller's to check.
+ */
+export function readOwnerProof(key, proof, port, { now = nowSeconds() } = {}) {
+    if (!key || typeof proof !== 'string') return null;
+    const m = TOKEN_TEXT.exec(proof);
+    if (!m) return null;
+    const made = Number(m[1]);
+    // A little slack for a clock read a moment apart in two processes.
+    if (made > now + 30 || now - made > OWNER_PROOF_TTL_S) return null;
+    const want = ownerProof(key, port, { now: made, nonce: m[2] });
+    return sameText(proof, want) ? { nonce: m[2], expires: made + OWNER_PROOF_TTL_S } : null;
+}
+
+/** The value of the cookie a proven window carries: when it was issued and an HMAC under the key. */
+export function ownerCookie(key, { now = nowSeconds(), nonce = newNonce() } = {}) {
+    const mac = createHmac('sha256', key).update(`terramentor-owner-cookie\n${now}\n${nonce}`).digest('hex');
+    return `v1.${now}.${nonce}.${mac}`;
+}
+
+/** Its age in seconds when the cookie is good, else null. Stateless, so a
+ *  window stays signed in while the server restarts under it (an update). */
+export function ownerCookieAge(key, value, { now = nowSeconds() } = {}) {
+    if (!key || typeof value !== 'string') return null;
+    const m = TOKEN_TEXT.exec(value);
+    if (!m) return null;
+    const made = Number(m[1]);
+    if (made > now + 30 || now - made > OWNER_COOKIE_TTL_S) return null;
+    return sameText(value, ownerCookie(key, { now: made, nonce: m[2] })) ? Math.max(0, now - made) : null;
 }

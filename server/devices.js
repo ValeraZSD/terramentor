@@ -40,7 +40,11 @@ export const DEVICE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
 const OFFER_TTL_MS = 10 * 60 * 1000;
 const TOUCH_EVERY_MS = 10 * 60 * 1000;
 
-/** `off` turns Tailscale sign-in off; absent (the default) is on. Written only by its own route. */
+/**
+ * `on` turns Tailscale sign-in on; absent (a new library) or `off` is off,
+ * because the headers it trusts are ones any program on this computer could
+ * send, another account's included. Written only by its own route.
+ */
 const TAILSCALE_SETTING = 'auth_tailscale_trust';
 export const DEVICE_SETTING_KEYS = [TAILSCALE_SETTING];
 
@@ -333,7 +337,7 @@ export function setTailscaleOwnerForTest(login, host = 'desk.tail1234.ts.net') {
 }
 
 export function tailscaleTrustOn() {
-    try { return q().getSetting.get(TAILSCALE_SETTING)?.value !== 'off'; } catch { return true; }
+    try { return q().getSetting.get(TAILSCALE_SETTING)?.value === 'on'; } catch { return false; }
 }
 export function setTailscaleTrust(on) {
     q().setSetting.run(TAILSCALE_SETTING, on ? 'on' : 'off');
@@ -437,7 +441,8 @@ export function setTailscalePeersForTest(map) {
  * Tailscale account), or null. Stored on `req.remoteAccess` by
  * `identifyRemoteAccess`, which runs before every /api route.
  *
- * Tailscale counts only while NO password is set. The header it rests on is
+ * Tailscale counts only once the owner turned it on, and only while NO
+ * password is set. The header it rests on is
  * one any program on this computer could also send, so it is exactly as
  * trustworthy as a request from this computer — which is let in without a
  * password and stopped by one. A password set means the owner does not trust
