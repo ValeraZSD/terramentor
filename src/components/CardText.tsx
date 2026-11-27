@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import MathText from './MathText';
 import { parseCardText, type CardSegment } from '../utils/cardText';
@@ -85,6 +85,27 @@ function renderSegments(segments: CardSegment[], hideReadings = false) {
     });
 }
 
+const WORD_JOINER = String.fromCharCode(0x2060);
+
+/**
+ * A control that ends a line of text (the line's speaker), kept on the row of the
+ * line's last word.
+ *
+ * Browsers keep a break opportunity before every inline box, a button included,
+ * even right after a no-break character (CSS Text 3 keeps it "for Web
+ * compatibility"), so on a phone a line that just fills the width dropped its
+ * speaker onto a row of its own, where it reads as belonging to the next line.
+ * A break inside a `white-space: nowrap` element is not taken, and a word joiner
+ * allows no break between itself and the letter before it: so the joiner and the
+ * control share one nowrap span, and when the line wraps, its last word goes to
+ * the next row WITH the control. Measured in Chromium, Firefox and WebKit; a
+ * joiner alone, or a nowrap span alone, each still broke in at least one of them.
+ * `select-none` keeps the joiner out of a copied line.
+ */
+export function LineTail({ children }: { children: ReactNode }) {
+    return <span className="whitespace-nowrap select-none">{WORD_JOINER}{children}</span>;
+}
+
 /** Ruby needs headroom the ambient line-height does not reserve. */
 const rubyLeading = (segments: CardSegment[]) =>
     segments.some(s => s.kind === 'ruby') ? 'leading-[2.1]' : '';
@@ -93,12 +114,18 @@ const rubyLeading = (segments: CardSegment[]) =>
  * `hideReadings` drops the furigana, for an example sentence on the QUESTION side
  * where the reading would give the answer away.
  */
-const CardText = memo(({ content, className = '', hideReadings = false }: {
+const CardText = memo(({ content, className = '', hideReadings = false, tail }: {
     content: string;
     className?: string;
     hideReadings?: boolean;
+    /** A control that ends the text (the line's speaker): drawn after its last
+     *  word, inside the last line, never on a row of its own. See `LineTail`. */
+    tail?: ReactNode;
 }) => {
-    const raw = typeof content === 'string' ? content : String(content ?? '');
+    const text = typeof content === 'string' ? content : String(content ?? '');
+    // Space or a newline at the end would be a break point before the control.
+    const raw = tail ? text.trimEnd() : text;
+    const end = tail ? <LineTail>{tail}</LineTail> : null;
     const lines = raw.split('\n');
 
     if (lines.length > 1) {
@@ -108,19 +135,20 @@ const CardText = memo(({ content, className = '', hideReadings = false }: {
                     const segments = parseCardText(line);
                     // A blank line is a deliberate gap; give it a height.
                     if (segments.length === 0) return <span key={i} className="block">{'\u00A0'}</span>;
-                    return <span key={i} className="block">{renderSegments(segments)}</span>;
+                    return <span key={i} className="block">{renderSegments(segments)}{i === lines.length - 1 && end}</span>;
                 })}
             </span>
         );
     }
 
     const segments = parseCardText(raw);
-    if (segments.length === 0) return null;
+    if (segments.length === 0) return end;
     if (segments.length === 1 && segments[0].kind === 'text' && !segments[0].strong) {
-        return <MathText content={segments[0].text} className={className} />;
+        const plain = <MathText content={segments[0].text} className={className} />;
+        return end ? <>{plain}{end}</> : plain;
     }
 
-    return <span className={`${hideReadings ? '' : rubyLeading(segments)} ${className}`}>{renderSegments(segments, hideReadings)}</span>;
+    return <span className={`${hideReadings ? '' : rubyLeading(segments)} ${className}`}>{renderSegments(segments, hideReadings)}{end}</span>;
 });
 
 CardText.displayName = 'CardText';

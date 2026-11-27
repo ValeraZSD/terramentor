@@ -1,4 +1,4 @@
-import CardText, { Ruby } from './CardText';
+import CardText, { LineTail, Ruby } from './CardText';
 import { splitWordReading, hasRichCardText, contextSentence, stripCardMarkup } from '../utils/cardText';
 
 /** A line with markup, readings and spacing removed, for telling twins apart. */
@@ -157,10 +157,6 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
         if (clips.length) return <LineClipsButton key={`clips:${clips.map(c => c.hash).join(',')}`} items={clips} label={name} />;
         return speakerFor(line);
     };
-    const inlineClips = (line: string) => {
-        const button = lineButton(line);
-        return button ? [button] : [];
-    };
 
     // The word's own reading belongs ON the word, not on a loose line under the
     // answer (see `splitWordReading`). Answer side only: on the question side it
@@ -210,15 +206,14 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     // clips are consumed as their lines render; what is left over goes to the
     // media region. That has to be computed AFTER the lines, so the region's
     // list is built as a function and read last.
-    const frontClips = inlineClips(front);
+    const frontSound = lineButton(front);
     const contextLines = (context ?? '').split('\n').filter(l => l.trim());
     const contextRows = contextLines.map((line, i) => (
         <p key={i} className={`${review ? 'text-lg sm:text-xl' : 'text-sm'} max-w-lg leading-relaxed text-slate-600 dark:text-slate-300`}>
-            <span><CardText content={line} hideReadings={!flipped} /></span>
-            {inlineClips(line)}
+            <span><CardText content={line} hideReadings={!flipped} tail={lineButton(line)} /></span>
         </p>
     ));
-    const backClips = flipped ? inlineClips(back) : [];
+    const backSound = flipped ? lineButton(back) : null;
     // The opening sequence says each DRAWN line once. Clips naming a line that
     // is not on this side sit in the row under the card, a button each, and
     // each is played.
@@ -241,12 +236,11 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
                     {rubyWord
                         // The deck's per-kanji form of the word, rendered through the
                         // ordinary parser so each reading lands on its own character.
-                        ? <CardText content={rubyWord} />
+                        ? <CardText content={rubyWord} tail={frontSound} />
                         : reading && !hasRichCardText(front)
-                            ? <Ruby base={front} reading={reading} />
-                            : <CardText content={front} />}
+                            ? <><Ruby base={front} reading={reading} />{frontSound && <LineTail>{frontSound}</LineTail>}</>
+                            : <CardText content={front} tail={frontSound} />}
                 </span>
-                {frontClips}
             </p>
 
             {contextRows}
@@ -255,8 +249,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
             {flipped && (
                 <>
                     <p dir="auto" className={`${big} max-w-lg text-accent-fg font-medium`}>
-                        <span><CardText content={back} /></span>
-                        {backClips}
+                        <span><CardText content={back} tail={backSound} /></span>
                     </p>
                     <hr className="w-16 border-t border-slate-300 dark:border-slate-600" />
                     <CardExtra text={restLines} size={size} className="max-w-lg text-center" soundFor={lineButton} />
