@@ -2856,6 +2856,7 @@
   "Spec": "仕様",
   "Speed": "速度",
   "Spelling counts; capitals and punctuation do not": "つづりは採点されます。大文字・小文字と句読点は問いません",
+  "Spoken lines": "読み上げる行",
   "Sprout": "新芽",
   "sqlite-vec extension is not loaded — semantic search is unavailable on this build.": "sqlite-vec 拡張機能が読み込まれていないため、このビルドではセマンティック検索を利用できません。",
   "Square": "正方形",

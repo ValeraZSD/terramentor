@@ -2856,6 +2856,7 @@
   "Spec": "规格",
   "Speed": "速度",
   "Spelling counts; capitals and punctuation do not": "拼写会判分；大小写和标点不判",
+  "Spoken lines": "朗读的行",
   "Sprout": "嫩芽",
   "sqlite-vec extension is not loaded — semantic search is unavailable on this build.": "未加载 sqlite-vec 扩展，此版本无法使用语义搜索。",
   "Square": "正方形",

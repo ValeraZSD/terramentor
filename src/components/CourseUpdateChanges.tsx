@@ -46,6 +46,7 @@ export function fieldName(t: TFunction, field: string): string {
         case 'extra': return t("Extra on the back");
         case 'extra_front': return t("Extra on the front");
         case 'media': return t("Pictures and audio");
+        case 'say': return t("Spoken lines");
         case 'url': return t("Link");
         case 'type': return t("Kind of link");
         case 'name': return t("Course name");

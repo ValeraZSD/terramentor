@@ -733,6 +733,17 @@ if (!OLD) {
     const mediaDiff = (withMedia.body?.items?.changed || []).flatMap(it => it.diff || []).find(d => d.field === 'media');
     check('the media change reads "krant.png", not "[object Object]"', [withMedia.status, mediaDiff?.to ?? null], [200, 'krant.png']);
 
+    console.log('\n--- a card\'s new speech marks read as the words they say in the preview ---');
+    const saytag = 'say-preview';
+    await install(edition1(saytag));
+    const withSay = await upload('/api/course-updates/inspect', edition2(saytag, (f) => {
+        f.project.learning_language = 'nl';
+        f.project.content_language = 'en';
+        topic(f, 'Lidwoorden').flashcards[0].say = [{ at: 'de krant', text: 'de krant', voices: 2 }];
+    }));
+    const sayDiff = (withSay.body?.items?.changed || []).flatMap(it => it.diff || []).find(d => d.field === 'say');
+    check('the marks read as their words and voices ("de krant ×2"), not their JSON', [withSay.status, sayDiff?.to ?? null], [200, 'de krant ×2']);
+
     // An edition that only names the line a card's clip belongs to changes
     // that card's media, so the line reaches an installed copy.
     const { readFileCourse } = await import(B + 'courseUpdate.js');
