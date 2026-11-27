@@ -251,7 +251,8 @@ export default function ScheduleModal() {
                     title: t("Move the date"),
                     // The recent range is drawn on the strip above.
                     body: recent
-                        ? t("Pick a date inside the likely-done range or after it.")
+                        // Near the end: under pace, the date can already sit inside it.
+                        ? t("Pick a date near the end of the likely-done range, or after it.")
                         : best
                             ? t("At your best pace everything is done between {{from}} and {{to}}.", span(best))
                             : t("Pick a date your pace can reach."),
