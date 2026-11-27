@@ -120,9 +120,20 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
     const voiced = useHasLocalVoice(langs?.learning);
     const marks = parseSpeechMarks(say);
     const markOf = new Map((marks ?? []).map(m => [lineKey(m.at), m]));
+    // A question-side line printed again among the answer's lines (see the
+    // twins below) is one line in two copies: a mark naming either copy speaks
+    // beside whichever is drawn.
+    const twinOf = new Map<string, string>();
+    if (marks && extraFront) {
+        const authoredByBare = new Map(extraFront.split('\n').filter(l => l.trim()).map(l => [bareLine(l), l]));
+        for (const l of (extra ?? '').split('\n')) {
+            const a = l.trim() ? authoredByBare.get(bareLine(l)) : undefined;
+            if (a) { twinOf.set(lineKey(l), a); twinOf.set(lineKey(a), l); }
+        }
+    }
     const sayFor = (line: string): { text: string; lang?: string } | null => {
         if (!langs) return null;
-        if (marks) return markOf.get(lineKey(line)) ?? null;
+        if (marks) return markOf.get(lineKey(line)) ?? markOf.get(lineKey(twinOf.get(lineKey(line)) ?? '')) ?? null;
         const said = spokenLine(line, langs);
         return said ? { text: said } : null;
     };

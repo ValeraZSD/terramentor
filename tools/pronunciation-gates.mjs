@@ -325,6 +325,24 @@ try {
         ok('marked "nothing to say": no speaker where the rules would put two', speakers(v.host).length === 0, JSON.stringify(speakers(v.host)));
         await v.unmount();
 
+        // A back written on two lines is drawn as one block with one speaker:
+        // its mark names the whole back (what the check stores, speech-mark-gates).
+        v = await mount(card(4, { front: 'yes, please', back: 'Ja, graag.\n(Yes, please.)',
+            say: JSON.stringify([{ at: 'Ja, graag.\n(Yes, please.)', text: 'Ja, graag.', voices: 1 }]) }));
+        ok('a mark on a back of two lines speaks beside that back', JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: Ja, graag.']), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
+        // The question-side example printed again, richer, among the answer's
+        // lines: the answer side draws that copy, and the mark on the plain one
+        // still speaks there; the reverse holds on the question side.
+        const twinCard = { front: 'the homework', back: 'het huiswerk', extraFront: 'Ik maak mijn huiswerk.', extra: '**Ik maak mijn huiswerk.**' };
+        v = await mount(card(4, { ...twinCard, say: JSON.stringify([{ at: 'Ik maak mijn huiswerk.', text: 'Ik maak mijn huiswerk.', voices: 1 }]) }));
+        ok('a mark on the question-side example speaks beside its answer-side copy', JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: Ik maak mijn huiswerk.']), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+        v = await mount(card(4, { ...twinCard, flipped: false, say: JSON.stringify([{ at: '**Ik maak mijn huiswerk.**', text: 'Ik maak mijn huiswerk.', voices: 1 }]) }));
+        ok('...and a mark on the answer-side copy speaks beside the question-side example', JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: Ik maak mijn huiswerk.']), JSON.stringify(speakers(v.host)));
+        await v.unmount();
+
         // Only the word marked: the example the rules would voice stays silent.
         v = await mount(card(1, { ...ruCard, say: JSON.stringify([{ at: 'het huiswerk', text: 'het huiswerk', voices: 2 }]) }));
         ok('marked: only the marked line speaks', JSON.stringify(speakers(v.host)) === JSON.stringify(['Play: het huiswerk']), JSON.stringify(speakers(v.host)));
