@@ -441,6 +441,17 @@ export function assetPlatform(name, version) {
     return /^[a-z0-9]+-[a-z0-9]+$/.test(rest) ? rest : null;
 }
 
+/** `Terramentor-<version>-win32-<arch>-setup.exe` → `win32-<arch>`: the
+ *  Windows installer (tools/build-installer.mjs). A release carries it beside
+ *  the zips and SHA256SUMS hashes it, but the update manifest never names it:
+ *  a copy it installed updates from the zip like any other. */
+export function installerAsset(name, version) {
+    const prefix = `Terramentor-${version}-`;
+    if (!name.startsWith(prefix) || !name.endsWith('-setup.exe')) return null;
+    const rest = name.slice(prefix.length, -'-setup.exe'.length);
+    return /^win32-[a-z0-9]+$/.test(rest) ? rest : null;
+}
+
 /**
  * manifest.json, attached to every release. What an updater needs and nothing
  * it would have to scrape: which channel and version this is, and for each
@@ -568,6 +579,10 @@ export function releaseBody({ channel, version, repo, changelog, nightlyText }) 
         notes,
         '',
         '---',
+        '',
+        `**Windows:** \`Terramentor-${version}-win32-x64-setup.exe\` installs the app for`,
+        'your account only (no administrator needed), adds it to the Start menu and',
+        'to Settings → Apps, and opens `.studyvault` course files by double-click.',
         '',
         '**Desktop app, nothing to install:** download the zip for your system',
         'below (`win32-x64` for Windows, `darwin-arm64` for a Mac with Apple',

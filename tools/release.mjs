@@ -31,7 +31,7 @@ import { basename, join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, namedNightly, nightlyBase, nightlyDecision,
     releaseBranch, versionCore, workflowScripts,
-    nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
+    nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform, installerAsset,
     draftProblems, lookUpGates,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
@@ -280,9 +280,11 @@ async function gatesPassedCmd() {
     answer({ passed: verdict.passed, reason: verdict.reason }, `### Gates\n\n${verdict.reason} ${next}\n`);
 }
 
-/** The files a release carries: the zips, SHA256SUMS and manifest.json in `dir`. */
+/** The files a release carries: the zips, the Windows installer, SHA256SUMS
+ *  and manifest.json in `dir`. */
 async function releaseFiles(dir, version) {
-    const names = readdirSync(dir).filter((n) => assetPlatform(n, version) || n === 'SHA256SUMS' || n === 'manifest.json' || n === SIGNATURE_NAME);
+    const names = readdirSync(dir).filter((n) => assetPlatform(n, version) || installerAsset(n, version)
+        || n === 'SHA256SUMS' || n === 'manifest.json' || n === SIGNATURE_NAME);
     const files = [];
     for (const name of names) files.push({ name, size: statSync(join(dir, name)).size, sha256: await sha256(join(dir, name)) });
     return files;
@@ -421,8 +423,14 @@ async function assets() {
     });
     writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     const own = { name: 'manifest.json', size: statSync(join(dir, 'manifest.json')).size, sha256: await sha256(join(dir, 'manifest.json')) };
-    writeFileSync(join(dir, 'SHA256SUMS'), sha256sums([...files, own]));
-    const table = files.map((f) => `| ${f.name} | ${(f.size / 1e6).toFixed(1)} MB | \`${f.sha256.slice(0, 16)}…\` |`).join('\n');
+    // The installer is hashed with the rest, and only here: the manifest is
+    // what an installed copy updates from, and that is always the zip.
+    const installers = [];
+    for (const name of readdirSync(dir).filter((n) => installerAsset(n, args.version))) {
+        installers.push({ name, size: statSync(join(dir, name)).size, sha256: await sha256(join(dir, name)) });
+    }
+    writeFileSync(join(dir, 'SHA256SUMS'), sha256sums([...files, ...installers, own]));
+    const table = [...files, ...installers].map((f) => `| ${f.name} | ${(f.size / 1e6).toFixed(1)} MB | \`${f.sha256.slice(0, 16)}…\` |`).join('\n');
     answer({ manifest: join(dir, 'manifest.json') }, `### Assets\n\n| file | size | sha256 |\n|---|---|---|\n${table}\n`);
 }
 

@@ -37,8 +37,10 @@ export const UPDATE_DIR = '.update';
 
 /** Top-level names a swap never moves, whatever a file list claims. `data/` is
  *  a portable copy's library and `library-location.txt` points at one; moving
- *  either would make the next start open an empty library. */
-export const NEVER_MOVED = new Set([UPDATE_DIR, 'data', 'library-location.txt']);
+ *  either would make the next start open an empty library. `uninstall/` holds
+ *  the Windows installer's uninstaller (desktop/lib.js SETUP_DIR): moved aside,
+ *  the entry in Windows' list of apps would point at nothing. */
+export const NEVER_MOVED = new Set([UPDATE_DIR, 'data', 'library-location.txt', 'uninstall']);
 
 /** A macOS package's app folder: inside a bundle at the package's top. The
  *  release manifest's writer (tools/lib/releaseChannel.mjs) checks the same. */
