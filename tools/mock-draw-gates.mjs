@@ -553,9 +553,8 @@ try {
         const qs = open.body?.course?.questions ?? [];
         check('an ordering, an assembly, a number and a typed word are drawn',
             ['sequence', 'assemble', 'numeric', 'fill_in'].every(t => qs.some(q => q.question?.type === t)), JSON.stringify(qs.map(q => q.question?.type)));
-        // 9.81 only as a number of its own: a timestamp such as "…:49.815Z"
-        // holds the same four characters and failed this on the clock.
         check('the whole open mock holds nothing of any key: no key field, accepted answer, tolerance, explanation or key value',
+            // 9.81 stands alone: a timestamp such as "11:11:19.814Z" holds it too.
             open.status === 200 && !/correct_answer|"accept"|tolerance|explanation|(?<![\d.])9\.81(?!\d)|Amsterdam|Mokum|Heat flows|Two kinds/.test(open.text), open.text.slice(0, 400));
         check('an ordering comes in its stored, shuffled order, never the key\'s',
             JSON.stringify(qs.find(q => q.question?.type === 'sequence')?.question?.items) === JSON.stringify(seq.items));

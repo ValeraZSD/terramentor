@@ -604,6 +604,8 @@ interface AppState {
     authExposed: boolean;
     /** This library is run by a shared site's front desk, which signs people in and out (`/api/auth/status` `site`). */
     authSite: boolean;
+    /** No password, and this is a device let in without one, not the computer (`/api/auth/status` `elsewhere`). */
+    authElsewhere: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -1062,6 +1064,7 @@ export const useStore = create<AppState>((set, get) => ({
     authTailscale: null,
     authExposed: false,
     authSite: false,
+    authElsewhere: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1309,9 +1312,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site, elsewhere } = await api.getAuthStatus();
             if (site && !authenticated) { goToSiteSignIn(); return; }
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site, authElsewhere: !!elsewhere });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1341,13 +1344,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site, elsewhere } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
                 && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed && before.authSite === !!site) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
+                && before.authExposed === !!exposed && before.authSite === !!site && before.authElsewhere === !!elsewhere) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site, authElsewhere: !!elsewhere });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
