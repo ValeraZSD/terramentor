@@ -26,15 +26,15 @@
 //     library into the first load shows as bytes, on every machine alike.
 //   * SERVER START: a new process to its "Server running at" line, on a new
 //     scratch library (first start, the schema written) and again on the same
-//     library (a restart). The median of five runs each, after one untimed run.
+//     library (a restart). The median of five runs each, after one warm-up run.
 //   * FIRST SCREEN, in a headless browser with an empty cache: from navigation
 //     to the welcome screen's heading on a new library, and to the home screen
 //     once the welcome is done. Twice: a desktop window on loopback, and a
 //     phone (390 x 844, CPU four times slower, 1.6 Mbit/s down, 150 ms round
 //     trip, the "slow 4G" profile page-speed tools use). Median of five, after
-//     one untimed visit.
+//     one warm-up visit.
 //   A cold CI runner makes its first run, and sometimes its second, several
-//   times slower than the rest; the untimed run takes the first, the median of
+//   times slower than the rest; the warm-up run takes the first, the median of
 //   five absorbs two more.
 //   * PACKAGE (--package only): each release zip, by the platform in its name.
 //     The zips are built in the release workflow and in the Gates job's Linux
@@ -96,7 +96,7 @@ const done = () => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-// Timed runs per measurement, each after one untimed run.
+// Counted runs per measurement, each after one warm-up run.
 const RUNS = 5;
 const show = (n, unit) => unit === 'ms' ? `${Math.round(n)} ms`
     : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${(n / 1024).toFixed(1)} kB`;
@@ -237,14 +237,16 @@ async function startServer(dir) {
 }
 
 async function checkServerStart(scratchRoot) {
-    console.log(`\nServer start (median of ${RUNS}, after one untimed start and restart)`);
-    const first = [], again = [];
+    console.log(`\nServer start (median of ${RUNS}, after a warm-up start and restart)`);
+    const first = [], again = [], warm = [];
     {
         const dir = join(scratchRoot, 'start-warm');
         mkdirSync(dir, { recursive: true });
-        await (await startServer(dir)).stop();
-        await (await startServer(dir)).stop();
+        const a = await startServer(dir); warm.push(a.ms); await a.stop();
+        const b = await startServer(dir); warm.push(b.ms); await b.stop();
     }
+    // Printed, not held to a budget: a slow cold start stays visible in the log.
+    console.log(`  (warm-up, not counted: first ${Math.round(warm[0])} ms; restart ${Math.round(warm[1])} ms)`);
     for (let i = 0; i < RUNS; i++) {
         const dir = join(scratchRoot, `start-${i}`);
         mkdirSync(dir, { recursive: true });
@@ -314,12 +316,12 @@ async function timeScreen(browser, base, marker) {
     return { ms, text: await evaluate('window.__perfScreenText').catch(() => '') };
 }
 
-/** One untimed visit, then RUNS empty-cache visits to one screen: the median, and the runs and what they showed in the log. */
+/** One warm-up visit, then RUNS empty-cache visits to one screen: the median, and the runs and what they showed in the log. */
 async function timeRuns(browser, base, name, marker) {
-    await timeScreen(browser, base, marker);
+    const warm = await timeScreen(browser, base, marker);
     const runs = [];
     for (let i = 0; i < RUNS; i++) runs.push(await timeScreen(browser, base, marker));
-    console.log(`  (${name}: ${runs.map((r) => Math.round(r.ms)).join(', ')} ms; the screen read "${runs[0].text}")`);
+    console.log(`  (${name}: warm-up ${Math.round(warm.ms)} ms (not counted), then ${runs.map((r) => Math.round(r.ms)).join(', ')} ms; the screen read "${runs[0].text}")`);
     return median(runs.map((r) => r.ms));
 }
 
@@ -333,7 +335,7 @@ async function checkFirstScreen(scratchRoot, browserPath) {
         const health = await fetch(`${server.base}/api/build`).then((r) => r.status, () => 0);
         if (health !== 200) throw new Error(`the scratch server does not answer /api/build (${health})`);
         for (const [name, profile] of Object.entries(PROFILES)) {
-            console.log(`\nFirst screen, ${name} (median of ${RUNS} after one untimed visit, empty cache)`);
+            console.log(`\nFirst screen, ${name} (median of ${RUNS} after one warm-up visit, empty cache)`);
             const browser = await openBrowser(browserPath, profile.viewport);
             try {
                 const { send } = browser;
