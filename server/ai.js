@@ -3567,6 +3567,22 @@ const CARD_SHAPE_RULES = `HOW EVERY CARD IS WRITTEN:
 const CARD_RULES = `${CARD_SHAPE_RULES}
 - ${GLOSS_RULE}`;
 
+/**
+ * What a card in a language course says aloud (server/speechMarks.js), asked
+ * of the model that writes the card, since it alone knows which words on a
+ * mixed line are in the language taught. The rules name what the check
+ * enforces, so a mark the model follows them on survives it.
+ * @param {{ code: string, name: string }} speech the language the course teaches
+ */
+export function speechMarkRules({ code, name }) {
+    return `SPOKEN LINES. This course teaches ${name}. Each card also carries "say": the lines of the card a ${name} voice reads aloud, so the learner hears how they sound. One entry per line to be read:
+- "at": that line of the card, copied exactly. A "front" or "back" written on one line is one line; one that holds a line break is several, so name one of its lines, never two.
+- "text": the words the voice says: ONE unbroken stretch of that line, copied exactly, holding only ${name} words. Leave out labels ("Example:", "Plural:"), translations, glosses and explanations in any other language, and brackets that hold them. Never join two separate pieces of a line; when a line holds more than one ${name} piece, give the one the learner most needs to hear (usually the full example sentence). Spell numbers as they are written on the line.
+- "lang": "${code}".
+- "voices": 2 for a single word or a short phrase (up to four words), which the learner then hears from two different speakers; 1 for a sentence.
+Give an entry for every line with ${name} words the learner should hear, and none for a line without any. A card with nothing in ${name} on it has "say": [].`;
+}
+
 // How the assistant teaches. The assistant teaches from any screen, so the
 // rules are stated for whatever the learner is studying, and the two buttons
 // are the assistant's `[[check:…]]` and `[[open:…]]` markers.
@@ -3956,9 +3972,14 @@ ${JSON.stringify(question, null, 2)}
 THE FLAW A SUBJECT EXPERT FOUND IN IT — this is what your rewrite must eliminate:
 ${fault}`,
     }),
-    flashcard_generator: (context, count) => ({
-        system: `You are a flashcard creator.\nCRITICAL: Output ONLY a valid JSON array.\n- Focus on one core concept per card.\n- Front: a clear question, or an instruction followed by the item.\n- Back: Concise, complete answer.\n${CARD_RULES}`,
-        user: `Based on the learning material, generate exactly ${count} flashcards.\n\nMaterial:\n${context}\n\nOutput ONLY a JSON array:\n[\n  {\n    "front": "Question/Term",\n    "back": "Answer/Explanation"\n  }\n]`
+    // `speech`: the language the course teaches (`{ code, name }`), or null.
+    // With it, each card also names what a voice reads aloud (`say`, checked
+    // by server/speechMarks.js); without it the prompt is unchanged.
+    flashcard_generator: (context, count, speech = null) => ({
+        system: `You are a flashcard creator.\nCRITICAL: Output ONLY a valid JSON array.\n- Focus on one core concept per card.\n- Front: a clear question, or an instruction followed by the item.\n- Back: Concise, complete answer.\n${CARD_RULES}${speech ? `\n${speechMarkRules(speech)}` : ''}`,
+        user: speech
+            ? `Based on the learning material, generate exactly ${count} flashcards.\n\nMaterial:\n${context}\n\nOutput ONLY a JSON array:\n[\n  {\n    "front": "Question/Term",\n    "back": "Answer/Explanation",\n    "say": [{"at": "the line, copied", "text": "the ${speech.name} words of it", "lang": "${speech.code}", "voices": 2}]\n  }\n]`
+            : `Based on the learning material, generate exactly ${count} flashcards.\n\nMaterial:\n${context}\n\nOutput ONLY a JSON array:\n[\n  {\n    "front": "Question/Term",\n    "back": "Answer/Explanation"\n  }\n]`
     }),
     // Marks a free-text answer. The `explanation` is read by the LEARNER, on
     // their own answer, seconds after writing it — so it is addressed to them,
