@@ -1814,7 +1814,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
                 {turnError && (
                     <ChatTurnError
-                        message={turnError.message}
+                        /* With no model connected the card carries the connect
+                            buttons below, so it says the fact alone, not the
+                            way to Settings beside a button that goes there. */
+                        message={isAINotConnected(status) ? tr("No AI model is connected.") : turnError.message}
                         /* A followed turn whose question text did not survive in the
                             task's meta has nothing to retry — an empty send would
                             silently do nothing. */

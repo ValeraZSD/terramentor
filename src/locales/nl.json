@@ -2002,6 +2002,7 @@
   "No AI is connected.": "Er is geen AI verbonden.",
   "No AI model": "Geen AI-model",
   "No AI model connected": "Geen AI-model verbonden",
+  "No AI model is connected.": "Er is geen AI-model verbonden.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "Er is geen AI-model verbonden. Verbind er een in Instellingen → AI & Modellen.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "In dit bestand is geen Anki-collectie gevonden. Is het een .apkg die uit Anki is geëxporteerd?",
   "No API key yet.": "Nog geen API-sleutel.",

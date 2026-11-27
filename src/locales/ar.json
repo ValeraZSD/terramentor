@@ -2845,6 +2845,7 @@
   "No AI is connected.": "لا يوجد ذكاء اصطناعي متصل.",
   "No AI model": "لا يوجد نموذج ذكاء اصطناعي",
   "No AI model connected": "لا يوجد نموذج ذكاء اصطناعي متصل",
+  "No AI model is connected.": "لا يوجد نموذج ذكاء اصطناعي متصل.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "لا يوجد نموذج ذكاء اصطناعي متصل. اربط نموذجا في الإعدادات ← الذكاء الاصطناعي والنماذج.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "لم يتم العثور على مجموعة Anki داخل هذا الملف. هل هو ملف .apkg مصدّر من Anki؟",
   "No API key yet.": "لا يوجد مفتاح API بعد.",

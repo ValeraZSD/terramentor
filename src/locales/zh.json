@@ -1835,6 +1835,7 @@
   "No AI is connected.": "未连接任何 AI。",
   "No AI model": "未连接 AI 模型",
   "No AI model connected": "未连接 AI 模型",
+  "No AI model is connected.": "未连接 AI 模型。",
   "No AI model is connected. Connect one in Settings → AI & Models.": "未连接 AI 模型。请在 设置 → AI 与模型 中连接一个。",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "在此文件中没有找到 Anki 集合。它是从 Anki 导出的 .apkg 吗？",
   "No API key yet.": "暂无 API 密钥。",

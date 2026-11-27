@@ -2336,6 +2336,7 @@
   "No AI is connected.": "ИИ не подключён.",
   "No AI model": "Нет модели ИИ",
   "No AI model connected": "Модель ИИ не подключена",
+  "No AI model is connected.": "Модель ИИ не подключена.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "Модель ИИ не подключена. Подключите её в Настройки → ИИ и модели.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "В этом файле не найдена коллекция Anki. Это файл .apkg, экспортированный из Anki?",
   "No API key yet.": "Ключа API пока нет.",

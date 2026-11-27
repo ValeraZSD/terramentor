@@ -2169,6 +2169,7 @@
   "No AI is connected.": "Aucune IA n'est connectée.",
   "No AI model": "Aucun modèle d’IA",
   "No AI model connected": "Aucun modèle d'IA connecté",
+  "No AI model is connected.": "Aucun modèle d'IA n'est connecté.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "Aucun modèle d'IA n'est connecté. Connectez-en un dans Paramètres → IA & Modèles.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "Aucune collection Anki n'a été trouvée dans ce fichier. S'agit-il d'un .apkg exporté depuis Anki ?",
   "No API key yet.": "Aucune clé API pour le moment.",

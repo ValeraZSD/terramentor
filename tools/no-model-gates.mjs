@@ -19,7 +19,7 @@
 // who DID choose Ollama, with it down, still reads the Ollama message.
 
 import net from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -305,6 +305,17 @@ try {
         const drawer = readFileSync(new URL('../src/components/AssistantDrawer.tsx', import.meta.url), 'utf8');
         check('the failure card offers the connect buttons in place of a retry when no model is connected, and only then',
             /<ChatTurnError\b[^]{0,1500}?action=\{isAINotConnected\(status\)\s*\?\s*<ConnectAIActions returnTo=\{window\.location\.pathname\} onLeave=\{\(\) => \{ if \(!docked\) onClose\(\); \}\} \/>\s*:\s*undefined\}/.test(drawer));
+        // The connect buttons go to Settings themselves, so that card says the
+        // fact alone; the server's sentence (with its Settings pointer) stays
+        // for every surface without a button beside it.
+        const short = 'No AI model is connected.';
+        const cardMessage = drawer.match(/<ChatTurnError\b[^]{0,600}?message=\{([^\r\n]*)\}\r?\n/)?.[1] ?? '';
+        check('…and with those buttons the card says only that no model is connected, without the Settings sentence',
+            cardMessage === `isAINotConnected(status) ? tr("${short}") : turnError.message` && !short.includes('Settings') && NO_MODEL.startsWith(short + ' '),
+            cardMessage);
+        check('…and the short sentence is in every interface language',
+            readdirSync(new URL('../src/locales/', import.meta.url)).filter(f => f.endsWith('.json'))
+                .every(f => typeof JSON.parse(readFileSync(new URL(`../src/locales/${f}`, import.meta.url), 'utf8'))[short] === 'string'));
         check('…and the composer\'s no-model notice steps aside while that card shows',
             /!isAIUsable\(status\) && !\(turnError && isAINotConnected\(status\)\) && \(\s*<AIUnavailableNotice/.test(drawer));
         const shown = await renderTurnError();

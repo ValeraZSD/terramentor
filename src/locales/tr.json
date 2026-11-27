@@ -2113,6 +2113,7 @@
   "No AI is connected.": "Bağlı bir yapay zekâ yok.",
   "No AI model": "Yapay zekâ modeli yok",
   "No AI model connected": "Bağlı yapay zekâ modeli yok",
+  "No AI model is connected.": "Bağlı bir yapay zekâ modeli yok.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "Bağlı bir yapay zekâ modeli yok. Ayarlar → Yapay zekâ ve modeller bölümünden bir model bağlayın.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "Bu dosyada Anki koleksiyonu bulunamadı. Anki'den dışa aktarılmış bir .apkg dosyası mı?",
   "No API key yet.": "Henüz API anahtarı yok.",

@@ -1835,6 +1835,7 @@
   "No AI is connected.": "AI が接続されていません。",
   "No AI model": "AIモデルなし",
   "No AI model connected": "AIモデルが接続されていません",
+  "No AI model is connected.": "AIモデルが接続されていません。",
   "No AI model is connected. Connect one in Settings → AI & Models.": "AIモデルが接続されていません。設定 → AIとモデル で接続してください。",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "このファイルには Anki のコレクションが見つかりませんでした。Anki からエクスポートした .apkg ファイルですか？",
   "No API key yet.": "APIキーがありません。",

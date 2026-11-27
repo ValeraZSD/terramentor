@@ -2113,6 +2113,7 @@
   "No AI is connected.": "No AI is connected.",
   "No AI model": "No AI model",
   "No AI model connected": "No AI model connected",
+  "No AI model is connected.": "No AI model is connected.",
   "No AI model is connected. Connect one in Settings → AI & Models.": "No AI model is connected. Connect one in Settings → AI & Models.",
   "No Anki collection was found inside this file. Is it an .apkg exported from Anki?": "No Anki collection was found inside this file. Is it an .apkg exported from Anki?",
   "No API key yet.": "No API key yet.",
