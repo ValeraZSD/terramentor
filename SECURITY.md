@@ -24,8 +24,9 @@ described in full further down, with the file that does it.
   a site you visit cannot use it through your browser (`server/originGuard.js`; browsers older
   than Safari 16.4 or Firefox 90 get an older form of this check). With no password, the app
   answers this computer, the devices you connected with a one-time code, and the computer's own
-  Tailscale account if you leave that switch on. In the desktop app, "this computer" means the
-  account that owns the library: its window and its local programs prove that with
+  Tailscale account if you turn that switch on (it starts off). In the desktop app, "this
+  computer" means the account that owns the library: its window and its local programs prove
+  that with
   `instance.key`, a key in the library's folder that other ordinary accounts cannot read when
   that folder is yours alone. With a password set, every other request needs the password, the
   API key or a connected device.
@@ -616,8 +617,8 @@ These are the edges of what the app can promise, and what to do at each one.
 - **On a computer shared with other accounts, set a password.** Without one, the desktop app
   answers only the account that owns the library (see "In the desktop app, 'this computer'
   means the account that owns the library"), with two exceptions:
-  - the computer's own Tailscale account, while that switch is on, because any program on the
-    computer can send the headers `tailscale serve` adds;
+  - the computer's own Tailscale account, only if you turn that switch on (it starts off),
+    because any program on the computer can send the headers `tailscale serve` adds;
   - a page another account serves on another port of `127.0.0.1`, if you open it in the app's
     window: a browser sends a site's cookies to every port of that site, so the page receives
     the window's owner cookie, and the server accepts a copy of it for up to 30 days.
