@@ -158,7 +158,14 @@ function useStacksWhenTight(enabled: boolean) {
         if (!enabled || !rowEl || !controlEl || rowEl.clientWidth === 0) return;
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const floor = Math.min(rowEl.clientWidth * NAME_MIN_FRACTION, NAME_MIN_REM * rem);
-        const forName = rowEl.clientWidth - controlEl.offsetWidth - ROW_GAP;
+        // Read at `max-content`: a `fill` control stacked under the name is as
+        // wide as the row, and that width would keep it stacked for good. The
+        // width is put back before anything paints, so nothing moves.
+        const was = controlEl.style.width;
+        controlEl.style.width = 'max-content';
+        const natural = controlEl.offsetWidth;
+        controlEl.style.width = was;
+        const forName = rowEl.clientWidth - natural - ROW_GAP;
         setStacked(forName < floor);
     }, [enabled]);
 
@@ -180,7 +187,7 @@ function useStacksWhenTight(enabled: boolean) {
     return { row, control, stacked: enabled && stacked };
 }
 
-export function SettingRow({ id, label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+export function SettingRow({ id, label, hint, detail, control, more, block = false, fill = false, htmlFor, className = '' }: {
     /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
     id?: string;
     label: React.ReactNode;
@@ -191,6 +198,12 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
     control?: React.ReactNode;
     more?: React.ReactNode;
     block?: boolean;
+    /** Beside the name while it fits, like any control; once under it, the
+     *  line is the control's to fill (a `SegmentedControl block="narrow"`,
+     *  whose segments read as one choice across a phone). `block` instead put
+     *  such a switch under its name at EVERY width, a short track with the
+     *  right half of a desktop card empty beside it. */
+    fill?: boolean;
     htmlFor?: string;
     className?: string;
 }) {
@@ -232,28 +245,32 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                 place `block` puts it. Either way it is never half-way: a
                 control at the left edge of its own line, under a name it is no
                 longer beside, is the shape this replaced.
-                Stacked, the measured wrapper is `w-max`: a block box fills the
-                row, so it measured as the row itself and a row that stacked
-                once never came back beside its name. */}
+                The measurement reads the control at `max-content`: a stacked
+                control that fills its line would otherwise measure as the row
+                itself, and a row that stacked once would never come back. */}
             <div ref={row} className={`flex items-center justify-between gap-4 ${under ? 'mb-3' : ''}`}>
                 <div className="min-w-0 flex-1">
                     {name}
                     {hint && (
                         <p id={hintId} className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
                     )}
-                    {detail && <SettingNote className="mt-0.5">{detail}</SettingNote>}
+                    {/* A <div> in SettingNote's type, not the <p> itself: a
+                        detail may hold blocks (a status line over a note, a
+                        disclosure with a button in it), and a block inside
+                        a <p> is invalid markup the parser closes early. */}
+                    {detail && <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{detail}</div>}
                 </div>
                 {!under && control && <div ref={controlRef} className="shrink-0">{control}</div>}
             </div>
-            {/* Stacked, the control keeps its OWN width rather than stretching:
-                the measurement above reads that width back, and a control told
-                to fill the row would measure the row and never un-stack.
+            {/* Stacked, the control keeps its OWN width rather than stretching,
+                unless the row says `fill`; either way the measurement reads it
+                at `max-content`, so filling the line never keeps it stacked.
                 A `block` row is never measured, so its control is given the
                 full row: the theme cards and the size slider are laid out
                 across it, and a shrink-to-fit box left both a third wide. */}
             {under && control && (block
                 ? <div>{control}</div>
-                : <div ref={controlRef} className="w-max max-w-full">{control}</div>
+                : <div ref={controlRef} className={fill ? '' : 'w-max max-w-full'}>{control}</div>
             )}
             {more && <div className="mt-3">{more}</div>}
         </div>
