@@ -314,8 +314,9 @@ Each error is the tool's answer, so the agent can tell you what to do:
 - **"This Terramentor library has a password, so the MCP server needs its API key"**: add the
   key as above. If Settings shows no key, press Generate key.
 - **"…refused the API key"**: the key was regenerated or deleted. Copy the current one.
-- **"…found none"** (the library's key): the desktop app has no password and the server could
-  not read the library's `instance.key`. Start the other app as the same user, set `DATA_DIR`
+- **"…did not find that library's key"**: the desktop app has no password, and the server
+  could not read the library's `instance.key`, or read another library's (a `DATA_DIR` that
+  points elsewhere). Start the other app as the same user, set `DATA_DIR`
   if Terramentor runs with `--data-dir`, or set a password and add the key.
 - **"…cannot vouch for whoever calls it"**: the HTTP listener and the desktop app with no
   password. Set a password and send the key as a header.

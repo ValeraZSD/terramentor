@@ -104,7 +104,7 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
             // The desktop app with no password: it answers a program on this
             // computer that can read the library's key (mcp/owner.js).
             throw new AppError(ownerHeaders
-                ? `Terramentor at ${origin} answers a program on this computer only when the program can read the library's key, and this MCP server found none. Run it as the same user as the app. If the app keeps its library in a folder you picked yourself, set DATA_DIR to that folder in this server's config (its "env"). Or set a password in Terramentor → Settings → Devices & security and use the API key: ${keyHint}`
+                ? `Terramentor at ${origin} answers a program on this computer only when the program can read the library's key, and this MCP server did not find that library's key. Run it as the same user as the app. If the app keeps its library in a folder you picked yourself, set DATA_DIR to that folder in this server's config (its "env"). Or set a password in Terramentor → Settings → Devices & security and use the API key: ${keyHint}`
                 : `Terramentor at ${origin} has no password, and this listener cannot vouch for whoever calls it. Set a password in Terramentor → Settings → Devices & security, press Generate key in ${KEY_PLACE}, then ${keyHint}`);
         }
         if (res.status === 401 && data?.setupRequired) {
