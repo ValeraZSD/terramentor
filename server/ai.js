@@ -3678,6 +3678,15 @@ const COURSE_SIZE_RULE = `SIZE: first judge how much the learner asked for, from
 Teach what was asked for and leave out what was not. Background the learner needs first is a short review inside the first phase, never a phase of its own, unless the description says they lack it. No two phases teach the same thing: a later phase USES what an earlier one taught and moves on.
 `;
 
+// Every level of the outline (phases, sections, topics) is shown the
+// project's Description, what the learner asked to learn, and held to it. A
+// level that saw only the model's own summary widened a narrow goal: a course
+// on one part of a subject grew a closing phase on its neighbouring skills.
+// A course from files covers what the files hold (sourceMaterial.js), so there
+// the files decide, and the rule only keeps out what neither asks for.
+const GOAL_SCOPE_RULE = `GOAL SCOPE: the project's Description says what the learner asked to learn (with no Description, the project's name stands for it), and everything you write serves it. When it asks for one part of a subject (one skill, one area, one kind of problem), teach that part only: a neighbouring part of the same subject that it did not ask for stays out, even where a complete course of the whole subject would include it, apart from the short background review the course needs first. A closing phase of practice or review applies what the course taught; it never opens a skill or area the Description did not ask for. When the course is built from the learner's files, the files decide what it covers.
+`;
+
 /** The whole phase plan, this phase marked, so a phase does not take another's part. */
 function coursePlanBlock(plan, current) {
     if (!Array.isArray(plan) || plan.length < 2) return '';
@@ -4803,15 +4812,15 @@ Rules:
     // or '' for both — so a creation without files sends the prompts with no
     // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}${GOAL_SCOPE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     // `size` is the plan's (server/courseSize.js); `plan` every phase in
     // order and `earlier` the sections the phases before this one already
     // have, so a phase does not write again what another teaches.
-    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
+    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null, goal = '' } = {}) => ({
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\n${GOAL_SCOPE_RULE}Format:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${goal || 'No description provided'}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
     }),
     // A short course (server/shortCourses.js): the whole outline in ONE call,
     // one level of `topics` sized by the source, from the source in `sources`
@@ -4835,7 +4844,7 @@ ${String(goal || '').trim() ? '6. Choose and order the topics for the learner\'s
         user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${String(goal || '').trim() ? `\nGOAL: ${String(goal).replace(/\s+/g, ' ').trim().slice(0, 600)}` : ''}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n  7. ${GOAL_SCOPE_RULE}\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}${earlierSectionsBlock(earlier)}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
@@ -4858,7 +4867,7 @@ CRITICAL RULES:
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else. Nor do they teach again what an earlier phase already has.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
 6. "description" is one or two sentences: what to learn and why it matters.
-7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+7. ${GOAL_SCOPE_RULE}8. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}
@@ -4900,7 +4909,7 @@ Rules:
     // `sources` here is one user-side string (sourceMaterial.js briefBlock /
     // thinkBlock), '' without files.
     summarizeProjectDescription: (name, description, { lang = null, sources = '' } = {}) => ({
-        system: `Summarize this learning project in a few sentences (~40 words). Make it clear what it will be about, what's inside, and what the user will learn.${creationProseRule(lang)}`,
+        system: `Summarize this learning project in a few sentences (~40 words). Make it clear what it will be about, what's inside, and what the user will learn. Stay inside what the name and description ask for: name no skill or area they did not ask for.${creationProseRule(lang)}`,
         user: `Project Name: ${name}\nDescription: ${description || 'No description provided. Write your own based on the name.'}${sources || ''}`
     }),
     project_thinking: (projectName, projectDescription, { lang = null, sources = '' } = {}) => ({

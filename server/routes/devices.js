@@ -4,7 +4,7 @@
 // is already in may connect another device or remove one.
 import { routeTable } from './routeTable.js';
 import { wrap } from './request.js';
-import { isAuthEnabled, ownerPresent, passwordThroughThrottle } from '../auth.js';
+import { isAuthEnabled, isLocalRequest, ownerPresent, passwordThroughThrottle } from '../auth.js';
 import { apiError, keyed } from '../clientError.js';
 import {
     createPairingOffer, listDevices, phoneAddress, removeDevice, servedHere, serveOnTailnet, setTailscaleTrust, tailscaleOwner,
@@ -30,7 +30,16 @@ app.get('/api/devices', wrap(async (req, res) => {
 // says in words instead of showing a code that leads nowhere.
 // `tailscale: true` beside a null url: Tailscale runs here but passes nothing
 // to this app yet, which one press can fix (below).
+// With no password yet, a code comes from this computer or from a device it
+// already let in. A machine reaching an app left open to the network
+// (AUTH_ALLOW_OPEN_REMOTE) gets none, from either route that makes one: the
+// key of a device it paired would outlast the opening.
+const noCodeForStrangers = (req) => !isAuthEnabled() && !isLocalRequest(req) && !req.remoteAccess;
+
 app.post('/api/devices/pair', wrap(async (req, res) => {
+    if (noCodeForStrangers(req)) {
+        return res.status(403).json(keyed('Only on the computer itself, or with the password'));
+    }
     if (await passwordRefused(req, res)) return;
     const base = await phoneAddress(req);
     if (!base) return res.json({ url: null, tailscale: !!(await tailscaleOwner()) });
@@ -43,7 +52,7 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
     // This changes the computer's own Tailscale setup, so a device let in
     // without the password (a paired phone) may not press it.
-    if (!ownerPresent(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
+    if (!ownerPresent(req) || noCodeForStrangers(req)) return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
     if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command, problem: served.problem });

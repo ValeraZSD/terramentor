@@ -115,7 +115,8 @@ export function slowRequestLog() {
             // is open. Logging those would bury the one line that matters.
             const type = String(res.getHeader('content-type') || '');
             if (type.includes('text/event-stream')) return;
-            console.warn(`[Slow] ${stamp()} ${Math.round(ms)}ms ${req.method} ${req.originalUrl} -> ${res.statusCode}`);
+            // The path only: a query is search text, a filter, a topic's words.
+            console.warn(`[Slow] ${stamp()} ${Math.round(ms)}ms ${entry.label} -> ${res.statusCode}`);
         });
         next();
     };

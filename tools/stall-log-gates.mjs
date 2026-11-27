@@ -8,7 +8,12 @@
 // line carries the CPU the process spent while it lasted, a verdict from it,
 // and the requests that were in flight: the log names its own suspect.
 import { readFileSync } from 'node:fs';
-import { requestsDuring, stallKind, stallLine } from '../server/slowLog.js';
+import { EventEmitter } from 'node:events';
+
+// slowLog.js reads its threshold once, at import: pin it first, so a
+// SLOW_REQUEST_MS in the shell cannot move this suite's result.
+process.env.SLOW_REQUEST_MS = '1000';
+const { requestsDuring, slowRequestLog, stallKind, stallLine } = await import('../server/slowLog.js');
 
 let failures = 0;
 let passed = 0;
@@ -58,6 +63,32 @@ check('a busy stall with nothing in flight says background', stallLine({ at: 'x'
     '[Stall] x the event loop was blocked for 900ms (CPU 1300 ms, computing) with no request in flight');
 // Log readers (tools and people) key on this prefix; it must not move.
 check('the old prefix is kept for anything that reads the log', /^\[Stall\] \S+ the event loop was blocked for \d+ms/.test(waiting), true);
+
+// --- a slow request ------------------------------------------------------------
+// A query string is search text, a filter, a topic's words: the [Slow] line
+// names the request by its path only.
+{
+    const realClock = process.hrtime.bigint;
+    const realWarn = console.warn;
+    const lines = [];
+    let now = 0n;
+    process.hrtime.bigint = () => now;
+    console.warn = (...a) => { lines.push(a.join(' ')); };
+    try {
+        const res = new EventEmitter();
+        res.statusCode = 200;
+        res.getHeader = () => 'application/json';
+        const url = '/api/search?q=words+typed+by+the+learner';
+        slowRequestLog()({ method: 'GET', originalUrl: url, url }, res, () => { });
+        now = 5_000_000_000n;
+        res.emit('finish');
+    } finally {
+        process.hrtime.bigint = realClock;
+        console.warn = realWarn;
+    }
+    check('a slow request is logged once', lines.length, 1);
+    check('…by its path, without the query', [/ 5000ms GET \/api\/search -> 200$/.test(lines[0] || ''), (lines[0] || '').includes('learner')], [true, false]);
+}
 
 // The CPU is the event loop's own thread: the process total also counts the
 // thread pool (zlib, files, crypto), busy while the loop itself waits.
