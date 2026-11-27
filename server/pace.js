@@ -33,7 +33,7 @@ import db from './database.js';
 import { WORK_LEAF, OPEN_WORK_LEAF } from './today.js';
 import { projectCountsInCards } from './progress.js';
 import { probeAvailability } from './placement.js';
-import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
+import { dayBounds, learnerTimeZone, localDate, studyToday } from './studyDay.js';
 import { OFFERS, judgeDate, learnerPace } from './paceModel.js';
 
 const BURST_SECONDS = 2;
@@ -43,6 +43,22 @@ const BURST_SECONDS = 2;
 const BURST_SLACK = 0.001;
 const MISSES = new Set(['under_pace', 'tight', 'out_of_reach']);
 const AS_ISO =(col) => `strftime('%Y-%m-%dT%H:%M:%SZ', ${col})`;
+
+// Every card's first review, with its neighbours in the whole log; CARD_MET
+// keeps the ones a person made (see the header).
+const FIRST_REVIEWS = `
+    WITH r AS (
+        SELECT rl.card_id, rl.reviewed_at, rl.source, rl.state_before, julianday(rl.reviewed_at) AS jd,
+               LAG(julianday(rl.reviewed_at)) OVER w AS prev_jd,
+               LEAD(julianday(rl.reviewed_at)) OVER w AS next_jd,
+               ROW_NUMBER() OVER (PARTITION BY rl.card_id ORDER BY julianday(rl.reviewed_at), rl.id) AS nth
+        FROM review_log rl
+        WINDOW w AS (ORDER BY julianday(rl.reviewed_at), rl.id)
+    )`;
+const CARD_MET = `r.nth = 1
+    AND (r.source <> 'app' OR COALESCE(r.state_before, 0) = 0)
+    AND (r.prev_jd IS NULL OR (r.jd - r.prev_jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
+    AND (r.next_jd IS NULL OR (r.next_jd - r.jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})`;
 
 let stmts = null;
 // Prepared on first use: today.js and this file sit in an import cycle with
@@ -54,20 +70,18 @@ function statements() {
             SELECT ${AS_ISO('n.completed_at')} AS at FROM live_nodes n
             WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
         `),
-        cardsMet: db.prepare(`
-            WITH r AS (
-                SELECT rl.reviewed_at, rl.source, rl.state_before, julianday(rl.reviewed_at) AS jd,
-                       LAG(julianday(rl.reviewed_at)) OVER w AS prev_jd,
-                       LEAD(julianday(rl.reviewed_at)) OVER w AS next_jd,
-                       ROW_NUMBER() OVER (PARTITION BY rl.card_id ORDER BY julianday(rl.reviewed_at), rl.id) AS nth
-                FROM review_log rl
-                WINDOW w AS (ORDER BY julianday(rl.reviewed_at), rl.id)
-            )
-            SELECT ${AS_ISO('reviewed_at')} AS at FROM r
-            WHERE nth = 1
-              AND (source <> 'app' OR COALESCE(state_before, 0) = 0)
-              AND (prev_jd IS NULL OR (jd - prev_jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
-              AND (next_jd IS NULL OR (next_jd - jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
+        cardsMet: db.prepare(`${FIRST_REVIEWS} SELECT ${AS_ISO('r.reviewed_at')} AS at FROM r WHERE ${CARD_MET}`),
+        // One course's share of the same, between two instants: the plan
+        // panel's "this week" line.
+        topicsClosedIn: db.prepare(`
+            SELECT COUNT(*) AS c FROM live_nodes n
+            WHERE n.project_id = ? AND n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
+              AND julianday(n.completed_at) >= julianday(?) AND julianday(n.completed_at) < julianday(?)
+        `),
+        cardsMetIn: db.prepare(`${FIRST_REVIEWS}
+            SELECT COUNT(*) AS c FROM r
+            JOIN live_flashcards f ON f.id = r.card_id JOIN live_nodes n ON n.id = f.node_id
+            WHERE ${CARD_MET} AND n.project_id = ? AND r.jd >= julianday(?) AND r.jd < julianday(?)
         `),
         // Where each unit's record begins: single aggregates (one correlated
         // EXISTS per project for topics), so a screen that needs only topics
@@ -198,4 +212,29 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
             .sort((a, b) => OFFERS.indexOf(a.kind) - OFFERS.indexOf(b.kind));
     }
     return { ...verdict, otherCourses };
+}
+
+/** The Monday that starts the week holding `day` (`YYYY-MM-DD`): the study-day picker's week. */
+export function weekStartOf(day) {
+    const ms = Date.parse(`${day}T00:00:00Z`);
+    const back = (new Date(ms).getUTCDay() + 6) % 7;
+    return new Date(ms - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * One course's work closed this week so far, Monday to today on the learner's
+ * calendar, in the verdict's unit: the "this week" line under the plan's
+ * strip. The course's own, not the library's: a week spent on another course
+ * is no progress on this one.
+ *
+ * @returns {{ since: string, count: number }}
+ */
+export function weekSoFar(projectId, unit, { now = Date.now(), timeZone = learnerTimeZone() } = {}) {
+    const s = statements();
+    const today = studyToday({ now, timeZone });
+    const since = weekStartOf(today);
+    const from = dayBounds(since, timeZone).start;
+    const to = dayBounds(today, timeZone).end;
+    const row = unit === 'cards' ? s.cardsMetIn.get(projectId, from, to) : s.topicsClosedIn.get(projectId, from, to);
+    return { since, count: row.c };
 }

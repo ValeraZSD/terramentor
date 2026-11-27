@@ -468,7 +468,10 @@ export interface PaceData {
     verdict?: PaceVerdict | null;
     /** The weeks that verdict was judged from. */
     learnerPace?: LearnerPace | null;
+    /** This course's work closed since Monday (`since`), in the verdict's unit. */
+    weekSoFar?: WeekSoFar | null;
 }
+export interface WeekSoFar { since: string; count: number }
 
 /** A check run on something the assistant prepared (server/assistantChecks.js).
  *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */
