@@ -422,6 +422,23 @@ try {
         globalThis.__st.state = { ...globalThis.__st.state, projects: [...globalThis.__st.state.projects, course(5, 'en', 'ja')] };
         engine.voices = [voice('en-US', 'English'), voice('ja-JP', 'Japanese')];
         await glueCase('a word with its reading above it', 5, { front: '先生', back: 'teacher', extra: 'せんせい' });
+        // A line drawn plain on the question side and richer on the answer side
+        // (a reading on the word, the example's bold copy) is the same line: its
+        // speaker is the same button after the flip. A new one would cut the line
+        // mid-speech and restart a two-voice line at its first voice.
+        const keptOnFlip = async (name, projectId, props, label) => {
+            const view = await mount(card(projectId, { ...props, flipped: false }));
+            const asked = view.host.querySelector(`button[aria-label="${label}"]`);
+            await view.render(card(projectId, { ...props, flipped: true }));
+            const shown = view.host.querySelector(`button[aria-label="${label}"]`);
+            ok(`${name}: the speaker is the same button after the flip`, !!asked && asked === shown,
+                !asked ? 'no speaker on the question side' : !shown ? 'no speaker on the answer side' : 'a new button');
+            await view.unmount();
+        };
+        engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch'), voice('ja-JP', 'Japanese')];
+        await keptOnFlip('a word that gains its reading', 5, { front: '先生', back: 'teacher', extra: 'せんせい' }, 'Play: 先生');
+        await keptOnFlip('an example that gains its bold copy', 4, { ...twinCard,
+            say: JSON.stringify([{ at: 'Ik maak mijn huiswerk.', text: 'Ik maak mijn huiswerk.', voices: 1 }]) }, 'Play: Ik maak mijn huiswerk.');
         engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch')];
 
         // -------------------------------------------------------------------
