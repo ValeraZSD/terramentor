@@ -132,7 +132,9 @@ export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf
     // Whether this run is the side's opening sequence, which chains clip to clip.
     // A PRESSED clip plays once and stops.
     const chaining = useRef(false);
-    const key = `${own.length}:${items.map(i => i.hash).join(',')}`;
+    // The clip this run last started: a late failure of an older attempt acts on nothing.
+    const current = useRef<number | null>(null);
+    const key =`${own.length}:${items.map(i => i.hash).join(',')}`;
     // The opening sequence: every clip in deck order, but a line already said is skipped.
     const sequence = useMemo(() => {
         const said = new Set<string>();
@@ -150,10 +152,11 @@ export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf
     const stopAll = () => {
         refs.current.forEach(a => { if (a) { a.pause(); a.currentTime = 0; } });
         chaining.current = false;
+        current.current = null;
         setPlaying(null);
     };
 
-    const play = (i: number, { chain = false } = {}) => {
+    const play =(i: number, { chain = false } = {}) => {
         refs.current.forEach((a, j) => { if (a && j !== i) { a.pause(); a.currentTime = 0; } });
         const el = refs.current[i];
         if (!el) return;
@@ -161,11 +164,30 @@ export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf
         stopSpeaking();
         el.currentTime = 0;
         chaining.current = chain;
+        current.current = i;
         setPlaying(i);
         // A rejected play() is autoplay policy, or this clip paused before it
         // started because another was pressed; the button still works. Only
         // this clip's state is cleared: the pressed one may be playing now.
-        el.play().catch(() => setPlaying(p => (p === i ? null : p)));
+        // A source that cannot load rejects too (NotSupportedError), and a clip
+        // that failed once does so with no second error event: that is a load
+        // failure, handled like one.
+        el.play().catch((err: unknown) => {
+            if ((err as { name?: string } | null)?.name === 'NotSupportedError') failed(i);
+            else setPlaying(p => (p === i ? null : p));
+        });
+    };
+
+    // A clip that cannot load does not end the opening sequence: the line's next
+    // voice says it instead, else the next line. Reached from the error event and
+    // from a rejected play(), often both for one failure: only the attempt still
+    // current acts, so the fallback runs once.
+    const failed = (i: number) => {
+        if (current.current !== i || !chaining.current) { setPlaying(p => (p === i ? null : p)); return; }
+        const line = lineAt(i);
+        const other = line ? own.findIndex((_, j) => j > i && lineAt(j) === line) : -1;
+        if (other >= 0) play(other, { chain: true });
+        else advance(i);
     };
 
     // After clip `i`: the next of the opening sequence, but only when THIS run
@@ -177,7 +199,7 @@ export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf
         const step = sequence.findIndex(s => s === i || (!!line && lineAt(s) === line));
         const next = step >= 0 ? sequence[step + 1] : undefined;
         if (next !== undefined && chaining.current) play(next, { chain: true });
-        else { chaining.current = false; setPlaying(null); }
+        else { chaining.current = false; current.current = null; setPlaying(null); }
     };
 
     // Settings → Accessibility can turn the opening sequence off: sound that
@@ -208,15 +230,7 @@ export function CardAudioProvider({ items: own, replay, autoPlay = false, lineOf
                     src={srcFor(item.hash)}
                     preload="none"
                     onEnded={() => advance(i)}
-                    // A clip that cannot load does not end the opening sequence:
-                    // the line's next voice says it instead, else the next line.
-                    onError={() => {
-                        if (playing !== i || !chaining.current) { setPlaying(p => (p === i ? null : p)); return; }
-                        const line = lineAt(i);
-                        const other = line ? own.findIndex((_, j) => j > i && lineAt(j) === line) : -1;
-                        if (other >= 0) play(other, { chain: true });
-                        else advance(i);
-                    }}
+                    onError={() => failed(i)}
                 />
             ))}
             {children}

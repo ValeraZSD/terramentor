@@ -20,8 +20,9 @@ import { stripCardMarkup } from './cardText';
  *     "de pijn"; a line with none says nothing.
  *   - One language (a Dutch course written in Dutch): every line is it, except
  *     a line whose label names another language ("Engels: mission").
- *   - Two languages in one script (English and Dutch): no line is voiced; the
- *     letters alone cannot say which is which on a two-word card.
+ *   - Two languages in one script (English and Dutch): only a line whose label
+ *     names the learned language ("Nederlands: het huis"); the letters alone
+ *     cannot say which is which on a two-word card.
  * In every case a label naming another language silences its line, and a label
  * naming the learned one leaves only what follows it.
  */
@@ -108,7 +109,10 @@ function runsIn(text: string, scripts: string[]): string {
     // ("2.000 euro per maand").
     const inner = `[${cls}\\p{M}\\p{N}\\s'’\\-.,:;!?¿¡…()\\[\\]"“”„«»/%€$£、，：；「」『』・〜（）،؛${JOINERS}]`;
     // A word's last letter keeps the marks after it (Arabic كِتَابٌ ends in one).
-    const run = new RegExp(`(?:\\p{N}[\\p{N}\\s.,%€$£]*)?${letter}(?:${inner}*${letter})?\\p{M}*[${ENDS}]?`, 'gu');
+    // A number may close the run where the text ends ("Ik heb 2"); one followed
+    // by more text is left to whatever comes after it.
+    const tail = `(?:\\s*\\p{N}[\\p{N}.,%€$£]*(?=[${ENDS}]?\\s*$))?`;
+    const run = new RegExp(`(?:\\p{N}[\\p{N}\\s.,%€$£]*)?${letter}(?:${inner}*${letter})?\\p{M}*${tail}[${ENDS}]?`, 'gu');
     // A lone letter of an alphabet is a stray ("B1", "a)"); a lone Han, Kana
     // or Hangul sign is a word (水, 猫, 물).
     const least = scripts.some(s => s === 'Han' || s === 'Kana' || s === 'Hangul') ? 1 : 2;
@@ -130,16 +134,16 @@ export function spokenLine(line: string, langs: CourseLanguages): string | null 
     if (!text) return null;
 
     const label = LABEL.exec(text);
-    if (label) {
-        const named = labelLanguage(label[1]);
-        if (named && named !== learning) return null;
-        if (named === learning) text = label[2].trim();
-    }
+    const named = label ? labelLanguage(label[1]) : null;
+    if (named && named !== learning) return null;
+    if (label && named === learning) text = label[2].trim();
 
     const content = base(langs.content || '');
     if (content !== learning) {
         const contentScripts = content ? scriptsOf(content) : null;
-        if (!contentScripts || contentScripts.some(s => learnScripts.includes(s))) return null;
+        if (!contentScripts) return null;
+        // One script for both: only a label naming the learned language tells them apart.
+        if (named !== learning && contentScripts.some(s => learnScripts.includes(s))) return null;
         // A gloss beside the word ("het huiswerk (homework)", "het huiswerk =
         // the homework") is in the learned script too, often English: an aside
         // in brackets, and whatever follows " = ", is not said.

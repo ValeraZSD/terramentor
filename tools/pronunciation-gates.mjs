@@ -149,7 +149,10 @@ try {
         ok('nl in nl: a line labelled in English as English is silent', say('English: mission', 'nl', 'nl') === null);
         ok('nl in nl: a label naming Dutch leaves what follows', say('Nederlands: de missie', 'nl', 'nl') === 'de missie');
         ok('nl in nl: a number opening the line stays', say('2.000 euro per maand', 'nl', 'nl') === '2.000 euro per maand');
-        ok('nl in nl: bold markup is not read', say('**de missie**', 'nl', 'nl') === 'de missie');
+        ok('nl in nl: a number closing the line stays', say('Ik heb 2', 'nl', 'nl') === 'Ik heb 2', say('Ik heb 2', 'nl', 'nl'));
+        ok('nl in nl: a number before the full stop stays', say('Het kost 2.000 euro, niet 3.000.', 'nl', 'nl') === 'Het kost 2.000 euro, niet 3.000.', say('Het kost 2.000 euro, niet 3.000.', 'nl', 'nl'));
+        ok('nl in ru: a number before Russian text is not said', say('de pijn 3 раза', 'ru', 'nl') === 'de pijn', say('de pijn 3 раза', 'ru', 'nl'));
+        ok('nl in nl: bold markup is not read',say('**de missie**', 'nl', 'nl') === 'de missie');
         // Dutch explained in Russian: the Latin runs are the Dutch.
         ok('nl in ru: the Russian meaning is silent', say('домашнее задание', 'ru', 'nl') === null);
         ok('nl in ru: the Dutch word is said', say('het huiswerk', 'ru', 'nl') === 'het huiswerk');
@@ -189,6 +192,10 @@ try {
         // Two languages in one script cannot be told apart on a short line.
         ok('nl in en: the Dutch word is silent (same letters)', say('de werkervaring', 'en', 'nl') === null);
         ok('nl in en: the English word is silent', say('work experience', 'en', 'nl') === null);
+        // ...unless a label names the learned language: then what follows is it.
+        ok('nl in en: a line labelled Dutch says what follows', say('Nederlands: het huis', 'en', 'nl') === 'het huis', say('Nederlands: het huis', 'en', 'nl'));
+        ok('nl in en: ...without its English gloss', say('Dutch: het huis (the house)', 'en', 'nl') === 'het huis', say('Dutch: het huis (the house)', 'en', 'nl'));
+        ok('nl in en: a line labelled English stays silent', say('English: the house', 'en', 'nl') === null);
         ok('a course teaching no language says nothing', say('de werkervaring', 'nl', '') === null);
         ok('a course with no declared language says nothing', say('de werkervaring', '', 'nl') === null);
     } else ok('spokenLine exists', false);
@@ -359,6 +366,28 @@ try {
         await end(v.host, voiceB);
         ok('...and the sequence goes on to the next line', plays.at(-1) === src(sentence), JSON.stringify(plays));
         await v.unmount();
+        // A clip that failed before rejects play() with NotSupportedError and fires
+        // no error event: the sequence still falls back to the other voice.
+        const notSupported = () => Object.assign(new Error('no supported sources'), { name: 'NotSupportedError' });
+        window.HTMLMediaElement.prototype.play = function () {
+            const s = this.getAttribute('src'); plays.push(s);
+            return s === src(voiceA) ? Promise.reject(notSupported()) : Promise.resolve();
+        };
+        plays.length = 0;
+        v = await mount(card(3, { ...twoVoices, autoPlay: true }));
+        await act(async () => { await Promise.resolve(); });
+        ok('a clip that rejects as unloadable (no error event): the other voice says the line',
+            JSON.stringify(plays) === JSON.stringify([src(voiceA), src(voiceB)]), JSON.stringify(plays));
+        await v.unmount();
+        // The first failure of a source does both: rejects play() AND fires error. The fallback runs once.
+        plays.length = 0;
+        v = await mount(card(3, { ...twoVoices, autoPlay: true }));
+        await act(() => { v.host.querySelector(`audio[src="${src(voiceA)}"]`).dispatchEvent(new window.Event('error')); });
+        await act(async () => { await Promise.resolve(); });
+        ok('a rejection and an error event for one failure fall back once',
+            JSON.stringify(plays) === JSON.stringify([src(voiceA), src(voiceB)]), JSON.stringify(plays));
+        await v.unmount();
+        window.HTMLMediaElement.prototype.play = function () { plays.push(this.getAttribute('src')); return Promise.resolve(); };
         globalThis.__st.state = { ...globalThis.__st.state, a11y: { ...globalThis.__st.state.a11y, cardAudioAutoplay: false } };
         // A clip the browser refuses (autoplay policy, or paused before it began)
         // clears only its own state: the line pressed right after it keeps playing.
