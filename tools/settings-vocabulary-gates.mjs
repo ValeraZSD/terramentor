@@ -195,9 +195,13 @@ function ownOpenState(raw, file) {
 // narrow side panel on a wide screen kept it inline and squeezed the text
 // (review, 19 Nov 2026). The row is its own container (`[data-disclosure]`
 // in src/index.css); a viewport variant in the component undoes that.
+/** A Tailwind variant keyed on the window's width: a named breakpoint, its
+ *  `max-` form, or an arbitrary `min-[…]:` / `max-[…]:` one. The class after
+ *  it is kept only for the message. */
+const VIEWPORT_VARIANT = /(?<![\w-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[^\s'"`]*/g;
 function containerNotViewport(raw, file) {
     const src = blindComments(raw);
-    for (const m of src.matchAll(/(?<![\w-])(?:sm|md|lg|xl|2xl):[\w.[\]/-]+/g)) {
+    for (const m of src.matchAll(VIEWPORT_VARIANT)) {
         fail('viewport', file, lineOf(src, m.index), `\`${m[0]}\` keys the row's layout on the viewport, not the row's own width`,
             'key it on the row: a `[data-disclosure-*]` rule inside the `@container` block in src/index.css');
     }
@@ -209,14 +213,15 @@ function containerNotViewport(raw, file) {
 // assistant, so the window's width says nothing about a row's. The About and
 // This computer rows stacked their button under the text below `sm:`: on a
 // phone every one sat under its name with the right half of the card empty,
-// a row away from the Channel menu that sat on the right (his note on a
-// 412px screenshot, 27 Nov 2026). A row is a `SettingRow` (measured on its
-// own box); a field and its button wrap on a flex basis; a grid is
-// `auto-fit`.
-const SETTINGS_WIDTH_SCOPE = [...SETTINGS_SCOPE, 'src/components/OtherDevices.tsx'];
+// a row away from the Channel menu that sat on the right (review of a 412px
+// screenshot, 27 Nov 2026). A row is a `SettingRow` (measured on its own
+// box); a field and its button wrap on a flex basis; a grid is `auto-fit`.
+// This rule bans the window-width variants only: a hand-built row or a fixed
+// grid that ignores width altogether is the other rules' (and review's) job.
+const SETTINGS_WIDTH_SCOPE = [...SETTINGS_SCOPE, 'src/components/settings/**/*.tsx', 'src/components/OtherDevices.tsx'];
 function settingsFollowTheirWidth(raw, file) {
     const src = blindComments(raw);
-    for (const m of src.matchAll(/(?<![\w-])(?:sm|md|lg|xl|2xl):[\w.[\]/-]+/g)) {
+    for (const m of src.matchAll(VIEWPORT_VARIANT)) {
         fail('viewport', file, lineOf(src, m.index), `\`${m[0]}\` keys a Settings layout on the window, not on the width the row has`,
             'a row: `ui/SettingRow` (control beside the name while it fits); a field and its button: `flex flex-wrap` with the field on `flex-[1_1_12rem]`; a grid: `grid-cols-[repeat(auto-fit,minmax(…rem,1fr))]`');
     }
@@ -351,9 +356,18 @@ for (const file of files(SETTINGS_SCOPE)) {
     rowNeverWraps(src, file);
     switchesNotTicks(src, file);
 }
-for (const file of files(SETTINGS_WIDTH_SCOPE)) {
+{
+    // A glob that stopped matching would pass this rule on nothing.
+    const scanned = files(SETTINGS_WIDTH_SCOPE);
     checked++;
-    settingsFollowTheirWidth(read(file), file);
+    for (const must of ['src/components/settings/AboutSection.tsx', 'src/components/settings/ThisComputerSection.tsx',
+        'src/components/settings/connections/ConnectionsPanel.tsx', 'src/components/OtherDevices.tsx']) {
+        if (!scanned.includes(must)) fail('viewport', must, 1, 'not in the width rule\'s scan', 'fix SETTINGS_WIDTH_SCOPE');
+    }
+    for (const file of scanned) {
+        checked++;
+        settingsFollowTheirWidth(read(file), file);
+    }
 }
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
@@ -458,6 +472,18 @@ const PRE_FIX = [
         src: '        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">',
     },
     {
+        why: 'the model-install button that sat under its field on a phone with room beside it',
+        run: settingsFollowTheirWidth,
+        file: 'src/components/settings/AISettings.tsx',
+        src: '                                    <div className="flex flex-col sm:flex-row gap-2">',
+    },
+    {
+        why: 'a row hidden below a breakpoint by its `max-` form',
+        run: settingsFollowTheirWidth,
+        file: 'src/components/settings/AboutSection.tsx',
+        src: '<span className="max-sm:hidden">',
+    },
+    {
         why: 'the feed dial ticked on the left under steppers on the right',
         run: switchesNotTicks,
         file: 'src/components/settings/FeedSettingsPanel.tsx',
@@ -530,7 +556,7 @@ if (process.argv.includes('--json')) {
     // that might be asserting nothing.
     const asserts = checked + PRE_FIX.length;
     if (!findings.length && !blind.length) {
-        console.log(`  ${C.g}${asserts} passed, 0 failed${C.x} ${C.d}· nothing shouts, one disclosure shape, every disclosure named, the control on the right${C.x}`);
+        console.log(`  ${C.g}${asserts} passed, 0 failed${C.x} ${C.d}· nothing shouts, one disclosure shape, every disclosure named, the control on the right, laid out by its own width${C.x}`);
         console.log(`  ${C.d}· ${PRE_FIX.length} pre-fix shapes still caught${C.x}`);
     } else {
         console.log(`  ${asserts - findings.length - blind.length} passed, ${findings.length + blind.length} failed`);
