@@ -1967,5 +1967,43 @@ console.log('\n--- the icon the operating system reads ---');
         /program file's own icon/.test(panel));
 }
 
+console.log('\n--- the window opens on a one-time page, not a proof on the command line ---');
+{
+    // desktop/lib.js writeLaunchPage: the owner proof (server/auth.js) goes into
+    // a page in the app's own profile folder, because any account on Linux and
+    // macOS can read another's command lines.
+    const profile = mkdtempSync(join(tmpdir(), 'desktop-gates-launch-'));
+    const key = Buffer.alloc(32, 7);
+    const PROOF = 'v1.1764244800.abcdefghijklmnop.' + 'a'.repeat(64);
+    let provedFor = null;
+    const made = desktopLib.writeLaunchPage({ appUrl: 'http://127.0.0.1:3017', key, profileDir: profile, proof: (k, port) => { provedFor = [k, port]; return PROOF; } });
+    ok('a page is written, in the profile\'s launch folder', made && dirname(made.page) === join(profile, 'launch') && existsSync(made.page));
+    ok('…signed with the library\'s key for the port the app listens on', provedFor?.[0] === key && provedFor?.[1] === 3017);
+    const html = made ? readFileSync(made.page, 'utf8') : '';
+    ok('…sending the window on to the launch address with the proof', html.includes(`http://127.0.0.1:3017/api/auth/launch?proof=${PROOF}`) && /location\.replace\(/.test(html));
+    ok('…and nothing to the next page about where it came from', /<meta name="referrer" content="no-referrer">/.test(html));
+    if (process.platform !== 'win32' && made) {
+        ok('…readable by this account only', (statSync(made.page).mode & 0o077) === 0, (statSync(made.page).mode & 0o777).toString(8));
+    }
+    const args = made ? desktopLib.browserArgs(made.address, profile) : [];
+    ok('the browser\'s command line names the page, never the proof', args[0] === `--app=${made?.address}` && made.address.startsWith('file:') && !args.join(' ').includes(PROOF));
+
+    const hostile = desktopLib.launchPageHtml('http://127.0.0.1:3017/api/auth/launch?proof="></script><script>alert(1)</script>');
+    ok('an address that could end the script or the attribute is escaped', !/<\/script><script>/.test(hostile) && !/"><\/script>/.test(hostile));
+
+    // Pages are swept once their proof can no longer be spent.
+    const later = Date.now() + 6 * 60 * 1000;
+    const second = desktopLib.writeLaunchPage({ appUrl: 'http://127.0.0.1:3017', key, profileDir: profile, proof: () => PROOF, now: () => later });
+    ok('a page older than the proof\'s five minutes goes at the next launch', !existsSync(made.page) && existsSync(second.page));
+    writeFileSync(join(profile, 'launch', 'notes.txt'), 'kept');
+    desktopLib.sweepLaunchPages(join(profile, 'launch'), { now: () => later + 60 * 60 * 1000 });
+    ok('…and the sweep removes only launch pages', existsSync(join(profile, 'launch', 'notes.txt')) && !existsSync(second.page));
+
+    ok('no key: no page, and the caller opens the plain address', desktopLib.writeLaunchPage({ appUrl: 'http://127.0.0.1:3017', key: null, profileDir: profile }) === null);
+    const launcherSrc = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
+    ok('the launcher opens its window through the page', /writeLaunchPage\(\{ appUrl, key: instanceKey, profileDir \}\)/.test(launcherSrc) && /launchPage\?\.address \|\| appUrl/.test(launcherSrc));
+    rmSync(profile, { recursive: true, force: true });
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -5,12 +5,13 @@
 // bounded — so `tools/desktop-gates.mjs` can assert each decision on every
 // platform from one machine. `launcher.js` is the thin script that runs them.
 
-import { existsSync, statSync, renameSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, linkSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, statSync, renameSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, linkSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
 import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
-import { loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
+import { OWNER_PROOF_TTL_S, loadInstanceKey, newNonce, ownerProof, provesInstance } from '../server/instanceKey.js';
 import { macBundleOf } from '../server/appPlacement.js';
 
 export const APP_NAME = 'Terramentor';
@@ -424,6 +425,77 @@ export function isOurInstance(status, dataDir, platform = process.platform) {
 export function launcherInstanceKey(chosen, { env = process.env, load = loadInstanceKey } = {}) {
     if (!chosen || chosen.missing) return null;
     return load(chosen.dir ? resolve(chosen.dir) : resolveDataPaths({ env }).dataDir);
+}
+
+/** Where launch pages are written: inside the app's own browser profile, which
+ *  a Flatpak browser is granted by path (browserCommand). */
+export const LAUNCH_PAGE_FOLDER = 'launch';
+const LAUNCH_PAGE_NAME = /^launch-[0-9a-f]{16}\.html$/;
+
+/**
+ * The address the app window opens at, on a server that asks loopback callers
+ * to prove they own the library (server/auth.js `ownerProofRequired`).
+ *
+ * The proof itself is never put on the browser's command line: on Linux and
+ * macOS any account can read another's command lines (`ps`), and a one-time
+ * proof read there could be spent before the window spends it. So it goes into
+ * a small page in the app's own profile folder, readable by this account only,
+ * and the command line names only the page. The page sends the window on to
+ * GET /api/auth/launch, which takes the proof, sets the cookie and redirects
+ * to a clean "/". A Jupyter server opens its browser through such a file for
+ * the same reason.
+ *
+ * Returns `{ page, address }`: the page's path (for a default browser) and its
+ * file: address (for an app window). Null with no key, or when the page cannot
+ * be written: the caller then opens the plain address, where the app explains
+ * how to get in.
+ */
+export function writeLaunchPage({ appUrl, key, profileDir, proof = ownerProof, now = Date.now, fs = { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } } = {}) {
+    if (!key || !appUrl || !profileDir) return null;
+    let target;
+    try {
+        const url = new URL(appUrl);
+        target = `${url.origin}/api/auth/launch?proof=${encodeURIComponent(proof(key, Number(url.port) || (url.protocol === 'https:' ? 443 : 80)))}`;
+    } catch { return null; }
+    const dir = join(profileDir, LAUNCH_PAGE_FOLDER);
+    try {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        sweepLaunchPages(dir, { now, fs });
+        const page = join(dir, `launch-${randomBytes(8).toString('hex')}.html`);
+        fs.writeFileSync(page, launchPageHtml(target), { mode: 0o600, flag: 'wx' });
+        return { page, address: pathToFileURL(page).href };
+    } catch {
+        return null;
+    }
+}
+
+/** The page: go on to the launch address at once, replacing itself in the window's history. */
+export function launchPageHtml(target) {
+    // The address is ours (origin, path, a token of [A-Za-z0-9._-]), but it is
+    // written into a script and an attribute, so nothing in it may end either.
+    const safe = String(target).replace(/[^A-Za-z0-9:/?=&%._~-]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+    return [
+        '<!doctype html>',
+        '<meta charset="utf-8">',
+        '<meta name="referrer" content="no-referrer">',
+        `<meta http-equiv="refresh" content="1;url=${safe}">`,
+        `<title>${APP_NAME}</title>`,
+        `<script>location.replace(${JSON.stringify(safe)});</script>`,
+        '',
+    ].join('\n');
+}
+
+/** Remove launch pages old enough that their proof has expired. */
+export function sweepLaunchPages(dir, { now = Date.now, fs = { readdirSync, statSync, unlinkSync } } = {}) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return; }
+    for (const name of names) {
+        if (!LAUNCH_PAGE_NAME.test(name)) continue;
+        const path = join(dir, name);
+        try {
+            if (now() - fs.statSync(path).mtimeMs > OWNER_PROOF_TTL_S * 1000) fs.unlinkSync(path);
+        } catch { /* gone already */ }
+    }
 }
 
 export async function findRunningInstance({ ports, dataDir, key, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500, nonce = newNonce }) {

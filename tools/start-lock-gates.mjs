@@ -22,6 +22,7 @@ import {
     START_LOCK, START_LOCK_MAX_MS, claimStartLock, readStartLock, startLockLive, markStartLockUp,
     releaseStartLock, settleStart, pidAlive, autostartPlan,
 } from '../desktop/lib.js';
+import { INSTANCE_KEY_FILE, OWNER_PROOF_HEADER, ownerProof, readInstanceKeyFile } from '../server/instanceKey.js';
 import { scratchApp } from './lib/scratchApp.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -361,7 +362,11 @@ try {
         if (servers.length === 0 || failures) console.log(`--- launcher A ---\n${a.out}\n--- launcher B ---\n${b.out}`);
         const url = servers[0]?.out.match(/Serving at (\S+)/)?.[1];
         if (url) {
-            try { await fetch(`${url}/api/desktop/quit`, { method: 'POST' }); } catch { /* killed below */ }
+            // The desktop server answers this computer's owner only (server/auth.js):
+            // the quit carries a proof made with the library's key, as the launcher's own does.
+            const key = readInstanceKeyFile(join(dataDir, INSTANCE_KEY_FILE));
+            const headers = key ? { [OWNER_PROOF_HEADER]: ownerProof(key, Number(new URL(url).port)) } : {};
+            try { await fetch(`${url}/api/desktop/quit`, { method: 'POST', headers }); } catch { /* killed below */ }
             await Promise.race([servers[0].done, new Promise((r) => setTimeout(r, 10_000))]);
             check('the server releases its lock when it stops', existsSync(lockIn(dataDir)), false);
         }
