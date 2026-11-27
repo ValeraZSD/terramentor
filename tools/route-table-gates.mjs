@@ -189,12 +189,15 @@ ok('no route is answered first by an earlier one', shadowed.length === 0, shadow
 }
 
 // The desktop launcher's process: the probe becomes a router with a heartbeat,
-// both public, and the controls (quit, library) stay behind the check.
+// both public, and the controls (quit, library) stay behind the check. The
+// launcher's file hand-off is public too: it answers only a proof made under
+// the library's key (server/openedFiles.js), and the file itself is fetched
+// behind the check.
 process.env.TERRAMENTOR_DESKTOP = '1';
 const desktopApp = createApp();
 const desktopOpen = publicOf(desktopApp);
-ok('under the desktop launcher the public list gains only the heartbeat',
-    JSON.stringify(desktopOpen) === JSON.stringify([...PUBLIC, 'POST /api/desktop/ping'].sort()),
+ok('under the desktop launcher the public list gains only the heartbeat and the key-proved file hand-off',
+    JSON.stringify(desktopOpen) === JSON.stringify([...PUBLIC, 'POST /api/desktop/ping', 'POST /api/desktop/open-file'].sort()),
     (desktopOpen || []).filter((k) => !PUBLIC.includes(k)).join(', '));
 ok('…and its routes are not shadowed either', shadowedIn(desktopApp).length === 0, shadowedIn(desktopApp).join('; '));
 ok('still no socket', listens === 0);

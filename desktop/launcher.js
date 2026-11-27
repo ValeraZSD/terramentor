@@ -22,6 +22,8 @@
 // Flags:  --data-dir <dir>   --port <n>   --no-window   --check (start, verify, quit)
 //         --autostart  this run came from the login item, so whether a window
 //                      opens is the stored preference rather than a given.
+//         --open <file>, or the file as a bare argument: a `.studyvault` to show
+//                      in the window, ready to add (desktop/lib.js `openRequest`).
 
 import { existsSync, appendFileSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
@@ -34,6 +36,7 @@ import {
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
     whenStarted, START_LOCK, settleStart, markStartLockUp, releaseStartLock,
+    openRequest, registerOpenFile, openFileUrl, installedBySetup, uninstallVersionUpdate, UNINSTALL_KEY,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
@@ -84,6 +87,17 @@ const autostart = has('--autostart');
 /* Set by the Windows tray host (desktop/wrappers/Launcher.cs), which is the
  * only thing that can hold this app without a window on screen. */
 const trayHosted = process.env.TERRAMENTOR_TRAY === '1';
+/* A course file to show in the window. Resolved against the folder the person
+ * started from: the wrappers change into the app folder before they start
+ * this, and say where they were in TERRAMENTOR_CWD. Only a run that opens a
+ * window has anywhere to show it. */
+const opening = (() => {
+    const asked = wantWindow ? openRequest(argv) : null;
+    return asked ? resolve(process.env.TERRAMENTOR_CWD || process.cwd(), asked) : null;
+})();
+delete process.env.TERRAMENTOR_CWD;
+/** Whether the Windows installer put this copy in place (desktop/installer/). */
+const installed = packaged && process.platform === 'win32' && installedBySetup(appRoot);
 
 // --- data directory -----------------------------------------------------------
 const chosen = chooseDataDir({
@@ -394,7 +408,8 @@ function openDefault(url) {
 // opens, so an update (a new folder) moves it — see startMenuShortcutAction. A
 // person who deleted the shortcut is not given it again.
 function ensureStartMenuShortcut() {
-    if (process.platform !== 'win32' || !packaged || !chosen.dir) return;
+    // An installed copy has the installer's entry, which its uninstaller removes.
+    if (process.platform !== 'win32' || !packaged || !chosen.dir || installed) return;
     const marker = join(chosen.dir, 'start-menu-shortcut.created');
     const exe = join(appRoot, `${APP_NAME}.exe`);
     const cmd = join(appRoot, `${APP_NAME}.cmd`);
@@ -420,6 +435,43 @@ function ensureStartMenuShortcut() {
         });
         child.on('error', () => { /* no PowerShell: no shortcut, no problem */ });
     } catch { /* cosmetic */ }
+}
+
+// --- the installed copy's entry in Windows' list of apps -----------------------------
+// A one-click update replaces the app without the installer, so the entry it
+// wrote would go on naming the version that was installed. Brought up to date
+// here, after each start; `reg` touches only the one value under the current
+// user, and an entry that is not there (a zip copy) is never made.
+function refreshUninstallEntry() {
+    if (!installed) return;
+    let version;
+    try { version = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version; } catch { return; }
+    try {
+        const query = spawn('reg.exe', ['query', UNINSTALL_KEY, '/v', 'DisplayVersion'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        let out = '';
+        query.stdout.on('data', (d) => { out += d; });
+        query.on('error', () => { /* no reg.exe: the entry keeps its number */ });
+        query.on('exit', (code) => {
+            const update = uninstallVersionUpdate(code === 0 ? out : null, version);
+            if (!update) return;
+            const add = spawn(update.cmd, update.args, { stdio: 'ignore', windowsHide: true });
+            add.on('error', () => { /* cosmetic */ });
+            add.on('exit', (c) => { if (c === 0) console.log(`Windows' list of apps now names version ${version}`); });
+        });
+    } catch { /* cosmetic */ }
+}
+
+/** Where the window opens: on the file this launch was asked to open, once the
+ *  server at `url` (listening on `port`) holds it, else the app's front page. */
+async function windowAddress(url, port) {
+    if (!opening) return url;
+    const answer = await registerOpenFile({ url, port, key: instanceKey, path: opening });
+    if (answer.token) {
+        console.log(`Opening ${basename(opening)} in the window`);
+        return openFileUrl(url, answer.token);
+    }
+    console.warn(`Could not open ${basename(opening)}: ${answer.error}`);
+    return url;
 }
 
 // --- installing an update -------------------------------------------------------------
@@ -521,12 +573,13 @@ async function finishInterruptedSwap() {
             // the one that counts — the icon on screen belongs to THAT process.
             // …and when this launch waited for that server's start, the start
             // that opened a window already answered the click this one is.
-            const show = !settled.openedByHolder && shouldOpenWindow({
+            // A file to open always gets a window: that is where it is shown.
+            const show = opening != null || (!settled.openedByHolder && shouldOpenWindow({
                 wantWindow,
                 autostart,
                 autostartWindow: running.status?.autostartWindow || DEFAULT_AUTOSTART_WINDOW,
                 trayHosted: running.status?.trayHosted === true,
-            });
+            }));
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : settled.openedByHolder ? ' — its start opened the window' : ''}`);
             // Waited for: whenStarted hears `spawn`/`error` on process.nextTick,
             // and on macOS the answer is `open`'s exit, a moment later. Exiting
@@ -536,7 +589,8 @@ async function finishInterruptedSwap() {
             // timer is what keeps it alive until then (the child is unref'd).
             if (show) {
                 let bound;
-                await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => { bound = setTimeout(r, 15_000); })]);
+                const address = await windowAddress(running.url, running.port);
+                await Promise.race([openWindow(address, running.status?.windowMode), new Promise((r) => { bound = setTimeout(r, 15_000); })]);
                 clearTimeout(bound);
             }
             // Ended by running out of work, not process.exit: on Windows an
@@ -672,8 +726,8 @@ async function finishInterruptedSwap() {
             if (status?.windowMode) mode = status.windowMode;
             if (status?.autostartWindow) autostartWindow = status.autostartWindow;
         } catch { /* a preference, not a requirement */ }
-        if (shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })) {
-            openWindow(ready.url, mode);
+        if (opening != null || shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })) {
+            openWindow(await windowAddress(ready.url, Number(new URL(ready.url).port)), mode);
             openedWindow = true;
         } else {
             // The tray host watches this stream for exactly this line and says,
@@ -686,4 +740,5 @@ async function finishInterruptedSwap() {
     // only if this one did not.
     markStartLockUp(startLockFile, startLockToken, { window: openedWindow });
     ensureStartMenuShortcut();
+    refreshUninstallEntry();
 })();

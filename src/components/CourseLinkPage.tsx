@@ -1,5 +1,6 @@
 // src/components/CourseLinkPage.tsx
-// The page a course link opens: the course it holds, in its own colour, with
+// The page a course link opens (and a course file opened from the computer's
+// file manager, in the desktop app): the course it holds, in its own colour, with
 // what is inside (counts, the first card, every topic) and one button. A full
 // page rather than a dialog over the list: someone who opened a link sent to
 // them came for this one course, and on a phone a box floating over a page
@@ -14,7 +15,9 @@ import { useStudyClock } from '../hooks/useStudyClock';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { courseFileOf, outlineOf, shown, type CourseOutline } from '../utils/courseOutline';
 import { courseFromText } from '../utils/courseLink';
+import { readCourseBundle } from '../utils/courseBundle';
 import { installedEditionOf } from '../utils/projectFiles';
+import { api } from '../api';
 import type { CourseUpdatePreview } from '../types';
 import { ProjectIcon, iconName } from './ProjectIcon';
 import { Button, IconButton } from './ui/Button';
@@ -33,16 +36,48 @@ export interface LinkedCourse {
     outline: CourseOutline;
     file: File;
     have: 'new' | { projectId: number } | CourseUpdatePreview;
+    /** What it came in: a link, or a course file the desktop app was asked to open. */
+    from: 'link' | 'file';
 }
 
 /** Reads the course a link carries and asks the library whether it holds it.
  *  Throws `CourseLinkError` (or any error) for a link that cannot be read. */
 export async function readLinkedCourse(text: string): Promise<LinkedCourse> {
     const data = await courseFromText(text);
+    return courseOf(data, courseFileOf(data), 'link');
+}
+
+/** What a course file the desktop app was asked to open holds: one course, or
+ *  a whole library (`count` courses), with the file itself for the importer.
+ *  Throws `CourseLinkError` for a file that cannot be read, or an Error with
+ *  the server's words when the file is no longer waiting. */
+export function readOpenedFile(token: string): Promise<LinkedCourse | { library: number; file: File }> {
+    // Read once per token: the server hands the file out once, and the list
+    // offers a waiting file again each time it shows.
+    let read = openedReads.get(token);
+    if (!read) {
+        read = (async () => {
+            const file = await api.openedFile(token);
+            const held = await readCourseBundle(file);
+            // The file itself goes to the importer: a .studyvault also carries
+            // its documents and card media, which the manifest alone does not.
+            return held.kind === 'library' ? { library: held.count, file } : courseOf(held.data, file, 'file');
+        })();
+        openedReads.set(token, read);
+    }
+    return read;
+}
+const openedReads = new Map<string, ReturnType<typeof readOpenedFile>>();
+/** Lets go of a file read for its page once the page is gone: the file can be
+ *  as large as the import takes, and its token is spent anyway. */
+export function forgetOpenedFile(token: string): void {
+    openedReads.delete(token);
+}
+
+async function courseOf(data: { project: { name: string }; nodes: unknown[] }, file: File, from: LinkedCourse['from']): Promise<LinkedCourse> {
     const project = data.project as Record<string, unknown>;
     // Shown, not stored: the importer reads the name from the file.
     const name = shown(project.name, 200);
-    const file = courseFileOf(data);
     // A course the library already has is offered to open, not to add again.
     const edition = await installedEditionOf(file).catch(() => null);
     const have: LinkedCourse['have'] = !edition?.match ? 'new'
@@ -59,6 +94,7 @@ export async function readLinkedCourse(text: string): Promise<LinkedCourse> {
         outline: outlineOf(data.nodes),
         file,
         have,
+        from,
     };
 }
 
@@ -149,7 +185,9 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                                 </p>
                                 {have !== 'new' && (
                                     <p className="mt-2 text-base font-medium text-slate-900 dark:text-white">
-                                        {known ? t("You already have this course.") : t("This link holds a newer edition of a course you have.")}
+                                        {known ? t("You already have this course.")
+                                            : course.from === 'file' ? t("This file holds a newer edition of a course you have.")
+                                            : t("This link holds a newer edition of a course you have.")}
                                     </p>
                                 )}
                                 {outline.firstCard && (

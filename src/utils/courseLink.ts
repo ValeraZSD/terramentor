@@ -54,7 +54,8 @@ function fromBase64Url(text: string): Uint8Array {
     return bytes;
 }
 
-async function readAll(stream: ReadableStream<Uint8Array>, cap: number): Promise<Uint8Array> {
+/** All of `stream`, refused as 'too-large' the moment it passes `cap` bytes. */
+export async function readAll(stream: ReadableStream<Uint8Array>, cap: number): Promise<Uint8Array> {
     const reader = stream.getReader();
     const parts: Uint8Array[] = [];
     let size = 0;

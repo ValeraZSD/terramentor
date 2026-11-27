@@ -11,8 +11,23 @@
 // A link opened in a tab where the app already runs changes only the part
 // after `#`, which reloads nothing, so `hashchange` takes it the same way and
 // tells the screens that offer it.
+//
+// The desktop app opens a course FILE the same way: a .studyvault double-clicked
+// in the file manager reaches the running app (desktop/launcher.js), which
+// opens a window at `#open-file=<token>`. The token names the file for one read
+// (GET /api/desktop/opened-file/:token, server/openedFiles.js); the path itself
+// never reaches an address.
 
 import { packedCourseIn } from './courseLink';
+
+/** The desktop app's `#open-file=<token>` (OPEN_FILE_PARAM in desktop/lib.js). */
+const OPEN_FILE = /^#open-file=([0-9a-f]{64})$/;
+
+/** The token of an opened course file, when `link` is one rather than a course link. */
+export function openedFileToken(link: string | null): string | null {
+    const hash = link?.indexOf('#') ?? -1;
+    return hash < 0 ? null : OPEN_FILE.exec(link!.slice(hash))?.[1] ?? null;
+}
 
 const KEY = 'opened-course-link';
 /** Set for the rest of this tab once a link opened the app: the welcome waits for a later visit. */
@@ -28,9 +43,9 @@ let arrived = false;
  * rather than a run of letters. True when there was one.
  */
 export function keepOpenedCourseLink(): boolean {
-    // Only a `<format>.<data>` link counts: a stray `#course=x` neither moves
-    // the welcome aside nor opens the dialog.
-    if (!/^\d+\./.test(packedCourseIn(window.location.hash) ?? '')) return false;
+    // Only a `<format>.<data>` link or a whole file token counts: a stray
+    // `#course=x` neither moves the welcome aside nor opens the dialog.
+    if (!OPEN_FILE.test(window.location.hash) && !/^\d+\./.test(packedCourseIn(window.location.hash) ?? '')) return false;
     held = window.location.href;
     arrived = true;
     try {

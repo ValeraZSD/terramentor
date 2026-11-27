@@ -2,8 +2,8 @@
 
 Terramentor runs as a desktop program on Windows, macOS and Linux: download a
 zip, unpack it, double-click (on a Mac, drag the app into Applications first).
-The app carries its own runtime, so your machine needs nothing else, and there
-is no account.
+On Windows an installer is the other way in. The app carries its own runtime,
+so your machine needs nothing else, and there is no account.
 
 This page is for two readers: someone running it, and someone changing how it
 is built. The first half is for the first reader.
@@ -18,7 +18,7 @@ anywhere you like: your Downloads folder, `C:\Apps`, a USB stick.
 |---------|------------------------------------------------------------------------------------|
 | Windows | `Terramentor.exe` (`Terramentor.cmd` does the same with a console, for diagnosing) |
 | macOS   | `Terramentor.app`, dragged into Applications first (Apple Silicon Macs)            |
-| Linux   | `./terramentor.sh`; run `./install-desktop-entry.sh` once for a menu entry         |
+| Linux   | `./terramentor.sh`; run `./install-desktop-entry.sh` once for a menu entry that also opens course files |
 
 The app opens in its own window. On macOS and Linux closing the window stops the app; on
 Windows the notification-area icon keeps it running (see below). Opening it
@@ -28,6 +28,35 @@ another window on the same library rather than a second copy of the app.
 **Windows** may show a SmartScreen warning the first time ("Windows protected
 your PC") because the launcher is not code-signed. *More info → Run anyway*.
 The first start also adds a Start Menu shortcut.
+
+**Windows has two downloads.** Beside the zip is
+`Terramentor-<version>-win32-x64-setup.exe`, an installer:
+
+- It installs the app for your account only, with no administrator, into
+  `%LOCALAPPDATA%\Programs\Terramentor`. It adds the app to the Start menu and
+  to the list of installed apps in Windows Settings, where you uninstall it,
+  and makes `.studyvault` course files open in the app by double-click.
+- The installed app still updates itself in one click, like the zip.
+- Uninstalling removes the app, its Start menu entry and the file type. Your
+  library (below) stays where it is, and so does a portable `data` folder.
+- An older installer run over a newer installed copy changes nothing: an older
+  version may not open a library the newer one has already updated.
+
+The installer is unsigned too, so SmartScreen asks the same way. The zip stays
+the portable copy: unpack it anywhere, a USB stick included. It writes nothing
+to the registry and adds no file type.
+
+### Opening a course file
+
+A `.studyvault` course file opens in the app from the file manager: by
+double-click once the Windows installer has added the file type, with *Open
+with* once `./install-desktop-entry.sh` has run on Linux, or dropped on
+`Terramentor.exe`. A running copy shows it in its window; otherwise the app
+starts first. The window shows the course before anything happens: its name,
+its topics and its first card, with one button to add it. Nothing is added
+until you press it. A file holding a whole library asks first; a newer edition
+of a course you have offers its update. macOS does not open course files from
+Finder yet: use *New course → Import* there.
 
 **macOS**: the zip holds `Terramentor.app` and a README. Drag the app into
 Applications and open it from there. The app is not notarized, so the first

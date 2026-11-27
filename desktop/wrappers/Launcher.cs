@@ -30,7 +30,14 @@
 // It runs in both directions: if this program dies, the pipe closes and the
 // server goes with it, so a killed tray icon cannot leave an orphan holding the
 // port.
+//
+// A course file double-clicked in Explorer arrives as `--open "<path>"` (the
+// file type desktop/installer/Terramentor.iss registers), and one dropped on the
+// program as a bare path. The show signal carries no data, so a second copy
+// that was handed a file starts the launcher script with it instead, and the
+// script hands the file to the running server (desktop/launcher.js).
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -60,6 +67,11 @@ static class Launcher
             return 2;
         }
 
+        // The file to open, if any, comes out of the arguments: they are passed
+        // on to every later start, and the file is opened once.
+        string opening;
+        string[] rest = SplitOpenRequest(args, out opening);
+
         // Keyed on the install folder so two portable copies are two apps. A
         // hand-rolled FNV-1a rather than string.GetHashCode(), which is only
         // stable within one runtime's lifetime and is documented not to be a
@@ -70,6 +82,11 @@ static class Launcher
         Mutex single = new Mutex(true, "Local\\" + APP + ".instance." + key, out first);
         if (!first)
         {
+            if (opening != null)
+            {
+                StartHidden(node, script, root, rest, opening);
+                return 0;
+            }
             try
             {
                 EventWaitHandle wake = EventWaitHandle.OpenExisting("Local\\" + APP + ".show." + key);
@@ -84,16 +101,92 @@ static class Launcher
             return 0;
         }
 
+        // What the installer and its uninstaller look for (AppMutex in
+        // desktop/installer/Terramentor.iss) before they replace or remove files
+        // this program runs from. Not keyed on the folder: the installer cannot
+        // compute the key, and any running copy holds the shared library open.
+        Mutex running = new Mutex(false, "Local\\" + APP + ".running");
+
         Application.EnableVisualStyles();
-        TrayApp app = new TrayApp(root, node, script, key, args);
+        TrayApp app = new TrayApp(root, node, script, key, rest, opening);
         if (!app.Started)
         {
             app.Dispose();
             return 1;
         }
         Application.Run(app);
-        GC.KeepAlive(single);   // the mutex must outlive the message loop
+        GC.KeepAlive(single);   // the mutexes must outlive the message loop
+        GC.KeepAlive(running);
         return 0;
+    }
+
+    /**
+     * The arguments without the file this start was asked to open, which comes
+     * back in `opening` as a full path (null when there is none). The same rule
+     * as desktop/lib.js `openRequest`: `--open <path>` wins, else the first
+     * argument that is neither a flag nor the value of one.
+     */
+    public static string[] SplitOpenRequest(string[] args, out string opening)
+    {
+        List<string> rest = new List<string>();
+        string named = null, bare = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            string a = args[i];
+            if (a == "--open")
+            {
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal)) continue;
+                if (named == null && args[i + 1].Length > 0) named = args[i + 1];
+                i++;
+                continue;
+            }
+            if (a == "--data-dir" || a == "--port")
+            {
+                rest.Add(a);
+                if (i + 1 < args.Length) rest.Add(args[i + 1]);
+                i++;
+                continue;
+            }
+            if (a.StartsWith("--", StringComparison.Ordinal) || a.Length == 0) { rest.Add(a); continue; }
+            // A file is opened once: one more (two files dropped on the program)
+            // is not passed on, or every later "Open" would offer it again.
+            if (bare == null) bare = a;
+        }
+        string asked = named != null ? named : bare;
+        opening = null;
+        if (asked != null)
+        {
+            try { opening = Path.GetFullPath(asked); }
+            catch (Exception) { /* not a path this system can name: nothing to open */ }
+        }
+        return rest.ToArray();
+    }
+
+    /**
+     * Run the launcher script hidden and detached with these arguments (and the
+     * file to open, when there is one). It finds the server on this library by
+     * itself, so this program never has to learn a port, and exits as soon as
+     * the window is up.
+     */
+    public static void StartHidden(string node, string script, string root, string[] args, string opening)
+    {
+        string quoted = Launcher.QuoteArg(script);
+        for (int i = 0; i < args.Length; i++)
+        {
+            // --autostart describes how the APP started, not this request. A
+            // person clicking "Open" is asking for a window whatever the
+            // sign-in preference says.
+            if (args[i] == "--autostart") continue;
+            quoted += " " + Launcher.QuoteArg(args[i]);
+        }
+        if (opening != null) quoted += " --open " + Launcher.QuoteArg(opening);
+        ProcessStartInfo psi = new ProcessStartInfo(node, quoted);
+        psi.WorkingDirectory = root;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        psi.WindowStyle = ProcessWindowStyle.Hidden;
+        try { Process.Start(psi); }
+        catch (Exception) { /* the tray icon is still there to try again */ }
     }
 
     /** FNV-1a over the lower-cased path, as eight hex digits. */
@@ -149,6 +242,8 @@ class TrayApp : ApplicationContext
 {
     readonly string root, node, script, key;
     readonly string[] passthrough;
+    /** The file the first start shows, handed to the server's launcher only. */
+    readonly string opening;
     readonly NotifyIcon tray;
     readonly EventWaitHandle showSignal;
     readonly System.Windows.Forms.Timer pulse;
@@ -165,13 +260,14 @@ class TrayApp : ApplicationContext
      *  message arrived down the pipe. */
     public bool Started { get { return server != null; } }
 
-    public TrayApp(string root, string node, string script, string key, string[] passthrough)
+    public TrayApp(string root, string node, string script, string key, string[] passthrough, string opening)
     {
         this.root = root;
         this.node = node;
         this.script = script;
         this.key = key;
         this.passthrough = passthrough;
+        this.opening = opening;
 
         showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + Launcher.APP + ".show." + key);
 
@@ -224,6 +320,7 @@ class TrayApp : ApplicationContext
     {
         string quoted = Launcher.QuoteArg(script);
         for (int i = 0; i < passthrough.Length; i++) quoted += " " + Launcher.QuoteArg(passthrough[i]);
+        if (opening != null) quoted += " --open " + Launcher.QuoteArg(opening);
 
         ProcessStartInfo psi = new ProcessStartInfo(node, quoted);
         psi.WorkingDirectory = root;
@@ -333,30 +430,10 @@ class TrayApp : ApplicationContext
         OpenWindow();
     }
 
-    /**
-     * Show the window. The running server is found by the launcher script
-     * itself, which knows the data directory, probes the ports it could be on
-     * and opens a window at the one that answers — so this program never has to
-     * learn a port. Hidden and detached: it exits as soon as the window is up.
-     */
+    /** Show the window, through the launcher script (Launcher.StartHidden). */
     void OpenWindow()
     {
-        string quoted = Launcher.QuoteArg(script);
-        for (int i = 0; i < passthrough.Length; i++)
-        {
-            // --autostart describes how the APP started, not this request. A
-            // person clicking "Open" is asking for a window whatever the
-            // sign-in preference says.
-            if (passthrough[i] == "--autostart") continue;
-            quoted += " " + Launcher.QuoteArg(passthrough[i]);
-        }
-        ProcessStartInfo psi = new ProcessStartInfo(node, quoted);
-        psi.WorkingDirectory = root;
-        psi.UseShellExecute = false;
-        psi.CreateNoWindow = true;
-        psi.WindowStyle = ProcessWindowStyle.Hidden;
-        try { Process.Start(psi); }
-        catch (Exception) { /* the tray icon is still there to try again */ }
+        Launcher.StartHidden(node, script, root, passthrough, null);
     }
 
     /**

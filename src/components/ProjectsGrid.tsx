@@ -10,6 +10,7 @@
 import {
     useState,
     useEffect,
+    useEffectEvent,
     useCallback,
     useRef,
 } from 'react';
@@ -33,7 +34,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import CourseLinkPage, { readLinkedCourse, type LinkedCourse } from './CourseLinkPage';
+import CourseLinkPage, { forgetOpenedFile, readLinkedCourse, readOpenedFile, type LinkedCourse } from './CourseLinkPage';
+import { CourseLinkError } from '../utils/courseLink';
 import { useCourseFileImport } from '../hooks/useCourseFileImport';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -46,7 +48,7 @@ import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
-import { forgetOpenedCourseLink, onOpenedCourseLink, openedCourseLink } from '../utils/openedCourseLink';
+import { forgetOpenedCourseLink, onOpenedCourseLink, openedCourseLink, openedFileToken } from '../utils/openedCourseLink';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
@@ -86,6 +88,7 @@ export default function ProjectsGrid() {
     const setProjects = useStore(s => s.setProjects);
     const loadProjects = useStore(s => s.loadProjects);
     const addToast = useStore(s => s.addToast);
+    const showConfirm = useStore(s => s.showConfirm);
     const aiTasks = useStore(s => s.aiTasks);
 
     const [showCreate, setShowCreate] = useState(false);
@@ -182,6 +185,9 @@ export default function ProjectsGrid() {
         navigate(location.pathname, { replace: true, state: null });
     }, [location.state, location.pathname, navigate]);
 
+    // A file opened while the list shows is offered with this render's words and
+    // import, not those of the render that subscribed.
+    const offerFileNow = useEffectEvent((token: string, link: string) => offerFile(token, link));
     // Read, not spent: if this page is left before the course page closes (the
     // welcome's last step moves on), the app comes back here and offers it again.
     // A link opened in this tab while the list shows offers itself the same way.
@@ -194,6 +200,11 @@ export default function ProjectsGrid() {
             setDraft(null);
             setCourseLink(null);
             setLinkPage({ link, course: null });
+            const token = openedFileToken(link);
+            if (token) {
+                offerFileNow(token, link);
+                return;
+            }
             readLinkedCourse(link).then(
                 course => { if (pageLink.current === link) setLinkPage({ link, course }); },
                 () => {
@@ -210,9 +221,42 @@ export default function ProjectsGrid() {
     }, []);
 
     const closeLinkPage = () => {
+        const token = openedFileToken(pageLink.current);
+        if (token) forgetOpenedFile(token);
         pageLink.current = null;
         setLinkPage(null);
         forgetOpenedCourseLink();
+    };
+    // A course file the desktop app was asked to open: one course shows on the
+    // same page as a link's; a whole library is asked about first. Nothing is
+    // added until a press. A file that cannot be read says why and is let go:
+    // there is no field to correct it in, as there is for a link.
+    const fileProblem = (e: unknown): string => {
+        if (!(e instanceof CourseLinkError)) return e instanceof Error ? e.message : String(e);
+        if (e.problem === 'too-large') return t("This course is too large to open.");
+        if (e.problem === 'unsupported') return t("This browser cannot read course files. Update it, then open the file again.");
+        if (e.problem === 'not-a-course') return t("This file holds no course.");
+        return t("This file is damaged, or not a course file.");
+    };
+    const offerFile = (token: string, link: string) => {
+        readOpenedFile(token).then(
+            async read => {
+                if (pageLink.current !== link) return;
+                if (!('library' in read)) { setLinkPage({ link, course: read }); return; }
+                closeLinkPage();
+                const add = await showConfirm({
+                    title: t("Add the courses in this file?"),
+                    message: t("It holds a whole library of {{count}} courses. Each is added as a course of its own.", { count: read.library }),
+                    confirmLabel: t("Add"),
+                });
+                if (add) void importFile(read.file, () => {});
+            },
+            e => {
+                if (pageLink.current !== link) return;
+                closeLinkPage();
+                addToast('error', t("Cannot open this file"), fileProblem(e));
+            },
+        );
     };
     const actOnLink = () => {
         const course = linkPage?.course;

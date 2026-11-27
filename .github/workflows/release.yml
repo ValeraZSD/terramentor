@@ -63,6 +63,8 @@ on:
       - tools/release.mjs
       - tools/lib/releaseChannel.mjs
       - tools/build-desktop.mjs
+      - tools/build-installer.mjs
+      - tools/installer-check.mjs
       - tools/macos-open-check.sh
       - tools/first-visit-smoke.sh
       - Dockerfile
@@ -429,6 +431,35 @@ jobs:
       - name: Package within its size budget
         run: node tools/perf-budget-gates.mjs --package release/*.zip
         shell: bash
+      # The Windows installer, around the same app folder the zip holds
+      # (desktop/installer/Terramentor.iss). Inno Setup is not on the runner
+      # image: it comes from its own project's GitHub release, held to the
+      # digest pinned here, into a folder of this run's own. Then the setup is
+      # installed on this runner's own account as a person would, reinstalled,
+      # refused when older, and removed (tools/installer-check.mjs): a setup
+      # that fails any of them never reaches the release.
+      - name: Fetch Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url  = 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_4/innosetup-6.7.4.exe'
+          $want = 'a549929319f9120716677c685535ca4671e4b937b5fdc87e2585f32d8eb30e8c'
+          $exe  = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.4.exe'
+          $dir  = Join-Path $env:RUNNER_TEMP 'innosetup'
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          $got = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          if ($got -ne $want) { throw "innosetup-6.7.4.exe is $got, not the pinned $want" }
+          $p = Start-Process -FilePath $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/CURRENTUSER',"/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "the Inno Setup install ended with $($p.ExitCode)" }
+          "ISCC=$(Join-Path $dir 'ISCC.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build the Windows installer
+        if: runner.os == 'Windows'
+        run: node tools/build-installer.mjs
+      - name: Install, reinstall and uninstall it
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        run: node tools/installer-check.mjs release/Terramentor-*-win32-x64-setup.exe
+        shell: bash
       # The macOS package opened as a person opens it: the bundle copied on its
       # own out of the unpacked zip, started through LaunchServices, marked as
       # downloaded, then not, then read-only (tools/macos-open-check.sh).
@@ -445,7 +476,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.os }}
-          path: release/*.zip
+          path: |
+            release/*.zip
+            release/*-setup.exe
           if-no-files-found: error
 
   # The job that signs and publishes runs in its channel's GitHub environment,
@@ -540,6 +573,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             release/*.zip
+            release/*-setup.exe
             release/SHA256SUMS
             release/manifest.json
             release/manifest.json.sig
@@ -641,4 +675,6 @@ jobs:
           merge-multiple: true
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release/*.zip
+          subject-path: |
+            release/*.zip
+            release/*-setup.exe

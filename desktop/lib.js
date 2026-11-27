@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
 import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
-import { loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
+import { loadInstanceKey, newNonce, openFileProof, provesInstance } from '../server/instanceKey.js';
 import { macBundleOf } from '../server/appPlacement.js';
 
 export const APP_NAME = 'Terramentor';
@@ -454,6 +454,107 @@ export async function findRunningInstance({ ports, dataDir, key, fetchImpl = glo
 
 export function portRange(start = DEFAULT_PORT, count = PORT_ATTEMPTS) {
     return Array.from({ length: count }, (_, i) => start + i);
+}
+
+// --- opening a course file ------------------------------------------------------
+// A `.studyvault` double-clicked in the file manager reaches the launcher as an
+// argument: `--open <path>` from the Windows file type the installer registers,
+// a bare path from the Linux menu entry's `%f` or from a file dropped on the
+// program. The launcher registers it with the server under the library's key
+// and opens the window on a token for it (server/openedFiles.js says why the
+// window never gets the path).
+
+/** Flags whose next argument is their value, never a file to open. */
+const VALUE_FLAGS = new Set(['--data-dir', '--port', '--open']);
+
+/** The file this launch was asked to open, or null. `--open <path>` wins; else
+ *  the first argument that is neither a flag nor a flag's value. A flag right
+ *  after `--open` stays a flag. desktop/wrappers/Launcher.cs `SplitOpenRequest`
+ *  is the same rule, and tools/open-file-gates.mjs holds the two together. */
+export function openRequest(argv) {
+    let named = null, bare = null;
+    for (let i = 0; i < argv.length; i++) {
+        const a = argv[i];
+        if (a === '--open') {
+            const value = argv[i + 1];
+            if (typeof value !== 'string' || value.startsWith('--')) continue;
+            if (named == null && value) named = value;
+            i++;
+            continue;
+        }
+        if (VALUE_FLAGS.has(a)) { i++; continue; }
+        if (a.startsWith('--')) continue;
+        if (bare == null && a) bare = a;
+    }
+    return named ?? bare;
+}
+
+/** The fragment the window opens with: read by the page (src/utils/openedCourseLink.ts), never sent to the server. */
+export const OPEN_FILE_PARAM = 'open-file';
+
+export function openFileUrl(url, token) {
+    return `${url.replace(/\/+$/, '')}/#${OPEN_FILE_PARAM}=${token}`;
+}
+
+/**
+ * Register `path` with the server at `url` (listening on `port`) and return
+ * `{ token }`, or `{ error }` saying why not. The proof is made under `key`,
+ * the library's instance key, which the server checks before it looks at the
+ * path at all.
+ */
+export async function registerOpenFile({ url, port, key, path, fetchImpl = globalThis.fetch, nonce = newNonce, timeoutMs = 5000 }) {
+    if (!key) return { error: 'no instance key to prove the request with' };
+    if (!path) return { error: 'no file' };
+    const challenge = nonce();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const res = await fetchImpl(`${url.replace(/\/+$/, '')}/api/desktop/open-file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, nonce: challenge, proof: openFileProof(key, challenge, port, path) }),
+            signal: ctrl.signal,
+        });
+        const body = await res.json().catch(() => null);
+        if (res.ok && typeof body?.token === 'string' && /^[0-9a-f]{64}$/.test(body.token)) return { token: body.token };
+        return { error: typeof body?.error === 'string' ? body.error : `the server answered ${res.status}` };
+    } catch (e) {
+        return { error: e?.message || String(e) };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// --- a copy the Windows installer put in place ---------------------------------------
+// desktop/installer/Terramentor.iss installs the same folder the zip holds into
+// %LOCALAPPDATA%\Programs\Terramentor, with its uninstaller in a folder of its
+// own inside it. No release's file list names that folder, so a one-click
+// update (desktop/updater.js) swaps the app around it and leaves it alone.
+
+/** The installer's folder inside the app folder. */
+export const SETUP_DIR = 'uninstall';
+/** The installer's AppId: its uninstall entry is `{<id>}_is1` under the current user. */
+export const SETUP_APP_ID = 'FAB61417-9642-4E5C-81D3-61B06762DEB7';
+export const UNINSTALL_KEY = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{${SETUP_APP_ID}}_is1`;
+
+/** Whether the copy in `appRoot` was put there by the installer. */
+export function installedBySetup(appRoot, { exists = existsSync } = {}) {
+    return exists(join(appRoot, SETUP_DIR, 'unins000.exe'));
+}
+
+/**
+ * The `reg` command that brings the uninstall entry's version up to `version`,
+ * or null when it already says that or there is no entry. `queried` is what
+ * `reg query <UNINSTALL_KEY> /v DisplayVersion` printed (null when it failed:
+ * no entry, which this never creates). A one-click update changes the app
+ * without the installer, and Windows' list of apps would go on naming the
+ * version that was installed.
+ */
+export function uninstallVersionUpdate(queried, version) {
+    if (typeof queried !== 'string' || !version || !/^[\w.+-]{1,64}$/.test(version)) return null;
+    const m = /DisplayVersion\s+REG_SZ\s+(\S*)/.exec(queried);
+    if (!m || m[1] === version) return null;
+    return { cmd: 'reg.exe', args: ['add', UNINSTALL_KEY, '/v', 'DisplayVersion', '/t', 'REG_SZ', '/d', version, '/f'] };
 }
 
 // --- one start at a time ------------------------------------------------------

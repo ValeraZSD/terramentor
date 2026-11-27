@@ -57,7 +57,7 @@ const {
     nightlyBase, nightlyVersion, highestStable, nextMinor, latestNightly, nightlyDecision,
     promotion, assetPlatform, buildManifest, sha256sums, nightlyNotes, checkBuildVersion,
     stampedPackage, releasePlan, releaseBody, draftProblems, NIGHTLY_GAP_MS, gatesPassed, lookUpGates, GATES_CHECKS,
-    releaseBranch, namedNightly, workflowScripts,
+    releaseBranch, namedNightly, workflowScripts, installerAsset,
 } = await import('./lib/releaseChannel.mjs');
 
 // ---------------------------------------------------------------------------
@@ -439,6 +439,12 @@ writeFileSync(join(dist, `Terramentor-${V}-darwin-arm64.zip`), await zipOf(`Terr
     ['README.txt', 'r'], ['Terramentor.app/Contents/Info.plist', 'p'], ['Terramentor.app/Contents/MacOS/Terramentor', 's'],
     [`${MAC_ROOT}/files.json`, fileList], [`${MAC_ROOT}/a.txt`, 'a'],
 ]));
+// The Windows installer beside them (tools/build-installer.mjs), and one left
+// over from another version, which is not this release's.
+const setupName = `Terramentor-${V}-win32-x64-setup.exe`;
+const setupBytes = Buffer.from('MZ installer stand-in');
+writeFileSync(join(dist, setupName), setupBytes);
+writeFileSync(join(dist, 'Terramentor-1.2.0-win32-x64-setup.exe'), 'MZ old');
 let r = cli(['assets', '--dir', dist, '--channel', 'nightly', '--version', V, '--commit', 'd'.repeat(40), '--repo', 'ValeraZSD/terramentor'], scratch);
 check('assets exits 0', r.status, 0);
 const written = JSON.parse(readFileSync(join(dist, 'manifest.json'), 'utf8'));
@@ -467,6 +473,16 @@ const sumsFile = readFileSync(join(dist, 'SHA256SUMS'), 'utf8');
 ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');
 ok('SHA256SUMS covers the manifest too', sumsFile.includes(`${manifestHash}  manifest.json`));
+ok('…and the Windows installer', sumsFile.includes(`${createHash('sha256').update(setupBytes).digest('hex')}  ${setupName}`));
+ok('…but not another version\'s', !sumsFile.includes('1.2.0-win32-x64-setup.exe'));
+check('the manifest never names the installer: an installed copy updates from the zip',
+    JSON.stringify(written).includes('setup.exe'), false);
+check('the installer is the Windows one, read from the end of its name',
+    [installerAsset(setupName, V), installerAsset(`Terramentor-${V}-win32-x64.zip`, V), installerAsset(`Terramentor-${V}-linux-x64-setup.exe`, V),
+        installerAsset('Terramentor-1.2.0-win32-x64-setup.exe', V), installerAsset(`Terramentor-${V}-win32-x64-setup.exe.zip`, V)],
+    ['win32-x64', null, null, null, null]);
+ok('the release notes offer the installer by its file name', releaseBody({ channel: 'stable', version: '1.3.0', repo: 'o/r', changelog: '' })
+    .includes('`Terramentor-1.3.0-win32-x64-setup.exe`'));
 
 // `sign`: manifest.json → manifest.json.sig, an Ed25519 signature of its exact
 // bytes, with the key in RELEASE_SIGNING_KEY (a GitHub environment secret).
@@ -508,7 +524,7 @@ ok('SHA256SUMS covers the manifest too', sumsFile.includes(`${manifestHash}  man
 // against the ones above, delete a leftover draft of the same tag, and only
 // then make the release public. Spawned asynchronously, so this process can
 // answer for GitHub while the CLI waits.
-const builtFiles = ['SHA256SUMS', 'manifest.json', 'manifest.json.sig', zipName, `Terramentor-${V}-win32-x64.zip`, `Terramentor-${V}-darwin-arm64.zip`].map((name) => {
+const builtFiles = ['SHA256SUMS', 'manifest.json', 'manifest.json.sig', zipName, `Terramentor-${V}-win32-x64.zip`, `Terramentor-${V}-darwin-arm64.zip`, setupName].map((name) => {
     const bytes = readFileSync(join(dist, name));
     return { name, size: bytes.length, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, state: 'uploaded' };
 });
@@ -869,8 +885,20 @@ ok('a hand-pushed tag never builds a nightly (they come from the schedule only)'
 // The publish step's own `files:` block, not any mention elsewhere.
 const publishStep = releaseYml.slice(releaseYml.indexOf('uses: softprops/action-gh-release'));
 const filesBlock = (/files: \|\r?\n((?: {12}\S.*\r?\n)+)/.exec(publishStep)?.[1] || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-check('every release carries the zips, SHA256SUMS, the manifest and its signature',
-    filesBlock, ['release/*.zip', 'release/SHA256SUMS', 'release/manifest.json', 'release/manifest.json.sig']);
+check('every release carries the zips, the Windows installer, SHA256SUMS, the manifest and its signature',
+    filesBlock, ['release/*.zip', 'release/*-setup.exe', 'release/SHA256SUMS', 'release/manifest.json', 'release/manifest.json.sig']);
+// The installer is built and checked where the Windows zip is, and travels
+// with it to the release job.
+{
+    const desktopJob = releaseYml.slice(releaseYml.indexOf('\n  desktop:'), releaseYml.indexOf('\n  release:'));
+    const builtAt = desktopJob.indexOf('node tools/build-installer.mjs');
+    const checkedAt = desktopJob.indexOf('node tools/installer-check.mjs');
+    ok('the Windows desktop job builds the installer after packaging, then installs and removes it',
+        desktopJob.indexOf('node tools/build-desktop.mjs') < builtAt && builtAt < checkedAt
+        && (desktopJob.slice(desktopJob.lastIndexOf('\n      - ', builtAt), builtAt).match(/if: runner\.os == 'Windows'/g) || []).length === 1
+        && (desktopJob.slice(desktopJob.lastIndexOf('\n      - ', checkedAt), checkedAt).match(/if: runner\.os == 'Windows'/g) || []).length === 1, desktopJob.slice(builtAt - 200, checkedAt + 80));
+    ok('…and uploads it beside the zip', /path: \|\r?\n {12}release\/\*\.zip\r?\n {12}release\/\*-setup\.exe\r?\n/.test(desktopJob));
+}
 // The signing key is an environment secret: release-stable has a required
 // reviewer, so a stable release waits for one person's Approve before its
 // key can be read; release-nightly has none; a dry run gets an environment
@@ -890,9 +918,13 @@ ok('a dry run signs with a throwaway key, a publishing run never does',
 // Attesting needs a token that can mint OIDC tokens. Its own job, so the job
 // that holds the signing key and runs on every pull request never has one.
 const jobPermissions = (job) => Object.fromEntries([...((/\n {4}permissions:\n((?: {6}[a-z-]+: [a-z]+.*\n)+)/.exec(job) || [])[1] || '').matchAll(/ {6}([a-z-]+): ([a-z]+)/g)].map((m) => [m[1], m[2]]));
-const attestJob = releaseYml.slice(releaseYml.indexOf('\n  attest:'), releaseYml.indexOf('\n', releaseYml.indexOf('subject-path:', releaseYml.indexOf('\n  attest:'))));
-ok('a published release attests its zips\' build provenance, in a job of its own after the release',
-    releaseYml.includes('\n  attest:') && /uses: actions\/attest-build-provenance@[0-9a-f]{40}/.test(attestJob) && /subject-path: release\/\*\.zip/.test(attestJob)
+const attestAt = releaseYml.indexOf('\n  attest:');
+const nextJob = /\r?\n {2}[a-z][\w-]*:/g;
+nextJob.lastIndex = attestAt + 1;
+const attestJob = releaseYml.slice(attestAt, nextJob.exec(releaseYml)?.index ?? releaseYml.length);
+ok('a published release attests the build provenance of its zips and its Windows installer, in a job of its own after the release',
+    releaseYml.includes('\n  attest:') && /uses: actions\/attest-build-provenance@[0-9a-f]{40}/.test(attestJob)
+    && /subject-path: \|\r?\n {12}release\/\*\.zip\r?\n {12}release\/\*-setup\.exe(\r?\n|$)/.test(attestJob)
     && /needs: \[plan, release\]/.test(attestJob) && /needs\.plan\.outputs\.publish == 'true'/.test(attestJob)
     && jobPermissions(attestJob)['id-token'] === 'write' && jobPermissions(attestJob).attestations === 'write', attestJob);
 ok('…and the signing job holds no OIDC token', !jobPermissions(releaseJob)['id-token'], JSON.stringify(jobPermissions(releaseJob)));
