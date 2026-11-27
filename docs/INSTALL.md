@@ -78,9 +78,10 @@ stops after three minutes when none ever opens.
 ## From your phone
 
 The server binds `127.0.0.1` by default. The supported way to reach your library from a phone is
-[Tailscale](https://tailscale.com): while no password is set, a phone signed in to the same
-Tailscale account opens the app as it is, and any other device is connected by scanning a code in
-Settings → Devices & security → *Other devices*. Step by step in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
+[Tailscale](https://tailscale.com): a phone is connected by scanning a code in Settings → Devices &
+security → *Other devices*, or, once you turn on *Let my Tailscale devices in* there (it starts
+off), a phone signed in to the same Tailscale account opens the app with no code while no password
+is set. Step by step in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
 
 ## Interface language
 
