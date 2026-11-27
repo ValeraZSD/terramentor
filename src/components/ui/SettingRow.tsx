@@ -124,6 +124,12 @@ const ROW_GAP = 16;
  *  narrow card the fraction binds, on a wide one the absolute does. */
 const NAME_MIN_FRACTION = 0.45;
 const NAME_MIN_REM = 12;
+/** How much more room a `fill` row needs before its control comes back
+ *  beside the name. Filling its line, a `block="narrow"` switch pads each
+ *  segment 12px tighter than beside the name, so it measures up to 48px
+ *  narrower there (four segments): without this margin a row in that band
+ *  would come back, measure wider, and go under again, every frame. */
+const FILL_RETURN_REM = 3;
 
 /**
  * Does the control still fit BESIDE the name?
@@ -143,10 +149,10 @@ const NAME_MIN_REM = 12;
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
  * this reads, and there is no flicker to damp. (A `block="narrow"` switch is
- * the one exception: it pads its segments tighter while its line is narrow, so
- * a row right at the edge may stay under its name. It cannot flicker.)
+ * the one exception: it pads its segments tighter while it fills its line, so
+ * a `fill` row needs `FILL_RETURN_REM` more room to come back beside the name.)
  */
-function useStacksWhenTight(enabled: boolean) {
+function useStacksWhenTight(enabled: boolean, fill = false) {
     const row = useRef<HTMLDivElement>(null);
     const control = useRef<HTMLDivElement>(null);
     const [stacked, setStacked] = useState(false);
@@ -168,8 +174,9 @@ function useStacksWhenTight(enabled: boolean) {
         const natural = controlEl.offsetWidth;
         controlEl.style.width = was;
         const forName = rowEl.clientWidth - natural - ROW_GAP;
-        setStacked(forName < floor);
-    }, [enabled]);
+        const back = fill ? FILL_RETURN_REM * rem : 0;
+        setStacked(prev => forName < floor + (prev ? back : 0));
+    }, [enabled, fill]);
 
     useLayoutEffect(() => {
         const rowEl = row.current;
@@ -217,7 +224,7 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
     // <label for> naming nothing is a promise to a screen reader that the app
     // does not keep.
     const Name = htmlFor ? 'label' : 'span';
-    const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control);
+    const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control, fill);
     const under = block || stacked;
     const hintId = useId();
     const name = (
@@ -266,7 +273,11 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                         invalid markup the parser closes early. */}
                     {detail && <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{detail}</div>}
                 </div>
-                {!under && control && <div ref={controlRef} className="shrink-0">{control}</div>}
+                {/* A flex row, so a `block="narrow"` switch beside the name
+                    knows it SHARES its line and keeps its own width: in a plain
+                    block it filled that box with equal segments, and the
+                    longest label ("No clock") broke onto two lines. */}
+                {!under && control && <div ref={controlRef} className="flex shrink-0">{control}</div>}
             </div>
             {/* Stacked, the control keeps its OWN width rather than stretching,
                 unless the row says `fill`; either way the measurement reads it

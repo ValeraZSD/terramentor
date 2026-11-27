@@ -188,6 +188,11 @@ await mounted('SettingRow fill', () => h(SettingRow, { label: 'Contrast', fill: 
         row()?.classList.contains('mb-3') && row()?.nextElementSibling?.className === '', row()?.nextElementSibling?.outerHTML.slice(0, 120));
     // Filled, the switch is as wide as the row; read at that width it would
     // never fit beside the name again, however wide the row grew.
+    // 540px: 224px left for the name, past the 192px floor but inside the 48px
+    // margin a filled switch needs (it measures narrower filling its line, so
+    // coming back here would measure wider beside the name and go under again).
+    await act(async () => resize(540));
+    check('fill: at 540px it stays under the name (inside the return margin)', row()?.classList.contains('mb-3'), row()?.className);
     await act(async () => resize(900));
     check('fill: widened to 900px, the switch is back beside the name', row() && !row().classList.contains('mb-3'), row()?.className);
     await act(async () => resize(340));
