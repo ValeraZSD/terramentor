@@ -39,8 +39,18 @@ port=3950
 fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "FAIL $*"; fail=1; }
-# This run's window only: its URL and its own profile folder.
-app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -F -- "user-data-dir=$work/" | grep -v grep | head -1; }
+# This run's window only: its URL and its own profile folder. The window opens
+# on a launch page in that profile (desktop/lib.js writeLaunchPage), or on the
+# plain address when the launcher had no key to sign with.
+app_window() { ps -axww -o command= | grep -e "--app=http://127.0.0.1:$port" -e "--app=file://$work/" | grep -F -- "user-data-dir=$work/" | grep -v grep | head -1; }
+# With no password the app answers a caller on this computer only with a proof
+# that it runs as the library's owner (server/auth.js). The app's own Node makes
+# one the way its MCP server does (mcp/owner.js); each is taken once.
+owner_proof() {
+    DATA_DIR="$1" "$copy/Contents/Resources/app/runtime/node" --input-type=module \
+        -e "import { ownerHeaders } from '$copy/Contents/Resources/app/mcp/owner.js'; const h = await ownerHeaders(process.argv[1]); process.stdout.write(Object.values(h)[0] || '');" \
+        "http://127.0.0.1:$port" 2>/dev/null
+}
 # What the launcher logs once its window has opened, or has not.
 window_said='Opened app window with|Opened default browser|Could not start|Could not open a browser|was stopped'
 status() { curl -s -m 5 "http://127.0.0.1:$port/api/desktop/status"; }
@@ -159,7 +169,7 @@ open_run() {
         else
             say "  no app window: $(grep -oE "$window_said.*" "$log" | head -1 || true)"
         fi
-        curl -s -m 5 "http://127.0.0.1:$port/api/desktop/info" | grep -o '"appPlacement":[^,}]*' | sed 's/^/  info: /'
+        curl -s -m 5 -H "X-Terramentor-Proof: $(owner_proof "$data")" "http://127.0.0.1:$port/api/desktop/info" | grep -o '"appPlacement":[^,}]*' | sed 's/^/  info: /'
 
         if [ "${3:-}" = quit ]; then
             # A second launch finds the running app and leaves; it starts no
@@ -189,7 +199,7 @@ open_run() {
             tail -n +"$((seen + 1))" "$log" | sed 's/^/  log: /'
             seen="$(lines)"
 
-            curl -s -m 10 -o /dev/null -X POST "http://127.0.0.1:$port/api/desktop/quit"
+            curl -s -m 10 -o /dev/null -X POST -H "X-Terramentor-Proof: $(owner_proof "$data")" "http://127.0.0.1:$port/api/desktop/quit"
             local gone=0
             for _ in $(seq 1 30); do
                 status >/dev/null || { gone=1; break; }
