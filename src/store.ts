@@ -1639,10 +1639,13 @@ export const useStore = create<AppState>((set, get) => ({
         // Settled one by one: a failed update verdict must not drop the identity.
         // A server too old to serve /api/version simply shows nothing in About.
         // A toggle pressed while these were on the wire wins, as in refreshUpdates.
+        // A toggle already on the wire when the load starts wins too: the read may
+        // have been answered before that toggle reached the server.
+        const writePending = updateWritesInFlight > 0;
         const startedBefore = updateWritesStarted;
         const [version, updates] = await Promise.allSettled([api.getVersion(), api.getUpdates()]);
         if (version.status === 'fulfilled') set({ appVersion: version.value });
-        if (updates.status === 'fulfilled' && downloadPressesInFlight === 0 && updateWritesInFlight === 0
+        if (updates.status === 'fulfilled' && !writePending && downloadPressesInFlight === 0 && updateWritesInFlight === 0
             && updateWritesStarted === startedBefore) {
             set({ updateStatus: updates.value });
         }

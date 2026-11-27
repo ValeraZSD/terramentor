@@ -161,5 +161,29 @@ section('3. an update answer older than a toggle does not undo it');
     v.close();
 }
 
+section('4. a toggle already on the wire when the load starts also wins');
+{
+    let releaseRead, releaseWrite;
+    const v = page();
+    v.fetch = (url) => {
+        const u = String(url);
+        const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        if (u.includes('/api/version')) return Promise.resolve(json(VERSION));
+        if (u.includes('/api/updates/auto')) return new Promise((r) => { releaseWrite = () => r(json({ enabled: false })); });
+        if (u.includes('/api/updates')) return new Promise((r) => { releaseRead = () => r(json({ enabled: true })); });
+        return new Promise(() => { });
+    };
+    const { act, useStore } = v.__gate;
+    let toggling, loading;
+    await act(async () => { toggling = useStore.getState().setAutoUpdateCheck(false); await settle(); });
+    await act(async () => { loading = useStore.getState().loadVersion(); await settle(); });
+    check('the toggle and the read are both on the wire', typeof releaseWrite === 'function' && typeof releaseRead === 'function');
+    await act(async () => { releaseWrite(); await toggling; await settle(); });
+    await act(async () => { releaseRead(); await loading; await settle(); });
+    check('the switch keeps the value the earlier toggle wrote', useStore.getState().updateStatus?.enabled === false, JSON.stringify(useStore.getState().updateStatus));
+    check('the version answer is still kept', useStore.getState().appVersion?.version === VERSION.version);
+    v.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
