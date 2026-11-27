@@ -1,5 +1,12 @@
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Radio from '../ui/Radio';
+import { useElementWidth } from '../../hooks/useElementWidth';
+import { useRootFontSize } from '../../hooks/useRootFontSize';
+
+/** Three across from this many rem of the grid's OWN width, one per line
+ *  under it; never two, which left the third card alone on a row. */
+const THREE_ACROSS_REM = 36;
 
 /** The three ways a finished topic can be checked, as radio cards. The Learning
  *  tab draws them with the numbers behind a disclosure below. */
@@ -8,8 +15,12 @@ export default function ProvingModeCards({ gateMode, onChange }: {
     onChange: (mode: 'off' | 'advisory' | 'enforced') => void;
 }) {
     const { t: tr } = useTranslation();
+    // Measured on the grid, not the window: beside the assistant a wide
+    // window gives Settings a phone's width.
+    const grid = useRef<HTMLDivElement>(null);
+    const threeAcross = useElementWidth(grid) >= THREE_ACROSS_REM * useRootFontSize();
     return (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div ref={grid} className={`grid gap-2 ${threeAcross ? 'grid-cols-3' : 'grid-cols-1'}`}>
             {([
                 { value: 'off', label: tr("Just track"), desc: tr("Mark topics done. Nothing is checked.") },
                 { value: 'advisory', label: tr("Ask me"), desc: tr("Offers the quiz. You can always mark a topic done anyway.") },

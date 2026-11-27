@@ -715,8 +715,14 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         >
                             {id => (
                                 <>
-                                    <div className="flex flex-col sm:flex-row gap-2">
+                                    {/* The button beside the field while the
+                                        ROW has room (the field keeps 12rem),
+                                        under it when not; `sm:` keyed this
+                                        on the window, wrong beside the
+                                        assistant. */}
+                                    <div className="flex flex-wrap gap-2">
                                         <TextInput
+                                            className="flex-[1_1_12rem]"
                                             id={id}
                                             value={newModelName}
                                             onChange={e => setNewModelName(e.target.value)}

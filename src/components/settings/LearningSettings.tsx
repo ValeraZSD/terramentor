@@ -160,7 +160,12 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                                 })}
                             </p>
                             <Explain summary={tr("Fine-tune these numbers")} className="mt-1">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            {/* Two by two while the box has room, one per line
+                                when not; measured on the box (`auto-fit`, at
+                                most two since a column takes 45%). Three
+                                across from a WINDOW width put the fourth
+                                field alone under the other three. */}
+                            <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(max(14rem,45%),1fr))]">
                                 {/* THREE FIELDS FROM THE VOCABULARY, not three
                                     hand-sized inputs. These were `px-3 py-2 border
                                     border-slate-300 rounded-lg text-sm` written out
