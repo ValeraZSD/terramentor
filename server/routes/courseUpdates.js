@@ -26,6 +26,7 @@ import { ImportError, normalizeImportProject, normalizeImportTree } from '../cur
 import { IMPORT_QUESTION_DEPS } from '../courseFiles.js';
 import { BUNDLE_ZIP_LIMITS, BundleRefusal, readBundleCourse, restoreCardMedia, underlying } from '../bundleCourse.js';
 import { planCourseUpdate } from '../courseMerge.js';
+import { parseSpeechMarks } from '../speechMarks.js';
 import {
     applyCourseUpdate, readBase, readFileCourse, readInstalledCourse, undoAvailable, undoLastUpdate,
 } from '../courseUpdate.js';
@@ -83,7 +84,7 @@ async function readUpload(file, { withMedia = false } = {}) {
     }
     try {
         const header = normalizeImportProject(body?.project, { isSupportedLanguage });
-        const tree = normalizeImportTree(body?.nodes, IMPORT_QUESTION_DEPS);
+        const tree = normalizeImportTree(body?.nodes, { ...IMPORT_QUESTION_DEPS, learningLanguage: header.project.learning_language });
         return { project: header.project, nodes: tree.nodes, exportedAt: body?.exported_at, bundle: false, mediaByName: null, warnings: [...header.warnings, ...tree.warnings] };
     } catch (err) {
         if (err instanceof ImportError) throw new UpdateRefusal(err.message);
@@ -125,7 +126,8 @@ function questionText(q) {
 
 /**
  * A value as the preview shows it: text as it is, a question as its lines,
- * a parent as its topic's title, a card's media as its file names.
+ * a parent as its topic's title, a card's media as its file names, its
+ * speech marks as the words they say (×2: said by two voices).
  */
 function display(field, value, titleOf) {
     if (value == null) return null;
@@ -135,6 +137,10 @@ function display(field, value, titleOf) {
         const names = [...(value.front || []), ...(value.back || [])]
             .map(m => (typeof m === 'string' ? m : m?.name ?? '')).filter(Boolean);
         return names.length ? names.join(', ') : null;
+    }
+    if (field === 'say') {
+        const said = (parseSpeechMarks(value) ?? []).map(m => (m.voices > 1 ? `${m.text} ×${m.voices}` : m.text));
+        return said.length ? said.join(' · ') : null;
     }
     if (field === 'content') return questionText(value);
     if (field === 'deleted') return null;

@@ -163,6 +163,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                             back={fc.back}
                             extra={fc.extra}
                             extraFront={fc.extra_front}
+                            say={fc.say}
                             flipped={flipped}
                             media={media}
                             autoPlay={flipped}

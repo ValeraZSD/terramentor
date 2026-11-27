@@ -105,7 +105,7 @@ app.post('/api/import', (req, res) => {
     let normalized;
     try {
         const header = normalizeImportProject(req.body?.project, { isSupportedLanguage });
-        const tree = normalizeImportTree(req.body?.nodes, IMPORT_QUESTION_DEPS);
+        const tree = normalizeImportTree(req.body?.nodes, { ...IMPORT_QUESTION_DEPS, learningLanguage: header.project.learning_language });
         normalized = {
             project: header.project, nodes: tree.nodes, questionCount: tree.questionCount, cardCount: tree.cardCount,
             warnings: [...header.warnings, ...tree.warnings],

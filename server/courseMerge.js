@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto';
 export const ENTITY_FIELDS = Object.freeze({
     node: ['title', 'description', 'is_note', 'role', 'parent'],
     question: ['content', 'parent'],
-    card: ['front', 'back', 'extra', 'extra_front', 'media', 'parent'],
+    card: ['front', 'back', 'extra', 'extra_front', 'media', 'say', 'parent'],
     resource: ['title', 'url', 'type', 'parent'],
 });
 export const PROJECT_FIELDS = Object.freeze(['name', 'description', 'content_language', 'learning_language', 'version']);
@@ -78,8 +78,14 @@ const fallbackKey = (e) => {
 /** An item's text, for telling items apart by what they say. Media is left
  *  out: a plain JSON file brings none, and a card is the same card with or
  *  without its picture. */
+// A card's speech marks follow its text, so they do not make it another card.
 const contentHash = (e) => fieldHash(Object.fromEntries(ENTITY_FIELDS[e.kind]
-    .filter(f => f !== 'parent' && f !== 'media').map(f => [f, e.fields[f] ?? null])));
+    .filter(f => f !== 'parent' && f !== 'media' && f !== 'say').map(f => [f, e.fields[f] ?? null])));
+/** A field newer than the bases recorded before it: an older base holds no row
+ *  for it, and the value it had then was none. Without this every marked card
+ *  in an edition after an older install would ask the learner to choose. The
+ *  learner never writes it, so a card with no base at all is read the same way. */
+const LATER_FIELDS = new Set(['say']);
 
 /**
  * Plan an update.
@@ -222,7 +228,7 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         const localFields = { ...l.fields, parent: l.parentUuid ?? null };
         for (const f of ENTITY_FIELDS[u.kind]) {
             if (!(f in upFields) || upFields[f] === undefined && f === 'media') continue;
-            const prev = b?.fields?.[f];
+            const prev = b?.fields?.[f] ?? (LATER_FIELDS.has(f) ? { hash: fieldHash(null), edited: 0 } : undefined);
             if (f === 'parent' && !placed) { if (prev) baseFields[f] = prev; continue; }
             const verdict = decide(upFields[f], localFields[f] ?? null, prev);
             const ck = `${u.kind}:${l.uuid}:${f}`;

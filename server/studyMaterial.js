@@ -23,6 +23,8 @@ import {
     isUnverified, isPending, markUnverified, markPending, markConfirmed, REVERIFY_BASE_WAIT_MS,
 } from './questionTrust.js';
 import { KeyedError } from './clientError.js';
+import { getLanguage } from './language.js';
+import { normalizeSpeechMarks, speechMarksColumn, scriptsOf } from './speechMarks.js';
 
 const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
@@ -67,8 +69,23 @@ export function buildQuizPrompt(nodeId, questionCount, questionType) {
     return AI_PROMPTS.quiz_generator(context, questionCount, questionType, pastPerformance);
 }
 
+/**
+ * The language a topic's course teaches, as the card prompt names it, or null
+ * when it teaches none (or one whose script the speech check cannot read):
+ * then cards carry no speech marks and the prompt does not ask for them.
+ */
+export function taughtLanguage(nodeId) {
+    let code = null;
+    try {
+        code = db.prepare(`SELECT p.learning_language AS code FROM live_nodes n
+            JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?`).get(nodeId)?.code;
+    } catch { return null; }
+    const lang = getLanguage(code);
+    return lang && scriptsOf(lang.code) ? { code: lang.code, name: lang.name } : null;
+}
+
 export function buildFlashcardPrompt(nodeId, count) {
-    return AI_PROMPTS.flashcard_generator(buildNodeContext(nodeId), count);
+    return AI_PROMPTS.flashcard_generator(buildNodeContext(nodeId), count, taughtLanguage(nodeId));
 }
 
 /**
@@ -341,6 +358,7 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
         .map(card => ({
             front: typeof card?.front === 'string' ? card.front.trim() : '',
             back: typeof card?.back === 'string' ? card.back.trim() : '',
+            say: card?.say,
         }));
     const usable = drafts.filter(c => c.front && c.back);
     let rejected = 0;
@@ -364,8 +382,20 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
         db.prepare('SELECT front FROM live_flashcards flashcards WHERE node_id = ?').all(nodeId)
             .map(r => normalizeChoice(r.front))
     );
-    const insertStmt = db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by) VALUES (?, ?, ?, ?)');
+    const insertStmt = db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by, say) VALUES (?, ?, ?, ?, ?)');
     const provenance = aiProvenance({ job: 'questions' });
+    // What each card says aloud, in a course that teaches a language: checked
+    // against the card's own lines, a bad mark dropped and the card kept
+    // (server/speechMarks.js). A course that teaches none stores no marks.
+    const taught = taughtLanguage(nodeId);
+    const marksOf = (card, front, back) => {
+        if (!taught) return null;
+        const { marks, dropped } = normalizeSpeechMarks(card.say, { front, back }, taught.code);
+        if (dropped.length) {
+            console.warn(`[Flashcards] Dropped ${dropped.length} speech mark(s) on node ${nodeId}: ${[...new Set(dropped.map(d => d.reason))].join('; ')}`);
+        }
+        return speechMarksColumn(marks);
+    };
     const insertedIds = [];
     let skipped = 0;
     const transaction = db.transaction(() => {
@@ -376,7 +406,7 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
             const key = normalizeChoice(front);
             if (existing.has(key)) { skipped++; continue; }
             existing.add(key);
-            insertedIds.push(insertStmt.run(nodeId, front, back, provenance).lastInsertRowid);
+            insertedIds.push(insertStmt.run(nodeId, front, back, provenance, marksOf(card, front, back)).lastInsertRowid);
         }
     });
     transaction();

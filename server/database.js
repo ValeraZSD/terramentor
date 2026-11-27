@@ -1608,6 +1608,13 @@ addColumnIfMissing('flashcards', 'learning_steps', 'INTEGER DEFAULT 0');
 // trace.
 addColumnIfMissing('flashcards', 'stability_fast', 'REAL DEFAULT NULL');
 
+// **What a card in a language course says aloud, line by line** (server/speechMarks.js):
+// a JSON list of `{at, text, lang?, voices}` the model that wrote the card chose,
+// checked against the card's own lines. NULL = not marked (an Anki import, an
+// older course, a hand-written or learner-edited card): the client's rules
+// (`spokenLine`) decide its speakers. `[]` = marked, nothing to say.
+addColumnIfMissing('flashcards', 'say', 'TEXT DEFAULT NULL');
+
 // **What this node IS**: `topic` (something that can be taught, proven, embedded
 // and drawn on the map) or `pagination` (a slice the importer cut out of a
 // deck's card order, named "Stage 7", which is a place in a sequence and not a

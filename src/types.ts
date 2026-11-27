@@ -1839,6 +1839,11 @@ export interface Flashcard {
      *  `parseCardMedia` in `CardMedia.tsx` — every endpoint `SELECT *`s this
      *  column, so parsing at the render site keeps the query sites untouched. */
     media?: string | null;
+    /** What the card says aloud in a language course, line by line, as the
+     *  model that wrote it marked it: the JSON the column holds
+     *  (server/speechMarks.js). NULL = not marked, and the rules
+     *  (`spokenLine`) decide its speakers. */
+    say?: string | null;
     created_at: string;
 }
 

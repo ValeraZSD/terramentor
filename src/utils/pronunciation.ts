@@ -1,5 +1,5 @@
-import { LANGUAGES } from '../../server/languageCatalog.js';
 import { languageNamedBy } from '../../server/learningLanguage.js';
+import { SCRIPT_CLASS, scriptsOf } from '../../server/speechMarks.js';
 import { stripCardMarkup } from './cardText';
 
 /**
@@ -34,37 +34,9 @@ export interface CourseLanguages {
     content: string;
 }
 
-const SCRIPT_CLASS: Record<string, string> = {
-    Latin: '\\p{Script=Latin}',
-    Cyrillic: '\\p{Script=Cyrillic}',
-    Greek: '\\p{Script=Greek}',
-    // The long-vowel mark (ー, and its half-width form) is script Common, but it
-    // is part of the word: コーヒー without it would be cut into コ and ヒ.
-    Kana: '\\p{Script=Hiragana}\\p{Script=Katakana}\\u30FC\\uFF70',
-    Han: '\\p{Script=Han}',
-    Hangul: '\\p{Script=Hangul}',
-    Arabic: '\\p{Script=Arabic}',
-    Hebrew: '\\p{Script=Hebrew}',
-    Devanagari: '\\p{Script=Devanagari}',
-};
-
 const base = (code: string) => code.trim().toLowerCase().split(/[-_]/)[0];
 
-/** The scripts a catalog language is written in, or null for a language the
- *  catalog does not know. An empty catalog list means Latin letters, except
- *  for two the catalog leaves at that: Greek has its own script, and Serbian is
- *  written in both Cyrillic and Latin, so a Serbian line in Latin letters is
- *  never taken for a Latin-script language. */
-function scriptsOf(code: string): string[] | null {
-    const c = base(code);
-    if (c === 'el') return ['Greek'];
-    if (c === 'sr') return ['Cyrillic', 'Latin'];
-    const lang = LANGUAGES.find(l => l.code === c);
-    if (!lang) return null;
-    return lang.scripts.length ? lang.scripts : ['Latin'];
-}
-
-const classOf = (scripts: string[]) => scripts.map(s => SCRIPT_CLASS[s] ?? '').join('');
+const classOf = (scripts: string[]) => scripts.map(s => (SCRIPT_CLASS as Record<string, string>)[s] ?? '').join('');
 
 // "Voorbeeld: …", "Engels (automatisch vertaald): …", "Пример: …": a short
 // label before a colon. No sentence punctuation in it, at most four words.

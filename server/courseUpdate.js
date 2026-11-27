@@ -9,6 +9,7 @@ import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { claimUuid } from './courseFiles.js';
 import { BY_APP, revive, softDelete } from './softDelete.js';
 import { k } from './clientError.js';
+import { marksStillTrue, parseSpeechMarks, speechMarksColumn } from './speechMarks.js';
 
 const ORDERED = new Set(['node', 'resource']);
 /** Statements prepared once: the readers and the writer run one per item. A
@@ -36,6 +37,14 @@ export function questionContent(q) {
     return content;
 }
 
+/** A card's speech marks as the planner compares them (server/speechMarks.js):
+ *  the stored JSON text, or null for a card with none. The same text is what
+ *  an update writes into `flashcards.say`. */
+function sayField(say) {
+    const marks = typeof say === 'string' ? parseSpeechMarks(say) : (Array.isArray(say) ? say : null);
+    return marks ? speechMarksColumn(marks) : null;
+}
+
 /** A card's media as names, the way a file names them. */
 function mediaNames(media) {
     const parsed = typeof media === 'string' ? safeParse(media) : media;
@@ -43,9 +52,9 @@ function mediaNames(media) {
     const out = {};
     for (const side of ['front', 'back']) {
         const refs = Array.isArray(parsed[side]) ? parsed[side] : [];
-        // `at` only when a clip has one, so a card without anchors hashes as
-        // it did before anchors travelled in files (its recorded base stays equal).
-        if (refs.length) out[side] = refs.map(m => ({ name: m?.name || m?.hash || '', kind: m?.kind || null, alt: m?.alt || null, ...(m?.at ? { at: m.at } : {}) }));
+        // `at` and `say` only when a clip has them, so a card without them hashes
+        // as it did before they travelled in files (its recorded base stays equal).
+        if (refs.length) out[side] = refs.map(m => ({ name: m?.name || m?.hash || '', kind: m?.kind || null, alt: m?.alt || null, ...(m?.at ? { at: m.at } : {}), ...(m?.say ? { say: m.say } : {}) }));
     }
     return Object.keys(out).length ? out : null;
 }
@@ -109,7 +118,7 @@ export function readInstalledCourse(projectId) {
             const node = byId.get(c.node_id);
             entities.push({
                 kind: 'card', uuid: c.uuid, id: c.id, parentUuid: node.uuid,
-                fields: { front: c.front, back: c.back, extra: text(c.extra), extra_front: text(c.extra_front), media: mediaNames(c.media) },
+                fields: { front: c.front, back: c.back, extra: text(c.extra), extra_front: text(c.extra_front), media: mediaNames(c.media), say: sayField(c.say) },
                 hasState: (c.review_count || 0) > 0 || !!c.last_reviewed || reviewed.has(c.id),
                 label: c.front, where: node.title,
             });
@@ -157,7 +166,7 @@ export function readFileCourse(project, nodes, { exportedAt = null, withMedia = 
             kind: 'card', uuid: c.uuid || null, ref: c.uuid || `${ref}#c${i}`, parentRef: ref,
             fields: {
                 front: c.front, back: c.back, extra: text(c.extra), extra_front: text(c.extra_front),
-                media: withMedia ? mediaNames(c.media) : undefined,
+                media: withMedia ? mediaNames(c.media) : undefined, say: sayField(c.say),
             },
             source: c, label: c.front, where: node.title,
         }));
@@ -233,7 +242,7 @@ export function markLearnerEdit(kind, uuid, fields) {
 const RESTORE = {
     nodes: ['title', 'description', 'is_note', 'role', 'parent_id', 'position', 'generated_by'],
     resources: ['node_id', 'title', 'url', 'type', 'position'],
-    flashcards: ['node_id', 'front', 'back', 'extra', 'extra_front', 'media', 'generated_by'],
+    flashcards: ['node_id', 'front', 'back', 'extra', 'extra_front', 'media', 'generated_by', 'say'],
     quizzes: ['node_id', 'title', 'questions'],
 };
 const scopeSql = {
@@ -258,11 +267,16 @@ function takeUndoSnapshot(projectId) {
 // What the course's author-owned rows look like now. Recorded right after an
 // update: the undo puts back only what that update wrote, so it is refused once
 // anything here moved since (a topic, card or link added, an edit, a rename).
+// A column newer than the undo records already stored counts only when set, so
+// an update made before the column existed can still be undone.
+const LATER_COLUMNS = new Set(['say']);
 function courseFingerprint(projectId) {
     const h = createHash('sha256');
     h.update(JSON.stringify(prep('SELECT name, description, content_language, learning_language, version FROM live_projects projects WHERE id = ?').get(projectId)));
     for (const t of Object.keys(scopeSql)) {
-        for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) h.update(JSON.stringify([t, r.id, ...RESTORE[t].map(c => r[c] ?? null)]));
+        for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) {
+            h.update(JSON.stringify([t, r.id, ...RESTORE[t].filter(c => r[c] != null || !LATER_COLUMNS.has(c)).map(c => r[c] ?? null)]));
+        }
     }
     return h.digest('hex');
 }
@@ -411,7 +425,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                     // does not load and the media sweep deletes the bytes.
                     prep(`INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by)
                         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`).run(projectId, found.hash, found.filename ?? m.name, found.mime, found.kind, found.size);
-                    kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}) });
+                    kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}), ...(m.say ? { say: m.say } : {}) });
                 }
                 if (kept.length) out[side] = kept;
             }
@@ -538,14 +552,25 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const stamp = restamp('flashcards', o.id, ['front', 'back', 'extra', 'extra_front'], o.fields, o.source?.generated_by);
             if (stamp !== undefined) { sets.push('generated_by = ?'); vals.push(stamp); }
             if (sets.length) prep(`UPDATE flashcards SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
+            // The file's marks and the card's text may come from different sides
+            // (the learner kept their own wording, took the file's marks): keep
+            // only the marks true of the card as it now reads.
+            if (['front', 'back', 'extra', 'extra_front', 'say'].some(f => f in o.fields)) {
+                const row = prep(`SELECT f.front, f.back, f.extra, f.extra_front, f.say, p.learning_language FROM live_flashcards f
+                    JOIN live_nodes n ON n.id = f.node_id JOIN live_projects p ON p.id = n.project_id WHERE f.id = ?`).get(o.id);
+                if (row?.say != null) {
+                    const kept = marksStillTrue(row.say, row, row.learning_language);
+                    if (kept !== row.say) prep('UPDATE flashcards SET say = ? WHERE id = ?').run(kept, o.id);
+                }
+            }
         }
         for (const o of byKind('insert', 'card')) {
             const nodeId = resolveNode(o.parent);
             if (nodeId == null) continue;
             const c = o.source || {};
-            const id = prep(`INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(nodeId, c.front, c.back, c.extra ?? null, c.extra_front ?? null,
-                resolveMedia(c.media), declaredBy(c.generated_by), claimUuid('flashcards', o.uuid)).lastInsertRowid;
+            const id = prep(`INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid, say)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(nodeId, c.front, c.back, c.extra ?? null, c.extra_front ?? null,
+                resolveMedia(c.media), declaredBy(c.generated_by), claimUuid('flashcards', o.uuid), speechMarksColumn(c.say)).lastInsertRowid;
             const uuid = prep('SELECT uuid FROM live_flashcards flashcards WHERE id = ?').get(id).uuid;
             writeBase('card', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });
         }

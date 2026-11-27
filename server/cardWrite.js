@@ -11,6 +11,7 @@ import { recordCardEvidence } from './cardEvidence.js';
 import { cardEdited, parkedByReport } from './itemReports.js';
 import { markLearnerEdit } from './courseUpdate.js';
 import { apiError, keyed } from './clientError.js';
+import { marksStillTrue } from './speechMarks.js';
 
 /**
  * Apply `body` (the fields PUT /api/ai/flashcards/:id takes) to card `id`.
@@ -111,6 +112,19 @@ export function writeCard(id, body = {}) {
     if (learning_steps !== undefined) {
         updates.push('learning_steps = ?');
         values.push(Math.max(0, Math.round(Number(learning_steps) || 0)));
+    }
+    // The model's speech marks describe the text it wrote. An edit keeps each
+    // mark still true of the new text (its line is still on the card, its words
+    // still in it) and drops the rest; a card left with none goes back to the
+    // rules, which read the text as it is now (server/speechMarks.js).
+    if (before.say != null && ['front', 'back', 'extra', 'extra_front'].some(k => body[k] !== undefined && (body[k] ?? '') !== (before[k] ?? ''))) {
+        // A field sent as null was cleared: its lines are gone, not kept.
+        const next = Object.fromEntries(['front', 'back', 'extra', 'extra_front']
+            .map(k => [k, body[k] !== undefined ? body[k] : before[k]]));
+        const learning = db.prepare(`SELECT p.learning_language AS code FROM live_nodes n
+            JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?`).get(before.node_id)?.code;
+        updates.push('say = ?');
+        values.push(marksStillTrue(before.say, next, learning));
     }
     if (updates.length > 0) {
         // Only an actual SRS review (which stamps last_reviewed) counts as a
