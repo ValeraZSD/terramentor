@@ -67,10 +67,11 @@ const COLUMN = 'mx-auto w-full max-w-xl px-5';
 /** The close on the course's band: filled like the mark beside it, so it reads
  *  as a control on a saturated colour where a bare glyph read as a stray mark.
  *  White glyph and ring: the app's accent ring is the band's own colour there.
- *  15% and 20% keep the glyph at 3:1 or more on the darkest band a course
- *  colour can give (its white text at 4.5:1). */
-const ON_BAND = '!bg-white/15 !text-white can-hover:enabled:hover:!bg-white/20 enabled:active:!bg-white/25 '
-    + 'focus-visible:!ring-white disabled:!bg-transparent disabled:!text-white/60';
+ *  15% (20% under the mouse) keeps the glyph at 3:1 or more on the palest band
+ *  a course colour can give, where its white text is at 4.5:1; any more fill
+ *  falls under. Locked, it keeps a fainter square so it still reads as a button. */
+const ON_BAND = '!bg-white/15 !text-white can-hover:enabled:hover:!bg-white/20 '
+    + 'focus-visible:!ring-white disabled:!bg-white/10 disabled:!text-white/60';
 /** Rows drawn before "and N more": a link can hold tens of thousands of
  *  topics, and a phone drawing them all stalls. A real course stays under it. */
 const MAX_TOPICS_SHOWN = 200;
@@ -131,8 +132,8 @@ export default function CourseLinkPage({ course, busy, onAct, onClose }: {
                         <div className={DIALOG_BODY}>
                             <div className="bg-accent pt-3 text-white" style={band}>
                                 <div className={`${COLUMN} pb-6`}>
-                                    {/* At the end, as every close in the app, and in
-                                        the same box as while the link is read. */}
+                                    {/* At the end, as the app's other close buttons, and
+                                        in the same box as while the link is read. */}
                                     <div className="flex justify-end">{close(true)}</div>
                                     {/* The name sits beside the mark, as on the course's card. */}
                                     <div className="mt-2 flex items-center gap-4">
