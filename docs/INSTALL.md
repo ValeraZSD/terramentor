@@ -15,6 +15,11 @@ Applications first; if macOS blocks it the first time, open *System Settings*, t
 Security*, and press *Open Anyway* (macOS 14 and earlier: right-click → *Open*). The tray icon, starting at sign-in and where your data lives are in
 [DESKTOP.md](DESKTOP.md).
 
+On Windows, `Terramentor-<version>-win32-x64-setup.exe` on the same page is the other way in: it
+installs the app for your account only (no administrator), adds it to the Start menu and to the
+installed apps in Windows Settings, and opens `.studyvault` course files by double-click. The zip stays the portable
+copy, which writes nothing to the registry.
+
 ## Docker
 
 For a server or an always-on machine. The published image already contains the built app:

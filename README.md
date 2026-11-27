@@ -164,8 +164,9 @@ says how that is tested, what does not meet it yet, and how to report a barrier.
 **Desktop.** Download the zip for your system from the
 [releases page](https://github.com/ValeraZSD/terramentor/releases), unpack it and start
 `Terramentor.exe` (Windows), `Terramentor.app` (macOS, Apple Silicon) or `./terramentor.sh`
-(Linux). There is nothing else to install. The launcher is unsigned, so Windows asks once
-(*More info → Run anyway*). On a Mac, drag `Terramentor.app` into Applications first; if macOS
+(Linux). There is nothing else to install. On Windows, the `-setup.exe` beside the zip installs
+it for your account instead (no administrator) and opens course files by double-click. The launcher
+is unsigned, so Windows asks once (*More info → Run anyway*). On a Mac, drag `Terramentor.app` into Applications first; if macOS
 blocks it the first time, open *System Settings*, then *Privacy & Security*, and press *Open Anyway*.
 
 **Docker:**
