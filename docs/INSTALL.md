@@ -47,8 +47,8 @@ has to be writable by that uid.
 
 ## From source
 
-Node.js **24** or **25** (the releases are built on 24; the flashcard scheduler, `ts-fsrs`,
-needs 24, and `better-sqlite3` supports nothing newer than 25 yet):
+Node.js **24.7** or later, up to **25** (the releases are built and CI tests on 24; the
+flashcard scheduler, `ts-fsrs`, needs 24, and `better-sqlite3` supports nothing newer than 25 yet):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git

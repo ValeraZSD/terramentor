@@ -513,10 +513,11 @@ const shown = rows.map((r) => spoken(r.value));
 check("the alt text gives every value in the chart, in the chart's order", said.join(' / ') === shown.join(' / '),
     `alt: ${said.join(', ')}; chart: ${shown.join(', ')}`);
 const values = new Set(rows.map((r) => fmt(Math.abs(r.value))));
-const sectionAt = readme.indexOf('\n## Why not a chatbot');
-const sectionEnd = readme.indexOf('\n## ', sectionAt + 1);
+// The chart's whole `## ` section, its `###` steps included: they cite the same studies.
+const sectionAt = chartAt < 0 ? -1 : readme.lastIndexOf('\n## ', chartAt);
+const sectionEnd = sectionAt < 0 ? -1 : readme.indexOf('\n## ', sectionAt + 1);
 const prose = sectionAt < 0 ? '' : readme.slice(sectionAt, sectionEnd < 0 ? undefined : sectionEnd).replace(/<picture>[\s\S]*?<\/picture>/g, '');
-check('the README has its "Why not a chatbot" section', prose !== '');
+check('the README shows the chart inside a "## " section', prose !== '');
 const UNSIGNED = /\d+\.\d\d(?!\d)/g;
 const strays = [...readmeAlt.matchAll(UNSIGNED), ...prose.matchAll(UNSIGNED)].map((m) => m[0]).filter((n) => !values.has(n));
 check('every two-decimal number beside the chart is a value in the data', strays.length === 0, `not in the data: ${strays.join(', ')}`);

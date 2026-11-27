@@ -14,9 +14,8 @@ where your data is kept, are in [DESKTOP.md](DESKTOP.md). Docker and running fro
 the README's [Install](../README.md#install) section.
 
 **What a model costs.** The app is free; the model is paid to whoever runs it. With a hosted
-model you pay the provider per use, under your own key. A fast, low-cost model such as
-GLM-5.3-Flash on OpenRouter costs about US$0.20 per day of study; yours depends on the model, the
-subject and how much you study. A lesson is written once and kept, so reading it again costs
+model you pay the provider per use, under your own key, or use a ChatGPT plan you already
+have. What you spend depends on the model, the subject and how much you study. A lesson is written once and kept, so reading it again costs
 nothing, and the provider's dashboard shows what you have spent.
 
 **What a local model needs.** A model on your own computer costs nothing per lesson but needs
