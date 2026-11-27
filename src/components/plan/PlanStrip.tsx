@@ -7,17 +7,21 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { placeLabels, stripFacts, weekLine, type StripFacts, type StripLabel, type StripLane } from './verdict';
 
-/** The flag in the verdict's colour; the strip's own range is the accent. */
+/**
+ * The flag in the verdict's colour, the same shade as the headline's icon
+ * (verdict.tsx TONE); the range stays neutral, since it is a forecast, not a
+ * judgement.
+ */
 const FLAG: Partial<Record<VerdictBand, string>> = {
-    on_pace: 'text-emerald-600 dark:text-emerald-400',
-    under_pace: 'text-amber-600 dark:text-amber-400',
-    tight: 'text-amber-600 dark:text-amber-400',
-    out_of_reach: 'text-red-600 dark:text-red-400',
-    learning: 'text-slate-500 dark:text-slate-400',
+    on_pace: 'text-emerald-700 dark:text-emerald-300',
+    under_pace: 'text-amber-700 dark:text-amber-300',
+    tight: 'text-amber-700 dark:text-amber-300',
+    out_of_reach: 'text-red-700 dark:text-red-300',
+    learning: 'text-slate-600 dark:text-slate-300',
 };
 
 /** Where each lane's labels sit, from the strip's top. */
-const LANE_TOP: Record<StripLane, string> = { above: '0', below: '3.4rem', under: '4.5rem' };
+const LANE_TOP: Record<StripLane, string> = { above: '0', below: '3.4rem', under: '4.75rem' };
 
 /**
  * The plan's look forward: one strip from today to a little past the later of
@@ -86,10 +90,10 @@ function Strip({ facts }: { facts: StripFacts }) {
         const p = placed[id];
         return p ? { left: p.left, top: LANE_TOP[p.lane] } : { left: 0, top: 0, visibility: 'hidden' as const };
     };
-    const label = 'absolute whitespace-nowrap text-xs leading-4';
+    const label = 'absolute whitespace-nowrap text-sm leading-5';
 
     return (
-        <div ref={box} role="img" aria-label={facts.sentence} dir="ltr" className="relative" style={{ height: deep ? '5.6rem' : '4.5rem' }}>
+        <div ref={box} role="img" aria-label={facts.sentence} dir="ltr" className="relative" style={{ height: deep ? '6rem' : '4.75rem' }}>
             {width > 0 && (
                 <>
                     {/* The track from today on. */}
@@ -97,7 +101,7 @@ function Strip({ facts }: { facts: StripFacts }) {
                         style={{ left: xOf(0), right: 0, top: '2.3rem', height: '0.4rem' }} />
                     {range && (
                         <div aria-hidden="true" data-strip="range"
-                            className="absolute rounded-md border border-accent-fg bg-accent-fg/25"
+                            className="absolute rounded-md border border-slate-500 bg-slate-400/40 dark:border-slate-300 dark:bg-slate-400/45"
                             style={{
                                 left: xOf(range.fromDay),
                                 width: Math.max(0.5 * rem, xOf(range.toDay) - xOf(range.fromDay)),

@@ -609,8 +609,8 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
 // Every expected value below comes from the band rules, written out here:
 //   - the strip is drawn while the date is ahead and work is open (on pace,
 //     under pace, tight, out of reach, learning), never once done or passed;
-//   - its range is the recent finish range, its flag is the date, coloured as
-//     the band, red when the date comes before the range;
+//   - its range is the recent finish range, its flag is the date, in the
+//     verdict's own colour (the flag and the headline agree);
 //   - the line under it is this week's count against the weekly amount the
 //     date needs, rounded up;
 //   - each fact is said once on the panel: the range's dates, that weekly
@@ -677,9 +677,7 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         const daysToDate = dayNum(c.deadline) - dayNum(TODAY);
         check(`${name}: the strip puts the date ${daysToDate} days ahead`, s?.dateDay === daysToDate, show(s));
         check(`${name}: the date falls ${c.place ?? 'against no range'}`, s?.place === c.place, show(s?.place));
-        const red = c.place === 'before';
-        check(`${name}: the flag is ${red ? 'red (before the range)' : `the band's colour`}`,
-            s?.tone === (red ? 'out_of_reach' : c.band), show(s?.tone));
+        check(`${name}: the flag takes the verdict's colour`, s?.tone === c.band, show(s?.tone));
         check(`${name}: the strip reaches past the date and the range`,
             s?.endDay >= daysToDate && s?.endDay >= (c.range ? dayNum(TO) - dayNum(TODAY) : 0), show(s?.endDay));
         if (c.range) {
@@ -691,7 +689,7 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         check(`${name}: a screen reader hears the strip in one sentence`, typeof s?.sentence === 'string' && s.sentence.endsWith('.')
             && (c.range ? s.sentence.includes(md(FROM)) : s.sentence.includes(String(daysToDate))), show(s?.sentence));
         const m = Math.ceil(c.needed);
-        check(`${name}: "This week: 1 of ${m} topics"`, w?.text === `This week: 1 of ${m} topics` && w?.met === false, show(w));
+        check(`${name}: "This week: 1 of the ${m} topics your date needs"`, w?.text === `This week: 1 of the ${m} topics your date needs` && w?.met === false, show(w));
 
         // Once each, across everything the panel says above its offers.
         const words = [panel.verdictHeadline(v, t, TODAY), ...panel.verdictSentences(v, t, num, TODAY),
@@ -710,24 +708,24 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     // A deck counts new cards; a week already at the amount says so, and one
     // past it names both numbers once.
     const deckV = { ...base, unit: 'cards', band: 'under_pace', deadline: ahead(40), needed: 11.2, ranges: { recent: null, best: null } };
-    check('a deck: "This week: 4 of 12 new cards"', week(deckV, { since: TODAY, count: 4 })?.text === 'This week: 4 of 12 new cards', show(week(deckV, { since: TODAY, count: 4 })));
+    check('a deck: "This week: 4 of the 12 new cards your date needs"', week(deckV, { since: TODAY, count: 4 })?.text === 'This week: 4 of the 12 new cards your date needs', show(week(deckV, { since: TODAY, count: 4 })));
     const atAmount = week(deckV, { since: TODAY, count: 12 });
-    check('…12 of 12 is met', atAmount?.met === true && atAmount.text === 'This week: 12 of 12 new cards', show(atAmount));
+    check('…12 of 12 is met', atAmount?.met === true && atAmount.text === 'This week: 12 of the 12 new cards your date needs', show(atAmount));
     const past = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 15 });
     check('…15 past 12 is met and names each number once', past?.met === true && times(past.text, '15') === 1 && times(past.text, '12') === 1, show(past));
     check('…and an unknown week draws no line', week(deckV, null) === null, show(week(deckV, null)));
     const none = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 0 });
-    check('a week with nothing closed yet: "This week: 0 of 12 topics", not met', none?.text === 'This week: 0 of 12 topics' && none.met === false, show(none));
+    check('a week with nothing closed yet: "This week: 0 of the 12 topics your date needs", not met', none?.text === 'This week: 0 of the 12 topics your date needs' && none.met === false, show(none));
     const exact = week({ ...deckV, unit: 'topics', needed: 3 }, { since: TODAY, count: 2 });
-    check('a whole weekly amount is not rounded past itself: "2 of 3"', exact?.text === 'This week: 2 of 3 topics', show(exact));
+    check('a whole weekly amount is not rounded past itself: "2 of 3"', exact?.text === 'This week: 2 of the 3 topics your date needs', show(exact));
     const tiny = week({ ...deckV, unit: 'topics', needed: 0.4 }, { since: TODAY, count: 0 });
     check('under one a week draws no line (it would ask for more than the date needs)', tiny === null, show(tiny));
 
     // The strip's edges: a date due today, and a date on the range's first and last days.
     const rangeV = (deadline) => ({ ...base, band: 'under_pace', deadline, needed: 2, ranges: { recent: { from: FROM, to: TO }, best: null } });
     const dueToday = strip(rangeV(TODAY));
-    check('a date due today sits at today, before the range, red, on a week-long strip',
-        dueToday?.dateDay === 0 && dueToday.place === 'before' && dueToday.tone === 'out_of_reach' && dueToday.endDay >= 7, show(dueToday));
+    check('a date due today sits at today, before the range, on a week-long strip',
+        dueToday?.dateDay === 0 && dueToday.place === 'before' && dueToday.tone === 'under_pace' && dueToday.endDay >= 7, show(dueToday));
     const onEnd = strip(rangeV(TO));
     check('a date on the range' + "'" + 's last day falls inside it', onEnd?.place === 'inside' && onEnd.tone === 'under_pace', show(onEnd));
     const onStart = strip(rangeV(FROM));

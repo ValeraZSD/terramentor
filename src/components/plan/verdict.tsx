@@ -170,7 +170,7 @@ export interface StripFacts {
     dateDay: number;
     range: { from: string; to: string; fromDay: number; toDay: number } | null;
     place: DatePlace | null;
-    /** The flag's colour: the band's, red when the date comes before the range. */
+    /** The flag's colour: the verdict's own, so the flag and the headline agree. */
     tone: VerdictBand;
     endDay: number;
     /** "Likely done Feb 22 – May 2", or null without a range. */
@@ -186,7 +186,7 @@ export function stripFacts(v: PaceVerdict, t: TFunction, num: Num, today: string
     const range = r ? { from: r.from, to: r.to, fromDay: dayNum(r.from) - dayNum(today), toDay: dayNum(r.to) - dayNum(today) } : null;
     const place: DatePlace | null = !range ? null
         : dateDay < range.fromDay ? 'before' : dateDay > range.toDay ? 'after' : 'inside';
-    const tone: VerdictBand = place === 'before' ? 'out_of_reach' : v.band;
+    const tone: VerdictBand = v.band;
     // A week at least, so a date due today still has a strip to sit on.
     const endDay = Math.max(7, dateDay, range?.toDay ?? 0);
     let rangeLabel: string | null = null;
@@ -228,8 +228,8 @@ export function weekLine(v: PaceVerdict, week: WeekSoFar | null | undefined, t: 
     return {
         met: n === m,
         text: cards
-            ? t("This week: {{n}} of {{m}} new cards", { count: m, n: num(n), m: num(m) })
-            : t("This week: {{n}} of {{m}} topics", { count: m, n: num(n), m: num(m) }),
+            ? t("This week: {{n}} of the {{m}} new cards your date needs", { count: m, n: num(n), m: num(m) })
+            : t("This week: {{n}} of the {{m}} topics your date needs", { count: m, n: num(n), m: num(m) }),
     };
 }
 
