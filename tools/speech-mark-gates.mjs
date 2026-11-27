@@ -19,6 +19,7 @@
 //     without asking the learner about every card;
 //   - a learner's edit keeps only the marks still true of the new text.
 // Deterministic: a scratch library, no model, no network.
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -41,7 +42,7 @@ const { AI_PROMPTS } = await import('../server/ai.js');
 const { finalizeFlashcards, buildFlashcardPrompt } = await import('../server/studyMaterial.js');
 const { insertImportedTree, exportedFlashcards, IMPORT_QUESTION_DEPS } = await import('../server/courseFiles.js');
 const { isSupportedLanguage } = await import('../server/language.js');
-const { recordInstalledBase, readInstalledCourse, readFileCourse, readBase, applyCourseUpdate } = await import('../server/courseUpdate.js');
+const { recordInstalledBase, readInstalledCourse, readFileCourse, readBase, applyCourseUpdate, undoAvailable } = await import('../server/courseUpdate.js');
 const { planCourseUpdate } = await import('../server/courseMerge.js');
 const { writeCard } = await import('../server/cardWrite.js');
 
@@ -87,6 +88,13 @@ try {
     eq('a stretch of the line with its punctuation is kept',
         check([{ at: 'Ja, graag. (Yes, please.)', text: 'Ja, graag.' }], { front: 'x', back: 'Ja, graag. (Yes, please.)' }, 'nl').marks,
         [{ at: 'Ja, graag. (Yes, please.)', text: 'Ja, graag.', voices: 1 }]);
+    eq('a back of two lines is one line: a mark naming one of them names the whole back',
+        check([{ at: 'Ja, graag.', text: 'Ja, graag.' }], { front: 'yes, please', back: 'Ja, graag.\n(Yes, please.)' }, 'nl').marks,
+        [{ at: 'Ja, graag.\n(Yes, please.)', text: 'Ja, graag.', voices: 1 }]);
+    eq('...and an example of two lines stays two lines, one mark each',
+        check([{ at: 'Ik heb pijn.', text: 'Ik heb pijn.' }, { at: 'Het doet pijn.', text: 'Het doet pijn.' }],
+            { front: 'de pijn', back: 'боль', extra: 'Ik heb pijn.\nHet doet pijn.' }, 'nl').marks?.map(m => m.at),
+        ['Ik heb pijn.', 'Het doet pijn.']);
     eq('words out of the line\'s order are dropped',
         reasonFor({ at: 'Voorbeeld: Ik heb pijn in mijn rug.', text: 'rug mijn' }), [1, ['the words are not in the line']]);
     eq('the Russian translation under a Dutch mark is dropped (script)',
@@ -101,6 +109,9 @@ try {
         reasonFor({ at: 'Voorbeeld: Ik heb pijn in mijn rug.', text: '  ' }), [1, ['no words to say, or too many']]);
     r = check([{ at: 'de pijn (боль)', text: 'de pijn', lang: 'nl-BE' }], ruCard, 'nl');
     eq('a regional tag of the learned language is kept as the mark\'s language', r.marks, [{ at: 'de pijn (боль)', text: 'de pijn', lang: 'nl-BE', voices: 1 }]);
+    const flood = check(Array.from({ length: 10000 }, () => ({ at: 'x', text: 'x' })), ruCard, 'nl').dropped;
+    eq('a list of thousands: the first 48 are read, the rest is one refusal',
+        [flood.length, flood.at(-1)], [49, { index: 48, reason: 'more than 12 marks on one card' }]);
     eq('an empty list is kept: the writer said there is nothing to say', check([], ruCard, 'nl').marks, []);
     eq('every mark wrong: the card is not marked, so the rules read it', check([{ at: 'x', text: 'x' }], ruCard, 'nl').marks, null);
     eq('a course that teaches no language keeps no marks', check([{ at: 'de pijn (боль)', text: 'de pijn' }], ruCard, '').marks, null);
@@ -211,6 +222,67 @@ try {
     const again = planCourseUpdate({ upstream: readFileCourse(header.project, editionTree.nodes), local: readInstalledCourse(oldId), base: readBase(oldId) });
     eq('...and the same file again plans nothing', again.ops.filter(o => o.op === 'update').length, 0);
 
+    // The learner rewrote the example before the edition came: their wording
+    // stays, the file's marks come in, and the mark on the example they no
+    // longer have is not stored.
+    const mixedId = Number(db.prepare('INSERT INTO projects (name, description, content_language, learning_language) VALUES (?, ?, ?, ?)')
+        .run('Mixed course', '', 'ru', 'nl').lastInsertRowid);
+    insertImportedTree(mixedId, normalizeImportTree(fileNodes().map(n => ({ ...n, flashcards: n.flashcards.map(({ say, ...c }) => c) })), IMPORT_QUESTION_DEPS).nodes);
+    recordInstalledBase(mixedId);
+    db.prepare("DELETE FROM course_base WHERE project_id = ? AND field = 'say'").run(mixedId);
+    const mixedCards = db.prepare('SELECT f.id, f.uuid FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id').all(mixedId);
+    writeCard(mixedCards[0].id, { extra: 'Voorbeeld: Mijn rug doet pijn.' });
+    const mixedEdition = fileNodes();
+    mixedEdition[0].uuid = db.prepare('SELECT uuid FROM nodes WHERE project_id = ?').get(mixedId).uuid;
+    mixedEdition[0].flashcards.forEach((c, i) => { c.uuid = mixedCards[i].uuid; });
+    const mixedTree = normalizeImportTree(mixedEdition, { ...IMPORT_QUESTION_DEPS, learningLanguage: 'nl' });
+    const mixedPlan = planCourseUpdate({ upstream: readFileCourse(header.project, mixedTree.nodes), local: readInstalledCourse(mixedId), base: readBase(mixedId) });
+    eq('control: the learner\'s example is kept and the file\'s marks taken, no question',
+        [mixedPlan.conflicts.length, 'extra' in (mixedPlan.ops.find(o => o.op === 'update' && o.id === mixedCards[0].id)?.fields ?? {}),
+            'say' in (mixedPlan.ops.find(o => o.op === 'update' && o.id === mixedCards[0].id)?.fields ?? {})], [0, false, true]);
+    applyCourseUpdate(mixedId, mixedPlan);
+    eq('the update keeps only the marks true of the card as it now reads',
+        JSON.parse(db.prepare('SELECT say FROM flashcards WHERE id = ?').get(mixedCards[0].id).say).map(m => m.text), ['de pijn']);
+    const mixedAgain = planCourseUpdate({ upstream: readFileCourse(header.project, mixedTree.nodes), local: readInstalledCourse(mixedId), base: readBase(mixedId) });
+    eq('...and the same file again plans nothing', [mixedAgain.ops.filter(o => o.op === 'update').length, mixedAgain.conflicts.length], [0, 0]);
+
+    // A card matched to the file with no base row at all: the marks are not
+    // the learner's, so there is nothing to ask about.
+    const noBaseId = Number(db.prepare('INSERT INTO projects (name, description, content_language, learning_language) VALUES (?, ?, ?, ?)')
+        .run('No base', '', 'ru', 'nl').lastInsertRowid);
+    insertImportedTree(noBaseId, normalizeImportTree(fileNodes().map(n => ({ ...n, flashcards: n.flashcards.map(({ say, ...c }) => c) })), IMPORT_QUESTION_DEPS).nodes);
+    recordInstalledBase(noBaseId);
+    db.prepare("DELETE FROM course_base WHERE project_id = ? AND kind = 'card'").run(noBaseId);
+    const noBaseCards = db.prepare('SELECT f.uuid FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id').all(noBaseId);
+    const noBaseEdition = fileNodes();
+    noBaseEdition[0].uuid = db.prepare('SELECT uuid FROM nodes WHERE project_id = ?').get(noBaseId).uuid;
+    noBaseEdition[0].flashcards.forEach((c, i) => { c.uuid = noBaseCards[i].uuid; });
+    const noBasePlan = planCourseUpdate({ upstream: readFileCourse(header.project, normalizeImportTree(noBaseEdition, { ...IMPORT_QUESTION_DEPS, learningLanguage: 'nl' }).nodes),
+        local: readInstalledCourse(noBaseId), base: readBase(noBaseId) });
+    eq('a card with no base row: its new marks ask nothing', noBasePlan.conflicts.map(c => c.field), []);
+
+    // An update applied by a build from before marks recorded the course's
+    // fingerprint without them. Written here as that build wrote it.
+    const releasedFingerprint = (pid) => {
+        const h = createHash('sha256');
+        h.update(JSON.stringify(db.prepare('SELECT name, description, content_language, learning_language, version FROM live_projects projects WHERE id = ?').get(pid)));
+        const inCourse = 'node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)';
+        for (const [t, sql, cols] of [
+            ['nodes', 'SELECT * FROM live_nodes nodes WHERE project_id = ?', ['title', 'description', 'is_note', 'role', 'parent_id', 'position', 'generated_by']],
+            ['resources', `SELECT * FROM live_resources resources WHERE ${inCourse}`, ['node_id', 'title', 'url', 'type', 'position']],
+            ['flashcards', `SELECT * FROM live_flashcards flashcards WHERE ${inCourse}`, ['node_id', 'front', 'back', 'extra', 'extra_front', 'media', 'generated_by']],
+            ['quizzes', `SELECT * FROM live_quizzes quizzes WHERE ${inCourse}`, ['node_id', 'title', 'questions']],
+        ]) for (const r of db.prepare(`${sql} ORDER BY id`).all(pid)) h.update(JSON.stringify([t, r.id, ...cols.map(c => r[c] ?? null)]));
+        return h.digest('hex');
+    };
+    const undoPlan = planCourseUpdate({ upstream: readFileCourse(header.project, normalizeImportTree(
+        noBaseEdition.map(n => ({ ...n, flashcards: n.flashcards.map(({ say, ...c }) => ({ ...c, back: `${c.back}!` })) })), IMPORT_QUESTION_DEPS).nodes),
+    local: readInstalledCourse(noBaseId), base: readBase(noBaseId) });
+    applyCourseUpdate(noBaseId, undoPlan);
+    const undoRow = JSON.parse(db.prepare('SELECT undo FROM course_upstream WHERE project_id = ?').get(noBaseId).undo);
+    db.prepare('UPDATE course_upstream SET undo = ? WHERE project_id = ?').run(JSON.stringify({ ...undoRow, after: releasedFingerprint(noBaseId) }), noBaseId);
+    eq('an update recorded before marks existed can still be undone', undoAvailable(noBaseId).available, true);
+
     // -----------------------------------------------------------------------
     section('a learner\'s edit keeps only the marks still true of the new text');
     const cardId = db.prepare('SELECT f.id FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id').get(importedId).id;
@@ -221,6 +293,14 @@ try {
     eq('the example rewritten: its mark goes, the word\'s stays', JSON.parse(say()).map(m => m.text), ['de pijn']);
     writeCard(cardId, { front: 'de rugpijn (боль в спине)' });
     eq('the word rewritten too: no mark is left, the rules read the card', say(), null);
+    const twoMarks = JSON.stringify([{ at: 'de pijn (боль)', text: 'de pijn', voices: 2 }, { at: 'Voorbeeld: Ik heb pijn.', text: 'Ik heb pijn.', voices: 1 }]);
+    const clearedId = Number(db.prepare("INSERT INTO flashcards (node_id, front, back, extra, say) VALUES (?, 'de pijn (боль)', 'боль', 'Voorbeeld: Ik heb pijn.', ?)")
+        .run(nodeId, twoMarks).lastInsertRowid);
+    writeCard(clearedId, { extra: null });
+    eq('the example cleared: its mark goes with it', JSON.parse(db.prepare('SELECT say FROM flashcards WHERE id = ?').get(clearedId).say).map(m => m.text), ['de pijn']);
+    const silentId = db.prepare("SELECT id FROM flashcards WHERE node_id = ? AND front = 'het huis'").get(nodeId).id;
+    writeCard(silentId, { back: 'дом, здание' });
+    eq('"nothing to say" survives an edit', db.prepare('SELECT say FROM flashcards WHERE id = ?').get(silentId).say, '[]');
 } finally {
     try { db.close(); } catch { /* already closed */ }
     rmSync(SCRATCH, { recursive: true, force: true });

@@ -79,12 +79,32 @@ export function lineKey(line) {
     return String(line ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-/** Every line a card shows: front, back and each supporting line on both sides. */
+/** Every line a card shows, as the card face draws them: the front whole, the
+ *  back whole (each is one block with one speaker, whatever line breaks it
+ *  holds), and each supporting line on both sides on its own. */
 export function cardLines(card) {
     const lines = [];
-    for (const f of [card?.front, card?.back, card?.extra_front, card?.extra]) {
+    for (const f of [card?.front, card?.back]) {
+        if (typeof f === 'string' && f.trim()) lines.push(f.trim());
+    }
+    for (const f of [card?.extra_front, card?.extra]) {
         if (typeof f !== 'string') continue;
         for (const l of f.split('\n')) if (l.trim()) lines.push(l.trim());
+    }
+    return lines;
+}
+
+/** Line key -> the drawn line a mark's `at` names. A front or back written on
+ *  several lines is one drawn line, so a mark naming one of its lines names
+ *  the whole side. */
+function drawnLines(card) {
+    const lines = new Map(cardLines(card).map(l => [lineKey(l), l]));
+    for (const f of [card?.front, card?.back]) {
+        if (typeof f !== 'string' || !f.includes('\n')) continue;
+        for (const part of f.split('\n')) {
+            const k = lineKey(part);
+            if (k && !lines.has(k)) lines.set(k, f.trim());
+        }
     }
     return lines;
 }
@@ -141,19 +161,23 @@ export function normalizeSpeechMarks(raw, card, learning) {
     const learn = base(learning);
     const scripts = learn ? scriptsOf(learn) : null;
     if (!scripts) {
-        raw.forEach((_, index) => dropped.push({ index, reason: 'the course teaches no language' }));
+        if (raw.length) dropped.push({ index: 0, reason: 'the course teaches no language' });
         return { marks: null, dropped };
     }
-    const lines = new Map(cardLines(card).map(l => [lineKey(l), l]));
+    const lines = drawnLines(card);
     const marks = [];
     const used = new Set();
-    raw.forEach((m, index) => {
+    const tooMany = `more than ${MAX_SPEECH_MARKS} marks on one card`;
+    // Past a few times the cap nothing is read, and the rest is one refusal:
+    // a list of thousands costs nothing to refuse.
+    const read = raw.slice(0, MAX_SPEECH_MARKS * 4);
+    read.forEach((m, index) => {
         const drop = (reason) => dropped.push({ index, reason });
-        if (marks.length >= MAX_SPEECH_MARKS) return drop(`more than ${MAX_SPEECH_MARKS} marks on one card`);
+        if (marks.length >= MAX_SPEECH_MARKS) return drop(tooMany);
         if (!m || typeof m !== 'object' || Array.isArray(m)) return drop('not an object');
-        const key = typeof m.at === 'string' ? lineKey(m.at) : '';
-        const line = key ? lines.get(key) : undefined;
+        const line = typeof m.at === 'string' && m.at.length <= 4000 ? lines.get(lineKey(m.at)) : undefined;
         if (!line) return drop('"at" is not a line of the card');
+        const key = lineKey(line);
         if (used.has(key)) return drop('a second mark on one line');
         const text = typeof m.text === 'string' ? m.text.replace(/\s+/g, ' ').trim() : '';
         if (!text || text.length > MAX_MARK_TEXT) return drop('no words to say, or too many');
@@ -171,6 +195,7 @@ export function normalizeSpeechMarks(raw, card, learning) {
         used.add(key);
         marks.push({ at: line, text, ...(lang ? { lang } : {}), voices });
     });
+    if (raw.length > read.length) dropped.push({ index: read.length, reason: tooMany });
     // Everything written was wrong: the rules know more about this card than the marks.
     if (raw.length && !marks.length) return { marks: null, dropped };
     return { marks, dropped };
@@ -178,6 +203,19 @@ export function normalizeSpeechMarks(raw, card, learning) {
 
 /** The stored form (`flashcards.say`): JSON text, or null for an unmarked card. */
 export const speechMarksColumn = (marks) => (Array.isArray(marks) ? JSON.stringify(marks) : null);
+
+/**
+ * A stored `say` column after the card's text changed (a learner's edit, a
+ * course update): the marks still true of the card as it now reads. Unmarked
+ * stays unmarked and "nothing to say" (`[]`) stays so; a card whose marks all
+ * stopped being true goes back to the rules (null).
+ */
+export function marksStillTrue(rawColumn, card, learning) {
+    if (rawColumn == null) return null;
+    const stored = parseSpeechMarks(rawColumn);
+    if (!stored) return null;
+    return speechMarksColumn(normalizeSpeechMarks(stored, card, learning).marks);
+}
 
 /**
  * A stored `say` column read back, for a reader that trusts the writer to have

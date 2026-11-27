@@ -3576,7 +3576,7 @@ const CARD_RULES = `${CARD_SHAPE_RULES}
  */
 export function speechMarkRules({ code, name }) {
     return `SPOKEN LINES. This course teaches ${name}. Each card also carries "say": the lines of the card a ${name} voice reads aloud, so the learner hears how they sound. One entry per line to be read:
-- "at": that line of the card, copied exactly. A "front" or "back" written on one line is one line; one that holds a line break is several, so name one of its lines, never two.
+- "at": the line copied exactly: the whole "front", the whole "back", or one whole line of a supporting field.
 - "text": the words the voice says: ONE unbroken stretch of that line, copied exactly, holding only ${name} words. Leave out labels ("Example:", "Plural:"), translations, glosses and explanations in any other language, and brackets that hold them. Never join two separate pieces of a line; when a line holds more than one ${name} piece, give the one the learner most needs to hear (usually the full example sentence). Spell numbers as they are written on the line.
 - "lang": "${code}".
 - "voices": 2 for a single word or a short phrase (up to four words), which the learner then hears from two different speakers; 1 for a sentence.

@@ -9,7 +9,7 @@ import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { claimUuid } from './courseFiles.js';
 import { BY_APP, revive, softDelete } from './softDelete.js';
 import { k } from './clientError.js';
-import { parseSpeechMarks, speechMarksColumn } from './speechMarks.js';
+import { marksStillTrue, parseSpeechMarks, speechMarksColumn } from './speechMarks.js';
 
 const ORDERED = new Set(['node', 'resource']);
 /** Statements prepared once: the readers and the writer run one per item. A
@@ -37,7 +37,6 @@ export function questionContent(q) {
     return content;
 }
 
-/** A card's media as names, the way a file names them. */
 /** A card's speech marks as the planner compares them (server/speechMarks.js):
  *  the stored JSON text, or null for a card with none. The same text is what
  *  an update writes into `flashcards.say`. */
@@ -46,6 +45,7 @@ function sayField(say) {
     return marks ? speechMarksColumn(marks) : null;
 }
 
+/** A card's media as names, the way a file names them. */
 function mediaNames(media) {
     const parsed = typeof media === 'string' ? safeParse(media) : media;
     if (!parsed || typeof parsed !== 'object') return null;
@@ -267,11 +267,16 @@ function takeUndoSnapshot(projectId) {
 // What the course's author-owned rows look like now. Recorded right after an
 // update: the undo puts back only what that update wrote, so it is refused once
 // anything here moved since (a topic, card or link added, an edit, a rename).
+// A column newer than the undo records already stored counts only when set, so
+// an update made before the column existed can still be undone.
+const LATER_COLUMNS = new Set(['say']);
 function courseFingerprint(projectId) {
     const h = createHash('sha256');
     h.update(JSON.stringify(prep('SELECT name, description, content_language, learning_language, version FROM live_projects projects WHERE id = ?').get(projectId)));
     for (const t of Object.keys(scopeSql)) {
-        for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) h.update(JSON.stringify([t, r.id, ...RESTORE[t].map(c => r[c] ?? null)]));
+        for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) {
+            h.update(JSON.stringify([t, r.id, ...RESTORE[t].filter(c => r[c] != null || !LATER_COLUMNS.has(c)).map(c => r[c] ?? null)]));
+        }
     }
     return h.digest('hex');
 }
@@ -547,6 +552,17 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const stamp = restamp('flashcards', o.id, ['front', 'back', 'extra', 'extra_front'], o.fields, o.source?.generated_by);
             if (stamp !== undefined) { sets.push('generated_by = ?'); vals.push(stamp); }
             if (sets.length) prep(`UPDATE flashcards SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
+            // The file's marks and the card's text may come from different sides
+            // (the learner kept their own wording, took the file's marks): keep
+            // only the marks true of the card as it now reads.
+            if (['front', 'back', 'extra', 'extra_front', 'say'].some(f => f in o.fields)) {
+                const row = prep(`SELECT f.front, f.back, f.extra, f.extra_front, f.say, p.learning_language FROM live_flashcards f
+                    JOIN live_nodes n ON n.id = f.node_id JOIN live_projects p ON p.id = n.project_id WHERE f.id = ?`).get(o.id);
+                if (row?.say != null) {
+                    const kept = marksStillTrue(row.say, row, row.learning_language);
+                    if (kept !== row.say) prep('UPDATE flashcards SET say = ? WHERE id = ?').run(kept, o.id);
+                }
+            }
         }
         for (const o of byKind('insert', 'card')) {
             const nodeId = resolveNode(o.parent);
