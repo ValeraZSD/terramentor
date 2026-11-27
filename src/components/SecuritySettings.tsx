@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink, IconButton } from './ui/Button';
-import { PasswordInput } from './ui/Field';
+import { PasswordInput, TextInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote, SettingRow } from './ui/SettingRow';
 import { DEVICES_CHANGED } from './OtherDevices';
 
@@ -146,6 +146,10 @@ function activeAgo(iso: string, now: number, t: TFunction) {
 function PasswordSecurity() {
     const { t } = useTranslation();
     const authEnabled = useStore(s => s.authEnabled);
+    // A device in without a password: the first one is set on the computer,
+    // or here with the setup code from the server's log (a server with no
+    // screen), as on the lock screen. Without the field the form could only fail.
+    const elsewhere = useStore(s => s.authElsewhere);
     const loadAuth = useStore(s => s.loadAuth);
 
     const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -154,6 +158,7 @@ function PasswordSecurity() {
     // Set-password (first run) fields
     const [newPass, setNewPass] = useState('');
     const [confirmPass, setConfirmPass] = useState('');
+    const [setupCode, setSetupCode] = useState('');
 
     // Change-password fields
     const [curPass, setCurPass] = useState('');
@@ -184,11 +189,12 @@ function PasswordSecurity() {
     const doSetup = async () => {
         if (newPass.length < 10) return flash('err', t("Password must be at least 10 characters."));
         if (newPass !== confirmPass) return flash('err', t("Passwords do not match."));
+        if (elsewhere && !setupCode.trim()) return flash('err', t("Enter the setup code from the server log."));
         setBusy(true);
         try {
-            await api.setupPassword(newPass);
+            await api.setupPassword(newPass, elsewhere ? setupCode.trim() : undefined);
             await loadAuth();
-            setNewPass(''); setConfirmPass('');
+            setNewPass(''); setConfirmPass(''); setSetupCode('');
             flash('ok', t("Password set. Other devices will need it to sign in."));
         } catch (e: any) { flash('err', e?.message || t("Failed to set password.")); }
         finally { setBusy(false); }
@@ -293,9 +299,23 @@ function PasswordSecurity() {
                 {!authEnabled ? (
                     <Block
                         title={t("Set a password")}
-                        hint={t("At least 10 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
+                        hint={elsewhere
+                            ? t("Set it on the computer Terramentor runs on. A server with no screen: enter the setup code printed in its log.")
+                            : t("At least 10 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
                     >
                         <FieldRow>
+                            {elsewhere && (
+                                <TextInput
+                                    className="min-w-[14rem] flex-1 font-mono placeholder:font-sans"
+                                    autoComplete="one-time-code"
+                                    autoCapitalize="characters"
+                                    spellCheck={false}
+                                    aria-label={t("Setup code")}
+                                    placeholder={t("Setup code")}
+                                    value={setupCode}
+                                    onChange={e => setSetupCode(e.target.value)}
+                                />
+                            )}
                             <SecretField autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
                             <SecretField autoComplete="new-password" label={t("Confirm password")} value={confirmPass} onChange={setConfirmPass} />
                             <Button variant="primary" busy={busy} onClick={doSetup} icon={<Shield className="w-4 h-4" aria-hidden="true" />}>
