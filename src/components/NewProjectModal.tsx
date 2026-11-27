@@ -614,26 +614,23 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                     ) : (
                         <div className="space-y-4">
                             {/* Nothing connected: say so before anything is typed,
-                                with the two ways that need no model here. The
-                                connect buttons are the home card's and the
-                                assistant's; the chatbot route is the import
-                                view's own button. */}
+                                with every way on in one group: the home card's
+                                and the assistant's connect buttons, and the
+                                import view's chatbot route, which needs no
+                                model at all. */}
                             {noModel && (
-                                <>
-                                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
-                                        <Bot className="mt-px h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t("Writing a course needs an AI model")}</p>
-                                            <p className="mt-0.5 text-sm text-amber-800 dark:text-amber-300">
-                                                {t("Connect one, or have a chatbot you already use write the course and import it here.")}
-                                            </p>
-                                            <div className="mt-3"><ConnectAIActions returnTo={window.location.pathname} onLeave={onCancel} /></div>
+                                <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
+                                    <Bot className="mt-px h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t("Writing a course needs an AI model")}</p>
+                                        <p className="mt-0.5 text-sm text-amber-800 dark:text-amber-300">
+                                            {t("Connect one, or have a chatbot you already use write the course and import it here.")}
+                                        </p>
+                                        <div className="mt-3">
+                                            <ConnectAIActions returnTo={window.location.pathname} onLeave={onCancel} onChatbot={() => go('external')} />
                                         </div>
                                     </div>
-                                    <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => go('external')}>
-                                        {t("Or make a course with an external chatbot")}
-                                    </Button>
-                                </>
+                                </div>
                             )}
                             {form}
                         </div>
