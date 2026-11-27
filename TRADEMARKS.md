@@ -6,8 +6,12 @@ are trademarks of Valerii Kozhevets, the project maintainer.
 
 The AGPL-3.0 licence that governs this repository's source code covers the **code**. It does
 not grant a licence to use the Terramentor name or logo, and copying the brand files out of
-this repository does not put them under the licence. This file reserves them; a registration
-may follow, and this notice applies whether or not it has.
+this repository does not put them under the licence. This file reserves them, and this notice
+applies whether or not a registration exists.
+
+The word mark TERRAMENTOR has been filed with the Benelux Office for Intellectual Property
+(BOIP) under application number 1563941, filed 27 November 2026, in Nice classes 9, 35, 41
+and 42. It is an application, not yet a registration.
 
 ## You may, without asking
 
