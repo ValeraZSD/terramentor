@@ -31,9 +31,9 @@ described in full further down, with the file that does it.
   API key or a connected device.
 - **What a caller may change.** A page may write only the settings `server/settingsSchema.js`
   lists, each in the shape its reader expects. Where the app sends requests (model addresses,
-  keys, the search address) and the desktop's own controls (quit, updates, restoring a
-  library) change only from this computer or with the password; a connected device cannot
-  change them.
+  keys, the search address) and the desktop's own controls (quit, restoring a library) change
+  only from this computer or with the password; a connected device cannot change them. It may
+  install an update only while no password is set, and only the newest signed release.
 - **What leaves the computer.** A short, closed list of connections, each named below, and no
   telemetry. A request whose address came from content (a link in a course, a page the model
   picked) goes through `server/netSafety.js`, and so do the hosted search engines, the update
