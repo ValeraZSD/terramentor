@@ -3816,6 +3816,7 @@
   "Your date comes after the likely-done range, {{dates}}.": "你的日期晚于可能完成的时段：{{dates}}。",
   "Your date comes before the likely-done range, {{dates}}.": "你的日期早于可能完成的时段：{{dates}}。",
   "Your date falls inside the likely-done range, {{dates}}.": "你的日期在可能完成的时段之内：{{dates}}。",
+  "Your date is today.": "你的日期就是今天。",
   "Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.": "你的牌组现在变为主题。复习由 FSRS 安排，应用的其他部分也基于此运作。",
   "Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.": "以 {{login}} 登录 Tailscale 的设备无论身在何处，都能无需密码打开此应用。",
   "Your endpoint does not offer “{{model}}”. Pick one of its embedding models from the list.": "你的端点不提供“{{model}}”。请从列表中选择它的一个嵌入模型。",

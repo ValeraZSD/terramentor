@@ -4455,6 +4455,7 @@
   "Your date comes after the likely-done range, {{dates}}.": "Ваша дата позже периода, когда вы, скорее всего, закончите: {{dates}}.",
   "Your date comes before the likely-done range, {{dates}}.": "Ваша дата раньше периода, когда вы, скорее всего, закончите: {{dates}}.",
   "Your date falls inside the likely-done range, {{dates}}.": "Ваша дата попадает в период, когда вы, скорее всего, закончите: {{dates}}.",
+  "Your date is today.": "Ваша дата сегодня.",
   "Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.": "Ваши колоды теперь стали темами. Повторения планирует FSRS, и дальше с ними работает всё остальное приложение.",
   "Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.": "Ваши устройства, вошедшие в Tailscale как {{login}}, открывают приложение без пароля, где бы они ни были.",
   "Your endpoint does not offer “{{model}}”. Pick one of its embedding models from the list.": "Ваш сервис не предлагает «{{model}}». Выберите одну из его моделей эмбеддингов в списке.",

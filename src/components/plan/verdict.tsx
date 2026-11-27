@@ -17,15 +17,31 @@ import { dateRangeLabel, uiLocale } from '../../utils/locale';
  * under pace or tight, red out of reach or passed, grey while it is learning.
  */
 
-const TONE: Record<VerdictBand, string> = {
-    on_pace: 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
-    under_pace: 'text-amber-700 dark:text-amber-300 bg-amber-500/10',
-    tight: 'text-amber-700 dark:text-amber-300 bg-amber-500/10',
-    out_of_reach: 'text-red-700 dark:text-red-300 bg-red-500/10',
-    passed: 'text-red-700 dark:text-red-300 bg-red-500/10',
-    learning: 'text-slate-600 dark:text-slate-300 bg-slate-500/10',
-    done: 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
-    no_date: 'text-slate-600 dark:text-slate-300 bg-slate-500/10',
+/**
+ * The band's text colour: the pill's words, the headline's icon, the strip's
+ * flag on the date and the tick beside a week that is met (on pace's green).
+ */
+export const TONE_TEXT: Record<VerdictBand, string> = {
+    on_pace: 'text-emerald-700 dark:text-emerald-300',
+    under_pace: 'text-amber-700 dark:text-amber-300',
+    tight: 'text-amber-700 dark:text-amber-300',
+    out_of_reach: 'text-red-700 dark:text-red-300',
+    passed: 'text-red-700 dark:text-red-300',
+    learning: 'text-slate-600 dark:text-slate-300',
+    done: 'text-emerald-700 dark:text-emerald-300',
+    no_date: 'text-slate-600 dark:text-slate-300',
+};
+
+/** The pill's tint behind those words. */
+const TINT: Record<VerdictBand, string> = {
+    on_pace: 'bg-emerald-500/10',
+    under_pace: 'bg-amber-500/10',
+    tight: 'bg-amber-500/10',
+    out_of_reach: 'bg-red-500/10',
+    passed: 'bg-red-500/10',
+    learning: 'bg-slate-500/10',
+    done: 'bg-emerald-500/10',
+    no_date: 'bg-slate-500/10',
 };
 
 const ICON: Record<VerdictBand, LucideIcon> = {
@@ -88,7 +104,7 @@ export function VerdictPill({ verdict, t, className = '' }: {
     return (
         <span
             data-verdict={verdict.band}
-            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${TONE[verdict.band]} ${className}`}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${TONE_TEXT[verdict.band]} ${TINT[verdict.band]} ${className}`}
         >
             <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             {t(LABEL[verdict.band])}
@@ -103,8 +119,7 @@ export function VerdictPill({ verdict, t, className = '' }: {
 export function VerdictIcon({ verdict, className = '' }: { verdict: PaceVerdict; className?: string }) {
     const Icon = ICON[verdict.band];
     // The pill's text colour only: no tint behind a bare icon.
-    const colour = TONE[verdict.band].split(' ').filter(c => c.startsWith('text-') || c.startsWith('dark:text-')).join(' ');
-    return <Icon className={`shrink-0 ${colour} ${className}`} aria-hidden="true" />;
+    return <Icon className={`shrink-0 ${TONE_TEXT[verdict.band]} ${className}`} aria-hidden="true" />;
 }
 
 /**
@@ -170,8 +185,6 @@ export interface StripFacts {
     dateDay: number;
     range: { from: string; to: string; fromDay: number; toDay: number } | null;
     place: DatePlace | null;
-    /** The flag's colour: the verdict's own, so the flag and the headline agree. */
-    tone: VerdictBand;
     endDay: number;
     /** "Likely done Feb 22 – May 2", or null without a range. */
     rangeLabel: string | null;
@@ -186,7 +199,6 @@ export function stripFacts(v: PaceVerdict, t: TFunction, num: Num, today: string
     const range = r ? { from: r.from, to: r.to, fromDay: dayNum(r.from) - dayNum(today), toDay: dayNum(r.to) - dayNum(today) } : null;
     const place: DatePlace | null = !range ? null
         : dateDay < range.fromDay ? 'before' : dateDay > range.toDay ? 'after' : 'inside';
-    const tone: VerdictBand = v.band;
     // A week at least, so a date due today still has a strip to sit on.
     const endDay = Math.max(7, dateDay, range?.toDay ?? 0);
     let rangeLabel: string | null = null;
@@ -200,21 +212,24 @@ export function stripFacts(v: PaceVerdict, t: TFunction, num: Num, today: string
             : place === 'after'
                 ? t("Your date comes after the likely-done range, {{dates}}.", { dates })
                 : t("Your date falls inside the likely-done range, {{dates}}.", { dates });
+    } else if (dateDay === 0) {
+        sentence = t("Your date is today.");
     } else {
         sentence = t("{{n}} days from today to your date.", { count: dateDay, n: num(dateDay) });
     }
-    return { dateDay, range, place, tone, endDay, rangeLabel, sentence: oneStop(sentence) };
+    return { dateDay, range, place, endDay, rangeLabel, sentence: oneStop(sentence) };
 }
 
 /**
  * The line under the strip: this course's work so far this week against the
- * weekly amount the date needs, rounded up (a topic is closed whole). Null
- * where the strip is not drawn or the week is not known.
+ * week's target, which the server fixes from Monday (`weeklyTarget`,
+ * server/paceModel.js) so it does not shrink as the week's work is done. Null
+ * where the strip is not drawn, the week is not known, or the target is under
+ * one a week.
  */
 export function weekLine(v: PaceVerdict, week: WeekSoFar | null | undefined, t: TFunction, num: Num): { text: string; met: boolean } | null {
-    // Under one a week, "0 of 1" would ask for more than the date needs.
-    if (!STRIP_BANDS.has(v.band) || v.needed == null || v.needed < 1 || !week) return null;
-    const m = Math.ceil(v.needed - 1e-9);
+    if (!STRIP_BANDS.has(v.band) || !week || week.target == null || week.target < 1) return null;
+    const m = week.target;
     const n = week.count;
     const cards = v.unit === 'cards';
     if (n > m) {
@@ -251,17 +266,21 @@ export interface LabelAsk {
  * Places the strip's labels: each, in the order given, takes the first of its
  * lanes where it stays `gap` clear of every label already there, kept inside
  * the strip. Three labels that each accept all three lanes never overlap.
+ * `width` is the room each gets: its own, or the strip's when it is wider.
  */
-export function placeLabels(asks: LabelAsk[], width: number, gap: number): Partial<Record<StripLabel, { left: number; lane: StripLane }>> {
-    const out: Partial<Record<StripLabel, { left: number; lane: StripLane }>> = {};
+export interface PlacedLabel { left: number; lane: StripLane; width: number }
+export function placeLabels(asks: LabelAsk[], width: number, gap: number): Partial<Record<StripLabel, PlacedLabel>> {
+    const out: Partial<Record<StripLabel, PlacedLabel>> = {};
     const taken: { lane: StripLane; a: number; b: number }[] = [];
     for (const ask of asks) {
-        const want = ask.start ? ask.x : ask.x - ask.w / 2;
-        const left = Math.max(0, Math.min(want, width - ask.w));
-        const free = (lane: StripLane) => taken.every(s => s.lane !== lane || left + ask.w + gap <= s.a || s.b + gap <= left);
+        // A label wider than the strip is cut to it (PlanStrip ends it in "…").
+        const w = Math.min(ask.w, Math.max(0, width));
+        const want = ask.start ? ask.x : ask.x - w / 2;
+        const left = Math.max(0, Math.min(want, width - w));
+        const free = (lane: StripLane) => taken.every(s => s.lane !== lane || left + w + gap <= s.a || s.b + gap <= left);
         const lane = ask.lanes.find(free) ?? ask.lanes[ask.lanes.length - 1];
-        taken.push({ lane, a: left, b: left + ask.w });
-        out[ask.id] = { left, lane };
+        taken.push({ lane, a: left, b: left + w });
+        out[ask.id] = { left, lane, width: w };
     }
     return out;
 }

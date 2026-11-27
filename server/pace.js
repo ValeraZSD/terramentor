@@ -34,7 +34,8 @@ import { WORK_LEAF, OPEN_WORK_LEAF } from './today.js';
 import { projectCountsInCards } from './progress.js';
 import { probeAvailability } from './placement.js';
 import { dayBounds, learnerTimeZone, localDate, studyToday } from './studyDay.js';
-import { OFFERS, judgeDate, learnerPace } from './paceModel.js';
+import { OFFERS, judgeDate, learnerPace, weeklyTarget } from './paceModel.js';
+import { mondayOf } from './studySummary.js';
 
 const BURST_SECONDS = 2;
 // julianday() carries about a tenth of a millisecond of float error: two rows
@@ -214,27 +215,27 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     return { ...verdict, otherCourses };
 }
 
-/** The Monday that starts the week holding `day` (`YYYY-MM-DD`): the study-day picker's week. */
-export function weekStartOf(day) {
-    const ms = Date.parse(`${day}T00:00:00Z`);
-    const back = (new Date(ms).getUTCDay() + 6) % 7;
-    return new Date(ms - back * 86_400_000).toISOString().slice(0, 10);
-}
+/** The bands the plan's strip is drawn for: a date still ahead with work open. */
+const STRIP_BANDS = new Set(['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning']);
 
 /**
- * One course's work closed this week so far, Monday to today on the learner's
- * calendar, in the verdict's unit: the "this week" line under the plan's
- * strip. The course's own, not the library's: a week spent on another course
- * is no progress on this one.
+ * One course's work closed this week so far, Monday (the study-day picker's
+ * week) to today on the learner's calendar, in the verdict's unit, and the
+ * week's target (`weeklyTarget`): the "this week" line under the plan's strip.
+ * The course's own, not the library's: a week spent on another course is no
+ * progress on this one. Null where the strip is not drawn.
  *
- * @returns {{ since: string, count: number }}
+ * @param {{ band: string, unit: string, open: number, deadline: string|null }} verdict
+ * @returns {{ since: string, count: number, target: number|null } | null}
  */
-export function weekSoFar(projectId, unit, { now = Date.now(), timeZone = learnerTimeZone() } = {}) {
+export function weekSoFar(projectId, verdict, { now = Date.now(), timeZone = learnerTimeZone() } = {}) {
+    if (!verdict || !STRIP_BANDS.has(verdict.band)) return null;
     const s = statements();
     const today = studyToday({ now, timeZone });
-    const since = weekStartOf(today);
+    const since = mondayOf(today);
     const from = dayBounds(since, timeZone).start;
     const to = dayBounds(today, timeZone).end;
-    const row = unit === 'cards' ? s.cardsMetIn.get(projectId, from, to) : s.topicsClosedIn.get(projectId, from, to);
-    return { since, count: row.c };
+    const row = verdict.unit === 'cards' ? s.cardsMetIn.get(projectId, from, to) : s.topicsClosedIn.get(projectId, from, to);
+    const target = weeklyTarget({ open: verdict.open, doneThisWeek: row.c, deadline: verdict.deadline, weekStart: since });
+    return { since, count: row.c, target };
 }

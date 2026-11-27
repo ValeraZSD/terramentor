@@ -1,24 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2 } from 'lucide-react';
-import type { PaceVerdict, VerdictBand, WeekSoFar } from '../../types';
+import type { PaceVerdict, WeekSoFar } from '../../types';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
-import { placeLabels, stripFacts, weekLine, type StripFacts, type StripLabel, type StripLane } from './verdict';
-
-/**
- * The flag in the verdict's colour, the same shade as the headline's icon
- * (verdict.tsx TONE); the range stays neutral, since it is a forecast, not a
- * judgement.
- */
-const FLAG: Partial<Record<VerdictBand, string>> = {
-    on_pace: 'text-emerald-700 dark:text-emerald-300',
-    under_pace: 'text-amber-700 dark:text-amber-300',
-    tight: 'text-amber-700 dark:text-amber-300',
-    out_of_reach: 'text-red-700 dark:text-red-300',
-    learning: 'text-slate-600 dark:text-slate-300',
-};
+import { TONE_TEXT, placeLabels, stripFacts, weekLine, type StripFacts, type StripLabel, type StripLane } from './verdict';
 
 /** Where each lane's labels sit, from the strip's top. */
 const LANE_TOP: Record<StripLane, string> = { above: '0', below: '3.4rem', under: '4.75rem' };
@@ -43,10 +30,10 @@ export default function PlanStrip({ verdict, week, today }: {
         <figure className="m-0">
             {/* Its own component, mounted with the strip: it measures its box
                 on mount, and a panel that opens on a passed date gets one later. */}
-            {facts && <Strip facts={facts} />}
+            {facts && <Strip facts={facts} band={verdict.band} />}
             {line && (
                 <p data-strip="week" className={`${facts ? 'mt-2' : ''} flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200`}>
-                    {line.met && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
+                    {line.met && <CheckCircle2 className={`h-4 w-4 shrink-0 ${TONE_TEXT.on_pace}`} aria-hidden="true" />}
                     <span>{line.text}</span>
                 </p>
             )}
@@ -60,7 +47,7 @@ export default function PlanStrip({ verdict, week, today }: {
  * the labels are placed by `left` (a logical inset would follow a label's own
  * direction).
  */
-function Strip({ facts }: { facts: StripFacts }) {
+function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }) {
     const { t } = useTranslation();
     const box = useRef<HTMLDivElement>(null);
     const width = useElementWidth(box);
@@ -88,9 +75,11 @@ function Strip({ facts }: { facts: StripFacts }) {
     const deep = Object.values(placed).some(p => p?.lane === 'under');
     const labelStyle = (id: StripLabel) => {
         const p = placed[id];
-        return p ? { left: p.left, top: LANE_TOP[p.lane] } : { left: 0, top: 0, visibility: 'hidden' as const };
+        // A label never runs past the strip: one wider than it is given the
+        // strip's width and ends in "…" (the strip's own name says it whole).
+        return p ? { left: p.left, top: LANE_TOP[p.lane], maxWidth: p.width } : { left: 0, top: 0, visibility: 'hidden' as const };
     };
-    const label = 'absolute whitespace-nowrap text-sm leading-5';
+    const label = 'absolute truncate text-sm leading-5';
 
     return (
         <div ref={box} role="img" aria-label={facts.sentence} dir="ltr" className="relative" style={{ height: deep ? '6rem' : '4.75rem' }}>
@@ -113,7 +102,7 @@ function Strip({ facts }: { facts: StripFacts }) {
                         style={{ left: xOf(0) - 0.375 * rem, top: '2.125rem', width: '0.75rem', height: '0.75rem' }} />
                     {/* The flag: a stem through the track, its pennant pointing
                         forward in time. */}
-                    <span aria-hidden="true" data-strip="date" data-tone={facts.tone} className={FLAG[facts.tone]}>
+                    <span aria-hidden="true" data-strip="date" data-tone={band} className={TONE_TEXT[band]}>
                         <span className="absolute bg-current"
                             style={{ left: xOf(facts.dateDay) - 1, top: '1.35rem', width: 2, height: '1.95rem' }} />
                         <svg viewBox="0 0 12 10" className="absolute fill-current"

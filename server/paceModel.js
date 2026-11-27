@@ -305,6 +305,26 @@ export function judgeDate(pace, {
     };
 }
 
+/**
+ * The weekly amount the "this week" line counts against, fixed for the whole
+ * week: the work that was open on Monday (open now plus what closed since)
+ * over the weeks left from Monday, rounded up (a topic is closed whole). Read
+ * from today's open count it would shrink as the week's work is done, so the
+ * goal would move while the learner meets it. Null under one a week, where
+ * "0 of 1" would ask for more than the date needs, and with no date ahead.
+ *
+ * @param {{ open: number, doneThisWeek: number, deadline: string|null, weekStart: string }} week
+ * @returns {number|null}
+ */
+export function weeklyTarget({ open, doneThisWeek, deadline, weekStart }) {
+    const due = dayNumOf(deadline);
+    const monday = dayNumOf(weekStart);
+    if (due == null || monday == null || due < monday) return null;
+    const weeks = Math.max((due - monday) / 7, MIN_HORIZON_WEEKS);
+    const needed = (Math.max(0, open) + Math.max(0, doneThisWeek)) / weeks;
+    return needed < 1 - EPS ? null : Math.ceil(needed - EPS);
+}
+
 /** Bands that take the whole week: while one of them is served, nothing dated later gets new work. */
 export const CROWDING_BANDS = ['tight', 'out_of_reach'];
 

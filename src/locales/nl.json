@@ -4029,6 +4029,7 @@
   "Your date comes after the likely-done range, {{dates}}.": "Je datum valt na de periode waarin je waarschijnlijk klaar bent: {{dates}}.",
   "Your date comes before the likely-done range, {{dates}}.": "Je datum valt vóór de periode waarin je waarschijnlijk klaar bent: {{dates}}.",
   "Your date falls inside the likely-done range, {{dates}}.": "Je datum valt in de periode waarin je waarschijnlijk klaar bent: {{dates}}.",
+  "Your date is today.": "Je datum is vandaag.",
   "Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.": "Je decks zijn nu onderwerpen. Herhalingen worden gepland door FSRS, en de rest van de app werkt hierop vanaf hier.",
   "Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.": "Je apparaten die bij Tailscale zijn aangemeld als {{login}} openen deze app zonder wachtwoord, waar ze ook zijn.",
   "Your endpoint does not offer “{{model}}”. Pick one of its embedding models from the list.": "Je endpoint biedt “{{model}}” niet aan. Kies een van zijn embeddingmodellen uit de lijst.",

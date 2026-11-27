@@ -471,7 +471,9 @@ export interface PaceData {
     /** This course's work closed since Monday (`since`), in the verdict's unit. */
     weekSoFar?: WeekSoFar | null;
 }
-export interface WeekSoFar { since: string; count: number }
+/** This week's work on one course, and the week's target fixed from Monday
+ *  (null under one a week): server/pace.js `weekSoFar`. */
+export interface WeekSoFar { since: string; count: number; target: number | null }
 
 /** A check run on something the assistant prepared (server/assistantChecks.js).
  *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */

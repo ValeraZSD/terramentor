@@ -3816,6 +3816,7 @@
   "Your date comes after the likely-done range, {{dates}}.": "期日は、終わる見込みの期間（{{dates}}）より後です。",
   "Your date comes before the likely-done range, {{dates}}.": "期日は、終わる見込みの期間（{{dates}}）より前です。",
   "Your date falls inside the likely-done range, {{dates}}.": "期日は、終わる見込みの期間（{{dates}}）の中にあります。",
+  "Your date is today.": "期日は今日です。",
   "Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.": "あなたのデッキはトピックになりました。復習はFSRSによってスケジュールされ、アプリの残りの部分はここからそれらを処理します。",
   "Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.": "{{login}} として Tailscale にサインインしているデバイスは、どこにいてもパスワードなしでこのアプリを開けます。",
   "Your endpoint does not offer “{{model}}”. Pick one of its embedding models from the list.": "このエンドポイントは「{{model}}」を提供していません。一覧から埋め込みモデルを1つ選んでください。",

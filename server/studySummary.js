@@ -74,7 +74,7 @@ function statements() {
 }
 
 /** The Monday on or before a `YYYY-MM-DD` date, as a date. */
-function mondayOf(date) {
+export function mondayOf(date) {
     const [y, m, d] = date.split('-').map(Number);
     const ms = Date.UTC(y, m - 1, d);
     const back = (new Date(ms).getUTCDay() + 6) % 7;

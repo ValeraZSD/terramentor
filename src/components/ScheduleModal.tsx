@@ -14,7 +14,7 @@ import { TextInput } from './ui/Field';
 import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
 import Checkbox from './Checkbox';
 import PlanStrip from './plan/PlanStrip';
-import { VerdictIcon, oneStop, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
+import { VerdictIcon, oneStop, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
 
 /**
  * The plan of one course: will the date work, what can be done if not, and the

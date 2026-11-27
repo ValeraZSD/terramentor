@@ -48,7 +48,7 @@ const ago = (n, from = TODAY) => dayStr(dayNum(from) - n);
 const ahead = (n, from = TODAY) => dayStr(dayNum(from) + n);
 
 const model = await import('../server/paceModel.js');
-const { learnerPace, judgeDate, BANDS, OFFERS } = model;
+const { learnerPace, judgeDate, weeklyTarget, BANDS, OFFERS } = model;
 
 /** `perWeek[i]` completions in the block ending `7i + 1` days before today, newest first. */
 function learnerFromWeeks(perWeek, { today = TODAY, sinceWeeks = perWeek.length, bulk = false } = {}) {
@@ -262,6 +262,21 @@ console.log('\n--- offers: who set the date decides ---');
         && judgeDate(crunchPace, { open: 9, deadline: ago(2), today: TODAY, assigned: true }).offers.length === 0);
     check('every offer kind is one of the published set', [out(), tight(), out({ fixed: true })].flatMap(kinds).every(k => OFFERS.includes(k)));
     check('"move the date" is only ever last', [out(), tight()].every(v => kinds(v).indexOf('move_date') === v.offers.length - 1));
+}
+
+console.log('\n--- the week\'s target, fixed from Monday ---');
+{
+    // A Monday by the calendar (1 June 2026 was a Monday), and a date two weeks on.
+    const MON = '2026-06-08', TWO_WEEKS = '2026-06-22';
+    const target = (open, doneThisWeek, deadline = TWO_WEEKS) => (typeof weeklyTarget === 'function'
+        ? weeklyTarget({ open, doneThisWeek, deadline, weekStart: MON }) : undefined);
+    check('6 topics open on Monday, two weeks to the date: 3 a week', target(6, 0) === 3, show(target(6, 0)));
+    check('…and still 3 once 2 of them are closed this week (4 open, 2 done)', target(4, 2) === 3, show(target(4, 2)));
+    check('…and once all 6 are', target(0, 6) === 3, show(target(0, 6)));
+    check('a whole amount is not rounded past itself: 6 in two weeks is 3, not 4', target(6, 0) === 3);
+    check('a date inside this week takes the whole of it: 5 open, due Thursday, is 5', target(5, 0, '2026-06-11') === 5, show(target(5, 0, '2026-06-11')));
+    check('under one a week: no target (1 open, four weeks)', target(1, 0, '2026-07-06') === null, show(target(1, 0, '2026-07-06')));
+    check('no date, or a date before the week: no target', target(6, 0, null) === null && target(6, 0, '2026-06-01') === null);
 }
 
 console.log('\n--- a course measured in cards ---');
@@ -588,15 +603,35 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             wk.weekSoFar?.since === monday && wk.weekSoFar?.count === 2, show(wk.weekSoFar));
         const wDeck = mkProject('Deck this week', { kind: 'deck', deadline: ahead(40), start: ago(60) });
         const wStage = mkNode(wDeck, 'Stage', mkNode(wDeck, 'stages', null), { role: 'pagination' });
-        const wCard = (n) => Number(db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, created_at) VALUES (?, 'q', 'a', 1, ?, ?)`)
-            .run(wStage, iso(NOW_MS - DAY_MS), iso(NOW_MS - (20 + n) * DAY_MS).replace('T', ' ').slice(0, 19)).lastInsertRowid);
-        const metToday = wCard(1), metLongAgo = wCard(2), unmet = wCard(3);
+        // The unmet card is still new, so the deck has work open and a strip.
+        const wCard = (n, seen = true) => Number(db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, created_at) VALUES (?, 'q', 'a', ?, ?, ?)`)
+            .run(wStage, seen ? 1 : 0, seen ? iso(NOW_MS - DAY_MS) : null, iso(NOW_MS - (20 + n) * DAY_MS).replace('T', ' ').slice(0, 19)).lastInsertRowid);
+        const metToday = wCard(1), metLongAgo = wCard(2), unmet = wCard(3, false);
         review(metToday, Date.parse(amsAt(TODAY, 8)));
         review(metLongAgo, Date.parse(amsAt(ago(10, monday), 8)));
         review(metLongAgo, Date.parse(amsAt(TODAY, 8.5))); // a second look is not a card met
         const dk = await get(`/api/projects/${wDeck}/pace`);
         check('…and a deck\'s cards met for the first time since Monday', dk.verdict?.unit === 'cards'
-            && dk.weekSoFar?.count === 1, show({ unit: dk.verdict?.unit, week: dk.weekSoFar, unmet }));
+            && dk.weekSoFar?.count === 1, show({ unit: dk.verdict?.unit, band: dk.verdict?.band, open: dk.verdict?.open, week: dk.weekSoFar, unmet }));
+
+        // The week's target is fixed from Monday: closing topics this week
+        // leaves it where it was. Six open on Monday, two weeks to the date
+        // from Monday: three a week, before and after two of them close.
+        const frozen = mkProject('Fixed target', { deadline: ahead(14, monday), start: ago(60) });
+        const six = Array.from({ length: 6 }, (_, i) => mkNode(frozen, `topic ${i + 1}`, null));
+        const before = await get(`/api/projects/${frozen}/pace`);
+        const close = db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`);
+        close.run(amsAt(TODAY, 10), six[0]);
+        close.run(amsAt(TODAY, 10.5), six[1]);
+        const after = await get(`/api/projects/${frozen}/pace`);
+        check('the week\'s target: 3 a week for 6 topics open on Monday, two weeks to the date',
+            before.weekSoFar?.target === 3 && before.weekSoFar?.count === 0, show(before.weekSoFar));
+        check('…still 3 after 2 of them close this week, with the count at 2',
+            after.weekSoFar?.target === 3 && after.weekSoFar?.count === 2 && after.verdict?.open === 4, show({ week: after.weekSoFar, open: after.verdict?.open }));
+        const passedCourse = mkProject('Passed date', { deadline: ago(3), start: ago(60) });
+        mkNode(passedCourse, 'open', null);
+        const gone = await get(`/api/projects/${passedCourse}/pace`);
+        check('a passed date counts no week (the strip is not drawn)', gone.verdict?.band === 'passed' && gone.weekSoFar === null, show({ band: gone.verdict?.band, week: gone.weekSoFar }));
     } finally {
         Date.now = realNow;
         srv.closeAllConnections();
@@ -669,7 +704,7 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         const name = `${c.band}${c.range ? '' : ' (no range)'}`;
         const drawn = ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'learning'].includes(c.band);
         const s = strip(v);
-        const w = week(v, { since: TODAY, count: 1 });
+        const w = week(v, { since: TODAY, count: 1, target: c.needed == null ? null : Math.ceil(c.needed) });
         if (!drawn) {
             check(`${name}: no strip and no week line`, s === null && w === null, show({ s, w }));
             continue;
@@ -677,7 +712,6 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         const daysToDate = dayNum(c.deadline) - dayNum(TODAY);
         check(`${name}: the strip puts the date ${daysToDate} days ahead`, s?.dateDay === daysToDate, show(s));
         check(`${name}: the date falls ${c.place ?? 'against no range'}`, s?.place === c.place, show(s?.place));
-        check(`${name}: the flag takes the verdict's colour`, s?.tone === c.band, show(s?.tone));
         check(`${name}: the strip reaches past the date and the range`,
             s?.endDay >= daysToDate && s?.endDay >= (c.range ? dayNum(TO) - dayNum(TODAY) : 0), show(s?.endDay));
         if (c.range) {
@@ -708,26 +742,29 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     // A deck counts new cards; a week already at the amount says so, and one
     // past it names both numbers once.
     const deckV = { ...base, unit: 'cards', band: 'under_pace', deadline: ahead(40), needed: 11.2, ranges: { recent: null, best: null } };
-    check('a deck: "This week: 4 of the 12 new cards your date needs"', week(deckV, { since: TODAY, count: 4 })?.text === 'This week: 4 of the 12 new cards your date needs', show(week(deckV, { since: TODAY, count: 4 })));
-    const atAmount = week(deckV, { since: TODAY, count: 12 });
+    const wk12 = (count) => ({ since: TODAY, count, target: 12 });
+    check('a deck: "This week: 4 of the 12 new cards your date needs"', week(deckV, wk12(4))?.text === 'This week: 4 of the 12 new cards your date needs', show(week(deckV, wk12(4))));
+    const atAmount = week(deckV, wk12(12));
     check('…12 of 12 is met', atAmount?.met === true && atAmount.text === 'This week: 12 of the 12 new cards your date needs', show(atAmount));
-    const past = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 15 });
+    const past = week({ ...deckV, unit: 'topics' }, wk12(15));
     check('…15 past 12 is met and names each number once', past?.met === true && times(past.text, '15') === 1 && times(past.text, '12') === 1, show(past));
     check('…and an unknown week draws no line', week(deckV, null) === null, show(week(deckV, null)));
-    const none = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 0 });
+    const none = week({ ...deckV, unit: 'topics' }, wk12(0));
     check('a week with nothing closed yet: "This week: 0 of the 12 topics your date needs", not met', none?.text === 'This week: 0 of the 12 topics your date needs' && none.met === false, show(none));
-    const exact = week({ ...deckV, unit: 'topics', needed: 3 }, { since: TODAY, count: 2 });
-    check('a whole weekly amount is not rounded past itself: "2 of 3"', exact?.text === 'This week: 2 of the 3 topics your date needs', show(exact));
-    const tiny = week({ ...deckV, unit: 'topics', needed: 0.4 }, { since: TODAY, count: 0 });
-    check('under one a week draws no line (it would ask for more than the date needs)', tiny === null, show(tiny));
+    const moved = week({ ...deckV, unit: 'topics', needed: 2.1 }, wk12(3));
+    check('the line counts against the week\'s target, not today\'s rate (12, while the rate reads 2.1)', moved?.text === 'This week: 3 of the 12 topics your date needs', show(moved));
+    const tiny = week({ ...deckV, unit: 'topics' }, { since: TODAY, count: 0, target: null });
+    check('no target this week (under one a week) draws no line', tiny === null, show(tiny));
 
     // The strip's edges: a date due today, and a date on the range's first and last days.
     const rangeV = (deadline) => ({ ...base, band: 'under_pace', deadline, needed: 2, ranges: { recent: { from: FROM, to: TO }, best: null } });
     const dueToday = strip(rangeV(TODAY));
     check('a date due today sits at today, before the range, on a week-long strip',
-        dueToday?.dateDay === 0 && dueToday.place === 'before' && dueToday.tone === 'under_pace' && dueToday.endDay >= 7, show(dueToday));
+        dueToday?.dateDay === 0 && dueToday.place === 'before' && dueToday.endDay >= 7, show(dueToday));
+    const todayNoRange = strip({ ...rangeV(TODAY), ranges: { recent: null, best: null } });
+    check('…and with no range a screen reader hears "Your date is today."', todayNoRange?.sentence === 'Your date is today.', show(todayNoRange?.sentence));
     const onEnd = strip(rangeV(TO));
-    check('a date on the range' + "'" + 's last day falls inside it', onEnd?.place === 'inside' && onEnd.tone === 'under_pace', show(onEnd));
+    check('a date on the range' + "'" + 's last day falls inside it', onEnd?.place === 'inside', show(onEnd));
     const onStart = strip(rangeV(FROM));
     check('…and on its first day too', onStart?.place === 'inside', show(onStart));
 
@@ -759,6 +796,12 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             { id: 'date', x: 300, w: 70, start: false, lanes: ['below', 'above', 'under'] },
             { id: 'range', x: 150, w: 150, start: false, lanes: ['above', 'below', 'under'] },
         ], W, GAP);
+        const wide = panel.placeLabels([
+            { id: 'today', x: 0, w: 40, start: true, lanes: ['below', 'above', 'under'] },
+            { id: 'range', x: 200, w: 500, start: false, lanes: ['above', 'below', 'under'] },
+        ], W, GAP);
+        check('a label wider than the strip is given the strip width from its left edge, never more',
+            wide.range?.left === 0 && wide.range.width === W && wide.today?.width === 40, show(wide));
         check('marks far apart keep their first lanes: today and the date below, the range above',
             apart.today?.lane === 'below' && apart.date?.lane === 'below' && apart.range?.lane === 'above'
             && apart.today.left === 0 && apart.date.left === 265 && apart.range.left === 75, show(apart));
