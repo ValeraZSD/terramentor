@@ -26,7 +26,7 @@
  * cloud keys through a job's route.
  */
 import db, { NOW_ISO } from './database.js';
-import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
+import { aiEnvOverride, getAISettings, NO_BALANCE_RE, noModelError, nothingConnected, REASONING_EFFORTS } from './ai.js';
 import { reconcile, settingsForConnection } from './aiConnections.js';
 import { KeyedError, statusError } from './clientError.js';
 import { extension } from './extension.js';
@@ -63,8 +63,6 @@ export function jobOf({ job, operation } = {}) {
     return JOB_OF_OPERATION[operation] || 'small';
 }
 
-const envOverride = () => !!(process.env.AI_PROVIDER || process.env.AI_BASE_URL
-    || process.env.AI_OLLAMA_URL || process.env.AI_MODEL);
 
 const bad = (key, params) => statusError(400, key, params);
 
@@ -209,13 +207,16 @@ function entrySettings(entry) {
  * change the list, or throw.
  */
 export function chainFor(job, options = {}) {
-    const chain = chainOf(job, options);
     const decide = extension().modelChain;
+    const chain = chainOf(job, options, typeof decide === 'function');
     if (typeof decide !== 'function') return chain;
     const changed = decide(chain, job);
     if (!Array.isArray(changed) || changed.length === 0 || !changed.every((s) => s && typeof s === 'object')) {
         throw new Error('The extension\'s modelChain hook answered no list of connections');
     }
+    // It may replace the chain, but a list of the defaults nobody chose (the
+    // chain handed back as it came, with nothing connected) has no model to ask.
+    if (changed.every((s) => nothingConnected(s))) throw noModelError();
     // A list of the module's own (chain.map, a frozen constant) carries this
     // chain's route stamp on a copy, so a fallback is still noted against the
     // lists that were set (noteFallback).
@@ -223,10 +224,10 @@ export function chainFor(job, options = {}) {
     return Object.defineProperty([...changed], 'listsSet', { value: chain.listsSet, enumerable: false });
 }
 
-function chainOf(job, { model = null } = {}) {
+function chainOf(job, { model = null } = {}, extended = false) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
-    if (envOverride()) return stamped([first], job, false);
+    if (aiEnvOverride()) return stamped([first], job, false);
     // An entry with no model of its own is "the connection's saved model", and
     // for the connection in use the model picker writes the active rows, not
     // the row: let the row catch up before it is read.
@@ -243,7 +244,15 @@ function chainOf(job, { model = null } = {}) {
             { jobRouteGone: true, job, expose: true },
         );
     }
-    return stamped([first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)], job, false);
+    const backups = routes[BACKUPS].map(entrySettings).filter(Boolean);
+    // Nothing connected: the main model's rows are defaults nobody chose, so
+    // the backups alone serve, and with none there is no model to ask. An
+    // extension that decides the chain decides this too.
+    if (!extended && nothingConnected(main)) {
+        if (backups.length) return stamped(backups, job, false);
+        throw noModelError();
+    }
+    return stamped([first, ...backups], job, false);
 }
 
 /** The settings a job's first choice runs on: what a check made BEFORE the
@@ -255,11 +264,13 @@ export function firstChoice(job, { model = null } = {}) {
         // A list of removed connections: the call itself refuses with the
         // message; a capability check before it has nothing better to ask.
         if (err?.jobRouteGone) return getAISettings();
+        // Nothing connected: the defaults, marked, never another model name.
+        if (err?.noModel) return { ...getAISettings(), unavailable: true, noModel: true };
         // An extension refused every model for now (`unavailable`, or a
         // `final` refusal): the settings the job would use, marked, so a
         // probe answers "no model" instead of failing; the call itself is
         // still refused.
-        if (err?.unavailable === true || err?.final === true) return { ...chainOf(job, { model })[0], unavailable: true };
+        if (err?.unavailable === true || err?.final === true) return { ...chainOf(job, { model }, true)[0], unavailable: true };
         throw err;
     }
 }

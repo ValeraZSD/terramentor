@@ -80,7 +80,8 @@ export function namingModel() {
         // Every connection in the small tasks' list was removed: each call
         // would be refused, so nothing names regions until the list is fixed
         // (and no failure is counted against a model that was never asked).
-        if (err?.jobRouteGone) return null;
+        // No model connected at all: the same, until one is.
+        if (err?.jobRouteGone || err?.noModel) return null;
     }
     return configured || getAISettings().model;
 }

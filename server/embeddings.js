@@ -25,7 +25,8 @@
 // dependency.
 
 import db, { vecAvailable } from './database.js';
-import { getAISettings, normalizeOpenAIBaseUrl, openAIBody, withoutKey } from './ai.js';
+import { getAISettings, NO_MODEL, normalizeOpenAIBaseUrl, nothingConnected, openAIBody, withoutKey } from './ai.js';
+import { keyed } from './clientError.js';
 import { wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
@@ -196,6 +197,13 @@ export async function embedBatch(texts) {
             : data;
         noteEmbeddingWorks();
         return ordered.map(d => d.embedding);
+    }
+
+    // Following a chat model nobody connected: the Ollama address is only the
+    // default, so nothing is sent to it (a choice of "Ollama" for embeddings
+    // alone is a choice, and is sent).
+    if (cfg.provider === 'auto' && nothingConnected(ai)) {
+        throw Object.assign(new Error('no AI model is connected'), { code: NO_EMBEDDINGS, noModel: true });
     }
 
     // Ollama (default provider). /api/embed accepts a batch and returns
@@ -582,6 +590,10 @@ export async function probeEmbedding({ force = false } = {}) {
         const dim = v?.length || null;
         return (probeCache = { at: now, result: { ok: !!dim, dim, model: getEmbeddingConfig().model } }).result;
     } catch (err) {
+        // Nothing connected: the app's one sentence for it, keyed, and no model name.
+        // Not cached: connecting a model does not reset the cache, and this
+        // answer costs no request.
+        if (err?.noModel) return { ok: false, noModel: true, reason: NO_MODEL, ...keyed(NO_MODEL), model: null, dim: null };
         return (probeCache = { at: now, result: { ok: false, reason: err.message, model: getEmbeddingConfig().model, dim: null } }).result;
     }
 }

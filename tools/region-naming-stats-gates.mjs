@@ -45,7 +45,9 @@ if (!db.name.startsWith(scratch)) {
 // The naming model is 'm'. A failure row names the model that failed it, and
 // `exhausted()` in regionNaming.js gives up on a region only for THAT model;
 // the notice says "could not be named by <the current model>", so a row
-// another model used up must not be counted against this one.
+// another model used up must not be counted against this one. The provider is
+// chosen too: with none chosen there is no naming model at all.
+db.prepare("INSERT INTO settings (key, value) VALUES ('ai_provider', 'ollama')").run();
 db.prepare("INSERT INTO settings (key, value) VALUES ('atlas_naming_model', 'm')").run();
 const failed = db.prepare(
     `INSERT INTO region_name_failures (signature, model, attempts, reason) VALUES (?, ?, ?, 'no label')`);
