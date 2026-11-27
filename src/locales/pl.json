@@ -4110,6 +4110,7 @@
   "Try the failed file again, or remove it": "Spróbuj ponownie z nieudanym plikiem albo go usuń",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Dopasowuje do ciebie terminy powtórek i postęp tematów. Opcjonalne: domyślne ustawienia już działają.",
   "Tuning spaced repetition": "Dostrajanie interwałów powtórek",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Włącz, aby Twoje urządzenia zalogowane do Tailscale jako {{login}} otwierały tę aplikację bez hasła. Zostaw wyłączone na komputerze, na który logują się też inne osoby.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Wyłącz dla małego lokalnego modelu. Po wyłączeniu dostaje je tylko model z 14B lub więcej w nazwie, więc większość modeli hostowanych też je traci.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Wyłącz, jeśli używasz wprowadzania głosowego lub przypadkiem naciskasz klawisze. Skróty z {{key}} nadal działają.",
   "Turn on Serve": "Włącz Serve",

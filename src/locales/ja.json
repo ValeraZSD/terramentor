@@ -3501,6 +3501,7 @@
   "Try the failed file again, or remove it": "失敗したファイルを再試行するか、削除してください",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "復習のタイミングとトピックの進み具合をあなたに合わせます。任意です。既定値のままでも機能します。",
   "Tuning spaced repetition": "復習間隔を調整中",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "オンにすると、{{login}} として Tailscale にサインインしているデバイスがパスワードなしでこのアプリを開けます。他の人もサインインするコンピューターではオフのままにしてください。",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "小さなローカルモデルではオフにしてください。オフにすると、名前に 14B 以上とあるモデルだけに提供されるため、ほとんどのホスト型モデルでも使えなくなります。",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "音声入力を使う場合や、誤ってキーを押してしまう場合はオフにしてください。{{key}} を使うショートカットは引き続き使えます。",
   "Turn on Serve": "Serve を有効にする",

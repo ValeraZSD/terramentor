@@ -1122,8 +1122,9 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
   keeps its words, anything internal becomes one sentence with a log reference.
 - Other devices get in without the password two ways (`server/devices.js`): a
   device connected by a one-time QR code (its key's SHA-256 in `auth_devices`),
-  or, only while no password is set, the computer's own Tailscale account as
-  vouched for by `tailscale serve`.
+  or, only once its switch is turned on (`auth_tailscale_trust` = `on`; a new
+  library has no row, which is off) and while no password is set, the
+  computer's own Tailscale account as vouched for by `tailscale serve`.
   `identifyRemoteAccess` (in `auth.js`) decides once per request, before the
   public auth routes, and leaves it on `req.remoteAccess`.
 - The database is **not encrypted at rest**, and there is no multi-user model.

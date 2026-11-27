@@ -3869,6 +3869,7 @@
   "Try the failed file again, or remove it": "Try the failed file again, or remove it",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Tunes review timing and topic progress to you. Optional: the defaults already work.",
   "Tuning spaced repetition": "Tuning spaced repetition",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.",
   "Turn on Serve": "Turn on Serve",

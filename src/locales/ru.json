@@ -4110,6 +4110,7 @@
   "Try the failed file again, or remove it": "Повторите загрузку файла или уберите его",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Подстраивает под вас сроки повторений и прогресс тем. Необязательно: настройки по умолчанию уже работают.",
   "Tuning spaced repetition": "Подстройка интервалов повторений",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Включите, чтобы ваши устройства, вошедшие в Tailscale как {{login}}, открывали приложение без пароля. Не включайте на компьютере, в который входят другие люди.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Выключите для небольшой локальной модели. Тогда их получит только модель с 14B или больше в названии, так что большинство облачных моделей тоже их потеряет.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Выключите, если пользуетесь голосовым вводом или случайно нажимаете клавиши. Сочетания с {{key}} продолжат работать.",
   "Turn on Serve": "Включить Serve",

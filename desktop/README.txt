@@ -91,8 +91,10 @@ stick's folder in library-location.txt.
 USING IT FROM YOUR PHONE
   Install Tailscale on this computer and on your phone, sign both in to the
   same account, and run:  tailscale serve --bg 3001
-  Then open the https://...ts.net address it prints, on the phone, and add it
-  to your home screen. Set a password first: Settings -> Devices & security.
+  Then, on the computer, open Settings -> Devices & security -> Other devices
+  -> Show code, and scan the code with the phone. The phone opens the app at
+  the https://...ts.net address; add it to your home screen. Set a password
+  first: Settings -> Devices & security.
   Full instructions: docs/REMOTE_ACCESS.md in the source repository.
 
 UPDATING

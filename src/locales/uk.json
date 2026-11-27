@@ -4110,6 +4110,7 @@
   "Try the failed file again, or remove it": "Повторіть завантаження файлу або приберіть його",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Підлаштовує під вас терміни повторень і прогрес тем. Необов’язково: типові налаштування вже працюють.",
   "Tuning spaced repetition": "Налаштування інтервалів повторень",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Увімкніть, щоб ваші пристрої, що ввійшли в Tailscale як {{login}}, відкривали застосунок без пароля. Не вмикайте на комп’ютері, у який входять інші люди.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Вимкніть для невеликої локальної моделі. Тоді їх отримає лише модель із 14B або більше в назві, тож більшість хмарних моделей теж їх втратить.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Вимкніть, якщо користуєтеся голосовим введенням або випадково натискаєте клавіші. Сполучення з {{key}} працюватимуть і далі.",
   "Turn on Serve": "Увімкнути Serve",
