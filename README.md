@@ -25,7 +25,7 @@ Tell Terramentor what you want to learn and by when. The model you connect draft
 and writes every lesson, diagram and question. Terramentor plans the course against your
 deadline, asks you to prove each topic rather than tick it off, and brings back what you are
 starting to forget. The app is free and has no account. The model is paid per use under your
-own key, covered by a ChatGPT plan you already have, or run on your own computer.
+own key, covered by a ChatGPT Plus or Pro plan you already have, or run on your own computer.
 
 ![From an empty library to a marked answer: a short course on standing waves is drafted, the assistant draws an animated standing wave, a lesson opens, and a question is answered.](docs/screenshots/hero.webp)
 
