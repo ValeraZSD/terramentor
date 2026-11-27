@@ -172,9 +172,12 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
 
                         {/* Channel and the automatic check belong to Updates, so
                             they stay in its row as its smaller lines; their
-                            control was already on the right. `mt-1` over the
-                            row's own `mt-3` keeps the 16px they always had. */}
-                        <div className="mt-1 flex items-center justify-between gap-3">
+                            control was already on the right. `mt-3` over the
+                            row's own `mt-3`: 24px, because with Check now beside
+                            the status nothing stands between "Not checked yet."
+                            and Channel any more, and at 16px the setting read as
+                            part of the status line. */}
+                        <div className="mt-3 flex items-center justify-between gap-3">
                             <div className="min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Channel")}</p>
                                 <SettingNote>
