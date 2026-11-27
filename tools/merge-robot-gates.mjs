@@ -122,7 +122,13 @@ only('a later ai-review failure beats an earlier success', (f) => f.statuses.pus
 only('a red required check stops it', (f) => f.checkRuns.push({ id: 9e9, name: 'check', status: 'completed', conclusion: 'failure', started_at: '2026-11-25T15:00:00Z', app: 'github-actions' }), 'checks');
 only('a required check still running stops it', (f) => f.checkRuns.push({ id: 9e9, name: 'signoff', status: 'in_progress', conclusion: null, started_at: '2026-11-25T15:00:00Z', app: 'github-actions' }), 'checks');
 only('a missing required check stops it', (f) => { f.checkRuns = f.checkRuns.filter((r) => r.name !== 'Node 24 on windows-latest'); }, 'checks');
-only('the CLA status failing stops it', (f) => f.statuses.push({ context: 'license/cla', state: 'failure', created_at: '2026-11-25T15:00:00Z', creator: { login: 'x' } }), 'checks');
+const status = (context, state, at = '2026-11-25T15:00:00Z') => ({ context, state, created_at: at, creator: { login: 'x' } });
+only('another status failing stops it', (f) => f.statuses.push(status('security-scan', 'failure')), 'checks');
+only('another status pending stops it', (f) => f.statuses.push(status('security-scan', 'pending')), 'checks');
+only('another status green keeps it', (f) => f.statuses.push(status('security-scan', 'success')), 'MERGE');
+only('a status green after its failure keeps it', (f) => f.statuses.push(status('security-scan', 'failure'), status('security-scan', 'success', '2026-11-25T16:00:00Z')), 'MERGE');
+only('a CodeRabbit status is advisory', (f) => f.statuses.push(status('CodeRabbit', 'pending')), 'MERGE');
+only('the CLA status failing stops it',(f) => f.statuses.push({ context: 'license/cla', state: 'failure', created_at: '2026-11-25T15:00:00Z', creator: { login: 'x' } }), 'checks');
 only('a red check outside the required list stops it', (f) => f.checkRuns.push({ id: 9e9, name: 'Docker image', status: 'completed', conclusion: 'failure', started_at: '2026-11-25T15:00:00Z', app: 'github-actions' }), 'checks');
 only('a non-required check still running stops it', (f) => f.checkRuns.push({ id: 9e9, name: 'Docker image', status: 'queued', conclusion: null, started_at: '2026-11-25T15:00:00Z', app: 'github-actions' }), 'checks');
 only('a red CodeRabbit run is advisory', (f) => f.checkRuns.push({ id: 9e9, name: 'CodeRabbit', status: 'completed', conclusion: 'failure', started_at: '2026-11-25T15:00:00Z', app: 'coderabbitai' }), 'MERGE');
@@ -254,7 +260,10 @@ console.log('visual-seen against push times (from #364)');
     // Labelled, but no record of when: every commit counts as after it.
     const noRecord = await variant((b) => {
         b[key(/\/issues\/364\/events/)] = [];
-        for (const c of b[key(/\/pulls\/364\/commits/)]) b[`/repos/${fx.repo}/commits/${c.sha}`] = { sha: c.sha, files: [{ filename: 'src/hooks/useStickToBottom.ts' }] };
+        for (const c of b[key(/\/pulls\/364\/commits/)]) {
+            b[`/repos/${fx.repo}/commits/${c.sha}`] = { sha: c.sha, files: [{ filename: 'src/hooks/useStickToBottom.ts' }] };
+            for (const p of c.parents.slice(1)) b[`/repos/${fx.repo}/compare/${p.sha}...${c.sha}`] = { files: [] };
+        }
         b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
     });
     check('a label with no event on record does not excuse anything', decide(noRecord).reasons.some((r) => r.code === 'visual'), text(decide(noRecord)));
@@ -271,6 +280,43 @@ console.log('visual-seen against push times (from #364)');
     });
     check('a label history longer than the robot reads stops a visual change',
         decide(capped).reasons.some((r) => r.code === 'visual' && /longer than the robot reads/.test(r.text)), text(decide(capped)));
+
+    // The label went on at 11:40 and the head was pushed at 11:44:17; what the head changed decides.
+    const afterLabel = (files, more = () => {}) => variant((b) => {
+        b[key(/\/issues\/364\/events/)] = [{ event: 'labeled', label: { name: 'visual-seen' }, created_at: '2026-11-25T11:40:00Z' }];
+        b[`/repos/${fx.repo}/commits/${head}`] = { sha: head, files };
+        more(b);
+    });
+    const stale = (facts) => decide(facts).reasons.some((r) => r.code === 'visual');
+    check('renaming a visual file away after visual-seen makes it stale',
+        stale(await afterLabel([{ filename: 'archive/icon.svg', previous_filename: 'public/icon.svg' }])));
+    check('renaming a non-visual file after it does not',
+        !stale(await afterLabel([{ filename: 'docs/b.md', previous_filename: 'docs/a.md' }])));
+
+    // GitHub lists a commit's files 300 a page.
+    const filler = Array.from({ length: 300 }, (_, i) => ({ filename: `server/f${i}.js` }));
+    check('a visual file on the second page of a commit is read', stale(await afterLabel(filler, (b) => {
+        b[`/repos/${fx.repo}/commits/${head}?page=2`] = { sha: head, files: [{ filename: 'src/components/AssistantDrawer.tsx' }] };
+    })));
+    const tooMany = await afterLabel(filler, (b) => {
+        for (let p = 2; p <= 10; p++) b[`/repos/${fx.repo}/commits/${head}?page=${p}`] = { sha: head, files: filler };
+    });
+    check('a commit longer than the robot reads asks for the label again',
+        decide(tooMany).reasons.some((r) => r.code === 'visual' && /more files than the robot reads/.test(r.text)), text(decide(tooMany)));
+
+    // The head made a merge commit of main: against its first parent it shows main's files, against
+    // main the branch's own. Only a path that differs from both was edited in the merge itself.
+    const MAIN = 'd'.repeat(40);
+    const asMerge = (againstBranch, againstMain) => afterLabel(againstBranch, (b) => {
+        b[key(/\/pulls\/364\/commits/)].at(-1).parents.push({ sha: MAIN });
+        b[`/repos/${fx.repo}/compare/${MAIN}...${head}`] = { status: 'ahead', ahead_by: 3, commits: [], files: againstMain };
+    });
+    check('a merge of main that only brings main\'s visual changes keeps visual-seen', !stale(await asMerge(
+        [{ filename: 'src/components/Sidebar.tsx' }],
+        [{ filename: 'src/components/AssistantDrawer.tsx' }, { filename: 'src/locales/en.json' }])));
+    check('a merge that also edits a visual file makes it stale', stale(await asMerge(
+        [{ filename: 'src/components/Sidebar.tsx' }, { filename: 'src/components/AssistantDrawer.tsx' }],
+        [{ filename: 'src/components/AssistantDrawer.tsx' }, { filename: 'src/locales/en.json' }])));
 }
 check('pushTimes keeps the first pull_request run of each head', (() => {
     const at = pushTimes([

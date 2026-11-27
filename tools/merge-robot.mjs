@@ -71,6 +71,7 @@ export const CONFIG = {
     // the review leaves it out (.coderabbit.yaml filters it), so no review read it.
     byHand: ['.github/**', 'tools/merge-robot.mjs', 'tools/ai-review.mjs', 'tools/no-ai-attribution.mjs', '.coderabbit.yaml', '.gitattributes', 'package-lock.json'],
     advisoryCheck: (run) => /^coderabbit/i.test(run.app || '') || run.name.toLowerCase() === 'coderabbit',
+    advisoryStatus: (context) => /^coderabbit/i.test(context),
     baseBranch: 'main',
     maxTitle: 50,
     releaseTitle: /^(release|bump version)\b|^v?\d+\.\d+\.\d+\b/i,
@@ -170,7 +171,8 @@ export const trim = {
     commits: (cs) => cs.map((c) => ({ sha: c.sha, parents: (c.parents || []).map((p) => ({ sha: p.sha })), commit: { message: c.commit?.message, committer: { date: c.commit?.committer?.date } } })),
     compare: (c) => ({ status: c.status, ahead_by: c.ahead_by ?? 0, commits: (c.commits || []).map((x) => ({ sha: x.sha })),
         files: (c.files || []).map((f) => ({ filename: f.filename, ...(f.previous_filename ? { previous_filename: f.previous_filename } : {}) })) }),
-    commit: (c) => ({ sha: c.sha, files: (c.files || []).map((f) => ({ filename: f.filename })), author: c.author ? { login: c.author.login } : null }),
+    commit: (c) => ({ sha: c.sha, files: (c.files || []).map((f) => ({ filename: f.filename, ...(f.previous_filename ? { previous_filename: f.previous_filename } : {}) })),
+        author: c.author ? { login: c.author.login } : null }),
     runs: (r) => ({ workflow_runs: (r.workflow_runs || []).map((x) => pick(x, ['id', 'name', 'path', 'head_sha', 'event', 'created_at'])) }),
     activity: (as) => as.map((a) => pick(a, ['before', 'after', 'timestamp', 'activity_type'])),
 };
@@ -190,6 +192,35 @@ export function trimFor(path) {
     if (/\/actions\/runs$/.test(p)) return trim.runs;
     if (/\/activity$/.test(p)) return trim.activity;
     return (x) => x;
+}
+
+const namesOf = (files) => files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
+
+/**
+ * The paths a commit changes, a rename under both names; null when the list may be cut.
+ * GitHub lists a commit's files 300 a page, up to 3000. A merge commit counts only the
+ * paths that differ from every parent: what matches one side came from that side (main's
+ * changes, or the branch as it was seen), and what differs from all of them was made in
+ * the merge itself.
+ */
+async function newInCommit(api, repo, c) {
+    const names = [];
+    for (let page = 1; ; page++) {
+        if (page > 10) return null;
+        const detail = trim.commit(await api.get(`/repos/${repo}/commits/${c.sha}${page > 1 ? `?page=${page}` : ''}`));
+        names.push(...namesOf(detail.files));
+        if (detail.files.length < 300) break;
+    }
+    let changed = [...new Set(names)];
+    for (const p of c.parents.slice(1)) {
+        // The parent is an ancestor of the merge, so three dots compare straight from it. A
+        // comparison lists at most 300 files.
+        const cmp = trim.compare(await api.get(`/repos/${repo}/compare/${p.sha}...${c.sha}`));
+        if (cmp.files.length >= 300) return null;
+        const other = new Set(namesOf(cmp.files));
+        changed = changed.filter((f) => other.has(f));
+    }
+    return changed;
 }
 
 /** Every page of a list; `capped` is set when `max` pages came back full, so the list may be cut. */
@@ -298,13 +329,16 @@ export async function collect(api, repo, number, cfg = CONFIG) {
             pushed = pushedAt.get(c.sha) || pushed;
             const after = pushed == null || Date.parse(pushed) > sinceMs || Date.parse(c.commit.committer.date) > sinceMs;
             if (!after) break;
-            if (c.parents.length > 1) continue; // a merge of main brings main's changes, not new ones
             if (afterSeen.length >= cfg.maxSeenCommits) {
                 seenUnknown = `more than ${cfg.maxSeenCommits} commits since \`${cfg.labels.visualSeen}\`: add it again`;
                 break;
             }
-            const detail = trim.commit(await api.get(`/repos/${repo}/commits/${c.sha}`));
-            afterSeen.push({ sha: c.sha, files: detail.files.map((f) => f.filename) });
+            const changed = await newInCommit(api, repo, c);
+            if (!changed) {
+                seenUnknown = `commit ${c.sha.slice(0, 7)} changes more files than the robot reads: add \`${cfg.labels.visualSeen}\` again`;
+                break;
+            }
+            afterSeen.push({ sha: c.sha, files: changed });
         }
     }
     return { repo, pull, files, checkRuns, statuses, events, commits, ciStart, mainMoved, afterSeen, seenUnknown };
@@ -382,6 +416,10 @@ export function decide(facts, cfg = CONFIG) {
         if (cfg.required.includes(name) || cfg.advisoryCheck(r)) continue;
         if (r.status !== 'completed') why('checks', `${name} still running`);
         else if (!OK.has(r.conclusion)) why('checks', `${name} ${r.conclusion}`);
+    }
+    for (const [ctx, s] of latestStatus) {
+        if (cfg.required.includes(ctx) || ctx === cfg.reviewStatus || cfg.advisoryStatus(ctx)) continue;
+        if (s.state !== 'success') why('checks', `${ctx} ${s.state}`);
     }
     const review = latestStatus.get(cfg.reviewStatus);
     if (!review) why('review', `no \`${cfg.reviewStatus}\` status on the head`);
