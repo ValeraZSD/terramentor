@@ -3869,6 +3869,7 @@
   "Try the failed file again, or remove it": "Başarısız dosyayı yeniden deneyin ya da kaldırın",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Tekrar zamanlamasını ve konu ilerlemesini size göre ayarlar. İsteğe bağlı: varsayılanlar zaten çalışıyor.",
   "Tuning spaced repetition": "Aralıklı tekrar ayarlanıyor",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Tailscale'e {{login}} olarak giriş yapmış cihazlarınızın bu uygulamayı parolasız açması için açın. Başkalarının da oturum açtığı bir bilgisayarda kapalı bırakın.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Küçük bir yerel model için kapatın. Kapalıyken bunları yalnızca adında 14B veya daha büyük yazan bir model alır, bu yüzden çoğu barındırılan model de bunları kaybeder.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Sesle giriş kullanıyorsanız veya tuşlara yanlışlıkla basıyorsanız kapatın. {{key}} içeren kısayollar çalışmaya devam eder.",
   "Turn on Serve": "Serve'ü aç",

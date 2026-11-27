@@ -3704,6 +3704,7 @@
   "Try the failed file again, or remove it": "Het mislukte bestand opnieuw proberen, of verwijderen",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "Stemt het moment van herhalen en de voortgang per onderwerp op jou af. Optioneel: de standaardwaarden werken al.",
   "Tuning spaced repetition": "Herhalingsintervallen afstemmen",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "Zet het aan om je apparaten die bij Tailscale zijn aangemeld als {{login}} deze app zonder wachtwoord te laten openen. Laat het uit op een computer waarop ook anderen inloggen.",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "Zet uit voor een klein lokaal model. Uit krijgt alleen een model met 14B of meer in de naam ze, dus ook de meeste gehoste modellen raken ze kwijt.",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "Zet uit als je spraakinvoer gebruikt of per ongeluk toetsen indrukt. Sneltoetsen met {{key}} blijven werken.",
   "Turn on Serve": "Serve aanzetten",

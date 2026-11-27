@@ -3501,6 +3501,7 @@
   "Try the failed file again, or remove it": "重试失败的文件,或将其移除",
   "Tunes review timing and topic progress to you. Optional: the defaults already work.": "按你的情况调整复习时间和主题进度。可选：默认值已经可用。",
   "Tuning spaced repetition": "正在调整复习间隔",
+  "Turn it on to let your devices signed in to Tailscale as {{login}} open this app without a password. Leave it off on a computer other people sign in to.": "开启后，以 {{login}} 登录 Tailscale 的设备无需密码即可打开此应用。如果其他人也登录这台电脑，请保持关闭。",
   "Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.": "使用小型本地模型时请关闭。关闭后，只有名称标明 14B 或更大的模型才能使用，因此大多数托管模型也会失去它们。",
   "Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.": "如果你使用语音输入或常误按按键，请关闭。带 {{key}} 的快捷键仍然可用。",
   "Turn on Serve": "开启 Serve",
