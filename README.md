@@ -24,9 +24,8 @@
 Tell Terramentor what you want to learn and by when. The model you connect drafts the course
 and writes every lesson, diagram and question. Terramentor plans the course against your
 deadline, asks you to prove each topic rather than tick it off, and brings back what you are
-starting to forget. The app is free and has no account; the model is paid per use to its
-provider under your own key, comes with a ChatGPT plan you already pay for, or runs on your own
-computer.
+starting to forget. The app is free and has no account. The model is paid per use under your
+own key, covered by a ChatGPT plan you already have, or run on your own computer.
 
 ![From an empty library to a marked answer: a short course on standing waves is drafted, the assistant draws an animated standing wave, a lesson opens, and a question is answered.](docs/screenshots/hero.webp)
 
@@ -35,8 +34,8 @@ computer.
 A chatbot explains anything you ask, and the AI companies' study modes add quizzes and
 flashcards, but their own pages describe no reviews timed to when you are about to forget and no
 check you must pass before a topic counts. Anki times the reviews, once you have written the
-cards or found a deck. Terramentor runs the whole loop, and each step below says what it does and
-the research behind it. The pictures come from one physics course.
+cards or found a deck. Terramentor runs the whole loop. Each step below says what it does, and
+where research backs it, what the research found. The pictures come from one physics course.
 
 ### Discover
 
@@ -76,8 +75,8 @@ when each answer comes with why it is right or wrong; both have strong research 
 A topic is proven when you pass its mastery check (choices, numbers you work out, answers you
 type, steps you put in order, a sentence or an equation you build from pieces; code if you ask
 for it, with Python and JavaScript run against tests on your own device), or when you
-work an exercise on paper, photograph it and have it marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
-disputes is thrown out. That catches slips, not a misconception the model holds both times. You
+work an exercise on paper, photograph it and have it marked. Before you see a question with one right answer, the model answers it again without the answer key, and a
+key it disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known. A pass mark before moving
 on has a weaker, more mixed research record than testing and feedback; Terramentor keeps it so
 that a topic counts only once you have answered for it.
@@ -88,7 +87,7 @@ that a topic counts only once you have answered for it.
 
 Flashcards come back just before you would forget them (scheduled with FSRS-7, the newest FSRS,
 and fitted to your own reviews once there are enough of them). Reviews spread over days beat the
-same reviews crammed together, the largest effect in the chart below.
+same reviews crammed together, by a wide margin in the studies below.
 Every two weeks or so a course offers a look back: ten questions from across it, and a topic you
 miss comes back as a question the next day you study. In the weeks before an exam whose date cannot
 move, or one you have described, the offer is a full mock exam: the course's own questions on
@@ -116,8 +115,8 @@ it and did worse on the exam after, while trials that built the AI into set less
 from 0.06 to 0.63 standard deviations, two of them against pupils who had no extra lessons at
 all. Terramentor is built like the set lessons. The model writes the lessons, the questions and
 their answer keys before you start. The app itself, with no model involved, decides what you see
-next, what counts as proof and when each review is due, and nothing said in the chat counts as
-proof. None of these studies tested Terramentor itself.
+next, the pass mark and when each review is due. A model marks typed and photographed answers,
+and nothing said in the chat counts as proof. None of these studies tested Terramentor itself.
 
 <picture>
   <source media="(min-width: 1170px)" srcset="docs/evidence/effect-sizes-wide.svg">
@@ -139,7 +138,7 @@ write weaker lessons, slowly; the ones that teach well want 24 GB of video memor
 lesson is written once and kept, so you pay for writing it, never for reading it again, and the
 provider's dashboard shows what you have spent.
 
-The welcome screens and Settings → AI & Models connect one:
+Settings → AI & Models connects any of these, and the welcome screens all but the ChatGPT plan:
 
 - **OpenRouter**: **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you
   own, for models from every major lab on one account.
@@ -148,17 +147,18 @@ The welcome screens and Settings → AI & Models connect one:
   (Kimi).
 - **Your own computer or server**: Ollama, LM Studio, llama.cpp, or any address that speaks the
   OpenAI API.
-- **An embedding model**, for the atlas and for searching your files by meaning: on OpenRouter the
-  app picks one for you; on Ollama it uses `nomic-embed-text`; on another endpoint you choose one
-  it offers. A ChatGPT plan and Anthropic offer none, so with those the embeddings can run on
-  Ollama.
+
+The embedding model the atlas needs also searches your files by meaning; without it, that search
+goes by keywords. On OpenRouter the app picks one for you, on Ollama it uses `nomic-embed-text`,
+and on another endpoint you choose one it offers under Settings → AI & Models. A ChatGPT plan and
+Anthropic serve none, so with those the embeddings can run on Ollama.
 
 Without a model you can import a course file or an Anki deck and study its saved lessons,
 questions and flashcards. To get a course with no key at all, open **New course → Import a
 course → Or make a course with an external chatbot**: copy the prompt into a chatbot you already
 use and paste its reply back. The course arrives with its outline, an overview of each topic and
-links to read, and a second prompt per phase adds the lessons. New lessons, questions, visuals
-and the assistant need a connected model.
+links to read, and a second prompt per phase writes a reading for each topic. Writing questions,
+flashcards, lessons and visuals, and the assistant, take a connected model.
 
 ## Your data
 
@@ -196,7 +196,7 @@ docker compose up -d
 
 Then open <http://127.0.0.1:3001>.
 
-**From source** (Node.js 24.7 or later, up to 25; CI tests on 24):
+**From source** (Node.js 24.7 or a later 24 or 25 release; CI tests on 24):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git

@@ -497,8 +497,8 @@ check('README links to the doc beside the chart', /\]\(docs\/WHY_IT_WORKS\.md\)/
 for (const chart of CHARTS) check(`${chart.file} exists`, existsSync(svgPath(chart.file)));
 
 // --- numbers typed by hand beside the chart --------------------------------
-// The alt texts and the README's paragraph repeat values from the data in
-// prose. They are not generated, so a value corrected in the data must fail
+// The alt texts and the README's section around the chart repeat values from
+// the data in prose. They are not generated, so a value corrected in the data must fail
 // here until the prose is corrected too.
 const altOf = (text) => (text.match(/<img src="[^"]*effect-sizes-light\.svg" alt="([^"]*)"/) || [])[1] || '';
 const readmeAlt = altOf(readme);
@@ -513,14 +513,18 @@ const shown = rows.map((r) => spoken(r.value));
 check("the alt text gives every value in the chart, in the chart's order", said.join(' / ') === shown.join(' / '),
     `alt: ${said.join(', ')}; chart: ${shown.join(', ')}`);
 const values = new Set(rows.map((r) => fmt(Math.abs(r.value))));
-// The chart's whole `## ` section, its `###` steps included: they cite the same studies.
+// The chart's whole `## ` section, its `###` steps included: they state the
+// studies' results in words, and the closing step quotes numbers from them. A
+// chart moved into a section of its own would leave the steps unscanned, so
+// the section must still hold them.
 const sectionAt = chartAt < 0 ? -1 : readme.lastIndexOf('\n## ', chartAt);
 const sectionEnd = sectionAt < 0 ? -1 : readme.indexOf('\n## ', sectionAt + 1);
 const prose = sectionAt < 0 ? '' : readme.slice(sectionAt, sectionEnd < 0 ? undefined : sectionEnd).replace(/<picture>[\s\S]*?<\/picture>/g, '');
-check('the README shows the chart inside a "## " section', prose !== '');
+check('the README shows the chart inside its "How it works" section, among the steps',
+    /^\n## How it works/.test(prose) && /\n### /.test(prose));
 const UNSIGNED = /\d+\.\d\d(?!\d)/g;
 const strays = [...readmeAlt.matchAll(UNSIGNED), ...prose.matchAll(UNSIGNED)].map((m) => m[0]).filter((n) => !values.has(n));
-check('every two-decimal number beside the chart is a value in the data', strays.length === 0, `not in the data: ${strays.join(', ')}`);
+check('every two-decimal number in the chart\'s README section is a value in the data', strays.length === 0, `not in the data: ${strays.join(', ')}`);
 
 // `tools/run-gates.mjs` reads the assertion count out of this line.
 console.log(`\n${passed} passed, ${failures} failed`);
