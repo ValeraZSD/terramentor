@@ -297,8 +297,9 @@ your data at all." Those are different claims and we only make the second one.
     request and adds no proof. On a computer you share with other accounts, leave this switch
     off or set a password.
     100.64.0.0/10 is also carrier-NAT space, which is why both the Host and whois are checked.
-    Off until you turn it on in Settings → Devices & security → *Other devices* (a switch you
-    already set keeps its setting). The owner and each address's owner are re-read at
+    Off until you turn it on in Settings → Devices & security → *Other devices*. A switch
+    turned on before this default changed stays on; one never touched is now off, so its
+    devices connect with the one-time code once. The owner and each address's owner are re-read at
     most a minute old. **Without a password, a program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
     `Host: localhost` along makes the outside look like this computer** (see "what the app

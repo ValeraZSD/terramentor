@@ -358,7 +358,8 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   and manifest; the empty `/sandbox.html` and `/runner.html` frames are open too
   (the second runs code answers in the browser, `src/runner/`). Without a
   password, another device gets in only as a device connected by a one-time QR
-  code or as the computer's own Tailscale account (`server/devices.js`); a
+  code or, once its switch is turned on (it starts off), as the computer's own
+  Tailscale account (`server/devices.js`); a
   connected device also works beside a password, Tailscale alone does not.
 - Outbound traffic is the configured model endpoint (and the OpenRouter key
   exchange when you connect it), the search engines used while the AI drafts a
