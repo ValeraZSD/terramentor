@@ -8,6 +8,7 @@ import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { setNewPerDay } from './decks.js';
 import { mediaStorage } from './vaultStorage.js';
 import { releaseUuid } from './softDelete.js';
+import { parseSpeechMarks, speechMarksColumn } from './speechMarks.js';
 
 // IMPORT / EXPORT
 
@@ -54,7 +55,7 @@ const provenanceModel = (stored) => {
 // ~10 s, every other request waiting behind it.
 const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
 const quizzesOfNode = once('SELECT questions, generated_by FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id');
-const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM live_flashcards flashcards WHERE node_id = ? ORDER BY id');
+const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, say, generated_by FROM live_flashcards flashcards WHERE node_id = ? ORDER BY id');
 const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM live_resources resources WHERE node_id = ? ORDER BY position');
 const cardMediaOfProject = once(`SELECT f.media FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
     WHERE n.project_id = ? AND f.media IS NOT NULL`);
@@ -130,6 +131,10 @@ const exportedFlashcards = (nodeId, mediaNames = null) => {
         if (model) card.generated_by = model;
         if (r.extra) card.extra = r.extra;
         if (r.extra_front) card.extra_front = r.extra_front;
+        // What it says aloud, as the model that wrote it marked it (`[]` too:
+        // "nothing to say" is a mark, not an absence).
+        const say = r.say == null ? null : parseSpeechMarks(r.say);
+        if (say) card.say = say;
         if (mediaNames && r.media) {
             let parsed = null;
             try { parsed = JSON.parse(r.media); } catch { parsed = null; }
@@ -141,6 +146,7 @@ const exportedFlashcards = (nodeId, mediaNames = null) => {
                     kind: m.kind,
                     ...(m.alt ? { alt: m.alt } : {}),
                     ...(m.at ? { at: m.at } : {}),
+                    ...(m.say ? { say: m.say } : {}),
                 }));
                 if (named.length) media[side] = named;
             }
@@ -248,8 +254,8 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
     // map the bundle importer made when it stored the bytes; a name that
     // resolved to nothing is dropped and counted, never invented.
     const insertCard = db.prepare(`
-        INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid, say)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
     let cardCount = 0;
@@ -262,7 +268,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
             for (const m of media[side] || []) {
                 const found = mediaByName?.get(m.name);
                 if (!found) { unresolvedMedia++; continue; }
-                kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}) });
+                kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '', ...(m.at ? { at: m.at } : {}), ...(m.say ? { say: m.say } : {}) });
             }
             if (kept.length) out[side] = kept;
         }
@@ -297,7 +303,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         }
         for (const card of node.flashcards || []) {
             insertCard.run(newNodeId, card.front, card.back, card.extra, card.extra_front, resolveMedia(card.media),
-                declaredBy(card.generated_by), claimUuid('flashcards', card.uuid));
+                declaredBy(card.generated_by), claimUuid('flashcards', card.uuid), speechMarksColumn(card.say));
             cardCount++;
         }
         node.children.forEach((child, idx) => walk(child, newNodeId, idx, path));

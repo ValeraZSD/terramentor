@@ -38,6 +38,7 @@ import { sanitizeUrl } from './urlSafety.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { userSearchWords } from './projectFields.js';
 import { KeyedError } from './clientError.js';
+import { normalizeSpeechMarks, MAX_MARK_TEXT } from './speechMarks.js';
 
 export const VALID_NODE_STATUSES = ['not_started', 'in_progress', 'completed', 'skipped'];
 
@@ -307,6 +308,8 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
  *   `agentic.js`) and `questionDefects` (`feedQuality.js`). Injected rather
  *   than imported for the same reason `isSupportedLanguage` is — they reach
  *   `database.js`, and this module must stay openable by a gate that has none.
+ *   `learningLanguage`: the language the file's course teaches (its
+ *   normalized project header); without it cards keep no speech marks.
  * @returns {{nodes: object[], warnings: string[], count: number, questionCount: number, cardCount: number}}
  */
 export function normalizeImportTree(nodes, deps = {}) {
@@ -405,13 +408,18 @@ export function normalizeImportTree(nodes, deps = {}) {
                 generated_by: declaredModel(node.generated_by, at, warnings) || undefined,
                 resources: normalizeResources(node.resources, at, warnings),
                 questions: normalizeImportQuestions(node.questions, at, warnings, deps, questionBudget, isNote),
-                flashcards: normalizeImportFlashcards(node.flashcards, at, warnings, cardBudget, isNote),
+                flashcards: normalizeImportFlashcards(node.flashcards, at, warnings, cardBudget, isNote, deps.learningLanguage),
                 children,
             };
         });
     };
 
     const tree = walk(nodes, 'nodes', 1);
+    // One line for every speech mark the check refused, not one per card: a
+    // vocabulary course holds thousands.
+    if (cardBudget.marksDropped) {
+        warnings.add(`Dropped ${cardBudget.marksDropped} speech mark(s) on the cards (${[...cardBudget.markReasons].join('; ')}); those cards keep their other marks, or none.`);
+    }
     return { nodes: tree, warnings: warnings.list(), count, questionCount: questionBudget.total, cardCount: cardBudget.total };
 }
 
@@ -594,7 +602,10 @@ function normalizeCardMedia(raw, where, warnings) {
             // line (CardFace). Kept whole or not at all: a cut line matches no
             // line, and the clip would only fall back to the row under the card.
             const at = typeof m.at === 'string' && m.at.trim() && m.at.length <= LIMITS.cardSide ? m.at : null;
-            clean.push({ name, ...(kind ? { kind } : {}), ...(typeof m.alt === 'string' && m.alt ? { alt: m.alt.slice(0, 500) } : {}), ...(at ? { at } : {}) });
+            // `say`: the words a recording says (its card's speech mark,
+            // server/speechMarks.js), so its button is named by them. Whole or not at all.
+            const say = typeof m.say === 'string' && m.say.trim() && m.say.length <= MAX_MARK_TEXT ? m.say.trim() : null;
+            clean.push({ name, ...(kind ? { kind } : {}), ...(typeof m.alt === 'string' && m.alt ? { alt: m.alt.slice(0, 500) } : {}), ...(at ? { at } : {}), ...(say ? { say } : {}) });
         }
         if (clean.length) { out[side] = clean; any = true; }
     }
@@ -613,7 +624,7 @@ function normalizeCardMedia(raw, where, warnings) {
  * scheduler starts every card new: schedule state is the learner's, not the
  * course's, and it never travels in a course file.
  */
-function normalizeImportFlashcards(cards, at, warnings, budget, isNote) {
+function normalizeImportFlashcards(cards, at, warnings, budget, isNote, learningLanguage = '') {
     if (cards == null) return [];
     if (!Array.isArray(cards)) throw new ImportError(`Invalid flashcards at ${at}: must be an array`);
     if (!cards.length) return [];
@@ -650,6 +661,21 @@ function normalizeImportFlashcards(cards, at, warnings, budget, isNote) {
         const card = { front, back, extra: extra || null, extra_front: extraFront || null };
         const media = normalizeCardMedia(raw.media, where, warnings);
         if (media) card.media = media;
+        // What the card says aloud (server/speechMarks.js), checked against its
+        // own lines and the language the file says the course teaches.
+        if (raw.say != null) {
+            if (!Array.isArray(raw.say)) {
+                warnings.add(`Ignored the speech marks of a card at ${where}: "say" must be a list.`);
+            } else {
+                const { marks, dropped } = normalizeSpeechMarks(raw.say, card, learningLanguage);
+                if (dropped.length) {
+                    budget.marksDropped = (budget.marksDropped || 0) + dropped.length;
+                    budget.markReasons ??= new Set();
+                    for (const d of dropped) budget.markReasons.add(d.reason);
+                }
+                if (marks) card.say = marks;
+            }
+        }
         // A card's uuid is unique across the whole library (the column is
         // UNIQUE), so a repeat is caught across the file, not per topic.
         const uuid = itemUuid(raw.uuid, where, warnings, budget.uuids ??= new Set());

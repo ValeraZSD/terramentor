@@ -59,7 +59,7 @@ Nodes nest recursively through `children` and form the whole curriculum tree.
 | `resources` | Resource[] | omit if empty. Attach only to leaf topics. See section 5. |
 | `is_note` | boolean | **omit; do not use it in this pass.** It marks teaching material, which pass two writes. See section 4. |
 | `questions` | Question[] | **omit; do not use it in this pass.** Graded practice the app turns into a real quiz on that topic. It is written against material that does not exist yet, so there is nothing here to write it from. |
-| `flashcards` | Flashcard[] | **omit; do not use it in this pass.** Spaced-repetition cards the app schedules on that topic: `{front, back, extra?, extra_front?, media?}`, media by file name and only inside a `.studyvault` bundle. Like questions, written against material that does not exist yet. |
+| `flashcards` | Flashcard[] | **omit; do not use it in this pass.** Spaced-repetition cards the app schedules on that topic: `{front, back, extra?, extra_front?, media?, say?}`, `say` the spoken lines of a language course (`{at, text, lang?, voices?}` per line, checked against the card on import), media by file name and only inside a `.studyvault` bundle. Like questions, written against material that does not exist yet. |
 | `status` | string | omit. (The importer accepts `not_started`/`in_progress`/`completed`/`skipped`; a new course is all `not_started`.) |
 | `notes` | string | **never write this.** It is the learner's own private field, excluded from sharing by default. Anything you put there is misfiled. |
 | `uuid` | string | omit. Round-trip identity, minted by the app; see section 1. |

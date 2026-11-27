@@ -83,7 +83,7 @@ async function readUpload(file, { withMedia = false } = {}) {
     }
     try {
         const header = normalizeImportProject(body?.project, { isSupportedLanguage });
-        const tree = normalizeImportTree(body?.nodes, IMPORT_QUESTION_DEPS);
+        const tree = normalizeImportTree(body?.nodes, { ...IMPORT_QUESTION_DEPS, learningLanguage: header.project.learning_language });
         return { project: header.project, nodes: tree.nodes, exportedAt: body?.exported_at, bundle: false, mediaByName: null, warnings: [...header.warnings, ...tree.warnings] };
     } catch (err) {
         if (err instanceof ImportError) throw new UpdateRefusal(err.message);

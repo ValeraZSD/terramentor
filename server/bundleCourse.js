@@ -66,7 +66,7 @@ export async function readBundleCourse(zip) {
     // been handed to you by a stranger.
     try {
         const header = normalizeImportProject(manifest.project, { isSupportedLanguage });
-        const tree = normalizeImportTree(manifest.nodes || [], IMPORT_QUESTION_DEPS);
+        const tree = normalizeImportTree(manifest.nodes || [], { ...IMPORT_QUESTION_DEPS, learningLanguage: header.project.learning_language });
         return {
             manifest, project: header.project, nodes: tree.nodes, cardCount: tree.cardCount, questionCount: tree.questionCount,
             warnings: [...header.warnings, ...tree.warnings],
