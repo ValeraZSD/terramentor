@@ -44,6 +44,7 @@ import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { serverFiles, readServer } from './lib/serverSource.mjs';
 
 const require = createRequire(import.meta.url);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,7 +82,7 @@ const git = (...args) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8
 const B = new URL('../server/', import.meta.url).href;
 const {
     compareVersions, updateStatus, repoSlug, updateCommand, deployment,
-    fetchLatestRelease, readGitCommit, appVersion, REPO_URL,
+    fetchLatestRelease, readGitCommit, appVersion, REPO_URL, userAgent,
 } = await import(B + 'version.js');
 
 // ---------------------------------------------------------------------------
@@ -274,6 +275,24 @@ ok('a User-Agent is sent (GitHub rejects requests without one)',
 check('the request carries no body', seenInit?.body, undefined);
 check('the request sends exactly two headers and no identifiers',
     Object.keys(seenInit?.headers || {}).sort(), ['Accept', 'User-Agent']);
+
+// Every request the server makes in its own name says which version it is,
+// from one helper: a version number typed into a header stays behind when the
+// app moves on.
+{
+    const pkgVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
+    check('userAgent() names the app and the version package.json declares',
+        typeof userAgent === 'function' ? userAgent() : 'no userAgent export', `Terramentor/${pkgVersion}`);
+    check('userAgent(detail) puts the detail in brackets after it',
+        typeof userAgent === 'function' ? userAgent('educational tool') : 'no userAgent export', `Terramentor/${pkgVersion} (educational tool)`);
+    const typed = [];
+    for (const rel of serverFiles()) {
+        readServer(rel).split('\n').forEach((line, i) => {
+            if (/['"`][^'"`]*Terramentor\/\d/.test(line)) typed.push(`server/${rel}:${i + 1}`);
+        });
+    }
+    ok('no server module types a version into its User-Agent', typed.length === 0, typed.join(', '));
+}
 
 let seenUrl = null;
 await stub(async (url) => { seenUrl = url; return { status: 404, ok: false, json: async () => ({}) }; });

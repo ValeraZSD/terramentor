@@ -92,6 +92,17 @@ function readPackageVersion() {
 }
 
 /**
+ * How the server names itself to the services it calls: the app and its
+ * version, nothing that tells one install from another. `detail` becomes the
+ * bracketed comment after it.
+ * @param {string} [detail]
+ */
+export function userAgent(detail) {
+    const name = `Terramentor/${readPackageVersion()}`;
+    return detail ? `${name} (${detail})` : name;
+}
+
+/**
  * The commit this is running, without shelling out to git.
  *
  * A clone has `.git/HEAD`, which is either a detached SHA or a `ref:` pointing
@@ -486,7 +497,7 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
                 // GitHub rejects an unidentified caller, and the version is the
                 // only thing this sends — no install id, nothing that could be
                 // counted as a distinct user across days.
-                'User-Agent': `Terramentor/${readPackageVersion()}`,
+                'User-Agent': userAgent(),
                 Accept: 'application/vnd.github+json',
                 // The ETag GitHub itself gave for the last answer: it names
                 // that answer's content, not this install.

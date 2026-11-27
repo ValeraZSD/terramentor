@@ -31,7 +31,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
-import { appVersion, compareVersions, downloadPrefix, readBuildInfo, updateChannel } from './version.js';
+import { appVersion, compareVersions, downloadPrefix, readBuildInfo, updateChannel, userAgent } from './version.js';
 // Every request of a download goes through the app's outbound guard: GitHub
 // answers a release download with a redirect, and each hop is vetted (and its
 // socket pinned) like any other fetch the server makes. The gates pass their
@@ -218,7 +218,7 @@ async function rangeRead(fetchImpl, url, start, end, signal) {
     for (let i = 1; ; i++) {
         try {
             const res = await fetchImpl(url, {
-                headers: { Range: `bytes=${start}-${end}`, 'User-Agent': `Terramentor/${appVersion().version}` },
+                headers: { Range: `bytes=${start}-${end}`, 'User-Agent': userAgent() },
                 redirect: 'follow',
                 signal: AbortSignal.any([signal, AbortSignal.timeout(RANGE_TIMEOUT_MS)]),
             });
@@ -267,7 +267,7 @@ async function rangeReadChunked(fetchImpl, url, start, end, signal, onChunk = ()
  *  is a failure to reach GitHub. `what` names the file in that message. */
 async function getSmall(fetchImpl, url, signal, what) {
     const res = await fetchImpl(url, {
-        headers: { 'User-Agent': `Terramentor/${appVersion().version}` },
+        headers: { 'User-Agent': userAgent() },
         redirect: 'follow',
         signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
     });
@@ -554,7 +554,7 @@ async function stageFromZip({ core, asset, ref, appRoot, nextDir, upd, fetchImpl
         try {
             arm();
             const res = await fetchImpl(asset.url, {
-                headers: { 'User-Agent': `Terramentor/${appVersion().version}`, ...(have ? { Range: `bytes=${have}-` } : {}) },
+                headers: { 'User-Agent': userAgent(), ...(have ? { Range: `bytes=${have}-` } : {}) },
                 redirect: 'follow',
                 signal: AbortSignal.any([signal, ctrlIdle.signal]),
             });

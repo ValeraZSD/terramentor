@@ -24,6 +24,7 @@ import { endpointBody, keyed } from './clientError.js';
 import { getSecret, setSecret } from './secrets.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
+import { userAgent } from './version.js';
 
 /**
  * How much of one engine's answer is read. Jina's full pages run to some
@@ -182,7 +183,7 @@ export async function tavilySearch(query, maxResults = 4) {
             headers: {
                 'Authorization': `Bearer ${key}`,
                 'Content-Type': 'application/json',
-                'User-Agent': 'Terramentor/1.0 (educational tool)',
+                'User-Agent': userAgent('educational tool'),
             },
             body: JSON.stringify({
                 query,
@@ -213,7 +214,7 @@ export async function braveSearch(query, maxResults = 4) {
                 headers: {
                     'X-Subscription-Token': key,
                     'Accept': 'application/json',
-                    'User-Agent': 'Terramentor/1.0 (educational tool)',
+                    'User-Agent': userAgent('educational tool'),
                 },
                 signal: AbortSignal.timeout(12000),
             });
@@ -240,7 +241,7 @@ export async function jinaSearch(query, maxResults = 4) {
             headers: {
                 'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json',
-                'User-Agent': 'Terramentor/1.0 (educational tool)',
+                'User-Agent': userAgent('educational tool'),
             },
             signal: AbortSignal.timeout(12000),
         });
