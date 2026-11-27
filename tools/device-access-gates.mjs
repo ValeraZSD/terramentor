@@ -138,6 +138,13 @@ const codeOf = (r) => (r.body?.url || '').split('#pair=')[1] || '';
  * "path status". A press that gets past the guard may ask GitHub (Check now),
  * so `fetch` answers offline for the duration: a gate reaches no network.
  */
+/**
+ * What each press answers once it is past the guard, on this scratch copy:
+ * the handler's own refusals (a copy that cannot download or install itself
+ * 409s; a channel left out is a 400), never the guard's 403, a 401 or a 429.
+ */
+const PAST_THE_GUARD = '/api/updates/download 409, /api/updates/restart 409, /api/updates/cancel 200, '
+    + '/api/updates/check 200, /api/updates/auto 200, /api/updates/channel 400';
 async function pressUpdates(cookie) {
     const realFetch = globalThis.fetch;
     globalThis.fetch = async () => { throw new Error('offline in this gate'); };
@@ -328,7 +335,7 @@ let phoneCookie = '';
     // has no password to sign in with, and a press installs only the newest
     // signed release). Section 4 pins the refusal once a password is set.
     const pressed = await pressUpdates(phoneCookie);
-    ok('with no password, a connected device may download, install and set up updates', pressed.every((p) => !p.endsWith(' 403')), pressed.join(', '));
+    ok('with no password, a connected device may download, install and set up updates', pressed.join(', ') === PAST_THE_GUARD, pressed.join(', '));
     // Passing the app on to the tailnet and the Tailscale switch change the
     // computer's own setup: the same owner-only rule as the controls above.
     const servedBefore = cli.served.length;
@@ -612,7 +619,7 @@ console.log('\n--- with a password set ---');
         (await call('/api/updates', { from: PHONE, cookie: phoneCookie })).body?.controls === false);
     ok('…while a password session on the phone may',
         (await call('/api/updates', { from: PHONE, cookie: session })).body?.controls === true
-        && (await pressUpdates(session)).every((p) => !p.endsWith(' 403')));
+        && (await pressUpdates(session)).join(', ') === PAST_THE_GUARD);
     ok('a code without the password is refused', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session })).status === 403);
     ok('…with a wrong one too', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'wrong' } })).status === 403);
     ok('…and given with it', codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'correct horse' } })).length >= 32);

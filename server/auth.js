@@ -34,7 +34,7 @@ import { SECRET_SEARCH_KEYS } from './searchBackends.js';
 import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName, remoteAccessOf } from './devices.js';
 import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
-import { operatorSetupToken } from './hosted.js';
+import { isHosted, operatorSetupToken } from './hosted.js';
 import { isSiteLibrary } from './siteLibrary.js';
 import { keyed } from './clientError.js';
 
@@ -665,11 +665,12 @@ export function remoteSetupRequired(req) {
  * Tailscale account) is not that stranger: it reads and changes the whole
  * library already, and without this the phone had no way to lock the app at
  * all. Still yes where a device proves nothing: AUTH_ALLOW_OPEN_REMOTE lets
- * anyone in to pair one, and a hosted copy's operator token stays its only door.
+ * anyone in to pair one, and a hosted copy or site library keeps the code (or
+ * its operator's token) as its only door.
  */
 export function setupCodeNeeded(req) {
     if (isLocalRequest(req)) return false;
-    return !(req?.remoteAccess && !openRemoteAllowed() && !operatorSetupToken());
+    return !(req?.remoteAccess && !openRemoteAllowed() && !isHosted() && !isSiteLibrary());
 }
 
 /**

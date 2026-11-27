@@ -876,6 +876,17 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         const open = auth.setupCodeNeeded(from('192.168.1.20', { remoteAccess: 'device' }));
         delete process.env.AUTH_ALLOW_OPEN_REMOTE;
         ok('…but under AUTH_ALLOW_OPEN_REMOTE, where anyone could connect one, it does', open === true);
+        // A hosted copy keeps the code (or its operator's token) as its only door,
+        // with a token and without one.
+        const hostedNeeds = [];
+        for (const token of ['an operator token long enough', undefined]) {
+            process.env.TERRAMENTOR_HOSTED = '1';
+            if (token) process.env.TERRAMENTOR_SETUP_TOKEN = token; else delete process.env.TERRAMENTOR_SETUP_TOKEN;
+            hostedNeeds.push(auth.setupCodeNeeded(from('192.168.1.20', { remoteAccess: 'device' })));
+        }
+        delete process.env.TERRAMENTOR_HOSTED;
+        delete process.env.TERRAMENTOR_SETUP_TOKEN;
+        ok('…and on a hosted copy, token or not, it does', hostedNeeds.every((n) => n === true), hostedNeeds.join(','));
     }
     ok('...under the login throttle', setupRoute.includes('loginBlocked(') && setupRoute.includes('recordLoginFailure('));
     ok('...and a set password spends the code', setupRoute.includes('clearSetupCode()'));
