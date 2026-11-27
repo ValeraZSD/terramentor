@@ -275,7 +275,7 @@
         "Topics you closed each week, in all your courses · top-centre",
         "Vault · top-left",
         "Young · middle-centre",
-        "Your best month · middle-left",
+        "Your best month: {{n}} a week · middle-centre",
         "Your best month: {{n}} a week · middle-left",
         "Your last {{n}} week. Use the arrow keys to read one week. · middle-centre",
         "new today · middle-left",

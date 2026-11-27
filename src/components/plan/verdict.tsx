@@ -142,6 +142,23 @@ const rate = (num: Num, x: number | null | undefined) => {
     return num(r, { decimals: Number.isInteger(r) ? 0 : 1 });
 };
 
+/**
+ * Whether the panel's sentences give the best month's rate. Done, passed and
+ * learning stop before it, and on pace has no use for it; there the chart's
+ * key gives the rate instead, so it shows once in every band.
+ */
+export function sentencesGiveBest(band: VerdictBand): boolean {
+    return band !== 'done' && band !== 'passed' && band !== 'learning' && band !== 'on_pace';
+}
+
+/**
+ * The best line's name in the chart's key: the name alone where the sentences
+ * above already give the rate, the name with the rate where they do not.
+ */
+export function bestKeyName(band: VerdictBand, best: number, t: TFunction, num: Num): string {
+    return sentencesGiveBest(band) ? t("Your best month") : t("Your best month: {{n}} a week", { n: rate(num, best) });
+}
+
 /** The panel's headline: the date and the verdict in one line. */
 export function verdictHeadline(v: PaceVerdict, t: TFunction, today: string): string {
     const date = v.deadline ? shortDay(v.deadline, today) : '';
@@ -186,7 +203,7 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
     } else {
         out.push(t("Your recent pace is {{n}} a week.", { n: rate(num, v.recent) }));
     }
-    if (v.band !== 'on_pace') out.push(t("Your best month was {{n}} a week.", { n: rate(num, v.best) }));
+    if (sentencesGiveBest(v.band)) out.push(t("Your best month was {{n}} a week.", { n: rate(num, v.best) }));
     if (v.band === 'out_of_reach' && v.fits != null) {
         // "You finish", so the verb never agrees with the number.
         out.push(t("At that pace you finish {{fits}} of the {{open}} in time.", { fits: num(v.fits), open: num(v.open) }));
