@@ -76,6 +76,9 @@ function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }
         ...(range ? [{ id: 'range' as const, x: (xOf(range.fromDay) + xOf(range.toDay)) / 2, w: widths.range, start: false, lanes: ['above', 'below', 'under'] as StripLane[] }] : []),
     ], width, Math.round(0.5 * rem)) : {};
     const deep = Object.values(placed).some(p => p?.lane === 'under');
+    // No label above the track (no range, or each label fitted below): the
+    // empty lane is taken back, so the strip does not hang a gap under the text.
+    const lift = width > 0 && widths.today > 0 && !Object.values(placed).some(p => p?.lane === 'above');
     const labelStyle = (id: StripLabel) => {
         const p = placed[id];
         // A label never runs past the strip: only one wider than it is cut,
@@ -86,7 +89,7 @@ function Strip({ facts, band }: { facts: StripFacts; band: PaceVerdict['band'] }
     const label = 'absolute truncate text-sm leading-5';
 
     return (
-        <div ref={box} role="img" aria-label={facts.sentence} dir="ltr" className="relative" style={{ height: deep ? '6rem' : '4.75rem' }}>
+        <div ref={box} role="img" aria-label={facts.sentence} dir="ltr" className="relative" style={{ height: deep ? '6rem' : '4.75rem', marginTop: lift ? '-1.25rem' : undefined }}>
             {width > 0 && (
                 <>
                     {/* The track from today on. */}
