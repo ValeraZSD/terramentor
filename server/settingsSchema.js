@@ -270,6 +270,9 @@ export const SETTINGS = {
     time_zone: server('learning'),
     today_briefing: server('internal'),
     app_version: server('internal'),
+    // The migration code and the schema the last finished start left (database.js).
+    schema_code: server('internal'),
+    schema_fingerprint: server('internal'),
     openai_address_migration_done: server('internal'),
 };
 
@@ -331,6 +334,7 @@ export const SETTING_SCOPES = Object.freeze({
         'update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
         'update_check', 'update_check_asked',
         'inbox_project_id', 'node_roles_backfilled', 'time_zone', 'today_briefing', 'app_version',
+        'schema_code', 'schema_fingerprint',
         // Lists of integer project ids, which name other projects in another
         // copy: device until they hold uuids.
         'placement_dismissed', 'celebrated_projects',

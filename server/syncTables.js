@@ -117,6 +117,8 @@ const TABLE_LIST = [
     ['visual_build_failures', { class: 'device' }],
     ['region_name_failures', { class: 'device' }],
     ['ai_job_fallbacks', { class: 'device' }],
+    // Which schema steps ran on THIS file (database.js): another copy has its own.
+    ['schema_ledger', { class: 'device' }],
     // Which file each installed course came from, and the undo of its last
     // update. Keyed by this library's project id; a sync would have to
     // re-key them by the project's uuid before they could travel.
