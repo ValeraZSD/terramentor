@@ -511,6 +511,9 @@ console.log('\n--- what changed, from the release bodies ---');
         [h.title, h.items, h.more], ['Mock exams and evidence', ['A timed mock exam.', 'What the app thinks you know.'], 3]);
     check('…and still counts them when it is one of several releases the app reports',
         notesSince([rel('v1.6.0', { body: highlightsBody })], '1.5.0').releases[0]?.more, 3);
+    const stray = releaseNote(rel('v1.6.1', { body: '**A fix.** One thing works again.\n\n- A list further down.\n\nAnother thing too.' }));
+    check('a list that does not follow the headline straight away is no highlights: the sentences are still listed',
+        [stray.items, stray.more], [['One thing works again.', 'Another thing too.', 'A list further down.'], 0]);
 
     const list = [rel('v1.3.0-nightly.20261022.3', { body: '- Older change (#1)' }), rel('v1.3.0-nightly.20261026.1', { body: nightlyBody }),
         rel('v1.3.0-nightly.20261022.2', { body: '- Already installed' }), rel('v1.3.0-rc.1', { body: '- A candidate' }), rel('v1.3.0-nightly.20261027.1', { draft: true, body: '- A draft' })];

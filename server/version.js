@@ -380,6 +380,9 @@ export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
         if (m) bullets.push(m[1]);
         else if (raw.trim()) prose.push(raw.trim());
     }
+    // The headline alone on the first line and the highlights straight under it.
+    const filled = above.split('\n').map((l) => l.trim()).filter(Boolean);
+    const highlighted = /^\*\*[^*]+\*\*$/.test(filled[0] || '') && /^[-*]\s+/.test(filled[1] || '');
     let title = null;
     const lines = [];
     let unlisted = 0;
@@ -390,7 +393,7 @@ export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
         // At a sentence end followed by a capital (or a bold label such as
         // "**Database:**"). Not at "e.g. a", nor inside "1.2.0".
         const sentences = text.split(/(?<=[.!?])\s+(?=\*\*|[A-Z])/).filter((s) => plainLine(s));
-        if (head && bullets.length) unlisted = sentences.length;
+        if (highlighted) unlisted = sentences.length;
         else lines.push(...sentences);
     }
     lines.push(...bullets);
