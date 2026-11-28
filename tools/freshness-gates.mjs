@@ -56,6 +56,7 @@ const ok = (name, cond, detail = '') => check(name + (detail ? ` — ${detail}` 
 const { buildId } = await import('../server/buildId.js');
 const { compressJson, precompressedStatic } = await import('../server/httpCompression.js');
 const { serviceWorkerPlugin } = await import('./vite-plugin-sw.mjs');
+const { buildIdPlugin } = await import('./vite-plugin-build-id.mjs');
 
 console.log('\n--- build identity -------------------------------------------------');
 
@@ -117,6 +118,33 @@ console.log('\n--- build identity ----------------------------------------------
     // ...and a restart that rebuilt nothing must NOT, or the app reloads forever.
     const after = buildId(a);
     check('re-reading an unchanged build is stable', buildId(a), after);
+}
+
+/** A built, stamped index.html: the page the watcher below is loaded in. */
+let stampedPage = '';
+{
+    // The page's own id: the build stamps it into index.html, and the server
+    // must report exactly that, or every fresh page would call itself stale.
+    const plugin = buildIdPlugin();
+    const stamp = (html) => plugin.transformIndexHtml.handler(html);
+    const built = (tag) => `<!doctype html><html><head>\n<script type="module" crossorigin src="/assets/index-${tag}.js"></script>\n</head><body></body></html>`;
+    check('the stamp runs after Vite has written the asset tags in', plugin.transformIndexHtml.order, 'post');
+    check('...and only in a build', plugin.apply, 'build');
+    const plugins = /plugins:\s*\[([^\]]*)\]/.exec(readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8'))?.[1] ?? '';
+    ok('the build runs it (vite.config.ts lists it among its plugins)', /\bbuildIdPlugin\(\)/.test(plugins), plugins);
+    const dist = join(scratch, 'stamped');
+    mkdirSync(join(dist, 'assets'), { recursive: true });
+    writeFileSync(join(dist, 'assets', 'index-AAAA.js'), '');
+    const html = stamp(built('AAAA'));
+    const meta = /<meta name="build-id" content="([^"]+)">/.exec(html)?.[1];
+    ok('a built index.html carries its own id', typeof meta === 'string' && meta.length === 16, meta);
+    writeFileSync(join(dist, 'index.html'), html);
+    check('the server reports the id the document carries', buildId(join(dist, 'index.html')), meta);
+    writeFileSync(join(dist, 'unstamped.html'), built('AAAA'));
+    check('...which is the id the same build had before it was stamped', buildId(join(dist, 'unstamped.html')), meta);
+    check('stamping twice changes nothing', stamp(html), html);
+    ok('another build carries another id', !stamp(built('BBBB')).includes(meta));
+    stampedPage = html;
 }
 
 {
@@ -190,6 +218,67 @@ console.log('\n--- the service worker is a build artefact ----------------------
         return emitted.source;
     };
     ok('an edit to the theme boot script alone emits a different worker', withBoot('/* a */') !== withBoot('/* b */'));
+
+    // The navigation branch keeps what the network answered as the offline
+    // shell. Run the emitted worker for real, against stub `self`/`caches`/
+    // `fetch`, and navigate once per kind of answer.
+    const { runInNewContext } = await import('node:vm');
+    const navigate = async ({ status = 200, redirected = false } = {}) => {
+        const puts = [];
+        const listeners = {};
+        const cache = { put: async (key) => { puts.push(key); }, match: async () => undefined, add: async () => { } };
+        const res = { ok: status >= 200 && status < 300, status, redirected, type: 'basic', clone() { return this; } };
+        runInNewContext(first.source, {
+            self: { addEventListener: (type, fn) => { listeners[type] = fn; }, location: { origin: 'http://app.test' } },
+            caches: { open: async () => cache, keys: async () => [], delete: async () => true },
+            fetch: async () => res,
+            AbortController, URL, setTimeout, clearTimeout, Response: { error: () => ({ type: 'error' }) },
+        });
+        let answered;
+        listeners.fetch({ request: { method: 'GET', mode: 'navigate', url: 'http://app.test/projects' }, respondWith: (p) => { answered = p; } });
+        const got = await answered;
+        await new Promise((r) => setTimeout(r, 0));
+        return { puts, got, res };
+    };
+    {
+        const fine = await navigate();
+        check('a page that loads is kept as the offline shell', fine.puts, ['/']);
+        ok('...and is what the navigation gets', fine.got === fine.res);
+        const bad = await navigate({ status: 502 });
+        check('a proxy\'s 502 is NOT kept as the offline shell', bad.puts, []);
+        ok('...but the page still sees the answer the network gave', bad.got === bad.res);
+        check('nor is a page reached by a redirect', (await navigate({ redirected: true })).puts, []);
+    }
+
+    // Install precaches the shell, and the same holds there: '/' redirected to
+    // a maintenance page must not go in as the document. The stub cache's
+    // `add` behaves as the real one does (fetch, follow, store if ok), so code
+    // still calling it is caught.
+    {
+        const puts = [];
+        const listeners = {};
+        const answer = (url) => url === '/'
+            ? { ok: true, status: 200, redirected: true }
+            : url === '/theme-boot.js' ? { ok: false, status: 404, redirected: false }
+            : { ok: true, status: 200, redirected: false };
+        const cache = {
+            put: async (key) => { puts.push(key); },
+            add: async (url) => { if (!answer(url).ok) throw new TypeError('bad status'); puts.push(url); },
+            match: async () => undefined,
+        };
+        runInNewContext(first.source, {
+            self: { addEventListener: (type, fn) => { listeners[type] = fn; }, location: { origin: 'http://app.test' } },
+            caches: { open: async () => cache, keys: async () => [], delete: async () => true },
+            fetch: async (url) => answer(url),
+            AbortController, URL, setTimeout, clearTimeout,
+        });
+        let installing;
+        listeners.install({ waitUntil: (p) => { installing = p; } });
+        await installing;
+        ok('install keeps the entry script', puts.includes('/assets/index-1.js'));
+        ok('install does NOT keep a redirected \'/\' as the shell', !puts.includes('/'));
+        ok('...nor a precache url that failed', !puts.includes('/theme-boot.js'));
+    }
 }
 
 console.log('\n--- compression ----------------------------------------------------');
@@ -664,6 +753,23 @@ console.log('\n--- installing a new build (the handover) -----------------------
         const later = { calls: 0 };
         mod.watchFreshness(() => { later.calls++; });
         check('...and told only once', later.calls, 0);
+
+        // A page loaded from an old cached shell, whose very first /api/build
+        // answer is already the next build. Its own stamp is the baseline, so
+        // that first answer is news; without a stamp (dev) it is the baseline.
+        const { JSDOM: PageDom } = (await import('node:module')).createRequire(import.meta.url)('jsdom');
+        const firstAnswer = async (pageHtml) => {
+            globalThis.document = new PageDom(pageHtml).window.document;
+            serverBuild = 'ffffffffffffffff';
+            const page = await import(`${freshUrl}?stamped=${Math.random()}`);
+            const seen = { calls: 0 };
+            page.watchFreshness(() => { seen.calls++; });
+            await new Promise((r) => setTimeout(r, 20));
+            return seen.calls;
+        };
+        check('a page whose own build is not the server\'s is stale on the first answer', await firstAnswer(stampedPage), 1);
+        check('...and a page with no stamp takes the first answer as its own', await firstAnswer('<!doctype html><head></head>'), 0);
+        globalThis.document = Object.assign(emitter(), { visibilityState: 'visible', activeElement: null });
 
         // canReloadNow against real DOM elements. A focused control whose value
         // is not something typed ("on" on a checkbox, "100" on a slider) must

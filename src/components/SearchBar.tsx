@@ -20,6 +20,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { Button, IconButton } from './ui/Button';
+import { safeHref } from '../utils/url';
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debounced, setDebounced] = useState(value);
@@ -142,9 +143,14 @@ function ResultItem({
 
     const snippet = getItemSnippet(item);
     const matchField = getItemMatchField(item);
+    // The server measures the ranges in the snippet when there is one and in
+    // the title only when there is not, so they belong to that one text.
     const matchRanges = getItemMatchRanges(item);
+    const titleRanges = snippet ? [] : matchRanges;
 
-    const link = item.type === 'resource' ? (item as SearchResourceResult).url : '';
+    // Only an address the app would link anywhere else (http/https, no
+    // credentials); anything else gets no button at all.
+    const link = item.type === 'resource' ? safeHref((item as SearchResourceResult).url) ?? '' : '';
 
     return (
         // The row is two siblings, never a button in a button: the main one opens the
@@ -168,7 +174,7 @@ function ResultItem({
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
-                    <HighlightedText text={item.title} ranges={matchRanges} />
+                    <HighlightedText text={item.title} ranges={titleRanges} />
                 </p>
 
                 {(subtitle || (matchField && matchField !== 'title')) && (
@@ -600,7 +606,7 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
                                 <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                                     <span>
                                         {tr("{{totalResults}} results", { count: totalResults, totalResults })}
-                                        {searchLoading && tr("· searching...")}
+                                        {searchLoading && ` ${tr("· searching...")}`}
                                     </span>
                                     <div className={`items-center gap-3 ${hasKeyboard ? 'flex' : 'hidden'}`}>
                                         <span>

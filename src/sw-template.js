@@ -40,8 +40,15 @@ self.addEventListener('install', (event) => {
         (async () => {
             const cache = await caches.open(CACHE);
             // Individually, not `addAll`: one 404 must not fail the install and
-            // leave the app with no worker at all.
-            await Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => { })));
+            // leave the app with no worker at all. Fetched and put by hand, not
+            // `cache.add`, which follows a redirect and stores where it landed:
+            // a maintenance page answering for '/' would become the shell.
+            await Promise.all(PRECACHE.map(async (url) => {
+                try {
+                    const res = await fetch(url, { cache: 'no-cache' });
+                    if (res.ok && !res.redirected) await cache.put(url, res);
+                } catch { /* this one stays out; the rest still install */ }
+            }));
         })()
     );
 });
@@ -127,7 +134,11 @@ self.addEventListener('fetch', (event) => {
                 const cache = await caches.open(CACHE);
                 try {
                     const res = await fetchWithTimeout(req, 3500);
-                    cache.put('/', res.clone()).catch(() => { });
+                    // Only a real page becomes the offline shell: a proxy's 502
+                    // stored here would be what an offline launch shows from
+                    // then on. A navigation's redirect comes back opaque (not
+                    // ok); `redirected` covers a request that followed one.
+                    if (res.ok && !res.redirected) cache.put('/', res.clone()).catch(() => { });
                     return res;
                 } catch {
                     return (await cache.match('/')) || (await cache.match('/index.html')) || Response.error();

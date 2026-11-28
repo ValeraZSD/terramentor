@@ -153,6 +153,53 @@ section('the link has its own labelled button');
     s.close();
 }
 
+section('a link the app would not render anywhere else gets no button');
+{
+    const s = await open(answer([resource({ url: 'javascript:alert(1)' })]));
+    const row = s.rowOf('Khan Academy');
+    check('a javascript: address has no open-link button', !!row && !s.externalButton(row), row?.innerHTML.slice(0, 200));
+    if (row) await s.act(async () => { s.mainButton(row).click(); });
+    check('…and nothing in the row opens it', s.opened.length === 0, JSON.stringify(s.opened));
+    s.close();
+}
+{
+    const s = await open(answer([resource({ url: 'https://user:pw@example.org/x' })]));
+    check('nor does an address carrying a user name and password', !s.externalButton(s.rowOf('Khan Academy')));
+    s.close();
+}
+
+section('the highlight marks the text the match was found in');
+{
+    // The server measures matchRanges in the snippet when there is one
+    // (server/search.js), so the title must not borrow them.
+    const described = { ...node, nodeId: 7, title: 'Sequences and series', matchField: 'description',
+        snippet: 'Where limits of partial sums decide', matchRanges: [{ start: 6, end: 9 }] };
+    const s = await open(answer([], [described]));
+    const row = s.rowOf('Sequences and series');
+    const [titleLine, snippetLine] = row ? [...row.querySelectorAll('p')] : [];
+    check('a match in the description marks nothing in the title', !!titleLine && titleLine.querySelectorAll('mark').length === 0, titleLine?.innerHTML);
+    check('…and marks the matched word in the snippet',
+        !!snippetLine && [...snippetLine.querySelectorAll('mark')].map(m => m.textContent).join('|') === 'lim', snippetLine?.innerHTML);
+    s.close();
+}
+{
+    const titled = { ...node, matchRanges: [{ start: 0, end: 3 }] };
+    const s = await open(answer([], [titled]));
+    const titleLine = s.rowOf('Limits at infinity')?.querySelector('p');
+    check('a match in the title (no snippet) still marks the title',
+        !!titleLine && [...titleLine.querySelectorAll('mark')].map(m => m.textContent).join('|') === 'Lim', titleLine?.innerHTML);
+    s.close();
+}
+
+section('the footer reads as words');
+{
+    const s = await open(answer([resource()], [node]));
+    await s.act(async () => { s.w.__gate.useStore.setState({ searchLoading: true }); });
+    const footer = [...s.doc.querySelectorAll('span')].find(el => /results?\b/.test(el.textContent) && el.textContent.includes('·'));
+    check('"results" and "· searching" are separated by a space', !!footer && /results?\s+·/.test(footer.textContent), footer?.textContent);
+    s.close();
+}
+
 section('keyboard selection stays in sync with the row you are on');
 {
     const s = await open(answer([resource()], [node]));

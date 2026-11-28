@@ -8,6 +8,8 @@ import { serviceWorkerPlugin } from './tools/vite-plugin-sw.mjs';
 import { compressPlugin } from './tools/vite-plugin-compress.mjs';
 // @ts-expect-error — plain-JS build plugins, deliberately not typed
 import { runnerWorkerPlugin } from './tools/vite-plugin-runner.mjs';
+// @ts-expect-error — plain-JS build plugins, deliberately not typed
+import { buildIdPlugin } from './tools/vite-plugin-build-id.mjs';
 // @ts-expect-error — plain-JS, shared with tools/worktree-setup.mjs
 import { devPorts } from './tools/dev-ports.mjs';
 
@@ -30,7 +32,7 @@ const https = fs.existsSync(keyPath) && fs.existsSync(certPath)
     : undefined;
 
 export default defineConfig({
-    plugins: [react(), runnerWorkerPlugin(), serviceWorkerPlugin(), compressPlugin()],
+    plugins: [react(), runnerWorkerPlugin(), buildIdPlugin(), serviceWorkerPlugin(), compressPlugin()],
     resolve: {
         alias: [
             // function-plot's two formula samplers compile each formula into

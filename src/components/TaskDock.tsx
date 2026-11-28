@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import i18n, { k } from '../i18n';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { motionReduced } from '../utils/accessibility';
+import { announce } from '../utils/a11y';
 
 /**
  * A CHIP IS COLOURED BY ITS OWN PROJECT, never by the page it is floating over.
@@ -540,12 +541,31 @@ export default function TaskDock() {
         return () => window.clearInterval(timer);
     }, [anySettled, beginExit]);
 
-    // Forget ids the list no longer carries, so neither set grows with the
+    // The bar is no live region (its progress redraws would be read out), so a
+    // task that lands is said once, through the page's one announcer: on the
+    // step from running or queued to done or failed, in the chip's own words.
+    // A task first seen already settled (a reload) was never watched landing
+    // and is not said; a cancel is the learner's own act and is not said.
+    const seenRef = useRef<Map<string, AITaskSummary['status']>>(new Map());
+    useEffect(() => {
+        const landed: string[] = [];
+        for (const task of aiTasks) {
+            const was = seenRef.current.get(task.id);
+            seenRef.current.set(task.id, task.status);
+            if ((was === 'running' || was === 'queued') && (task.status === 'done' || task.status === 'error')) {
+                landed.push(`${taskTitle(task, tr)}: ${progressText(task)}`);
+            }
+        }
+        if (landed.length > 0) announce(landed.join('. '));
+    }, [aiTasks, tr]);
+
+    // Forget ids the list no longer carries, so no set grows with the
     // session (and a task id that somehow returns is treated as new).
     useEffect(() => {
         const live = new Set(aiTasks.map(t => t.id));
         for (const id of askedRef.current) if (!live.has(id)) askedRef.current.delete(id);
         for (const id of holdsRef.current) if (!live.has(id)) holdsRef.current.delete(id);
+        for (const id of seenRef.current.keys()) if (!live.has(id)) seenRef.current.delete(id);
     }, [aiTasks]);
 
     // The dock floats over everything (fixed, bottom-centre). On a phone that
@@ -621,7 +641,11 @@ export default function TaskDock() {
             // the only thing that limits it — which is what it was written for.
             className="fixed safe-bottom-3 left-1/2 z-40 w-max max-w-[calc(100vw-1.5rem-var(--assistant-w,0px)-var(--safe-left)-var(--safe-right))]"
             style={DOCK_CENTRE}
-            role="status"
+            // A labelled group, not a live region: the chips redraw their
+            // progress every few seconds, and inside role="status" a screen
+            // reader read each of those redraws out over whatever it was reading.
+            // A task landing is announced once instead (the effect above).
+            role="group"
             aria-label={tr("Background AI tasks")}
         >
             {/* Opaque, not /95: this floats over lesson prose, and body text
@@ -656,7 +680,11 @@ export default function TaskDock() {
                         type="button"
                         onClick={() => setShowAll(true)}
                         aria-label={tr("Show {{count}} more AI tasks", { count: overflow })}
-                        title={tr("{{overflow}} more queued", { overflow })}
+                        // "Queued" only when every hidden task is: past three,
+                        // the hidden ones are usually finished results.
+                        title={tasks.slice(visible.length).every(t => t.status === 'queued')
+                            ? tr("{{overflow}} more queued", { overflow })
+                            : tr("Show {{count}} more AI tasks", { count: overflow })}
                         className="shrink-0 flex items-center justify-center min-w-[2rem] h-8 px-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-xs font-semibold tabular-nums text-slate-600 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 transition outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                         +{overflow}

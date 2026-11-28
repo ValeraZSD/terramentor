@@ -325,6 +325,57 @@ check('so is the one that runs next', has('Queued two'), true);
 check('the far end of the queue is not', has('Queued five'), false);
 check('the rest are behind a "+N" pill',
     $$('button').filter(b => b.textContent === '+2').length, 1);
+const pillTitle = () => $$('button').find(b => /^\+\d+$/.test(b.textContent))?.getAttribute('title');
+check('a pill hiding only queued tasks says they are queued', pillTitle(), '2 more queued');
+
+// The progress text the chips redraw must not sit inside a live region, or a
+// screen reader reads every redraw out over whatever it was reading.
+const progressChip = $$('[aria-label^="Open"]').find(b => b.textContent.includes('Running now'));
+check('the bar is a labelled group', progressChip?.closest('[aria-label="Background AI tasks"]')?.getAttribute('role'), 'group');
+check('no chip is inside a live region',
+    $$('[aria-label^="Open"], [aria-label^="Why"]').filter(b => b.closest('[role="status"], [role="log"], [role="alert"], [aria-live]')).length, 0);
+
+// With no live region on the bar, a task that lands is said once through the
+// page's announcer, and its progress never is. The announcer fills 100 ms
+// after it is asked, so each look waits past that.
+const said = async () => {
+    await act(async () => { await new Promise(r => setTimeout(r, 150)); });
+    return document.querySelector('[data-announcer]')?.textContent ?? '';
+};
+const hush = () => { const r = document.querySelector('[data-announcer]'); if (r) r.textContent = ''; };
+hush();
+globalThis.__pushTasks([task({ id: 'a1', label: 'Outline for Optics', status: 'running', finishedAt: null,
+    progress: { percent: 10, content: 0, thinking: 0, phase: '', message: '' } })]);
+globalThis.__pushTasks([task({ id: 'a1', label: 'Outline for Optics', status: 'running', finishedAt: null,
+    progress: { percent: 60, content: 0, thinking: 0, phase: '', message: '' } })]);
+check('a running task\'s progress is not announced', await said(), '');
+globalThis.__pushTasks([task({ id: 'a1', label: 'Outline for Optics', status: 'done', finishedAt: ago(0) })]);
+check('a task that finishes is announced', await said(), 'Outline for Optics: done');
+hush();
+globalThis.__pushTasks([task({ id: 'a1', label: 'Outline for Optics', status: 'done', finishedAt: ago(0) })]);
+check('...once, not on the next snapshot', await said(), '');
+globalThis.__pushTasks([task({ id: 'a2', label: 'Lessons for Waves', status: 'queued', finishedAt: null })]);
+globalThis.__pushTasks([task({ id: 'a2', label: 'Lessons for Waves', status: 'error', finishedAt: ago(0) })]);
+check('a task that fails is announced', await said(), 'Lessons for Waves: failed');
+hush();
+globalThis.__pushTasks([task({ id: 'a3', label: 'Already landed', status: 'done', finishedAt: ago(0) })]);
+check('a task first seen already finished is not announced', await said(), '');
+globalThis.__pushTasks([task({ id: 'a4', label: 'Stopped by hand', status: 'running', finishedAt: null })]);
+globalThis.__pushTasks([task({ id: 'a4', label: 'Stopped by hand', status: 'cancelled', finishedAt: ago(0) })]);
+check('a cancelled task is not announced', await said(), '');
+globalThis.__pushTasks([
+    task({ id: 'a5', label: 'Cards for Optics', status: 'running', finishedAt: null }),
+    task({ id: 'a6', label: 'Cards for Waves', status: 'running', finishedAt: null }),
+]);
+globalThis.__pushTasks([
+    task({ id: 'a5', label: 'Cards for Optics', status: 'done', finishedAt: ago(0) }),
+    task({ id: 'a6', label: 'Cards for Waves', status: 'done', finishedAt: ago(0) }),
+]);
+const both = await said();
+check('two tasks landing together are both announced',
+    both.includes('Cards for Optics: done') && both.includes('Cards for Waves: done'), true);
+globalThis.__pushTasks([]);
+await settle();
 
 // Finished chips: the three on the bar are the three that finished LAST. The
 // sort puts a queue oldest-first (the next to run is what you want to see) and
@@ -341,6 +392,7 @@ check('still only three', liveChips().length, 3);
 check('the newest finished is shown', has('Newest result'), true);
 check('and the next newest', has('Newer result'), true);
 check('the oldest is clipped', has('Oldest result'), false);
+check('a pill hiding finished results does not call them queued', pillTitle(), 'Show 2 more AI tasks');
 
 console.log('\n--- a finished chip clears itself ----------------------------------');
 calls.length = 0;
