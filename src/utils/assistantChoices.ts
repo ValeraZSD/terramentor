@@ -72,7 +72,11 @@ function label(line: string, numbered: boolean): string {
 function answersOf(lines: string[]): string[] {
     let raw = lines.map(l => l.trim()).filter(Boolean);
     if (raw.length === 1 && raw[0].includes('|')) raw = raw[0].split('|').map(l => l.trim());
-    const numbered = raw.length > 1 && raw.every((l, n) => Number(NUMBERED.exec(l)?.[1]) === n + 1);
+    // A count (1, 2, 3 or 2, 3, 4) or one number on every line (1. 1. 1.): a
+    // list's numbering. "5. Mai" beside "12. Mai" is neither, so it stays a date.
+    const nums = raw.map(l => Number(NUMBERED.exec(l)?.[1] ?? NaN));
+    const numbered = raw.length > 1 && nums.every(n => !Number.isNaN(n))
+        && (nums.every((n, i) => n === nums[0] + i) || nums.every(n => n === nums[0]));
     const out: string[] = [];
     for (const piece of raw) {
         const s = label(piece, numbered);
@@ -98,7 +102,10 @@ function rewrite(text: string, render: (answers: string[], end: BlockEnd) => str
         found = true;
         let j = i + 1;
         while (j < lines.length && !FENCE.test(lines[j])) j++;
-        const close = j < lines.length ? CLOSER.exec(lines[j]) : null;
+        // A bare fence with an odd number of fences after it opens a code block
+        // of its own (the model forgot this closer): it closes nothing here.
+        const fencesAfter = lines.slice(j + 1).filter(l => FENCE.test(l)).length;
+        const close = j < lines.length && fencesAfter % 2 === 0 ? CLOSER.exec(lines[j]) : null;
         if (close) {
             out.push(render(answersOf(lines.slice(i + 1, j)), 'closed'));
             if (close[1]?.trim()) out.push(close[1].trim());
@@ -108,8 +115,13 @@ function rewrite(text: string, render: (answers: string[], end: BlockEnd) => str
         // Never closed: it ends at the next fence or the first blank line after an answer.
         let k = i + 1;
         while (k < j && !(lines[k].trim() === '' && lines.slice(i + 1, k).some(l => l.trim()))) k++;
-        out.push(render(answersOf(lines.slice(i + 1, k)), k === lines.length ? 'open' : 'unclosed'));
-        i = k - 1;
+        // Only blank lines after it is still the end of the text: a streamed
+        // answer line ends in a newline before the next one arrives.
+        const open = lines.slice(k).every(l => l.trim() === '');
+        // A cut-off turn may end on half a closer ("``"): not an answer.
+        const inner = lines.slice(i + 1, k).filter((l, n, all) => !(n === all.length - 1 && /^[ \t]*`+[ \t]*$/.test(l)));
+        out.push(render(answersOf(inner), open ? 'open' : 'unclosed'));
+        i = open ? lines.length : k - 1;
     }
     return found ? out.join('\n') : null;
 }

@@ -88,6 +88,7 @@ ok('the shared limits exist and are the ones the brief names', limits.CHOICES_MI
     // Sent word for word, so a strip that cut into the answer changed the reply.
     const inside = split(fence('"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai'));
     ok('…but marks INSIDE a label stay, and a number stays unless the block counts 1, 2, 3', json(inside.choices) === json(['"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai']), json(inside.choices));
+    ok('…a count from 2, or the same number on every line, is a list\'s numbering', json(split(fence('2) Optics', '3) Sound')).choices) === json(['Optics', 'Sound']) && json(split(fence('1. Ja', '1. Nee')).choices) === json(['Ja', 'Nee']), json([split(fence('2) Optics', '3) Sound')).choices, split(fence('1. Ja', '1. Nee')).choices]));
 }
 {
     const r = split('Klaar?\n\n```Options\n1. Ja\n2. Nee\n```');
@@ -108,6 +109,14 @@ ok('the same answer twice is one button', json(split(fence('Yes', 'yes', 'No')).
     ok('…so a stopped turn never offers its half-written last line', stopped.choices?.length === 0 && !stopped.body.includes('```'), json(stopped));
     const bounded = split('Level?\n```choices\nNew\nBasic\n\nRun this:\n```python\nprint(1)\n```');
     ok('…and it ends at a blank line or the next fence: the text and code after it stay as they were', bounded.choices?.length === 0 && bounded.body.includes('- Basic') && bounded.body.includes('\n\nRun this:\n```python\nprint(1)\n```') && !bounded.body.includes('- Run'), json(bounded.body));
+    // The model forgot the closer and later wrote a plain ``` code block: that
+    // fence opens the code, so it must not close the answers (its prose became a button).
+    const bare = split('Q?\n\n```choices\nA\nB\n\nSee this:\n```\ncode here\n```\nbye');
+    ok('…a plain fence that opens a code block later does not close it', bare.choices?.length === 0 && bare.body.includes('- B') && bare.body.includes('See this:\n```\ncode here\n```\nbye') && !bare.body.includes('- See'), json(bare));
+    const lineArriving = split('Q?\n\n```choices\nA\nB\n', true);
+    ok('…while a turn streams, an answer line ending in its newline shows nothing yet', lineArriving.body === 'Q?', json(lineArriving.body));
+    const halfCloser = split('Q?\n\n```choices\nA\nB\n``');
+    ok('…and a cut-off turn\'s half closer is not an answer', halfCloser.body === 'Q?\n\n- A\n- B', json(halfCloser.body));
     const trailing = split('Level?\n\n```choices\nNew\nBasic\n``` Hope that helps.\n\nNext paragraph.');
     ok('words after the closing fence on its line stay text, and the rest of the message with them', json(trailing.choices) === json(['New', 'Basic']) && trailing.body === 'Level?\n\nHope that helps.\n\nNext paragraph.', json(trailing));
     const later = C.splitChoices?.(`Level?\n\n${fence('Low', 'High')}`, false, false) ?? { choices: ['x'], body: '' };
@@ -231,6 +240,10 @@ section('4. the buttons, mounted: labelled, real buttons, a press hands back exa
     act(() => kb[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })));
     act(() => { kb[2]?.dispatchEvent(new window.Event('pointerdown', { bubbles: true })); kb[2]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); });
     ok('Enter on a button is a keyboard press; a click with no key or a pointer is not', json(how) === json([true, false, false]), json(how));
+    // Space down, Tab away before it came up: the next screen-reader click is not the keyboard.
+    act(() => { kb[0]?.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ', bubbles: true })); kb[0]?.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true })); });
+    act(() => kb[0]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })));
+    ok('…a key that went down and left the button counts for nothing later', how[3] === false, json(how));
     k.done();
     const gone = mount({ choices: labels, live: false, onPick: (text) => picks.push(text) });
     ok('no longer live: nothing is drawn, so nothing can be pressed', gone.host.querySelectorAll('button').length === 0 && gone.host.textContent === '', gone.host.innerHTML);

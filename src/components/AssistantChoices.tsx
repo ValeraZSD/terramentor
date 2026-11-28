@@ -38,6 +38,7 @@ export function ChoiceButtons({ choices, live, onPick }: {
                     wrap
                     onKeyDown={e => { byKey.current = e.key === 'Enter' || e.key === ' '; }}
                     onPointerDown={() => { byKey.current = false; }}
+                    onBlur={() => { byKey.current = false; }}
                     onClick={() => { const k = byKey.current; byKey.current = false; onPick(answer, k); }}
                 >
                     <span dir="auto" className="min-w-0 break-words">{answer}</span>
