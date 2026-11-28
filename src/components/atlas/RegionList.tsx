@@ -25,9 +25,9 @@ interface Props {
     /** Which surface is on screen: Terra paints its own ladder. */
     surface: ColourSurface;
     /** Name a region by hand. */
-    onRename: (region: AtlasRegion, label: string) => Promise<void>;
+    onRename: (region: AtlasRegion, label: string) => Promise<boolean>;
     /** Hand it back to the map: the medoid now, a model name on the next sweep. */
-    onResetName: (region: AtlasRegion) => Promise<void>;
+    onResetName: (region: AtlasRegion) => Promise<boolean>;
 }
 
 /**
@@ -44,8 +44,8 @@ interface Props {
  */
 function RegionName({ region, onRename, onResetName, children }: {
     region: AtlasRegion;
-    onRename: (region: AtlasRegion, label: string) => Promise<void>;
-    onResetName: (region: AtlasRegion) => Promise<void>;
+    onRename: (region: AtlasRegion, label: string) => Promise<boolean>;
+    onResetName: (region: AtlasRegion) => Promise<boolean>;
     children: ReactNode;
 }) {
     const { t: tr } = useTranslation();
@@ -63,12 +63,14 @@ function RegionName({ region, onRename, onResetName, children }: {
         const next = value.trim();
         if (!next || next === region.label) { setEditing(false); return; }
         setBusy(true);
-        try { await onRename(region, next); setEditing(false); } finally { setBusy(false); }
+        // A save that failed (the page has said why) leaves the editor open
+        // with the draft, so the reader can try again without retyping it.
+        try { if (await onRename(region, next)) setEditing(false); } finally { setBusy(false); }
     };
 
     const reset = async () => {
         setBusy(true);
-        try { await onResetName(region); setEditing(false); } finally { setBusy(false); }
+        try { if (await onResetName(region)) setEditing(false); } finally { setBusy(false); }
     };
 
     if (editing) {

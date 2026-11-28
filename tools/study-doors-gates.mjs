@@ -22,6 +22,11 @@
 //    name starts with "Study" and its mark is not a region row's arrow;
 //  - a region's topic row still opens the topic (/project/:id/tree/:nodeId).
 //
+// And two Atlas doors that failed quietly: a region rename the server refused
+// closed the editor and threw the typed name away, and "Check again" on an
+// unmapped atlas could be pressed over and over with nothing to show it was
+// checking or that the check failed.
+//
 // No model, no network.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -47,9 +52,12 @@ const bundle = (await esbuild.build({
             import StudyDashboard from './src/components/StudyDashboard';
             import StudyNext from './src/components/atlas/StudyNext';
             import RegionList from './src/components/atlas/RegionList';
+            import AtlasView from './src/components/AtlasView';
+            import { MemoryRouter } from 'react-router-dom';
             import { createElement, act } from 'react'; import { createRoot } from 'react-dom/client';
             const mount = (el, type, props) => { const root = createRoot(el); act(() => root.render(createElement(type, props))); return root; };
-            window.__gate = { useStore, mount, act, StudyDashboard, StudyNext, RegionList };`,
+            const Atlas = () => createElement(MemoryRouter, null, createElement(AtlasView));
+            window.__gate = { useStore, mount, act, StudyDashboard, StudyNext, RegionList, Atlas };`,
         resolveDir: root, loader: 'tsx',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
@@ -59,7 +67,7 @@ const bundle = (await esbuild.build({
 
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
 
-function page() {
+function page(respond = null) {
     const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
     const w = dom.window;
     w.matchMedia = () => ({ matches: false, addEventListener() { }, removeEventListener() { } });
@@ -71,6 +79,8 @@ function page() {
     // unanswered, and a request made at all is the thing measured.
     w.fetch = (url) => {
         asked.push(String(url));
+        const answer = respond?.(String(url), w);
+        if (answer) return answer;
         if (String(url).endsWith('/study-dashboard')) {
             return Promise.resolve({ ok: true, status: 200, headers: new w.Headers(), json: async () => dashboard });
         }
@@ -151,8 +161,8 @@ const next = [
     { topicId: 23, regionId: 7, nearId: 21, nearTitle: 'Newton\'s laws', similarity: 0.7 },
 ];
 
-function atlas(type, props) {
-    const { w, gate } = page();
+function atlas(type, props, respond = null) {
+    const { w, gate } = page(respond);
     const { useStore, mount, act } = gate;
     const went = [];
     useStore.setState({ _navigate: (to) => { went.push(to); } });
@@ -221,6 +231,75 @@ section('a region\'s topic row still opens the topic');
         await s.act(async () => { row.click(); });
     }
     check('pressing it opens the topic', s.went.at(-1) === '/project/9/tree/22', JSON.stringify(s.went));
+    s.close();
+}
+
+// A React-controlled field takes typing through the native value setter and
+// an input event, the way a keyboard reaches it.
+const type = (w, input, text) => {
+    Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set.call(input, text);
+    input.dispatchEvent(new w.Event('input', { bubbles: true }));
+};
+const button = (w, name) => [...w.document.querySelectorAll('button')].find(b => accessibleName(b) === name);
+
+section('renaming a region: the editor stays open when the name was not saved');
+for (const saved of [false, true]) {
+    const calls = [];
+    const s = atlas('RegionList', {
+        regions: [region], selectedId: 7, onSelect: () => { }, dark: false, accent: '#7c3aed', colorMode: 'mastery',
+        hues: new Map(), surface: 'globe',
+        onRename: async (r, label) => { calls.push(label); return saved; }, onResetName: async () => saved,
+    });
+    const open = button(s.w, 'Rename');
+    check(`(${saved ? 'saved' : 'refused'}) the region offers Rename`, !!open);
+    if (open) {
+        await s.act(async () => { open.click(); });
+        const input = s.w.document.querySelector('input[aria-label="Region name"]');
+        check(`(${saved ? 'saved' : 'refused'}) the editor opens on the name`, !!input && input.value === 'Mechanics', input?.value);
+        if (input) {
+            await s.act(async () => { type(s.w, input, 'Classical mechanics'); });
+            await s.act(async () => { button(s.w, 'Save name')?.click(); });
+            await s.act(async () => { await settle(); });
+            const after = s.w.document.querySelector('input[aria-label="Region name"]');
+            check(`(${saved ? 'saved' : 'refused'}) the new name was handed to the page`, calls.join() === 'Classical mechanics', calls.join());
+            if (saved) check('a saved name closes the editor', !after);
+            else check('a name that was not saved leaves the editor open with the draft',
+                !!after && after.value === 'Classical mechanics', after ? after.value : 'editor closed');
+        }
+    }
+    s.close();
+}
+
+section('"Check again" on an unmapped atlas shows it is working, and says when it failed');
+{
+    const unmapped = {
+        available: false, reason: null, regions: [], bridges: [], next: [],
+        stats: { topics: 0, mapped: 0, projects: 0, regions: 0, proven: 0, learning: 0, untouched: 0 },
+    };
+    let refresh = null;
+    const json = (w, status, body) => Promise.resolve({ ok: status < 400, status, headers: new w.Headers(), json: async () => body });
+    const s = atlas('Atlas', {}, (url, w) => {
+        if (!/\/api\/atlas(\?|$)/.test(url)) return null;
+        if (!url.includes('refresh=true')) return json(w, 200, unmapped);
+        return new Promise((res) => { refresh = () => res(json(w, 500, { error: 'The model is not answering' })); });
+    });
+    await s.act(async () => { await settle(); });
+    const again = () => button(s.w, 'Check again');
+    check('the unmapped atlas offers "Check again"', !!again());
+    if (again()) {
+        await s.act(async () => { again().click(); });
+        check('while it checks, the button is busy and cannot be pressed again',
+            again()?.getAttribute('aria-busy') === 'true' && again()?.disabled === true,
+            `aria-busy=${again()?.getAttribute('aria-busy')} disabled=${again()?.disabled}`);
+        const { useStore } = s.w.__gate;
+        const before = useStore.getState().toasts.length;
+        await s.act(async () => { refresh?.(); await settle(); });
+        const toasts = useStore.getState().toasts.slice(before);
+        check('a check that failed says so',
+            toasts.some(t => t.type === 'error' && t.message === 'Could not load this view'),
+            JSON.stringify(toasts.map(t => [t.type, t.message])));
+        check('…and the button can be pressed again', again()?.disabled === false && !again()?.hasAttribute('aria-busy'));
+    }
     s.close();
 }
 

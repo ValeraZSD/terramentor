@@ -1038,7 +1038,7 @@ if (coursePaths) {
         /const takeCamera = useCallback\(\(\) => \{[\s\S]{0,400}?camVelRef\.current = \{ yaw: 0, pitch: 0, lk: 0 \}/.test(globe)
         && /^[\s\S]*?\n\s{8}\};/.exec(handler('const onDown = (e: PointerEvent) => {'))?.[0].includes('takeCamera()')
         && /^[\s\S]*?\n\s{8}\};/.exec(handler('const onWheel = (e: WheelEvent) => {'))?.[0].includes('takeCamera()')
-        && /ArrowLeft: \(\) => \{ takeCamera\(\);/.test(globe));
+        && /\b(ArrowLeft|left): \(\) => \{ takeCamera\(\);/.test(globe));
     // What counts as a cut is WHO moved the target, not how far it is from the
     // arrow: a distance rule cannot tell a reader pressing Restart from a
     // browser that skipped half a second of frames, and it read the second as
