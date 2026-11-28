@@ -11,6 +11,8 @@ import {
     CardProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
     SaveProposals, TopicChangeProposals, WrongProposals,
 } from './AssistantProposals';
+import { choicesLive, splitChoices } from '../utils/assistantChoices';
+import { ChoiceButtons } from './AssistantChoices';
 import { screenItems } from '../utils/itemReportStore';
 import AttachMenu from './attachments/AttachMenu';
 import AttachmentChips from './attachments/AttachmentChips';
@@ -1012,11 +1014,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             });
     }, [open, streaming, aiTasks, loadHistory, conversationId]);
 
-    const send = useCallback(async (text: string) => {
+    // `keepComposer`: a tapped answer under the assistant's question. It is the
+    // whole message, so a draft typed meanwhile and files waiting to go stay in
+    // the composer for the next send, and an upload still running holds nothing.
+    const send = useCallback(async (text: string, { keepComposer = false }: { keepComposer?: boolean } = {}) => {
         const message = text.trim();
         // A message may be files alone; it waits for an upload still running.
         const files = composerRef.current;
-        if (streaming || files.busy || files.failed.length > 0 || (!message && !files.ready.length)) return;
+        if (streaming || (!keepComposer && (files.busy || files.failed.length > 0)) || (!message && (keepComposer || !files.ready.length))) return;
 
         // A spliced bubble saying exactly what is being sent now IS that send's
         // text — retire it so the real send replaces it instead of stacking a
@@ -1034,9 +1039,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const assistantId = userId - 1;
         // The chips leave the composer and ride on the question; a turn that
         // produces nothing puts them back (the server hands them back too).
-        const sentFiles: ComposerFile[] = files.take();
+        const sentFiles: ComposerFile[] = keepComposer ? [] : files.take();
         const sentAttachments = sentFiles.map(f => f.server).filter((a): a is ChatAttachment => !!a);
-        setInput('');
+        if (!keepComposer) setInput('');
         setStreamed('');
         setStreamingId(assistantId);
         contentStartedRef.current = false;
@@ -1364,9 +1369,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // `splitTutorActions` is for stored conversations that carry the
     // `[[mastery-check]]` / `[[next-topic]]` markers of the per-topic tutor;
     // nothing draws them any more.
+    // The answers offered under a question come out last: drawn as buttons
+    // below the answer, or put back as a list when they are not buttons.
     const renderBody = (content: string, streaming = false) =>
-        stripCitationMarkers(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
-            splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
+        stripCitationMarkers(splitChoices(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
+            splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
 
     // Every file this conversation holds, by id: what a `[[img:…]]` in an
     // answer and a prepared Save may name. An id from anywhere else draws nothing.
@@ -1426,6 +1433,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             created_at: '',
         } as ChatMessage]
         : messages;
+    // The newest message offers answers to tap: the composer says that typing
+    // one's own still works, rather than a line of text saying so.
+    const newest = displayMessages.length - 1;
+    const offering = !showList && newest >= 0 && choicesLive(displayMessages, newest, streaming)
+        && splitChoices(displayMessages[newest].content).choices.length > 0;
 
     const panel = (
         <aside
@@ -1564,7 +1576,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     </div>
                 )}
 
-                {displayMessages.map(m => {
+                {displayMessages.map((m, index) => {
                     // The spliced in-flight turn, or a settled row — the flag is
                     // false for every message loaded from history.
                     const isStreaming = streaming && m.id === streamingId;
@@ -1580,9 +1592,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // A turn whose whole answer is a card or a change it prepared
                     // said something — the preview is the answer.
                     const writes = splitWriteBlocks(m.content);
+                    // …and so did one whose whole answer is the answers it offers.
+                    const choices = m.role === 'assistant' ? splitChoices(m.content).choices : [];
                     const prepared = writes.cards.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
-                        + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
+                        + writes.shorts.length + writes.saves.length + writes.wrongs.length + choices.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
                     <div key={m.id} className="space-y-4">
@@ -1677,6 +1691,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                         markers. */}
                                     {!isStreaming && (
                                         <>
+                                            {/* Answers it offered to its own question, right
+                                                under it: a press sends one as the learner's
+                                                reply, the same as typing it. Only on the
+                                                newest message, so a reload draws the same. */}
+                                            <ChoiceButtons
+                                                choices={choices}
+                                                live={!streaming && choicesLive(displayMessages, index, streaming)}
+                                                onPick={(answer, byKeyboard) => {
+                                                    send(answer, { keepComposer: true });
+                                                    // The buttons go with the press; the composer is next.
+                                                    if (byKeyboard) inputRef.current?.focus();
+                                                }}
+                                            />
                                             {/* Settings this answer changed, with the way
                                                 back. Fresh turns only: re-reading an old
                                                 conversation must not re-apply what it did. */}
@@ -1905,7 +1932,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         }}
                         rows={1}
                         aria-label={tr("Message to the assistant")}
-                        placeholder={tr("Ask anything…")}
+                        placeholder={offering ? tr("Or type your own answer…") : tr("Ask anything…")}
                         className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />
                     {streaming ? (
