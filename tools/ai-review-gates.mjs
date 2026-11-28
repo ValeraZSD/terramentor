@@ -333,6 +333,7 @@ console.log('\n--- the rules file and the real git ---');
     const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     try {
         g('init', '-q'); g('config', 'user.email', 'gate@example.test'); g('config', 'user.name', 'gate');
+        g('config', 'core.quotePath', 'true');
         writeFileSync(join(dir, 'café.wasm'), Buffer.from([0, 1, 2, 0])); g('add', '.'); g('commit', '-qm', 'base');
         const from = g('rev-parse', 'HEAD').trim();
         writeFileSync(join(dir, 'café.wasm'), Buffer.from([0, 9, 9, 0])); g('add', '.'); g('commit', '-qm', 'head');
