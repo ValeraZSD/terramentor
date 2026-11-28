@@ -277,24 +277,33 @@ for (const [q, why] of [
     const r = await find(q);
     ok(`${why} is not indexed: “${q}”`, r.status === 200 && r.rows.length === 0, shown(r));
 }
-// Math is what the drawer draws as math, and only that: two prices on a line
-// are not a formula, and `\(…\)` is one.
+// Math is what the drawer draws as math, and only that: an escaped `\$` opens
+// nothing, and `\(…\)` is shown as text, so its words are read.
 const sums = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)')
     .run('Costs', '2026-10-04T09:00:00.000Z', '2026-10-04T09:00:00.000Z').lastInsertRowid);
 const sumMsg = db.prepare('INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)');
-sumMsg.run(sums, 'user', String.raw`Paid $5 for notes\lambda\tides and $6 for the rest.`);
+sumMsg.run(sums, 'user', String.raw`Paid \$5 for notes\lambda\tides and \$6 for the rest.`);
 sumMsg.run(sums, 'assistant', String.raw`The phase is \(\omega t + \varphi\) and the display${'\n'}\[\nabla \cdot E\]`);
+sumMsg.run(sums, 'assistant', String.raw`Tighter strings carry waves faster: $v = \sqrt{T/\mu}$, and $\frac{1}{\lambda^4}$ for scattering; $\constructor x$.`);
+const tighter = await find('tighter');
+const tightSnip = tighter.rows[0]?.match?.snippet ?? '';
+ok('a snippet reads math as symbols, never half-stripped TeX', /v = √\(T\/μ\), and 1\/λ\^4 for/.test(tightSnip) && /1\/λ\^4/.test(tightSnip) && !/[{}\\]|function/.test(tightSnip), tightSnip);
 const prices = await find('tides');
-ok('two prices on a line are not math: a path between them keeps its words', only(prices, 'Costs'), shown(prices));
+ok('escaped dollars open no math: a path between two prices keeps its words', only(prices, 'Costs'), shown(prices));
 for (const q of ['varphi', 'omega', 'nabla']) {
     const r = await find(q);
-    ok(`a TeX command inside \\(…\\) or \\[…\\] is not a word: “${q}”`, r.status === 200 && r.rows.length === 0, shown(r));
+    ok(`\\(…\\) and \\[…\\] are text in the drawer, so their words are found: “${q}”`, only(r, 'Costs'), shown(r));
 }
-const blank = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)')
-    .run('Two sums', '2026-10-04T10:00:00.000Z', '2026-10-04T10:00:00.000Z').lastInsertRowid);
-sumMsg.run(blank, 'user', String.raw`Start with $$ in one paragraph.${'\n\n'}Then read notes\physics\pulleys and end with $$.`);
-const crossed = await find('pulleys');
-ok('display math never runs over a blank line', only(crossed, 'Two sums'), shown(crossed));
+{
+    // The server's math spans are the drawer's, capture groups aside.
+    const serverSrc = readFileSync(new URL('../server/chatSearch.js', import.meta.url), 'utf8');
+    const clientSrc = readFileSync(new URL('../src/utils/mathText.ts', import.meta.url), 'utf8');
+    const literal = serverSrc.match(/const MATH_SPAN_RE = (\/.*\/g);/)?.[1] ?? '';
+    const ungrouped = literal.replace(String.raw`([\s\S]+?)`, String.raw`[\s\S]+?`).replace(String.raw`([^\n$]+?)`, String.raw`[^\n$]+?`);
+    ok('the math the server reads is the math the drawer draws (mathText.ts fixMarkdownMathTypography)',
+        literal !== '' && ungrouped !== literal && /fixMarkdownMathTypography[\s\S]{0,400}/.test(clientSrc)
+            && clientSrc.slice(clientSrc.indexOf('function fixMarkdownMathTypography')).slice(0, 600).includes(ungrouped), ungrouped);
+}
 const front = await find('standing wave');
 ok("a card's front is found", only(front, 'Waves and a card'), shown(front));
 const back = await find('opposite directions');
@@ -460,6 +469,8 @@ console.log('\n7. the drawer');
         /data-message-id=\{savedId\}/.test(drawer) && /const savedId = dbIdRef\.current\.get\(m\.id\) \?\? m\.id/.test(drawer) && /foundMessageId === savedId/.test(drawer));
     ok('a failed search never shows the server\'s words, and offers Try again',
         !/search\.error|Could not search the conversations/.test(drawer) && /search\.failed[\s\S]{0,900}search\.retry/.test(drawer));
+    ok('before the first answer the unfiltered list fades out and the panel says it is searching',
+        /const first = pending && !results;/.test(drawer) && /first \? 'opacity-0/.test(drawer) && /\{first && \([\s\S]{0,300}t\("Searching…"\)/.test(drawer));
     ok('a pending jump is spent once the conversation is drawn, found or not',
         /jumpToRef\.current = null;\s*const el = box\.querySelector/.test(drawer));
 }
@@ -471,14 +482,18 @@ console.log('\n7. the drawer');
     const other = new Database(DB_FILE);
     const oldTimeout = db.pragma('busy_timeout', { simple: true });
     db.pragma('busy_timeout = 50');
-    other.exec('BEGIN IMMEDIATE');
     const quiet = console.error;
-    console.error = () => {};
-    const busy = await find('ocelot');
-    console.error = quiet;
-    other.exec('ROLLBACK');
-    other.close();
-    db.pragma(`busy_timeout = ${oldTimeout}`);
+    let busy;
+    try {
+        other.exec('BEGIN IMMEDIATE');
+        console.error = () => {};
+        busy = await find('ocelot');
+    } finally {
+        console.error = quiet;
+        if (other.inTransaction) other.exec('ROLLBACK');
+        other.close();
+        db.pragma(`busy_timeout = ${oldTimeout}`);
+    }
     ok('a busy library fails the request, so the drawer retries', busy.status >= 500, `${busy.status} ${shown(busy)}`);
     const after = await find('ocelot');
     ok('and the next search answers in full', after.status === 200 && after.rows.some(c => c.id === lecture && c.match != null), shown(after));

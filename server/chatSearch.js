@@ -72,22 +72,38 @@ const FENCE_RE = /(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([^\s`~]*)[^\n]*(?:\n([\s\S]*?)
 const FIELD_RE = /^[ \t]*([a-z_]+)[ \t]*:[ \t]?(.*)$/i;
 const ID_VALUE_RE = /^[\s\d:,#-]*$/;
 
-/** TeX commands out of math (`\frac`, `\lambda`), its symbols kept. */
-const texWords = (math) => math.replace(/\\[a-zA-Z]+/g, ' ');
+// The TeX a learner reads as a symbol, written as that symbol in a snippet.
+const TEX_SYMBOLS = {
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+    theta: 'θ', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ',
+    tau: 'τ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+    Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+    cdot: '·', times: '×', div: '÷', pm: '±', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠',
+    approx: '≈', infty: '∞', to: '→', rightarrow: '→', partial: '∂', nabla: '∇', int: '∫', sum: '∑',
+    prod: '∏', circ: '°', dots: '…', ldots: '…', cdots: '⋯',
+};
+/** Math as plain text: a root and a fraction as they read, a known symbol as
+ *  its character, any other command (`\left`, `\mathrm`) and the braces out. */
+const texWords = (math) => math
+    .replace(/\\\\/g, ' ')
+    .replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)')
+    .replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '$1/$2')
+    .replace(/\\([a-zA-Z]+)/g, (_, name) => (Object.hasOwn(TEX_SYMBOLS, name) ? TEX_SYMBOLS[name] : ' '))
+    .replace(/\\[,;:! ]/g, ' ')
+    .replace(/[{}]/g, '');
 
-// Math in prose, as the drawer reads it (src/utils/mathText.ts takes `\[…\]`
-// and `\(…\)` for `$$…$$` and `$…$`). Display math may run over lines but
-// never over a blank one; inline math stays on its line, starts and ends on
-// a non-space, and does not close on a `$` before a digit (pandoc's rule), so
-// "$5 … and $6" is two prices, not a span of math.
-const MATH_SPAN_RE = /\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$\$((?:(?!\n[ \t]*\n)[\s\S])+?)\$\$|\$(?=\S)([^$\n]*?\S)\$(?!\d)/g;
+// Math in prose: the spans the drawer draws as math, by the drawer's own rule
+// (src/utils/mathText.ts fixMarkdownMathTypography): `$$…$$`, or `$…$` on one
+// line, never opened by an escaped `\$`. `\(…\)` is not math there, so its
+// words are shown and kept. tools/chat-search-gates.mjs holds the two equal.
+const MATH_SPAN_RE = /(?<!\\)(?:\$\$([\s\S]+?)\$\$|\$([^\n$]+?)\$)/g;
 
 /** Markdown syntax out of prose, its words kept; TeX only inside math, so a
  *  path like `notes\physics\waves.md` keeps its words. */
 function proseWords(text) {
     return text
         .replace(MARKER_RE, ' ')
-        .replace(MATH_SPAN_RE, (m, a, b, c, d) => ` ${texWords(a ?? b ?? c ?? d)} `)
+        .replace(MATH_SPAN_RE, (m, display, inline) => texWords(display ?? inline).trim())
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, ' $1 ')
         .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
         .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
@@ -161,7 +177,7 @@ const wordsOf = (s) => fold(s).match(WORD_RE) || [];
 
 // Scripts written without spaces: the tokenizer keeps a whole run of them as
 // one word, so one character of it is only ever the start of a word.
-const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Bopomofo}]/u;
 /** A one-letter word of the query is that word ("C++" is the word "c"; "c*"
  *  is half the library), except in a script written without spaces. */
 const wholeWord = (part) => part.length < 2 && !NO_SPACE_SCRIPT.test(part);
@@ -237,6 +253,11 @@ const indexSome = db.transaction((limit) => {
     return rows.length;
 });
 
+/** Another writer holds the library for a moment (any SQLITE_BUSY_* or SQLITE_LOCKED_* code). */
+const isBusy = (e) => /^SQLITE_(BUSY|LOCKED)/.test(e?.code ?? '');
+/** This SQLite has no index to search: no FTS5 module, so no table. */
+const noIndex = (e) => /no such (table|module)/.test(e?.message ?? '');
+
 /** Before a search: what was written since the last one, bounded. */
 function refreshIndex() {
     for (let done = 0; done < SEARCH_INDEX_MAX;) {
@@ -253,7 +274,8 @@ function drainIndex() {
     try {
         if (indexSome(DRAIN_BATCH) === DRAIN_BATCH) setTimeout(drainIndex, DRAIN_GAP_MS).unref?.();
     } catch (e) {
-        console.error('[chat search] background indexing stopped:', e.message);
+        if (isBusy(e)) setTimeout(drainIndex, 1000).unref?.();
+        else console.error('[chat search] background indexing stopped:', e.message);
     }
 }
 setTimeout(drainIndex, 1000).unref?.();
@@ -326,9 +348,9 @@ export function searchConversations(q) {
         refreshIndex();
         for (const hit of s.hits.all(terms.map(ftsTerm).join(' '), CHAT_SEARCH_LIMIT)) best.set(hit.conversationId, hit);
     } catch (e) {
-        // A busy database is a moment, not a missing index: the request fails
-        // and the drawer's retry asks again.
-        if (e?.code === 'SQLITE_BUSY' || e?.code === 'SQLITE_LOCKED') throw e;
+        // Only a missing index falls back to the titles. Anything else (a busy
+        // moment, a full disk) fails the request, and the drawer's retry asks again.
+        if (!noIndex(e)) throw e;
         if (!fallbackSaid.has(e?.message)) {
             fallbackSaid.add(e?.message);
             console.error('[chat search] searching titles only:', e?.message);
