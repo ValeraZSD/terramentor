@@ -33,7 +33,7 @@ and keys are not readable through it.
 
 - **The MCP server itself.** It comes with Terramentor: the desktop app's folder and the Docker
   image both carry `mcp/`, and the desktop app's folder carries the Node that runs it. A source
-  checkout works too, with Node 24 or newer and `npm install` run in it
+  checkout works too, with Node 24.7 or newer and `npm install` run in it
   ([Install and update](INSTALL.md), "from source"). The app never starts the MCP server; the
   other app does, each time it needs it.
 - **Terramentor running.** It runs on `http://127.0.0.1:3001` by default. If the desktop app

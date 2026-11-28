@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency, withAnswerScope } from './ai.js';
-import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
+import { identifyRemoteAccess, mayPressUpdates, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -423,15 +423,19 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // window mode, restore a library) act on the COMPUTER. A device that is in
     // without a password (server/devices.js) may read them but not press them:
     // quitting from a phone in a hotel leaves nobody to start it again. A
-    // password session may, as before. Updating is one of them: downloading,
-    // installing and the update check's settings replace what runs on the
-    // computer, and the panel stays readable from anywhere.
+    // password session may, as before. Updating is one of them while a password
+    // is set: downloading, installing and the update check's settings replace
+    // what runs on the computer. With none, a device that is in may update too
+    // (auth.js mayPressUpdates); the panel stays readable from anywhere.
     const onTheComputer = (req, res, next) => {
         if (req.method === 'GET' || ownerPresent(req)) return next();
         res.status(403).json(keyed('Only on the computer itself, or with the password'));
     };
     app.use('/api/desktop', onTheComputer);
-    app.use('/api/updates', onTheComputer);
+    app.use('/api/updates', (req, res, next) => {
+        if (req.method === 'GET' || mayPressUpdates(req)) return next();
+        res.status(403).json(keyed('Only on the computer itself, or with the password'));
+    });
     // Where prompts, documents and keys go is the computer's to decide too: the
     // same rows the settings writer keeps for it ('network' in
     // settingsSchema.js) are also written by adding, editing, choosing or

@@ -841,7 +841,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         auth.requireAuth({ ip, headers, socket: { remoteAddress: ip } }, res, () => { passed = true; });
         return { passed, status, body };
     };
-    const quiet = console.log; console.log = () => {};
+    const quiet = console.log; const printed = []; console.log = (line) => { printed.push(String(line)); };
     try {
         ok('no password: this machine (IPv4 loopback) is let through', run('127.0.0.1').passed);
         ok('no password: this machine (IPv6 loopback) is let through', run('::1').passed && run('::ffff:127.0.0.1').passed);
@@ -853,13 +853,45 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         ok('AUTH_ALLOW_OPEN_REMOTE=1 restores the open LAN', run('192.168.1.20').passed);
         delete process.env.AUTH_ALLOW_OPEN_REMOTE;
 
+        auth.clearSetupCode();
+        printed.length = 0;
         const code = auth.announceSetupCode();
         ok('the setup code is long enough not to guess (12 hex digits)', /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(code));
         ok('the setup code is stable until spent', auth.announceSetupCode() === code);
+        ok('a new code goes to the log once, not on every ask (a polling device would fill it)',
+            printed.filter(l => l.includes(code)).length === 1, JSON.stringify(printed));
         ok('the right code is accepted, typed lowercase or padded', auth.checkSetupCode(code) && auth.checkSetupCode(` ${code.toLowerCase()} `));
         ok('a wrong or missing code is refused', !auth.checkSetupCode('0000-0000-0000') && !auth.checkSetupCode(undefined) && !auth.checkSetupCode(''));
         auth.clearSetupCode();
         ok('a spent code no longer works', !auth.checkSetupCode(code));
+
+        // The lock screen asks for its status every 10 s, and each ask
+        // announces the code: the log says it every ten minutes, not each time.
+        const lines = [];
+        console.log = (...a) => {
+            const line = a.join(' ');
+            if (line.startsWith('[security]')) lines.push(line); else quiet(...a);
+        };
+        const realNow = Date.now;
+        // A fixed instant, after any line the real clock stamped above.
+        let at = Date.UTC(2100, 0, 1);
+        Date.now = () => at;
+        try {
+            const asked = [auth.announceSetupCode(), auth.announceSetupCode(), auth.announceSetupCode()];
+            const said = () => lines.filter(l => l.includes('setup code: ')).length;
+            ok('three asks in a row print the code once, and return it each time',
+                said() === 1 && asked.every(c => c && c === asked[0]), JSON.stringify({ lines, asked }));
+            at += 9 * 60_000;
+            ok('…nine minutes later it is still not printed', auth.announceSetupCode() === asked[0] && said() === 1, JSON.stringify(lines));
+            at += 2 * 60_000;
+            ok('…and after ten it is printed again', auth.announceSetupCode() === asked[0] && said() === 2, JSON.stringify(lines));
+            at -= 60 * 60_000;
+            ok('…and at once when the clock was set back', auth.announceSetupCode() === asked[0] && said() === 3, JSON.stringify(lines));
+            auth.clearSetupCode();
+            const next = auth.announceSetupCode();
+            ok('…and a new code is printed at once', next !== asked[0] && said() === 4 && lines.at(-1).includes(next), JSON.stringify(lines));
+            auth.clearSetupCode();
+        } finally { Date.now = realNow; }
     } finally { console.log = quiet; }
 
     // The routes: status tells a remote device to set up, setup demands the
