@@ -156,7 +156,7 @@ export async function stageAttachment(buffer, originalname, now = Date.now()) {
         // redraws one the browser can draw; this is the rest.
         return refuse(name, 'unsupported', k("This picture is {{format}}, which can't be read here. Save it as JPEG or PNG and attach it again."), { format: sniffed.ext.toUpperCase() });
     } else if (sniffed?.kind === 'audio') {
-        return refuse(name, 'unsupported', k("Sound files can't be attached yet."));
+        return refuse(name, 'unsupported', k("Sound files can't be attached."));
     } else {
         let extracted;
         try {

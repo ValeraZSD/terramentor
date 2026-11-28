@@ -332,7 +332,7 @@ console.log('\n--- the PC looked too early: the phone\'s build starts, then fini
     await tasksNow([]);
     const m = globalThis.__mount(host, pc);
     await settle();
-    check('the first lookup missed: an offer, one call', /Described in words, not drawn yet/.test(text()) && globalThis.__author.calls.length === 1, text());
+    check('the first lookup missed: an offer, one call', /Ready to draw from this description/.test(text()) && globalThis.__author.calls.length === 1, text());
 
     // The phone's build request lands: the task list shows it queued.
     globalThis.__author.lookup = 'join';
@@ -350,7 +350,7 @@ console.log('\n--- the PC looked too early: the phone\'s build starts, then fini
 
     await act(async () => { globalThis.__author.finishJoin({ spec: svg, cached: false }); });
     await settle();
-    check('the finished drawing is shown, with no reload', drawn() && !/not drawn yet/.test(text()) && !button(/Draw it/) && !/Couldn't render/.test(text()), text());
+    check('the finished drawing is shown, with no reload', drawn() && !/Ready to draw/.test(text()) && !button(/Draw it/) && !/Couldn't render/.test(text()), text());
     m.unmount();
 }
 
@@ -364,7 +364,7 @@ console.log('\n--- the build finished before the PC heard it had started ---');
     await tasksNow([task('t2', 'visual:k2', 'done')]);
     await settle();
     check('a finished build of this key: one more lookup, answered from the cache', globalThis.__author.calls.length === 2 && globalThis.__author.calls[1].opts.cacheOnly === true, opts(globalThis.__author.calls));
-    check('…and the drawing replaces the offer', drawn() && !button(/Draw it/) && !/not drawn yet/.test(text()), text());
+    check('…and the drawing replaces the offer', drawn() && !button(/Draw it/) && !/Ready to draw/.test(text()), text());
     m.unmount();
 }
 

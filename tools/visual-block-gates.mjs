@@ -207,7 +207,7 @@ console.log('\n--- a brief from history: an offer, not an error ---');
     const m = globalThis.__mount(host, { ...base, live: false, autoRepair: false, autoBuild: false });
     await settle(600);
     check('exactly one cache lookup, nothing built', globalThis.__author.calls.length === 1 && globalThis.__author.calls[0].opts.cacheOnly === true, JSON.stringify(globalThis.__author.calls.map(c => c.opts)));
-    check('says it is described in words and not drawn yet', /Described in words, not drawn yet/.test(text()), text());
+    check('offers to draw it from its description', /Ready to draw from this description/.test(text()), text());
     check('is not an error card', !/Couldn't render|Fix with AI/.test(text()), text());
     const draw = button(/Draw it/);
     check('offers Draw it', !!draw);
@@ -275,7 +275,7 @@ console.log('\n--- a widget from history: an offer, and a press is never decline
     const m = globalThis.__mount(host, { ...widgetBase, live: false, autoRepair: false, autoBuild: false });
     await settle(600);
     check('exactly one cache lookup, nothing built', globalThis.__widget.calls.length === 1 && globalThis.__widget.calls[0].opts.cacheOnly === true, JSON.stringify(globalThis.__widget.calls.map(c => c.opts)));
-    check('says it has not been built yet', /hasn’t been built yet/.test(text()), text());
+    check('offers to build it', /Ready to build this interactive widget/.test(text()), text());
     const build = button(/Build widget/);
     check('offers Build widget', !!build);
     await click(build);

@@ -1244,8 +1244,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                             : undrawn.reason === 'tier' ? tr("Not built on its own: your model is not set to build these (Settings → AI & Models).")
                                                 : undrawn.reason === 'cap' ? tr("Not built on its own: only the first few visuals of an answer are built without a press.")
                                                 : undrawn.reason === 'cap-hour' ? tr("Not built on its own: enough visuals were built without a press this hour.")
-                                                : kind === 'widget' ? tr("This interactive widget hasn’t been built yet.")
-                                                    : tr("Described in words, not drawn yet.")}
+                                                : kind === 'widget' ? tr("Ready to build this interactive widget.")
+                                                    : tr("Ready to draw from this description.")}
                             </p>
                             {undrawn.reason === 'broken' && undrawn.lastError && (
                                 <p className="max-w-prose text-xs text-slate-500 dark:text-slate-400 break-words">{undrawn.lastError}</p>

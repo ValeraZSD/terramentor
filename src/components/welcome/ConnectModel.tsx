@@ -193,7 +193,7 @@ export default function ConnectModel({ onStatus }: {
     const WAYS: { value: Way; label: string; desc: string }[] = [
         { value: 'openrouter', label: 'OpenRouter', desc: t("One account for models from every major lab, paid per use. You can set a spending limit on their site.") },
         { value: 'key', label: t("Another hosted provider"), desc: t("Anthropic, OpenAI, Google Gemini, or any service with an OpenAI-compatible API, with your own key.") },
-        { value: 'local', label: t("A model on this computer"), desc: t("Ollama, LM Studio or llama.cpp. Only worth it with a large graphics card: the models a typical 8 GB card can run write weaker lessons, and write them slowly.") },
+        { value: 'local', label: t("A model on this computer"), desc: t("Ollama, LM Studio or llama.cpp. Teaches well with 24 GB of video memory or more.") },
     ];
 
     return (

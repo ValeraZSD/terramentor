@@ -659,8 +659,8 @@ export default function MasteryGateModal({
                                         the first token is awaited; only a model on this
                                         machine is "loaded into memory". */}
                                     {runtime === 'local'
-                                        ? t("The first run after an idle period loads the model into memory, which can take up to a minute. Hang tight — this is normal.")
-                                        : t("The model is starting its reply, which can take a little while. Hang tight — this is normal.")}
+                                        ? t("The first run after an idle period loads the model into memory, which can take up to a minute.")
+                                        : t("The model is starting its reply, which can take a little while.")}
                                 </p>
                             )}
                             {charCount === 0 && thinkingChars > 0 && (
