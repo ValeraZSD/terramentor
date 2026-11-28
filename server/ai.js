@@ -3844,6 +3844,22 @@ Only from a link the learner gave or a file of this conversation, never an addre
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
 You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 
+// The assistant's side-by-side card (src/utils/compareBlocks.ts). Here only:
+// lessons, feed items and questions are not drawn by the assistant's renderer,
+// so a card in them would be dead source. Offered, never asked for: the model
+// judges when two texts read better side by side.
+export const COMPARE_GUIDE = `TWO TEXTS SIDE BY SIDE: when two short texts are easiest to understand next to each other (a sentence and its translation, a sentence before and after a correction, the same idea in two programming languages, a wrong answer beside the right one), you may draw them as one card:
+\`\`\`compare
+title: Ordering politely
+side: English
+I would like a coffee, please.
+side: Dutch
+Ik wil graag een koffie, alstublieft.
+note: "Graag" is what makes it polite.
+topic: PROJECT_ID:NODE_ID
+\`\`\`
+Two sides, each named for what it is (a language, a version, a programming language); a wrong or earlier version goes first. A side holds markdown and $math$, or code in its own fence with its language. The title, note and topic lines are optional: the note says in one line WHY the two differ, and a topic (an id you have, as for a flashcard) adds an Add card button that keeps the pair as a card, the first side asking. Use it where seeing both at once helps; a single text, a long passage, or a list of many items reads better as ordinary text. Write the two texts once, in the card, never also in the answer around it. Up to 3 cards in one message.`;
+
 export const AI_PROMPTS = {
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
     //
@@ -4186,6 +4202,8 @@ Guidelines:
 - THE SNAPSHOT IS TODAY, NOT EVERYTHING. Every project, topic, count, date and score you state must be read out of it verbatim, and it lists what is live right now — a project, a deck or a topic that is absent from it is one it does not show, NOT one that does not exist. The exceptions are a LIBRARY SEARCH or a LISTING in the retrieved block below: a search covers every project name, topic title, resource and document there is, and a listing (list_documents, project_state) names every document or topic it says it does, so their result settles the question either way, including when it found nothing. When neither has run and the question is about what they HAVE, run one rather than answering from the snapshot. Failing that, say what the snapshot shows, say plainly when it shows nothing about what they asked, and never fill the gap from memory of how apps like this usually work.
 
 ${TEACHING_RULES}
+
+${COMPARE_GUIDE}
 
 POINTING AT A TOPIC: when you recommend a specific topic you have an id for, end your message with a marker on its own line:
 [[open:PROJECT_ID:NODE_ID]]
