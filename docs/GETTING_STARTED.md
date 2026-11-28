@@ -19,11 +19,10 @@ GLM-5.3-Flash on OpenRouter costs about US$0.20 per day of study; yours depends 
 subject and how much you study. A lesson is written once and kept, so reading it again costs
 nothing, and the provider's dashboard shows what you have spent.
 
-**What a local model needs.** A model on your own computer costs nothing per lesson but needs
-the hardware. A typical 8 GB graphics card runs only smaller models, which write weaker lessons
-and write them slowly; the open models that teach well want 24 GB or more of video memory, or a
-large amount of system memory, and then they run slowly. For most people a hosted model is the
-better start.
+**What a local model needs.** A model on your own computer costs nothing per lesson. The open
+models that teach well want 24 GB or more of video memory, or a large amount of system memory,
+where they run more slowly. A typical 8 GB graphics card runs smaller models, which write weaker
+lessons, more slowly. For most people a hosted model is the quicker start.
 
 ## The welcome screen
 
@@ -38,7 +37,7 @@ A new library opens on four short steps before anything else:
    matters. **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you own
    (you can cap or revoke it there); or paste a key for OpenAI or another OpenAI-compatible
    service; or point it at a server on your own computer (Ollama, LM Studio, llama.cpp), which
-   only teaches well on a large graphics card. Then pick a model from the list: a recent one from
+   teaches well with 24 GB of video memory or more. Then pick a model from the list: a recent one from
    a major lab, and a fast, low-cost one is enough for most subjects.
 4. **You're set up**, and on to your first project. In the desktop app this step also offers **Start when I
    sign in**, off unless you tick it. On Windows the app then runs in the background from sign-in,
@@ -113,7 +112,7 @@ The app then judges the date against **your own pace**: the topics (in a card de
 you closed each week across all your courses, your recent weeks and your best month. One word
 says how it looks: *on pace*, *under pace*, *tight*, *out of reach*, or *learning* while it has
 under two weeks of your record. Once it has four weeks of your record it can name a range of
-likely finish dates, never a single one, because a pace that comes in bursts cannot honestly give
+likely finish dates, never a single one, because a pace that comes in bursts cannot give
 one. From two weeks on, courses with dates share your weekly pace (topics and cards counted
 apart), the nearest date first; a course that cannot make its date takes the rest of the week,
 and later or undated courses counted the same way (topics, or cards) wait. A paused course

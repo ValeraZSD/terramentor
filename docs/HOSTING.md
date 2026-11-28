@@ -10,14 +10,15 @@ Each copy is the ordinary Docker image started in **hosted mode**
 password and a memory cap. One Caddy container in front of them all handles
 HTTPS and gets the certificates. `hosted/copy.sh` does all of it.
 
-What this is not, so nobody is surprised:
+What to know before you start:
 
-- **Not multi-user.** A copy is one library with one password. Two people get
-  two copies.
+- **One copy, one person.** A copy is one library with one password. Two people
+  get two copies; for many people behind one sign-in, see *Many people at one
+  address* below.
 - **Not end-to-end encrypted.** Whoever runs the server can read every library
   on it, the same way the owner of a computer can read its files. Tell the
   people you host that, and see the privacy notice you owe them.
-- **Not offline.** A copy works while the phone is online.
+- **Needs a connection.** A copy works while the phone is online.
 
 ## What you need
 
@@ -171,7 +172,7 @@ Put it behind a TLS proxy (Caddy, as for the copies): the session cookie is `__H
 or names the site answers to; any other `Host` gets 421. With `HOST` beyond loopback (as in a
 container) the front desk refuses to start without it.
 
-**Accounts are made by invitation.** There is no public sign-up yet:
+**Accounts are made by invitation:**
 
 ```
 $ docker exec <container> node server/site/cli.js invite ann@example.org --url https://learn.example.org

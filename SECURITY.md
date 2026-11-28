@@ -68,7 +68,7 @@ your data at all." Those are different claims and we only make the second one.
   default**; and (f) only on a server running the site front desk (`server/site/`, never in
   the app on your own machine), the breached-password check when someone sets a password there,
   described under "Accounts on a site". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
-  see "Verifying the no-telemetry claim" below, because you should not take our word for it.
+  "Verifying the no-telemetry claim" below shows how to check it yourself.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
   falls back to OCR, and tesseract.js downloads its language model from a CDN unless it is told
   where the model already is. This app ships the English model inside the install
@@ -503,7 +503,7 @@ loads it. What it does:
   password and the rest of its hash never leave the server, and the match is made on the
   server. A password found there is refused. `SITE_BREACH_CHECK=0` turns the check off; if the
   service does not answer in 5 seconds the password is accepted.
-- **Not there yet**: public sign-up, email, password reset, a second factor and export. The
+- **Not included**: public sign-up, email, password reset, a second factor and export. The
   front desk itself runs as root, because it must start each library as its own user.
 
 ## What is NOT protected
@@ -515,11 +515,11 @@ loads it. What it does:
   including your private notes. Neither is `terramentor.secrets.json` beside it: keeping your keys
   out of the library means a copy of the library does not carry them, not that the keys are
   encrypted, and any program running as you can read both files. If you need encryption at rest,
-  use full-disk encryption (BitLocker, FileVault, LUKS). We do not currently offer
-  application-level encryption.
-- **There is no multi-user model.** No roles, no per-user data separation, no record of who did
-  what (the Activity log below records what the app did, for one person). One person, one
-  machine. Do not run this as a shared service for a class.
+  use full-disk encryption (BitLocker, FileVault, LUKS).
+- **One library is one person.** Inside a library there are no roles, no per-user data
+  separation and no record of who did what (the Activity log below records what the app did,
+  for one person). Do not share one library among a class; give each person their own
+  (`docs/HOSTING.md`).
 - **The auth gate is a gate, not a hardened perimeter.** It is designed to stop a casual passerby
   on your LAN or a mesh network, not a determined attacker. Prefer a private network
   (Tailscale/WireGuard) over port-forwarding, always.
@@ -540,8 +540,8 @@ loads it. What it does:
   document as its extracted text. A phone photo is redrawn in the browser before it is
   uploaded, which leaves the camera's location data behind. Attached files are stored on your
   machine with their conversation and deleted with it. Local models (Ollama, llama.cpp) keep it
-  on the machine. The app cannot
-  make a remote provider private and does not pretend to. What it can do is pass on a term you
+  on the machine. A remote provider's own terms decide what it does with what you send. What
+  the app can do is pass on a term you
   set yourself: `AI_EXTRA_BODY` (see `.env.example`) merges a JSON object into every request to
   an OpenAI-compatible endpoint, chat and embeddings alike, which is how you send something like
   OpenRouter's `{"provider":{"zdr":true,"data_collection":"deny"}}`; retention there is decided
@@ -934,7 +934,7 @@ about ten minutes:
 2. Start a capture: `tcpdump`/Wireshark, or your OS firewall's outbound logging.
 3. Start the app, use it hard: browse the feed, open projects, add notes, run a review. Upload a
    PDF whose equations came out as empty brackets and let recovery run in "OCR only"; that is
-   the path that would download a language model if this file were lying to you.
+   the path that would download a language model, if any did.
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
    (and to the connections you gave a job or chose as backups, if you did)
@@ -1009,15 +1009,14 @@ of them reaches the downloaded file.
 Report privately, not as a public issue: **valerazsd@gmail.com**. Include what you did, what
 happened, and what you expected. You will get an acknowledgement within a few days.
 
-This is a single-maintainer project. There is no bug bounty and no formal SLA. What you will
-get is an honest answer about whether it is a real problem, and if it is, a fix and a public
-note about it.
+There is no bug bounty and no formal SLA. You will get an answer on whether it is a real
+problem and, if it is, a fix and a public note about it.
 
 Please do not test against anyone else's instance.
 
 ## Supported versions
 
-Single maintainer: support means the latest release and the current `main`. Security fixes are
+Supported: the latest release and the current `main`. Security fixes are
 not backported to older tags.
 
 ## Dependency advisories
@@ -1077,7 +1076,7 @@ name, an icon and an https URL template that is inert until you click it.
 `validateUrlTemplate` is the boundary: https only (which is what blocks `javascript:` reaching
 an `href`), no embedded credentials, no unknown placeholders.
 
-A real add-on system is designed but **not built** (`docs/ADDONS.md`), and it will be
+The add-on system (`docs/ADDONS.md`) is a design, and it will be
 capability-based on purpose. Declarative add-ons would execute no code at all; anything that does
 run code would run sandboxed with no ambient
 network or filesystem access. This is a deliberate departure from the Obsidian/VS Code model,

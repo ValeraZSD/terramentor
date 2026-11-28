@@ -1126,7 +1126,8 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
   vouched for by `tailscale serve`.
   `identifyRemoteAccess` (in `auth.js`) decides once per request, before the
   public auth routes, and leaves it on `req.remoteAccess`.
-- The database is **not encrypted at rest**, and there is no multi-user model.
+- The database is **not encrypted at rest**, and one library is one person; several people each
+  get their own (`docs/HOSTING.md`).
 - **Search providers run no code.** Manifests are declarative; `validateUrlTemplate`
   is the entire attack surface, because its output lands in an `href`:
   https-only (which is what blocks `javascript:`), no embedded credentials, only
@@ -1137,7 +1138,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ## 11. Verification
 
-No test runner; deterministic guard scripts against scratch databases, no model
+Verification is deterministic guard scripts against scratch databases, with no model
 calls. `npm test` discovers them by filename, so this list cannot go stale.
 
 ```bash
@@ -1217,14 +1218,14 @@ The modules the sections above do not cover, one line each.
 | `agentSittings.js` | The mastery checks and card reviews an MCP host draws (`mcp/views/`): the app draws, grades and schedules; a sitting is a random token held in memory (two hours idle, 64 at a time) and keys leave only after the check is submitted |
 | `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*` and `PUT /api/nodes/:id` (the app's own completion gate, which `check_complete` sends after a passed check) (`docs/MCP.md`) |
 
-## 13. Known gaps
+## 13. Limits and edge cases
 
 - BKT's first-`score`-of-N ordering approximation on the per-question path (§4.1).
 - A document the embedding model keeps refusing is retried three times per run of
   the server, then waits for Settings → "Re-index all" or a restart; one whose
   index ended in `error` (the model answered with a fault) is never retried on its own.
-- `GET /api/embeddings/status` fires a live probe by default, which with a
-  model-swapping proxy can cost a swap just from opening Settings.
+- `GET /api/embeddings/status` probes the model live by default; `?probe=false` skips
+  the probe, which matters behind a model-swapping proxy.
 - Recall difficulty comes from the question log alone, which began in September 2026:
   a library answered before then has no per-question record, so its recalls start
   from the format prior until new answers arrive.

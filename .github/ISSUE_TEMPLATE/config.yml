@@ -21,7 +21,7 @@ contact_links:
     url: https://github.com/ValeraZSD/terramentor/blob/main/SECURITY.md#reporting-a-vulnerability
     about: >
       Report it privately by email, not here. SECURITY.md has the address, and its
-      threat model says plainly what is NOT protected, which may save you a report.
+      threat model lists what is in scope and what is not, which may save you a report.
 
   - name: How to install, run and update it
     url: https://github.com/ValeraZSD/terramentor#install

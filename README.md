@@ -69,7 +69,7 @@ A topic is proven when you pass its mastery check (choices, numbers you work out
 type, steps you put in order, a sentence or an equation you build from pieces; code if you ask
 for it, with Python and JavaScript run against tests on your own device), or when you
 work an exercise on paper, photograph it and have it marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
-disputes is thrown out. That catches slips, not a misconception the model holds both times. You
+disputes is thrown out. That catches slips in the key before a question reaches you. You
 can always skip a topic; it then stays marked as skipped, not as known.
 
 ![A passed mastery check, 8 of 9, with the one wrong answer shown beside the right one and explained.](docs/screenshots/prove.webp)
@@ -124,7 +124,7 @@ these studies tested Terramentor itself.
   <img src="docs/evidence/effect-sizes-light.svg" alt="Bar chart of effect sizes from research studies. Techniques the loop uses: testing instead of rereading 0.50, quizzes in classrooms 0.50, feedback 0.48, tests spread over time 0.74, a pass mark before moving on 0.29 on standardised tests. Tutoring: human tutoring 0.29, an AI tutor given worked solutions 0.63, AI maths practice in Ghana 0.36, AI in guided sessions in Nigeria 0.24, an AI maths coach 0.06 per school year, an AI assistant offered in university courses minus 0.29, not statistically significant. The last four are working papers or preprints.">
 </picture>
 
-The studies, what they do not show, and what the AI companies' own study modes offer are in
+The studies behind each step, and what the AI companies' own study modes offer, are in
 [Why it works](docs/WHY_IT_WORKS.md).
 
 ## The model is the teacher
@@ -132,8 +132,8 @@ The studies, what they do not show, and what the AI companies' own study modes o
 Lessons and questions are written by the model you connect, pitched at what you told it about
 yourself. Switch to a newer model and the next lessons are better, with no app update.
 
-A hosted model is the right choice for most people. Open models that fit an 8 GB graphics card
-write weaker lessons, slowly; the ones that teach well want 24 GB of video memory or more. Hosted
+A hosted model is the right choice for most people; a model on your own computer teaches well
+with 24 GB of video memory or more. Hosted
 is cheap here because a lesson is written once and kept: a fast, low-cost model such as
 GLM-5.3-Flash costs about US$0.20 per day of study.
 
@@ -157,7 +157,7 @@ review, a quiz and maths. Any list or card you can drag also moves from the keyb
 → General → Text & interface size makes everything up to 160% of its usual size, and Settings →
 Accessibility holds contrast, motion, text spacing, larger text and buttons, a reading line,
 reading aloud, time limits, confirming before an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
-says how that is tested, what does not meet it yet, and how to report a barrier.
+says how that is tested, gives the status of each criterion, and how to report a barrier.
 
 ## Install
 
@@ -202,7 +202,7 @@ interface comes in fourteen languages, Arabic right to left ([docs/I18N.md](docs
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.
 - [Security](SECURITY.md): threat model and every outbound connection.
-- [Accessibility](docs/ACCESSIBILITY.md): what is tested, the WCAG 2.2 report, known gaps.
+- [Accessibility](docs/ACCESSIBILITY.md): what is tested and the WCAG 2.2 report.
 - [Contributing](CONTRIBUTING.md), [Roadmap](ROADMAP.md), [Changelog](CHANGELOG.md).
 
 Found a wrong lesson or a bug? **Settings → Library & about → About → Report a problem** fills in

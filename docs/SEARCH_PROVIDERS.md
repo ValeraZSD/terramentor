@@ -4,12 +4,11 @@ Where the app offers to send you to look a topic up yourself. Settings → Web &
 is not *Answering with the web* above it, which is the separate AI setting that grounds an answer in live
 pages.
 
-Nothing here extends the app; a provider points *out* of it. Real add-ons, the kind that
-change how the app behaves, are designed in
-[docs/ADDONS.md](ADDONS.md) and none of them is built.
+Nothing here extends the app; a provider points *out* of it. Add-ons that change how the app
+behaves are a separate design, in [docs/ADDONS.md](ADDONS.md).
 
-What is here is deliberately small: a name, an icon, and an `https` URL template the host fills
-with the topic title when you click it.
+A provider is three things: a name, an icon, and an `https` URL template the host fills with
+the topic title when you click it.
 
 ## Why it is configurable at all
 
@@ -19,7 +18,8 @@ YouTube wants neither.
 
 ## Why it is pure data
 
-This app's promise is that a learner's data never leaves their machine, and `SECURITY.md` makes
+This app's promise is that a learner's data never leaves their machine unless they send it
+somewhere, and `SECURITY.md` makes
 that claim **falsifiable with a packet capture**. A provider executes nothing, stores nothing but
 its own manifest, and requests nothing until the learner clicks a link whose destination is
 printed in Settings. There is no code to review and no permission to grant.
