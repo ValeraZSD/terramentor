@@ -19,10 +19,15 @@
 //   4. what is indexed is what the learner reads: app markers (`[[src:1]]`,
 //      `[[open:p:n]]`) and chart specs are not, a card's two sides are, and a
 //      snippet shows the matched words without markers or fences;
-//   5. a title matches on its own, a deleted topic's conversation is still
-//      found, results are capped, and a query of punctuation or FTS syntax is
-//      an empty answer, never a 500;
-//   6. a search writes nothing to the activity log.
+//   5. a title matches on its own and ranks first, a deleted topic's
+//      conversation is still found, results are capped, a conversation full
+//      of matches cannot crowd the others out, a search indexes a bounded
+//      batch, a one-letter word is itself, and a query of punctuation or FTS
+//      syntax is an answer, never a 500;
+//   6. a search writes nothing to the activity log;
+//   7. the drawer finds a message under its saved id, spends a jump once the
+//      conversation is drawn, and never shows the server's words on failure;
+//   8. without the index (no FTS5) a search answers from the titles.
 //
 // Each expected conversation is named by the literal title the fixture gave
 // it, never by asking the index which rows hold a word.
@@ -185,6 +190,11 @@ async function ask(message, conversationId) {
 
 // ---- 1. backfill ----------------------------------------------------------------------
 console.log('\n1. a library from before the index is searchable');
+const staleCount = () => { try { return db.prepare('SELECT COUNT(*) AS n FROM chat_search_stale').get().n; } catch { return -1; } };
+const queuedAtStart = staleCount();
+await new Promise(r => setTimeout(r, 1600));
+ok('the start queues the older messages, and a background pass indexes them before any search',
+    queuedAtStart > 0 && staleCount() === 0, `queued ${queuedAtStart}, left ${staleCount()}`);
 const dutch = await find('geëmigreerd');
 ok('a word in a message written before the index existed is found', only(dutch, 'Wat betekent dat woord?'), shown(dutch));
 ok('the row is the conversation, with its list fields', dutch.rows[0] && typeof dutch.rows[0].id === 'number'
@@ -236,6 +246,7 @@ const edit = await fetch(`${base}/api/ai/chat/message/${inserted}`, {
     body: JSON.stringify({ content: 'What about the marimba bar?' }),
 });
 ok('the repair route takes the edit', edit.status === 200);
+ok("an edit takes the old words out at once, before any search", indexRows(inserted) === 0, `rows: ${indexRows(inserted)}`);
 const oldWord = await find('xylophone');
 const newWord = await find('marimba');
 ok('after an edit the old word is gone', oldWord.status === 200 && oldWord.rows.length === 0, shown(oldWord));
@@ -301,6 +312,12 @@ ok("a card's snippet reads as words, without its field names", /standing wave/i.
 if (search?.searchableText) {
     const t = search.searchableText('See [[src:2]] and [[open:3:41]].\n```smiles\nCCO\n```\n**Bold** `code`');
     ok('searchableText keeps the words and drops what the app draws', !/\[\[|src|CCO|\*\*|`/.test(t) && /See/.test(t) && /Bold/.test(t) && /code/.test(t), t);
+    const path = search.searchableText(String.raw`Saved in C:\Users\Ana\notes, where $\lambda = 2L$ holds.`);
+    ok('a Windows path in prose keeps its words; TeX commands go only inside $…$', /Users/.test(path) && /Ana/.test(path) && /notes/.test(path) && !/lambda/.test(path) && /2L/.test(path), path);
+    const crlf = search.searchableText('Here:\r\n```card\r\nfront: Ohm law\r\nback: V = IR\r\n```\r\nafter');
+    ok("a message with Windows line ends still closes its fences (no field names indexed)", !/front|back/.test(crlf) && /Ohm law/.test(crlf) && /after/.test(crlf), crlf);
+    const inCode = search.searchableText('```python\nrow = grid[[1]]\n```');
+    ok('a marker-shaped text inside code is the code, and stays', /grid\[\[1\]\]/.test(inCode), inCode);
 } else ok('server/chatSearch.js exports searchableText', false);
 
 // ---- 5. titles, topics, caps, odd queries ---------------------------------------------
@@ -320,7 +337,7 @@ const lensConv = Number(db.prepare('INSERT INTO chat_conversations (title, node_
 db.prepare('INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)').run(lensConv, 'assistant', 'Refraction bends parallel rays to one focal point.');
 const withTopic = await find('refraction');
 ok('a conversation that began on a topic names it', only(withTopic, 'Why does a lens focus?') && withTopic.rows[0].nodeTitle === 'Thin lenses', shown(withTopic));
-db.prepare('UPDATE nodes SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), lensTopic);
+db.prepare('UPDATE nodes SET deleted_at = ? WHERE id = ?').run('2026-10-06T12:00:00.000Z', lensTopic);
 const softGone = await find('refraction');
 ok('after its topic is deleted the conversation is still found, the topic unnamed', only(softGone, 'Why does a lens focus?') && softGone.rows[0].nodeTitle == null, shown(softGone));
 db.prepare('DELETE FROM nodes WHERE id = ?').run(lensTopic);
@@ -340,14 +357,53 @@ const capped = await find('quokka');
 ok(`results are capped at ${LIMIT} conversations, one row each`, capped.status === 200 && capped.rows.length === LIMIT
     && new Set(capped.rows.map(c => c.id)).size === LIMIT, `${capped.rows.length} rows`);
 
+// Its only message says the word once among many, so bm25 alone ranks it
+// below every short "quokka" message: only the title puts it first.
 const titled = Number(many.run('Quokka facts', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z').lastInsertRowid);
-manyMsg.run(titled, 'user', 'Quokka facts');
+manyMsg.run(titled, 'user', `Tell me about the small marsupial, the quokka, ${'and the island it lives on, its diet, its habits and its size, '.repeat(6)}please.`);
 const ranked = await find('quokka');
-ok('a conversation whose title holds the words comes first', ranked.rows[0]?.id === titled, titles(ranked).slice(0, 3).join(' | '));
+ok('a conversation whose title holds the words comes first, ahead of better-ranked messages', ranked.rows[0]?.id === titled, titles(ranked).slice(0, 3).join(' | '));
+
+// One conversation with far more matching messages than the others, each of
+// them short (bm25's favourite): every conversation still gets its row.
+const lecture = Number(many.run('Ocelot lecture', '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z').lastInsertRowid);
+db.transaction(() => { for (let i = 0; i < 1200; i++) manyMsg.run(lecture, 'assistant', `Ocelot ${i}.`); })();
+const quiet = ['At the zoo', 'A drawing', 'Wild cats'].map((title, i) => {
+    const id = Number(many.run(title, `2026-09-0${3 + i}T00:00:00.000Z`, `2026-09-0${3 + i}T00:00:00.000Z`).lastInsertRowid);
+    manyMsg.run(id, 'user', `${'We talked for a long while about cats, their habits, their range and their prey, '.repeat(5)}and then the ocelot came up (${i}).`);
+    return id;
+});
+const crowd = await find('ocelot');
+const crowdIds = new Set(crowd.rows.map(c => c.id));
+ok('a conversation full of matches cannot crowd the others out', crowdIds.has(lecture) && quiet.every(id => crowdIds.has(id)), titles(crowd).join(' | '));
+
+// A search indexes at most 2000 queued messages, so a big backlog never
+// stalls the server; the next search takes the rest.
+const bulk = Number(many.run('Bulk', '2026-09-05T12:00:00.000Z', '2026-09-05T12:00:00.000Z').lastInsertRowid);
+db.transaction(() => { for (let i = 0; i < 2600; i++) manyMsg.run(bulk, 'assistant', `Filler line ${i}.`); })();
+await find('nothingsaidthis');
+const leftAfterOne = staleCount();
+await find('nothingsaidthis');
+ok('one search indexes a bounded batch (2000), the next takes the rest', leftAfterOne === 600 && staleCount() === 0, `left ${leftAfterOne}, then ${staleCount()}`);
+
+// A one-letter word is that word, never the start of every word.
+const cpp = Number(many.run('Languages at work', '2026-09-06T00:00:00.000Z', '2026-09-06T00:00:00.000Z').lastInsertRowid);
+manyMsg.run(cpp, 'user', 'At work I write C++ every day.');
+const cats = Number(many.run('Pets', '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z').lastInsertRowid);
+manyMsg.run(cats, 'user', 'Cats purr when content.');
+const cq = await find('C++');
+ok('“C++” finds the word c, not every word that starts with c', cq.rows.some(c => c.id === cpp) && !cq.rows.some(c => c.id === cats), titles(cq).join(' | '));
 
 for (const q of ['"', '*', '()', 'NEAR(', 'AND', 'a OR', '-', '"unbalanced', 'col:word', '^start']) {
     const r = await find(q);
     ok(`an odd query is an answer, never an error: ${JSON.stringify(q)}`, r.status === 200 && Array.isArray(r.body), `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+}
+// FTS keywords asked for are words, found where they were said.
+const jazz = Number(many.run('Music', '2026-09-08T00:00:00.000Z', '2026-09-08T00:00:00.000Z').lastInsertRowid);
+manyMsg.run(jazz, 'user', 'Rock AND roll, or a jazz band NEAR the river?');
+for (const q of ['AND', 'a OR', 'NEAR']) {
+    const r = await find(q);
+    ok(`an FTS keyword is a word: ${JSON.stringify(q)} finds the message that says it`, r.rows.some(c => c.id === jazz), titles(r).slice(0, 5).join(' | '));
 }
 const empty = await find('   ');
 const plain = await (await fetch(`${base}/api/ai/conversations`)).json();
@@ -362,6 +418,40 @@ const beforeLog = logged();
 await find('quokka');
 await find('geëmigreerd');
 ok('a search writes nothing to the activity log', logged() === beforeLog, `${beforeLog} → ${logged()}`);
+
+// ---- 7. the drawer --------------------------------------------------------------------
+// Read from the source: the drawer has no DOM harness here. The states
+// themselves are walked in a browser (empty, results, no match, failed).
+console.log('\n7. the drawer');
+{
+    const drawer = readFileSync(new URL('../src/components/AssistantDrawer.tsx', import.meta.url), 'utf8');
+    ok('a message is found under its SAVED id (one sent this session is drawn under a stand-in id)',
+        /data-message-id=\{savedId\}/.test(drawer) && /const savedId = dbIdRef\.current\.get\(m\.id\) \?\? m\.id/.test(drawer) && /foundMessageId === savedId/.test(drawer));
+    ok('a failed search never shows the server\'s words, and offers Try again',
+        !/search\.error|Could not search the conversations/.test(drawer) && /search\.failed[\s\S]{0,900}search\.retry/.test(drawer));
+    ok('a pending jump is spent once the conversation is drawn, found or not',
+        /jumpToRef\.current = null;\s*const el = box\.querySelector/.test(drawer));
+}
+
+// ---- 8. no index ----------------------------------------------------------------------
+// A SQLite without FTS5 has no index table and no triggers: a search still
+// answers from the titles, and the reason stays in the server's log.
+console.log('\n8. without the index');
+db.exec(`
+    DROP TRIGGER chat_messages_search_ai;
+    DROP TRIGGER chat_messages_search_au;
+    DROP TRIGGER chat_messages_search_ad;
+    DROP TABLE chat_messages_fts;
+`);
+const quietErr = console.error;
+const errs = [];
+console.error = (...a) => { errs.push(a.join(' ')); };
+const noIndex = await find('quokka facts');
+const noIndexBody = await find('refraction');
+console.error = quietErr;
+ok('a search with no index answers from the titles, never a 500', noIndex.status === 200 && noIndex.rows[0]?.title === 'Quokka facts' && noIndex.rows[0]?.match == null, shown(noIndex));
+ok('and finds nothing it cannot read, without an error to the learner', noIndexBody.status === 200 && noIndexBody.rows.length === 0, shown(noIndexBody));
+ok('the reason goes to the server log', errs.some(e => /chat search/.test(e)), errs.join(' | ').slice(0, 200));
 
 server.close();
 stub.close();

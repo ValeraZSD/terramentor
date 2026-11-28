@@ -6,9 +6,11 @@
 // code) are left out, a proposed card is its two sides. That reading is
 // JavaScript, so no trigger can compute it: the triggers only queue a written
 // message in `chat_search_stale` (and take an edited or deleted message's old
-// words out at once), and every search first indexes what is queued. Most
-// searches find nothing queued; the first one after this build opens an older
-// library indexes every message once.
+// words out at once), and every search first indexes what is queued, at most
+// SEARCH_INDEX_MAX messages, so a search never stalls the server. The first
+// start of this build on an older library queues every message; a background
+// pass indexes them in small batches, and a search meanwhile finds what is
+// indexed so far.
 //
 // One row per conversation, ranked: a conversation whose title holds every
 // word first (a message of files alone is titled by its file and has no other
@@ -19,7 +21,11 @@
 //
 // Keyword search, no meaning: "electricity" does not find "current". Case and
 // accents fold (unicode61, remove_diacritics 2), every word is matched by its
-// start, and every word must match.
+// start (a one-letter word only as itself), and every word must stand in ONE
+// message, or all in the title: a search finds the place something was said.
+//
+// Without the index (a SQLite built without FTS5) a search still matches
+// titles; the reason goes to the server's log, never to the learner.
 
 import db from './database.js';
 
@@ -28,8 +34,9 @@ export const CHAT_SEARCH_LIMIT = 50;
 /** A query is read up to this many characters, and this many words of it. */
 const QUERY_MAX = 200;
 const TERMS_MAX = 12;
-/** Messages read before grouping by conversation. */
-const MESSAGE_HITS_MAX = 1000;
+/** Messages indexed before one search, and per step of the background pass. */
+const SEARCH_INDEX_MAX = 2000;
+const INDEX_BATCH = 500;
 /** A snippet: this many words, starting this many before the first match, at most this long. */
 const SNIPPET_WORDS = 18;
 const SNIPPET_LEAD = 5;
@@ -54,29 +61,35 @@ const WRITE_FENCES = new Set(['card', 'capture', 'report', 'project', 'topic', '
 // Fields of a prepared block that hold ids or settings, never words.
 const MACHINE_FIELDS = new Set(['topic', 'ref', 'id', 'kind', 'reason', 'undo', 'rewrite', 'attachment', 'project', 'node', 'status']);
 
-/** Every `[[…]]` marker the app turns into a control or a citation. */
+/** Every `[[…]]` marker the app turns into a control or a citation. In
+ *  prose and prepared blocks only: inside code it is the code's text. */
 const MARKER_RE = /\[\[[^\]\n]*\]\]/g;
 /** A fenced block: closed by the same fence, or running to the end of the message. */
 const FENCE_RE = /(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([^\s`~]*)[^\n]*(?:\n([\s\S]*?))?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g;
 const FIELD_RE = /^[ \t]*([a-z_]+)[ \t]*:[ \t]?(.*)$/i;
 const ID_VALUE_RE = /^[\s\d:,#-]*$/;
 
-/** Markdown and TeX syntax out of prose, its words kept. */
+/** TeX commands out of math (`\frac`, `\lambda`), its symbols kept. */
+const texWords = (math) => math.replace(/\\[a-zA-Z]+/g, ' ');
+
+/** Markdown syntax out of prose, its words kept; TeX only inside `$…$`, so a
+ *  path like `C:\Users\Ana` keeps its words. */
 function proseWords(text) {
     return text
+        .replace(MARKER_RE, ' ')
+        .replace(/(\$\$?)([^$]+?)\1/g, (_, d, math) => ` ${texWords(math)} `)
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, ' $1 ')
         .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
         .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
         .replace(/^[ \t]*>[ \t]?/gm, '')
         .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm, '')
         .replace(/^[ \t|:-]+$/gm, '')
-        .replace(/\\[a-zA-Z]+/g, ' ')
         .replace(/[*`|$]+|~~|__/g, ' ');
 }
 
 /** A prepared block as its values, its field names and ids left out. */
 function writeBlockWords(inner) {
-    return inner.split('\n').map(line => {
+    return inner.replace(MARKER_RE, ' ').split('\n').map(line => {
         const m = line.match(FIELD_RE);
         if (!m) return line;
         if (MACHINE_FIELDS.has(m[1].toLowerCase()) || ID_VALUE_RE.test(m[2])) return '';
@@ -89,7 +102,7 @@ function writeBlockWords(inner) {
  * holds and what a snippet is cut from. Whitespace is one space.
  */
 export function searchableText(content) {
-    const text = String(content ?? '').normalize('NFC').replace(MARKER_RE, ' ');
+    const text = String(content ?? '').normalize('NFC').replace(/\r\n?/g, '\n');
     const parts = [];
     let last = 0;
     for (const m of text.matchAll(FENCE_RE)) {
@@ -97,7 +110,7 @@ export function searchableText(content) {
         const lang = m[3].toLowerCase();
         const inner = m[4] ?? '';
         if (WRITE_FENCES.has(lang)) parts.push(writeBlockWords(inner));
-        else if (MATH_FENCES.has(lang)) parts.push(inner.replace(/\\[a-zA-Z]+/g, ' '));
+        else if (MATH_FENCES.has(lang)) parts.push(texWords(inner));
         else if (!DRAWN_FENCES.has(lang)) parts.push(inner);
         last = m.index + m[0].length;
     }
@@ -136,11 +149,16 @@ const fold = (s) => Array.from(s, foldChar).join('');
 const WORD_RE = /[\p{L}\p{N}\p{M}]+/gu;
 const wordsOf = (s) => fold(s).match(WORD_RE) || [];
 
-/** Does a title hold every word of the query, each as the start of one of its words? */
-function titleMatches(title, terms) {
+/** Does a title hold every word of the query (`parts`: each term's folded
+ *  words), each as the start of one of its words, a one-letter word as itself? */
+function titleMatches(title, parts) {
     const words = wordsOf(title);
-    return terms.every(t => wordsOf(t).every(part => words.some(w => w.startsWith(part))));
+    return parts.every(tp => tp.every(part => words.some(w => (part.length > 1 ? w.startsWith(part) : w === part))));
 }
+
+/** A term as FTS5 asks for it: quoted, and matched by its start unless every
+ *  word in it is one letter ("C++" is the word "c"; "c*" is half the library). */
+const ftsTerm = (t) => `"${indexForm(t)}"${wordsOf(t).every(w => w.length < 2) ? '' : '*'}`;
 
 // Prepared on first use, not at load: a build of SQLite without FTS5 leaves no
 // index table, and a statement prepared at load would take the whole chat
@@ -149,35 +167,76 @@ let stmts = null;
 function statements() {
     if (stmts) return stmts;
     stmts = {
-        stale: db.prepare('SELECT s.message_id AS id, m.role, m.content FROM chat_search_stale s LEFT JOIN chat_messages m ON m.id = s.message_id'),
+        stale: db.prepare('SELECT s.message_id AS id, m.role, m.content FROM chat_search_stale s LEFT JOIN chat_messages m ON m.id = s.message_id LIMIT ?'),
         drop: db.prepare('DELETE FROM chat_messages_fts WHERE rowid = ?'),
         add: db.prepare('INSERT INTO chat_messages_fts (rowid, body) VALUES (?, ?)'),
         unqueue: db.prepare('DELETE FROM chat_search_stale WHERE message_id = ?'),
+        // The best message of each conversation, grouped in SQL so a long
+        // conversation full of hits cannot crowd the others out. With one
+        // min() the other columns come from the row that holds it (SQLite's
+        // bare-column rule); a tie goes to the earlier message.
         hits: db.prepare(`
-            SELECT f.rowid AS messageId, m.conversation_id AS conversationId, m.role AS role
-            FROM chat_messages_fts f
-            JOIN chat_messages m ON m.id = f.rowid
-            WHERE chat_messages_fts MATCH ? AND m.conversation_id IS NOT NULL
-            ORDER BY f.rank
+            WITH h AS MATERIALIZED (
+                SELECT rowid AS id, rank AS r FROM chat_messages_fts WHERE chat_messages_fts MATCH ?
+            )
+            SELECT h.id AS messageId, m.conversation_id AS conversationId, m.role AS role, min(h.r) AS r
+            FROM h JOIN chat_messages m ON m.id = h.id
+            WHERE m.conversation_id IS NOT NULL
+            GROUP BY m.conversation_id
+            ORDER BY r, h.id
             LIMIT ?
         `),
-        titles: db.prepare('SELECT id, title FROM chat_conversations ORDER BY updated_at DESC, id DESC'),
         content: db.prepare('SELECT content FROM chat_messages WHERE id = ?'),
     };
     return stmts;
 }
 
-/** Index every message written, edited or restored since the last search. */
-const refreshIndex = db.transaction(() => {
+/** The words a message is indexed under. A message the reading chokes on is
+ *  indexed as stored, so one odd row never blocks every search. */
+function indexBody(row) {
+    // A system row is the app's, not the conversation's. It is still given
+    // a row, so the start-up sweep does not queue it again.
+    if (row.role === 'system') return '';
+    try {
+        return indexForm(searchableText(row.content));
+    } catch (e) {
+        console.error(`[chat search] message ${row.id} indexed as stored:`, e.message);
+        return indexForm(String(row.content));
+    }
+}
+
+/** Index up to `limit` queued messages; how many were taken off the queue. */
+const indexSome = db.transaction((limit) => {
     const s = statements();
-    for (const row of s.stale.all()) {
+    const rows = s.stale.all(limit);
+    for (const row of rows) {
         s.drop.run(row.id);
-        // A system row is the app's, not the conversation's. It is still
-        // given a row, so the start-up sweep does not queue it again.
-        if (row.content != null) s.add.run(row.id, row.role === 'system' ? '' : indexForm(searchableText(row.content)));
+        if (row.content != null) s.add.run(row.id, indexBody(row));
         s.unqueue.run(row.id);
     }
+    return rows.length;
 });
+
+/** Before a search: what was written since the last one, bounded. */
+function refreshIndex() {
+    for (let done = 0; done < SEARCH_INDEX_MAX;) {
+        const n = indexSome(INDEX_BATCH);
+        done += n;
+        if (n < INDEX_BATCH) break;
+    }
+}
+
+// The background pass over an older library's messages: one batch, then a
+// turn of the event loop for everything else, until the queue is empty. It
+// stops on the first error (no index, or a test closed the database).
+function drainIndex() {
+    try {
+        if (indexSome(INDEX_BATCH) === INDEX_BATCH) setTimeout(drainIndex, 0).unref?.();
+    } catch (e) {
+        console.error('[chat search] background indexing stopped:', e.message);
+    }
+}
+setTimeout(drainIndex, 1000).unref?.();
 
 // The list's columns. `nodeTitle` is read through the live node, so a renamed
 // topic is named as it is now and a deleted one is simply absent.
@@ -189,6 +248,8 @@ const LIST_SQL = `
     LEFT JOIN live_nodes n ON n.id = c.node_id`;
 const listAll = db.prepare(`${LIST_SQL} ORDER BY c.updated_at DESC, c.id DESC`);
 const listSome = db.prepare(`${LIST_SQL} WHERE c.id IN (SELECT value FROM json_each(?))`);
+/** Every title, newest first: matched in JavaScript, folded as the index folds. */
+const titleList = db.prepare('SELECT id, title FROM chat_conversations ORDER BY updated_at DESC, id DESC');
 
 /** Every conversation, newest first. */
 export function listConversations() {
@@ -224,7 +285,7 @@ export function snippetOf(content, terms) {
 }
 
 /**
- * The conversations that hold every word of `q`, best first, at most
+ * The conversations with a message (or a title) that holds every word of `q`, best first, at most
  * CHAT_SEARCH_LIMIT. Each is a list row plus `match`: the message that matched
  * best, with a snippet and the snippet's matched ranges, or null when only the
  * title matched.
@@ -232,16 +293,20 @@ export function snippetOf(content, terms) {
 export function searchConversations(q) {
     const terms = queryTerms(q);
     if (!terms.length) return [];
-    refreshIndex();
-    const s = statements();
-    const expr = terms.map(t => `"${indexForm(t)}"*`).join(' ');
+    const parts = terms.map(wordsOf);
 
     // The best-ranked message of each conversation, in rank order.
     const best = new Map();
-    for (const hit of s.hits.all(expr, MESSAGE_HITS_MAX)) {
-        if (!best.has(hit.conversationId)) best.set(hit.conversationId, hit);
+    let s = null;
+    try {
+        s = statements();
+        refreshIndex();
+        for (const hit of s.hits.all(terms.map(ftsTerm).join(' '), CHAT_SEARCH_LIMIT)) best.set(hit.conversationId, hit);
+    } catch (e) {
+        console.error('[chat search] searching titles only:', e.message);
+        best.clear();
     }
-    const byTitle = s.titles.all().filter(c => titleMatches(c.title, terms)).map(c => c.id);
+    const byTitle = titleList.all().filter(c => titleMatches(c.title, parts)).map(c => c.id);
     const order = [...new Set([...byTitle, ...best.keys()])].slice(0, CHAT_SEARCH_LIMIT);
     if (!order.length) return [];
 
@@ -250,7 +315,7 @@ export function searchConversations(q) {
     const matchOf = (id) => {
         const hit = best.get(id);
         if (!hit) return null;
-        const content = s.content.get(hit.messageId)?.content ?? '';
+        const content = s?.content.get(hit.messageId)?.content ?? '';
         return { messageId: hit.messageId, role: hit.role, ...snippetOf(content, terms) };
     };
     return order.filter(id => byId.has(id)).map(id => ({ ...byId.get(id), match: matchOf(id) }));
