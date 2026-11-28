@@ -37,6 +37,9 @@ const TERMS_MAX = 12;
 /** Messages indexed before one search, and per step of the background pass. */
 const SEARCH_INDEX_MAX = 2000;
 const INDEX_BATCH = 500;
+/** The background pass: a smaller batch, and a pause between, so requests run between them. */
+const DRAIN_BATCH = 200;
+const DRAIN_GAP_MS = 20;
 /** A snippet: this many words, starting this many before the first match, at most this long. */
 const SNIPPET_WORDS = 18;
 const SNIPPET_LEAD = 5;
@@ -72,12 +75,19 @@ const ID_VALUE_RE = /^[\s\d:,#-]*$/;
 /** TeX commands out of math (`\frac`, `\lambda`), its symbols kept. */
 const texWords = (math) => math.replace(/\\[a-zA-Z]+/g, ' ');
 
-/** Markdown syntax out of prose, its words kept; TeX only inside `$…$`, so a
+// Math in prose, as the drawer reads it (src/utils/mathText.ts takes `\[…\]`
+// and `\(…\)` for `$$…$$` and `$…$`). Display math may run over lines but
+// never over a blank one; inline math stays on its line, starts and ends on
+// a non-space, and does not close on a `$` before a digit (pandoc's rule), so
+// "$5 … and $6" is two prices, not a span of math.
+const MATH_SPAN_RE = /\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$\$((?:(?!\n[ \t]*\n)[\s\S])+?)\$\$|\$(?=\S)([^$\n]*?\S)\$(?!\d)/g;
+
+/** Markdown syntax out of prose, its words kept; TeX only inside math, so a
  *  path like `notes\physics\waves.md` keeps its words. */
 function proseWords(text) {
     return text
         .replace(MARKER_RE, ' ')
-        .replace(/(\$\$?)([^$]+?)\1/g, (_, d, math) => ` ${texWords(math)} `)
+        .replace(MATH_SPAN_RE, (m, a, b, c, d) => ` ${texWords(a ?? b ?? c ?? d)} `)
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, ' $1 ')
         .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
         .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
@@ -149,16 +159,25 @@ const fold = (s) => Array.from(s, foldChar).join('');
 const WORD_RE = /[\p{L}\p{N}\p{M}]+/gu;
 const wordsOf = (s) => fold(s).match(WORD_RE) || [];
 
+// Scripts written without spaces: the tokenizer keeps a whole run of them as
+// one word, so one character of it is only ever the start of a word.
+const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+/** A one-letter word of the query is that word ("C++" is the word "c"; "c*"
+ *  is half the library), except in a script written without spaces. */
+const wholeWord = (part) => part.length < 2 && !NO_SPACE_SCRIPT.test(part);
+/** Does a folded word answer a folded query word? */
+const wordAnswers = (word, part) => (wholeWord(part) ? word === part : word.startsWith(part));
+
 /** Does a title hold every word of the query (`parts`: each term's folded
- *  words), each as the start of one of its words, a one-letter word as itself? */
+ *  words), each as one of its words or the start of one? */
 function titleMatches(title, parts) {
     const words = wordsOf(title);
-    return parts.every(tp => tp.every(part => words.some(w => (part.length > 1 ? w.startsWith(part) : w === part))));
+    return parts.every(tp => tp.every(part => words.some(w => wordAnswers(w, part))));
 }
 
 /** A term as FTS5 asks for it: quoted, and matched by its start unless every
- *  word in it is one letter ("C++" is the word "c"; "c*" is half the library). */
-const ftsTerm = (t) => `"${indexForm(t)}"${wordsOf(t).every(w => w.length < 2) ? '' : '*'}`;
+ *  word in it is a one-letter word (wholeWord). */
+const ftsTerm = (t) => `"${indexForm(t)}"${wordsOf(t).every(wholeWord) ? '' : '*'}`;
 
 // Prepared on first use, not at load: a build of SQLite without FTS5 leaves no
 // index table, and a statement prepared at load would take the whole chat
@@ -174,7 +193,8 @@ function statements() {
         // The best message of each conversation, grouped in SQL so a long
         // conversation full of hits cannot crowd the others out. With one
         // min() the other columns come from the row that holds it (SQLite's
-        // bare-column rule); a tie goes to the earlier message.
+        // bare-column rule); which of two equally ranked messages is shown
+        // is SQLite's pick. Conversations are ordered by rank, then message id.
         hits: db.prepare(`
             WITH h AS MATERIALIZED (
                 SELECT rowid AS id, rank AS r FROM chat_messages_fts WHERE chat_messages_fts MATCH ?
@@ -226,12 +246,12 @@ function refreshIndex() {
     }
 }
 
-// The background pass over an older library's messages: one batch, then a
-// turn of the event loop for everything else, until the queue is empty. It
-// stops on the first error (no index, or a test closed the database).
+// The background pass over an older library's messages: one small batch,
+// then a pause in which requests run, until the queue is empty. It stops on
+// the first error (no index, or a test closed the database).
 function drainIndex() {
     try {
-        if (indexSome(INDEX_BATCH) === INDEX_BATCH) setTimeout(drainIndex, 0).unref?.();
+        if (indexSome(DRAIN_BATCH) === DRAIN_BATCH) setTimeout(drainIndex, DRAIN_GAP_MS).unref?.();
     } catch (e) {
         console.error('[chat search] background indexing stopped:', e.message);
     }
@@ -251,6 +271,9 @@ const listSome = db.prepare(`${LIST_SQL} WHERE c.id IN (SELECT value FROM json_e
 /** Every title, newest first: matched in JavaScript, folded as the index folds. */
 const titleList = db.prepare('SELECT id, title FROM chat_conversations ORDER BY updated_at DESC, id DESC');
 
+/** Why messages could not be searched, each said once in the log. */
+const fallbackSaid = new Set();
+
 /** Every conversation, newest first. */
 export function listConversations() {
     return listAll.all();
@@ -267,7 +290,7 @@ export function snippetOf(content, terms) {
     const text = searchableText(content);
     const parts = terms.flatMap(wordsOf);
     const words = [...text.matchAll(WORD_RE)].map(m => ({
-        start: m.index, end: m.index + m[0].length, hit: parts.some(p => fold(m[0]).startsWith(p)),
+        start: m.index, end: m.index + m[0].length, hit: parts.some(p => wordAnswers(fold(m[0]), p)),
     }));
     if (!words.length) return { snippet: text.slice(0, SNIPPET_CHARS), ranges: [] };
     const first = Math.max(0, words.findIndex(w => w.hit));
@@ -303,7 +326,13 @@ export function searchConversations(q) {
         refreshIndex();
         for (const hit of s.hits.all(terms.map(ftsTerm).join(' '), CHAT_SEARCH_LIMIT)) best.set(hit.conversationId, hit);
     } catch (e) {
-        console.error('[chat search] searching titles only:', e.message);
+        // A busy database is a moment, not a missing index: the request fails
+        // and the drawer's retry asks again.
+        if (e?.code === 'SQLITE_BUSY' || e?.code === 'SQLITE_LOCKED') throw e;
+        if (!fallbackSaid.has(e?.message)) {
+            fallbackSaid.add(e?.message);
+            console.error('[chat search] searching titles only:', e?.message);
+        }
         best.clear();
     }
     const byTitle = titleList.all().filter(c => titleMatches(c.title, parts)).map(c => c.id);

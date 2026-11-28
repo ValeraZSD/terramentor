@@ -192,7 +192,9 @@ async function ask(message, conversationId) {
 console.log('\n1. a library from before the index is searchable');
 const staleCount = () => { try { return db.prepare('SELECT COUNT(*) AS n FROM chat_search_stale').get().n; } catch { return -1; } };
 const queuedAtStart = staleCount();
-await new Promise(r => setTimeout(r, 1600));
+// The pass starts a second after load and runs in small steps: wait for it
+// with a deadline, never a fixed sleep a slow machine could outlast.
+for (const until = Date.now() + 10_000; staleCount() > 0 && Date.now() < until;) await new Promise(r => setTimeout(r, 50));
 ok('the start queues the older messages, and a background pass indexes them before any search',
     queuedAtStart > 0 && staleCount() === 0, `queued ${queuedAtStart}, left ${staleCount()}`);
 const dutch = await find('geëmigreerd');
@@ -275,6 +277,24 @@ for (const [q, why] of [
     const r = await find(q);
     ok(`${why} is not indexed: “${q}”`, r.status === 200 && r.rows.length === 0, shown(r));
 }
+// Math is what the drawer draws as math, and only that: two prices on a line
+// are not a formula, and `\(…\)` is one.
+const sums = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)')
+    .run('Costs', '2026-10-04T09:00:00.000Z', '2026-10-04T09:00:00.000Z').lastInsertRowid);
+const sumMsg = db.prepare('INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)');
+sumMsg.run(sums, 'user', String.raw`Paid $5 for notes\lambda\tides and $6 for the rest.`);
+sumMsg.run(sums, 'assistant', String.raw`The phase is \(\omega t + \varphi\) and the display${'\n'}\[\nabla \cdot E\]`);
+const prices = await find('tides');
+ok('two prices on a line are not math: a path between them keeps its words', only(prices, 'Costs'), shown(prices));
+for (const q of ['varphi', 'omega', 'nabla']) {
+    const r = await find(q);
+    ok(`a TeX command inside \\(…\\) or \\[…\\] is not a word: “${q}”`, r.status === 200 && r.rows.length === 0, shown(r));
+}
+const blank = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)')
+    .run('Two sums', '2026-10-04T10:00:00.000Z', '2026-10-04T10:00:00.000Z').lastInsertRowid);
+sumMsg.run(blank, 'user', String.raw`Start with $$ in one paragraph.${'\n\n'}Then read notes\physics\pulleys and end with $$.`);
+const crossed = await find('pulleys');
+ok('display math never runs over a blank line', only(crossed, 'Two sums'), shown(crossed));
 const front = await find('standing wave');
 ok("a card's front is found", only(front, 'Waves and a card'), shown(front));
 const back = await find('opposite directions');
@@ -388,11 +408,22 @@ ok('one search indexes a bounded batch (2000), the next takes the rest', leftAft
 
 // A one-letter word is that word, never the start of every word.
 const cpp = Number(many.run('Languages at work', '2026-09-06T00:00:00.000Z', '2026-09-06T00:00:00.000Z').lastInsertRowid);
-manyMsg.run(cpp, 'user', 'At work I write C++ every day.');
+manyMsg.run(cpp, 'user', 'At work I write C++ every day, and my cats sleep on the desk.');
 const cats = Number(many.run('Pets', '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z').lastInsertRowid);
 manyMsg.run(cats, 'user', 'Cats purr when content.');
 const cq = await find('C++');
 ok('“C++” finds the word c, not every word that starts with c', cq.rows.some(c => c.id === cpp) && !cq.rows.some(c => c.id === cats), titles(cq).join(' | '));
+const cppSnip = cq.rows.find(c => c.id === cpp)?.match;
+const cppMarked = (cppSnip?.ranges ?? []).map(([a, b]) => cppSnip.snippet.slice(a, b));
+ok('and its snippet marks the word c, not “cats”', cppMarked.length > 0 && cppMarked.every(w => w === 'C'), JSON.stringify(cppMarked));
+// A script written without spaces is one word to the tokenizer, so one
+// character of it is the start of that word.
+const zh = Number(many.run('中文练习', '2026-09-06T06:00:00.000Z', '2026-09-06T06:00:00.000Z').lastInsertRowid);
+manyMsg.run(zh, 'user', '他们是学生。');
+const han = await find('他');
+ok('one Chinese character finds the message that starts a word with it', han.rows.some(c => c.id === zh && c.match != null), shown(han));
+const hanTitle = await find('中');
+ok('and the title that does', hanTitle.rows.some(c => c.id === zh), shown(hanTitle));
 
 for (const q of ['"', '*', '()', 'NEAR(', 'AND', 'a OR', '-', '"unbalanced', 'col:word', '^start']) {
     const r = await find(q);
@@ -433,6 +464,26 @@ console.log('\n7. the drawer');
         /jumpToRef\.current = null;\s*const el = box\.querySelector/.test(drawer));
 }
 
+// A library busy for a moment (another writer holds it) is a failed request
+// the drawer asks again, never a quiet answer from the titles alone.
+{
+    manyMsg.run(lecture, 'user', 'One more ocelot to index.');
+    const other = new Database(DB_FILE);
+    const oldTimeout = db.pragma('busy_timeout', { simple: true });
+    db.pragma('busy_timeout = 50');
+    other.exec('BEGIN IMMEDIATE');
+    const quiet = console.error;
+    console.error = () => {};
+    const busy = await find('ocelot');
+    console.error = quiet;
+    other.exec('ROLLBACK');
+    other.close();
+    db.pragma(`busy_timeout = ${oldTimeout}`);
+    ok('a busy library fails the request, so the drawer retries', busy.status >= 500, `${busy.status} ${shown(busy)}`);
+    const after = await find('ocelot');
+    ok('and the next search answers in full', after.status === 200 && after.rows.some(c => c.id === lecture && c.match != null), shown(after));
+}
+
 // ---- 8. no index ----------------------------------------------------------------------
 // A SQLite without FTS5 has no index table and no triggers: a search still
 // answers from the titles, and the reason stays in the server's log.
@@ -448,10 +499,11 @@ const errs = [];
 console.error = (...a) => { errs.push(a.join(' ')); };
 const noIndex = await find('quokka facts');
 const noIndexBody = await find('refraction');
+await find('ocelot');
 console.error = quietErr;
 ok('a search with no index answers from the titles, never a 500', noIndex.status === 200 && noIndex.rows[0]?.title === 'Quokka facts' && noIndex.rows[0]?.match == null, shown(noIndex));
 ok('and finds nothing it cannot read, without an error to the learner', noIndexBody.status === 200 && noIndexBody.rows.length === 0, shown(noIndexBody));
-ok('the reason goes to the server log', errs.some(e => /chat search/.test(e)), errs.join(' | ').slice(0, 200));
+ok('the reason goes to the server log, once, not on every search', errs.filter(e => /chat search/.test(e)).length === 1, errs.join(' | ').slice(0, 200));
 
 server.close();
 stub.close();
