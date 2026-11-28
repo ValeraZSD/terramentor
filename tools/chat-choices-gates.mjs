@@ -340,7 +340,7 @@ section('5. the drawer: from the stored message, through the one send path');
     ok('…but only while its question is still the one asked', staleAt > 0 && staleAt < retry.indexOf('send(t,'), retry.slice(0, 300));
     // Stopped before a word: the server dropped the question, the bubble stayed
     // and the buttons were gone until a reload.
-    ok('a turn stopped before a word re-reads the history, so a pressed answer\'s buttons come back', /const unanswered = !dropped && !failed && !full\.trim\(\);/.test(drawer) && /if \(\(outdated \|\| unanswered\) && !dropped\) loadHistory\(\)/.test(drawer));
+    ok('a turn stopped before a word re-reads the history, so a pressed answer\'s buttons come back', /const unanswered = !dropped && !failed && !full\.trim\(\);/.test(drawer) && /if \(outdated && !dropped\) loadHistory\(\)\.catch\(\(\) => \{ \}\);\s+else if \(unanswered\) loadHistory\(\)/.test(drawer));
     // The same press failing as a background task: the mark rides on the
     // task (route, section 6) and both recovery paths read it back.
     const api = read('src/api.ts');

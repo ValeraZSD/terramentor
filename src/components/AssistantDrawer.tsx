@@ -1224,7 +1224,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // buttons come back under the question it was asked under.
             const unanswered = !dropped && !failed && !full.trim();
             // What the outdated load came to read; a dropped turn reads it above.
-            if ((outdated || unanswered) && !dropped) loadHistory().catch(() => { });
+            if (outdated && !dropped) loadHistory().catch(() => { });
+            else if (unanswered) loadHistory().catch(() => { });
         }
     }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
 
