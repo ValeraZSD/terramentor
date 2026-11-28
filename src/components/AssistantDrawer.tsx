@@ -289,7 +289,7 @@ function MarkedSnippet({ text, ranges }: { text: string; ranges: [number, number
     for (const [a, b] of ranges) {
         if (a < at || b > text.length) continue;
         if (a > at) parts.push(text.slice(at, a));
-        parts.push(<mark key={a} className="rounded-sm bg-accent/20 text-slate-900 dark:text-slate-100">{text.slice(a, b)}</mark>);
+        parts.push(<mark key={a} className="rounded-sm bg-accent/20 dark:bg-accent/40 font-semibold text-slate-900 dark:text-white">{text.slice(a, b)}</mark>);
         at = b;
     }
     parts.push(text.slice(at));
@@ -320,7 +320,7 @@ function ConversationRow({ c, current, disabled, onOpen, onDelete }: {
             >
                 <span className="block text-sm font-medium truncate">{c.title || t("Untitled conversation")}</span>
                 {match?.snippet && (
-                    <span className="block text-xs text-slate-600 dark:text-slate-300 line-clamp-2 break-words">
+                    <span className="block mt-0.5 text-sm text-slate-600 dark:text-slate-300 line-clamp-2 break-words">
                         <MarkedSnippet text={match.snippet} ranges={match.ranges} />
                     </span>
                 )}
@@ -812,7 +812,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // A search result opens at the message that matched, once it is drawn:
     // after the landing above, so this wins, and the reader is reading there,
     // so new content does not pull the view away. The scroll box is moved by
-    // hand; scrollIntoView would also scroll the page behind an overlay.
+    // hand; scrollIntoView would also scroll the page behind an overlay. A
+    // message that fits sits a third of the way down, so the turn before it
+    // (usually the question it answers) shows above it; a taller one starts
+    // at the top.
     useEffect(() => {
         const id = jumpToRef.current;
         const box = scroll.ref.current;
@@ -821,7 +824,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (!el) return;
         jumpToRef.current = null;
         scroll.stuckRef.current = false;
-        box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 16;
+        const at = el.getBoundingClientRect();
+        const room = box.clientHeight - at.height;
+        const offset = Math.max(16, Math.min(box.clientHeight / 3, room / 2));
+        box.scrollTop += at.top - box.getBoundingClientRect().top - offset;
         setFoundMessageId(id);
     }, [open, showList, loadingHistory, messages, scroll]);
     useEffect(() => {
@@ -1722,10 +1728,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
                         {/* `relative`: "You said:" / "Assistant said:" are
                             `sr-only` (absolute); placed against the turn they
-                            stay inside the list's scroller. The ring marks
-                            the message a search opened at, for a moment. */}
-                        <div className={`${m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} rounded-xl transition-shadow duration-700 ${foundMessageId === m.id
-                            ? 'ring-2 ring-accent/60 ring-offset-4 ring-offset-white dark:ring-offset-slate-800' : ''}`} data-read-turn>
+                            stay inside the list's scroller. A tint across
+                            the row marks the message a search opened at, for
+                            a moment; the ring is the same colour and only
+                            widens it past the text, so nothing moves. */}
+                        <div className={`${m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} rounded-lg transition-[background-color,box-shadow] duration-700 ${foundMessageId === m.id
+                            ? 'bg-accent/10 ring-8 ring-accent/10 dark:bg-accent/20 dark:ring-accent/20' : ''}`} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">

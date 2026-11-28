@@ -1983,8 +1983,8 @@ try {
 // the app registers: a connection without it (a tool, an older build opening
 // this library) would fail every chat write. Each start queues any message the
 // index lacks (every one, the first time) and drops rows whose message is gone.
-// The tokenizer folds case and accents: "creme" finds "crème", "емкость"
-// finds "ёмкость".
+// The tokenizer folds case and Latin accents ("creme" finds "crème"); it
+// leaves Russian ё alone, so chatSearch.js stores and asks ё as е.
 try {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
