@@ -27,6 +27,7 @@ import { splitSettingChanges } from './assistantSettings';
 import { splitChecks, writeBlocksAsText } from './assistantWrites';
 import { stripCitationMarkers } from './citations';
 import { splitImageMarkers } from './attachments';
+import { compareBlocksAsText } from './compareBlocks';
 import type { AiAction } from '../types';
 
 /** English, deliberately: the same server-written voice as the `Sources:` line. */
@@ -51,7 +52,8 @@ export function readableAnswer(content: string, streaming = false, actions?: AiA
     // A picture the answer showed is the learner's own attachment, drawn by
     // this app; a paste has no picture to draw.
     const withoutPictures = splitImageMarkers(withoutChecks, streaming).body;
-    const body = stripCitationMarkers(writeBlocksAsText(withoutPictures)).trim();
+    // A side-by-side card pastes as its two sides, each under its name.
+    const body = stripCitationMarkers(writeBlocksAsText(compareBlocksAsText(withoutPictures))).trim();
 
     // The web queries are shown in the conversation as rows, where they
     // happened — but a paste has no "inline", and this is the one thing in the

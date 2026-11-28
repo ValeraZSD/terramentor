@@ -36,6 +36,7 @@ import { READ_REASON, READ_REASON_OTHER } from './shortCourses/readReasons';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import type { AssistantCheck, AssistantEditKind, ChatAttachment } from '../types';
+import { compareCheck, type CompareCardProposal } from '../utils/compareBlocks';
 
 /**
  * What the assistant PREPARED, drawn under its answer for the learner to press
@@ -164,29 +165,40 @@ function useChecks(key: string, ask: () => Promise<AssistantCheck[]>, enabled: b
     return checks;
 }
 
-function CardPreview({ card, label, turnKey, index, check }: { card: CardProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
+type CardOutcome = NonNullable<ReturnType<typeof outcomes.get>>;
+type CardToAdd = { front: string; back: string; extra?: string | null };
+
+/**
+ * Add and Undo for one card the assistant offered, through its one card door
+ * (`POST /api/assistant/cards`): a prepared ```card and a side-by-side pair
+ * both go this way. `label` null is a topic that did not resolve: nothing is
+ * asked about it, and the caller draws nothing.
+ */
+function useCardAdd(key: string, card: CardToAdd, label: TopicLabel | null) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const key = `${turnKey}:card:${index}`;
     const [outcome, setOutcome] = useState(() => outcomes.get(key));
     const [busy, setBusy] = useState(false);
-    const record = (o: NonNullable<typeof outcome>) => { outcomes.set(key, o); setOutcome(o); };
+    const record = (o: CardOutcome) => { outcomes.set(key, o); setOutcome(o); };
     // The model cannot see this topic's cards, so it may reword one the
     // learner already has; the preview names it before Add is pressed.
     const [similar, setSimilar] = useState<string | null>(null);
+    const nodeId = label?.id ?? null;
     useEffect(() => {
+        if (nodeId == null) return;
         let live = true;
-        api.getFlashcards(label.id)
+        api.getFlashcards(nodeId)
             .then(existing => { if (live) setSimilar(similarFront(card.front, existing.map(c => c.front))); })
             .catch(() => { /* no hint is not a failure */ });
         return () => { live = false; };
-    }, [label.id, card.front]);
-    const inactive = label.projectStatus != null && label.projectStatus !== 'active';
+    }, [nodeId, card.front]);
+    const inactive = label?.projectStatus != null && label.projectStatus !== 'active';
 
     const add = async () => {
+        if (nodeId == null) return;
         setBusy(true);
         try {
-            const r = await api.addAssistantCard({ nodeId: label.id, front: card.front, back: card.back, extra: card.extra });
+            const r = await api.addAssistantCard({ nodeId, front: card.front, back: card.back, extra: card.extra ?? null });
             record({ state: r.existed ? 'existed' : 'added', cardId: r.id });
         } catch (e) {
             addToast('error', t("Could not add the card"), e instanceof Error ? e.message : String(e));
@@ -204,37 +216,23 @@ function CardPreview({ card, label, turnKey, index, check }: { card: CardProposa
             addToast('error', t("Could not remove the card"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
     };
+    return { outcome, busy, similar, inactive, add, undo };
+}
 
+/** What the check said, then Add / Added / Undo: the foot of every offered card. */
+function CardAddFoot({ state, check, className = '' }: { state: ReturnType<typeof useCardAdd>; check: AssistantCheck | undefined; className?: string }) {
+    const { t } = useTranslation();
+    const { outcome, busy, similar, inactive, add, undo } = state;
     return (
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-            <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
-                <Layers className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 truncate">
-                    {t("New card for {{topic}}", { topic: label.title })}
-                    <span> · {label.projectName}</span>
-                </span>
-            </div>
-            <div className="px-3 py-2 space-y-2">
-                <Markdown content={card.front} className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100" />
-                <div className="border-t border-slate-200 dark:border-slate-700" />
-                {/* A back the check rejected is still shown — the learner may
-                    want to see what was claimed — but never as an answer. */}
-                <Markdown
-                    content={card.back}
-                    className={check?.verdict === 'disputed' && !outcome
-                        ? 'text-sm leading-6 text-slate-500 dark:text-slate-400 line-through'
-                        : 'text-sm leading-6 text-slate-700 dark:text-slate-200'}
-                />
-                {card.extra && <Markdown content={card.extra} className="text-sm leading-6 text-slate-500 dark:text-slate-400" />}
-            </div>
+        <>
             {!outcome && (
-                <div className="px-3 pb-2 space-y-1 text-sm text-slate-500 dark:text-slate-400">
+                <div className={`${className} space-y-1 text-sm text-slate-500 dark:text-slate-400`}>
                     <CheckLine check={check} what="card" />
                     {similar && <p>{t("You already have a similar card: “{{front}}”", { front: similar })}</p>}
                     {inactive && <p>{t("This course is not active, so the card will not come up in your reviews.")}</p>}
                 </div>
             )}
-            <div className="flex flex-wrap items-center gap-2 px-3 pb-3 empty:hidden">
+            <div className={`${className} flex flex-wrap items-center gap-2 empty:hidden`}>
                 {(!outcome || outcome.state === 'undone') && check?.verdict === 'disputed' ? null : !outcome || outcome.state === 'undone' ? (
                     <>
                         <Button size="sm" variant="neutral" icon={<Layers className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} disabled={check === undefined} onClick={add}>{t("Add card")}</Button>
@@ -259,6 +257,76 @@ function CardPreview({ card, label, turnKey, index, check }: { card: CardProposa
                     </>
                 )}
             </div>
+        </>
+    );
+}
+
+function CardPreview({ card, label, turnKey, index, check }: { card: CardProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
+    const { t } = useTranslation();
+    const state = useCardAdd(`${turnKey}:card:${index}`, card, label);
+    const { outcome } = state;
+
+    return (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
+                <Layers className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 truncate">
+                    {t("New card for {{topic}}", { topic: label.title })}
+                    <span> · {label.projectName}</span>
+                </span>
+            </div>
+            <div className="px-3 py-2 space-y-2">
+                <Markdown content={card.front} className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100" />
+                <div className="border-t border-slate-200 dark:border-slate-700" />
+                {/* A back the check rejected is still shown — the learner may
+                    want to see what was claimed — but never as an answer. */}
+                <Markdown
+                    content={card.back}
+                    className={check?.verdict === 'disputed' && !outcome
+                        ? 'text-sm leading-6 text-slate-500 dark:text-slate-400 line-through'
+                        : 'text-sm leading-6 text-slate-700 dark:text-slate-200'}
+                />
+                {card.extra && <Markdown content={card.extra} className="text-sm leading-6 text-slate-500 dark:text-slate-400" />}
+            </div>
+            <div className="px-3 pb-3 space-y-2">
+                <CardAddFoot state={state} check={check} />
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Add card under a side-by-side pair that names a topic
+ * (src/components/CompareCard.tsx): the pair is the preview, so this is only
+ * where the card goes, the check, and the press. The same cold check as a
+ * prepared card runs first; a translation is also asked the other way round,
+ * since a cold answer to the front proves only the back (`compareCheck`).
+ */
+export function CompareCardAdd({ card, labels, turnKey }: { card: CompareCardProposal; labels: Record<number, TopicLabel>; turnKey: string }) {
+    const { t } = useTranslation();
+    const resolved = labels[card.nodeId];
+    // `topic: 4:17` names the course too: a node of another course is no card.
+    const label = (resolved?.kind === 'topic' || resolved?.kind === 'stage') && resolved.projectId === card.projectId ? resolved : null;
+    const key = `${turnKey}:compare:${card.nodeId}:${card.front}`;
+    const asked = [{ nodeId: card.nodeId, front: card.front, back: card.back }];
+    if (card.reverse) asked.push({ nodeId: card.nodeId, ...card.reverse });
+    const checks = useChecks(`${key}:check`, () => api.checkAssistantProposals({ cards: asked }).then(r => r.cards), label != null);
+    const check = compareCheck(checks, card.reverse !== null, {
+        reverse: why => (why ? t("asked the other way round, {{reason}}", { reason: why }) : t("asked the other way round, a second AI disagreed")),
+        unchecked: why => (why ? t("the translation could not be checked ({{reason}})", { reason: why }) : t("the translation could not be checked")),
+    }) as AssistantCheck | undefined;
+    const state = useCardAdd(key, card, label);
+    if (!label) return null;
+    return (
+        <div className="not-prose space-y-2">
+            <p className="inline-flex max-w-full items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <Layers className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 truncate" title={`${label.title} · ${label.projectName}`}>
+                    {t("As a card for {{topic}}", { topic: label.title })}
+                    <span> · {label.projectName}</span>
+                </span>
+            </p>
+            <CardAddFoot state={state} check={check} />
         </div>
     );
 }

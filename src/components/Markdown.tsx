@@ -25,6 +25,8 @@ import { Timeline, TimelineEvent } from './Timeline';
 import { getVisualKind, VISUAL_KIND_LABELS } from './visuals/registry';
 import { DrillLauncher } from './drills/DrillLauncher';
 import { getDrillLang } from './drills/parseDrill';
+import CompareCard from './CompareCard';
+import { parseCompare, prepareCompareFences } from '../utils/compareBlocks';
 import { useStore, isDarkTheme } from '../store';
 import { useContentLang } from '../utils/contentLang';
 import 'katex/dist/katex.min.css';
@@ -37,8 +39,9 @@ import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
 import { splitSourcesTail } from '../utils/citations';
 import SourceList from './SourceList';
 
-/** Fence languages held back / labelled while streaming: visuals + the drill tier. */
-const PENDING_KIND_LABELS: Record<string, string> = { ...VISUAL_KIND_LABELS, drill: 'Practice' };
+/** Fence languages held back / labelled while streaming: visuals, the drill
+ *  tier, and the assistant's side-by-side card. */
+const PENDING_KIND_LABELS: Record<string, string> = { ...VISUAL_KIND_LABELS, drill: 'Practice', compare: 'Comparison' };
 const pendingKindOf = (language: string): string | null => getVisualKind(language) || getDrillLang(language);
 
 /**
@@ -194,18 +197,41 @@ interface MarkdownProps {
     messageId?: number;
 }
 
-const CodeBlock = memo(({ language, value }: { language: string; value: string }) => {
-    const { t } = useTranslation();
-    const num = useNumberFormat();
-    const [copied, setCopied] = useState(false);
+/** Highlighted code with no box of its own: the box is the caller's. */
+const CodeHighlight = memo(({ language, value, padding = '1rem' }: { language: string; value: string; padding?: string }) => {
     // A Prism theme is INLINE styles, so `dark:` variants can't reach it — the
     // theme object itself has to be chosen per mode, or a light page renders
     // dark strips of code on white. Two of its rules carry a background (the
     // `pre` and the `code` inside it) and both are overridden to transparent
-    // so the wrapper below owns the surface: leaving the code tag's background
-    // in place painted a black box per LINE, sized to that line's text, since
-    // the tag is inline.
+    // so the caller's wrapper owns the surface: leaving the code tag's
+    // background in place painted a black box per LINE, sized to that line's
+    // text, since the tag is inline.
     const dark = isDarkTheme(useStore(s => s.theme));
+    return (
+        <SyntaxHighlighter
+            style={dark ? oneDark : oneLight}
+            language={highlightLanguage(language)}
+            PreTag="div"
+            customStyle={{
+                margin: 0,
+                padding,
+                fontSize: '0.85rem',
+                background: 'transparent',
+            }}
+            // `.prose code` pads inline code; with no <pre> around it the
+            // padding reached this block's code too and pushed its first line
+            // in by a quarter rem.
+            codeTagProps={{ style: { background: 'transparent', padding: 0 } }}
+        >
+            {value}
+        </SyntaxHighlighter>
+    );
+});
+CodeHighlight.displayName = 'CodeHighlight';
+
+const CodeBlock = memo(({ language, value }: { language: string; value: string }) => {
+    const { t } = useTranslation();
+    const [copied, setCopied] = useState(false);
 
     const handleCopy = async () => {
         // `copyText`, not `navigator.clipboard`: the latter is undefined over
@@ -228,20 +254,7 @@ const CodeBlock = memo(({ language, value }: { language: string; value: string }
                     {copied ? t("Copied!") : t("Copy")}
                 </button>
             </div>
-            <SyntaxHighlighter
-                style={dark ? oneDark : oneLight}
-                language={highlightLanguage(language)}
-                PreTag="div"
-                customStyle={{
-                    margin: 0,
-                    padding: '1rem',
-                    fontSize: '0.85rem',
-                    background: 'transparent',
-                }}
-                codeTagProps={{ style: { background: 'transparent' } }}
-            >
-                {value}
-            </SyntaxHighlighter>
+            <CodeHighlight language={language} value={value} />
         </div>
     );
 });
@@ -295,6 +308,49 @@ const NodeIdContext = createContext<number | undefined>(undefined);
 // Provenance for a feedback report: which surface, which stored row.
 const VisualOriginContext = createContext<{ surface?: string; messageId?: number }>({});
 
+/** True inside a side of a side-by-side card: a card is never drawn inside one. */
+const InCompareContext = createContext(false);
+
+/**
+ * One side of a side-by-side card, or its note: markdown, drawn by the same
+ * components as the answer around it. The card's fence kept the answer's
+ * repair layers off it, so they run here, on the side alone.
+ */
+const SideMarkdown = memo(function SideMarkdown({ content }: { content: string }) {
+    return (
+        // An inline `code` in a side is inline: the card sits inside the
+        // answer's <pre> context, and would hand it on.
+        <BlockContext.Provider value={false}>
+            <InCompareContext.Provider value={true}>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]} rehypePlugins={markdownRehypePlugins} components={components}>
+                    {expandDetailsTags(expandTimelineTags(fixMarkdownMathTypography(content)), { streaming: false })}
+                </ReactMarkdown>
+            </InCompareContext.Provider>
+        </BlockContext.Provider>
+    );
+});
+
+/**
+ * A card's source read once: the code renderer runs on every paint of a
+ * streaming answer, and a fresh block each time would redraw every settled
+ * card above the one arriving.
+ */
+const parsedCompares = new Map<string, ReturnType<typeof parseCompare>>();
+function parseCompareOnce(source: string) {
+    if (!parsedCompares.has(source)) {
+        if (parsedCompares.size >= 64) parsedCompares.delete(parsedCompares.keys().next().value as string);
+        parsedCompares.set(source, parseCompare(source));
+    }
+    return parsedCompares.get(source)!;
+}
+
+const renderSideText = (markdown: string) => <SideMarkdown content={markdown} />;
+const renderSideCode = (language: string, code: string) => (
+    <div className="not-prose overflow-x-auto rounded-lg bg-slate-50 dark:bg-slate-900">
+        <CodeHighlight language={language} value={code} padding="0.625rem 0.75rem" />
+    </div>
+);
+
 /**
  * Renderers for element names that are not HTML, so `Components` (keyed by the
  * known tag names) has no slot for them. Kept in their own object and merged
@@ -325,8 +381,16 @@ const htmlComponents: Components = {
         const isBlock = useContext(BlockContext);
         const nodeId = useContext(NodeIdContext);
         const origin = useContext(VisualOriginContext);
+        const inCompare = useContext(InCompareContext);
         const match = /language-([\w-]+)/.exec(className || '');
         const value = String(children).replace(/\n$/, '');
+
+        // The assistant's side-by-side card (utils/compareBlocks.ts): only its
+        // answers are prepared for it, so elsewhere the fence stays code.
+        if (isBlock && match?.[1] === 'compare' && origin.surface === 'assistant' && !inCompare) {
+            const block = parseCompareOnce(value);
+            if (block) return <CompareCard block={block} renderText={renderSideText} renderCode={renderSideCode} />;
+        }
 
         // A ```drill fence is DATA, not code: render the native practice-drill
         // launcher (a button that opens the game in a modal) instead of the spec.
@@ -522,16 +586,23 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
     // `/api/` address, which an answer's own links may never be (MarkdownLink).
     const { body: readable, sources } = useMemo(() => splitSourcesTail(safeContent), [safeContent]);
     // Repair layers, in order: unwrap a visual fence the model nested inside
-    // another, fix math typography, then the two content tags. `streaming` is
-    // passed to the collapsible expander so an unclosed <details> never hides
-    // the tokens still arriving under it (see utils/details.ts).
-    const { body, pending } = splitPendingVisual(
+    // another, find the assistant's side-by-side cards (before the layers
+    // below, so a side's code is never read as prose by them), fix math
+    // typography, then the two content tags. `streaming` is passed to the
+    // collapsible expander so an unclosed <details> never hides the tokens
+    // still arriving under it (see utils/details.ts).
+    const unwrapped = unwrapWrappedVisualFences(readable);
+    const compared = surface === 'assistant' ? prepareCompareFences(unwrapped, streaming) : { body: unwrapped, pending: null };
+    const { body, pending: pendingVisual } = splitPendingVisual(
         expandDetailsTags(
-            expandTimelineTags(fixMarkdownMathTypography(unwrapWrappedVisualFences(readable))),
+            expandTimelineTags(fixMarkdownMathTypography(compared.body)),
             { streaming },
         ),
         streaming,
     );
+    // A card still arriving cuts the answer where it opens, so nothing after
+    // it can be pending too.
+    const pending = compared.pending ? { kind: 'compare', language: 'compare', chars: compared.pending.chars } : pendingVisual;
 
     return (
         <StreamingContext.Provider value={streaming}>

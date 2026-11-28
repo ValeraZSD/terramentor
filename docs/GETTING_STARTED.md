@@ -193,8 +193,13 @@ Three ways to bring things in and out:
   in your library page by page. It can prepare a mastery check, a flashcard, a short course
   from a link, a change to a course (its name, colour, description, a topic's title) or a problem report,
   but nothing is added, changed or sent until you press the button under its answer, and a change
-  can be undone. The **+** beside the box attaches a file, a photo or a screenshot (or drop or
-  paste one onto the panel), and the model looks at it itself. **New chat** starts a fresh
+  can be undone. Two texts that read best next to each other (a sentence and its translation, a
+  sentence before and after a fix, the same code in two languages) it shows in one card, side by
+  side (one above the other on a phone), each with its own Copy. The words a fix changed are
+  marked, and an arrow shows which text was made from which: a fix or a translation you asked
+  for gets one, two versions that are both right do not. When it names a topic, the pair can be
+  kept as a flashcard. The **+** beside the box attaches a file, a photo or a screenshot (or drop
+  or paste one onto the panel), and the model looks at it itself. **New chat** starts a fresh
   conversation; the clock icon lists the earlier ones.
 
 All of it is written by the model you connected on the welcome screen; change it in Settings → AI
