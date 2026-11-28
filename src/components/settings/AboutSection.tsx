@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import { Code2, Check, Copy, ArrowDownCircle, RefreshCw, RotateCw, Bug } from 'lucide-react';
 import { Button, ButtonLink } from '../ui/Button';
 import Switch from '../ui/Switch';
-import { SettingNote } from '../ui/SettingRow';
+import { SettingNote, SettingRow } from '../ui/SettingRow';
 import ReportProblemDialog from '../ReportProblemDialog';
 import DesktopQuitScreen from '../DesktopQuitScreen';
 import { diagnosticsBlock } from '../../utils/report';
@@ -69,25 +69,27 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                         report said "latest", which could mean a
                         three-week-old clone or this morning's pull — and
                         an update check has nothing to compare against. */}
-                    <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-medium text-slate-900 dark:text-white">
-                                {appVersion ? tr("Version {{version}}", { version: appVersion.version }) : tr("Version unavailable")}
-                            </p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 break-words">
-                                {appVersion
-                                    ? [
-                                        // Identifiers, as the diagnostics block prints them: a
-                                        // sentence round them ("desktop install") would be English
-                                        // under every interface language.
-                                        appVersion.commitShort,
-                                        appVersion.deployment,
-                                        `Node ${appVersion.node}`,
-                                    ].filter(Boolean).join(' \u00b7 ')
-                                    : tr("This server is too old to report its version.")}
-                            </p>
-                        </div>
-                        {appVersion && (
+                    {/* Every row here is a `SettingRow`: the action sits
+                        beside the name while the ROW has room for it and
+                        under it only when it does not. These were hand-made
+                        rows that stacked below `sm:`, a viewport width, so a
+                        phone put every button under its text with the right
+                        half of the card empty beside the Channel menu. */}
+                    <SettingRow
+                        label={appVersion ? tr("Version {{version}}", { version: appVersion.version }) : tr("Version unavailable")}
+                        detail={<span className="break-words">
+                            {appVersion
+                                ? [
+                                    // Identifiers, as the diagnostics block prints them: a
+                                    // sentence round them ("desktop install") would be English
+                                    // under every interface language.
+                                    appVersion.commitShort,
+                                    appVersion.deployment,
+                                    `Node ${appVersion.node}`,
+                                ].filter(Boolean).join(' \u00b7 ')
+                                : tr("This server is too old to report its version.")}
+                        </span>}
+                        control={appVersion && (
                             <Button
                                 onClick={async () => {
                                     try {
@@ -97,7 +99,6 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                         setTimeout(() => setCopiedVersion(false), 1500);
                                     } catch { /* http origin: no clipboard, the text is on screen */ }
                                 }}
-                                className="self-start shrink-0"
                                 icon={copiedVersion
                                     ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
                                     : <Copy className="w-4 h-4" aria-hidden="true" />}
@@ -105,18 +106,17 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                 {copiedVersion ? tr("Copied") : tr("Copy details")}
                             </Button>
                         )}
-                    </div>
+                    />
 
                     {/* UPDATES. The button is user-initiated and therefore
                         allowed to reach the network; the toggle below is the
                         only thing that makes the app do it unattended, and it
                         ships off so SECURITY.md's idle-and-capture procedure
                         stays true on a default install. */}
-                    <div className="p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                            <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-900 dark:text-white">{tr("Updates")}</p>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                    <SettingRow
+                        label={tr("Updates")}
+                        detail={<>
+                                <span className="block">
                                     {view.kind === 'ready'
                                         ? tr("Version {{version}} is downloaded. Restart to install it.", { version: view.version })
                                         : view.kind === 'downloading'
@@ -135,9 +135,12 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                             ? tr("The last check could not reach GitHub. Check the internet connection.")
                                             : tr("The last check failed: {{error}}", { error: updateStatus.error })}</span>
                                     )}
-                                </p>
-                            </div>
-                            {canPress && <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                                </span>
+                                {!canPress && (
+                                    <span className="block">{tr("Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.")}</span>
+                                )}
+                        </>}
+                        control={canPress && <div className="flex flex-wrap items-center gap-2">
                                 {/* The header button's twin: it downloads at once when
                                     there is something to download, and otherwise opens
                                     the same dialog, named for what it shows. */}
@@ -164,14 +167,17 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     {tr("Check now")}
                                 </Button>
                             </div>}
-                        </div>
-                        {!canPress && (
-                            <SettingNote>{tr("Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.")}</SettingNote>
-                        )}
-
+                        more={<>
                         <UpdateDialog isOpen={updateOpen} onClose={() => setUpdateOpen(false)} />
 
-                        <div className="mt-4 flex items-center justify-between gap-3">
+                        {/* Channel and the automatic check belong to Updates, so
+                            they stay in its row as its smaller lines; their
+                            control was already on the right. `mt-3` over the
+                            row's own `mt-3`: 24px, because with Check now beside
+                            the status nothing stands between "Not checked yet."
+                            and Channel any more, and at 16px the setting read as
+                            part of the status line. */}
+                        <div className="mt-3 flex items-center justify-between gap-3">
                             <div className="min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Channel")}</p>
                                 <SettingNote>
@@ -216,36 +222,30 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                 onChange={next => setAutoUpdateCheck(next)}
                             />
                         </div>
-                    </div>
+                        </>}
+                    />
 
                     {/* REPORTING. The details a maintainer needs are exactly
                         the ones a non-programmer cannot look up, so the app
                         fills them in and the person writes the rest. */}
                     {/* Two rows, one shape. Both are "here is a thing
                         you might do next", so both are a sentence on
-                        the left and a button on the right, centred
-                        against it — a Source link buried as prose in
-                        the middle of the licence text would make the
-                        one control the AGPL actually requires the
-                        hardest to find on the page. `sm:items-center` rather than
-                        `items-start`: against two lines of copy a
-                        top-aligned button reads as attached to the
-                        heading rather than to the row. */}
-                    <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-medium text-slate-900 dark:text-white">{tr("Found a problem?")}</p>
-                            <SettingNote>
-                                {tr("You see the details first and submit it yourself.")}
-                            </SettingNote>
-                        </div>
-                        <Button
-                            onClick={() => setReportOpen(true)}
-                            className="self-start sm:self-auto shrink-0"
-                            icon={<Bug className="w-4 h-4" aria-hidden="true" />}
-                        >
-                            {tr("Report a problem")}
-                        </Button>
-                    </div>
+                        the left and a button on the right — a Source link
+                        buried as prose in the middle of the licence text
+                        would make the one control the AGPL actually
+                        requires the hardest to find on the page. */}
+                    <SettingRow
+                        label={tr("Found a problem?")}
+                        detail={tr("You see the details first and submit it yourself.")}
+                        control={
+                            <Button
+                                onClick={() => setReportOpen(true)}
+                                icon={<Bug className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {tr("Report a problem")}
+                            </Button>
+                        }
+                    />
 
                     {/* AGPL-3.0 section 13, not decoration. This app is served
                         over a network (the PWA on a phone reaches the desktop
@@ -255,32 +255,31 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                         Source, and the GPL's own "How to Apply" section names a
                         Source link in the interface as the way a web
                         application does it. */}
-                    <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="min-w-0 flex-1 text-sm text-slate-600 dark:text-slate-300">
-                            <p className="font-medium text-slate-900 dark:text-white">{tr("Source code")}</p>
-                            {/* The licence by name, linked; what it lets you
-                                do is the licence's own page. */}
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                <a
-                                    href="https://www.gnu.org/licenses/agpl-3.0.html"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-accent-fg hover:underline"
-                                >
-                                    {tr("GNU AGPL v3 or later")}
-                                </a>
-                            </p>
-                        </div>
-                        <ButtonLink
-                            href={appVersion?.repoUrl || SOURCE_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="self-start sm:self-auto shrink-0"
-                            icon={<Code2 className="w-4 h-4" aria-hidden="true" />}
-                        >
-                            {tr("Get the source code")}
-                        </ButtonLink>
-                    </div>
+                    <SettingRow
+                        label={tr("Source code")}
+                        // The licence by name, linked; what it lets you do is
+                        // the licence's own page.
+                        detail={
+                            <a
+                                href="https://www.gnu.org/licenses/agpl-3.0.html"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-accent-fg hover:underline"
+                            >
+                                {tr("GNU AGPL v3 or later")}
+                            </a>
+                        }
+                        control={
+                            <ButtonLink
+                                href={appVersion?.repoUrl || SOURCE_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                icon={<Code2 className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {tr("Get the source code")}
+                            </ButtonLink>
+                        }
+                    />
                 </Panel>
                 <ReportProblemDialog open={reportOpen} onClose={() => setReportOpen(false)} />
                 {quitting && <DesktopQuitScreen onStillRunning={onStillRunning} />}

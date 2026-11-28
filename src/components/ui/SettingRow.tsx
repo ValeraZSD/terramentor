@@ -124,6 +124,12 @@ const ROW_GAP = 16;
  *  narrow card the fraction binds, on a wide one the absolute does. */
 const NAME_MIN_FRACTION = 0.45;
 const NAME_MIN_REM = 12;
+/** How much more room a `fill` row needs before its control comes back
+ *  beside the name. Filling its line, a `block="narrow"` switch pads each
+ *  segment 12px tighter than beside the name, so it measures up to 48px
+ *  narrower there (four segments): without this margin a row in that band
+ *  would come back, measure wider, and go under again, every frame. */
+const FILL_RETURN_REM = 3;
 
 /**
  * Does the control still fit BESIDE the name?
@@ -142,9 +148,11 @@ const NAME_MIN_REM = 12;
  * So it is measured, on the row's own box. It is measured from the CONTROL's natural width, which
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
- * this reads, and there is no flicker to damp.
+ * this reads, and there is no flicker to damp. (A `block="narrow"` switch is
+ * the one exception: it pads its segments tighter while it fills its line, so
+ * a `fill` row needs `FILL_RETURN_REM` more room to come back beside the name.)
  */
-function useStacksWhenTight(enabled: boolean) {
+function useStacksWhenTight(enabled: boolean, fill = false) {
     const row = useRef<HTMLDivElement>(null);
     const control = useRef<HTMLDivElement>(null);
     const [stacked, setStacked] = useState(false);
@@ -158,9 +166,17 @@ function useStacksWhenTight(enabled: boolean) {
         if (!enabled || !rowEl || !controlEl || rowEl.clientWidth === 0) return;
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const floor = Math.min(rowEl.clientWidth * NAME_MIN_FRACTION, NAME_MIN_REM * rem);
-        const forName = rowEl.clientWidth - controlEl.offsetWidth - ROW_GAP;
-        setStacked(forName < floor);
-    }, [enabled]);
+        // Read at `max-content`: a `fill` control stacked under the name is as
+        // wide as the row, and that width would keep it stacked for good. The
+        // width is put back before anything paints, so nothing moves.
+        const was = controlEl.style.width;
+        controlEl.style.width = 'max-content';
+        const natural = controlEl.offsetWidth;
+        controlEl.style.width = was;
+        const forName = rowEl.clientWidth - natural - ROW_GAP;
+        const back = fill ? FILL_RETURN_REM * rem : 0;
+        setStacked(prev => forName < floor + (prev ? back : 0));
+    }, [enabled, fill]);
 
     useLayoutEffect(() => {
         const rowEl = row.current;
@@ -180,7 +196,7 @@ function useStacksWhenTight(enabled: boolean) {
     return { row, control, stacked: enabled && stacked };
 }
 
-export function SettingRow({ id, label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+export function SettingRow({ id, label, hint, detail, control, more, block = false, fill = false, alignTop = false, htmlFor, className = '' }: {
     /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
     id?: string;
     label: React.ReactNode;
@@ -191,6 +207,16 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
     control?: React.ReactNode;
     more?: React.ReactNode;
     block?: boolean;
+    /** Beside the name while it fits, like any control; once under it, the
+     *  line is the control's to fill (a `SegmentedControl block="narrow"`,
+     *  whose segments read as one choice across a phone). `block` instead put
+     *  such a switch under its name at EVERY width, a short track with the
+     *  right half of a desktop card empty beside it. */
+    fill?: boolean;
+    /** The control level with the name's first line instead of centred on the
+     *  text: for a detail that opens (a disclosure), which would otherwise
+     *  slide the control down as it grows. */
+    alignTop?: boolean;
     htmlFor?: string;
     className?: string;
 }) {
@@ -198,7 +224,7 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
     // <label for> naming nothing is a promise to a screen reader that the app
     // does not keep.
     const Name = htmlFor ? 'label' : 'span';
-    const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control);
+    const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control, fill);
     const under = block || stacked;
     const hintId = useId();
     const name = (
@@ -232,28 +258,36 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                 place `block` puts it. Either way it is never half-way: a
                 control at the left edge of its own line, under a name it is no
                 longer beside, is the shape this replaced.
-                Stacked, the measured wrapper is `w-max`: a block box fills the
-                row, so it measured as the row itself and a row that stacked
-                once never came back beside its name. */}
-            <div ref={row} className={`flex items-center justify-between gap-4 ${under ? 'mb-3' : ''}`}>
+                The measurement reads the control at `max-content`: a stacked
+                control that fills its line would otherwise measure as the row
+                itself, and a row that stacked once would never come back. */}
+            <div ref={row} className={`flex ${alignTop ? 'items-start' : 'items-center'} justify-between gap-4 ${under ? 'mb-3' : ''}`}>
                 <div className="min-w-0 flex-1">
                     {name}
                     {hint && (
                         <p id={hintId} className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
                     )}
-                    {detail && <SettingNote className="mt-0.5">{detail}</SettingNote>}
+                    {/* A <div> with the hint's type, not a <p>: a detail may
+                        hold blocks (a status line over a note, a disclosure
+                        with a button in it), and a block inside a <p> is
+                        invalid markup the parser closes early. */}
+                    {detail && <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{detail}</div>}
                 </div>
-                {!under && control && <div ref={controlRef} className="shrink-0">{control}</div>}
+                {/* A flex row, so a `block="narrow"` switch beside the name
+                    knows it SHARES its line and keeps its own width: in a plain
+                    block it filled that box with equal segments, and the
+                    longest label ("No clock") broke onto two lines. */}
+                {!under && control && <div ref={controlRef} className="flex shrink-0">{control}</div>}
             </div>
-            {/* Stacked, the control keeps its OWN width rather than stretching:
-                the measurement above reads that width back, and a control told
-                to fill the row would measure the row and never un-stack.
+            {/* Stacked, the control keeps its OWN width rather than stretching,
+                unless the row says `fill`; either way the measurement reads it
+                at `max-content`, so filling the line never keeps it stacked.
                 A `block` row is never measured, so its control is given the
                 full row: the theme cards and the size slider are laid out
                 across it, and a shrink-to-fit box left both a third wide. */}
             {under && control && (block
                 ? <div>{control}</div>
-                : <div ref={controlRef} className="w-max max-w-full">{control}</div>
+                : <div ref={controlRef} className={fill ? '' : 'w-max max-w-full'}>{control}</div>
             )}
             {more && <div className="mt-3">{more}</div>}
         </div>

@@ -257,8 +257,12 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                                     hint={<>{tr("Self-hosted meta-search engine. Run")}{' '}<code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">docker run -d -p 8080:8080 searxng/searxng</code> {tr("to get started.")}</>}
                                 >
                                     {id => (
-                                        <div className="flex flex-col sm:flex-row gap-2">
+                                        // The buttons beside the field while the ROW
+                                        // has room (the field keeps 12rem), under it
+                                        // when not; `sm:` keyed it on the window.
+                                        <div className="flex flex-wrap gap-2">
                                             <TextInput
+                                                className="flex-[1_1_12rem]"
                                                 id={id}
                                                 ref={searxngInputRef}
                                                 value={searxngUrl}

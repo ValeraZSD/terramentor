@@ -776,7 +776,12 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                     {tr("What the tutor may draw. Switching a kind off keeps anything already drawn.")}
                 </SettingNote>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Two across while the gallery's OWN box has room, one when not
+                (`auto-fit`, at most two since a card takes 45%): from a
+                window width it kept two squeezed cards beside the assistant.
+                `min(100%, …)` keeps one track inside a phone's box at a large
+                text size, where 16rem is wider than the box. */}
+            <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,max(16rem,45%)),1fr))]">
                 {samples.map(spec => {
                     const enabled = !off.has(spec.id);
                     const name = NAMES[spec.id];

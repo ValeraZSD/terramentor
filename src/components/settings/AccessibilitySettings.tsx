@@ -127,7 +127,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 <SettingRow
                     label={tr("Contrast")}
                     hint={contrastHint}
-                    block
+                    fill
                     control={
                         <SegmentedControl<ContrastPref>
                             label={tr("Contrast")}
@@ -144,7 +144,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 <SettingRow
                     label={tr("Motion")}
                     hint={motionHint}
-                    block
+                    fill
                     control={
                         <SegmentedControl<MotionPref>
                             label={tr("Motion")}
@@ -193,7 +193,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                         key={field}
                         label={label}
                         hint={hint}
-                        block
+                        fill
                         control={
                             <SegmentedControl<SpacingLevel>
                                 label={label}
@@ -288,7 +288,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 <SettingRow
                     label={tr("Time limits")}
                     hint={drillTimeScale === 'off' ? tr("Timed drills and mock exams run without a clock.") : tr("More time on every timed drill and mock exam, or no clock at all.")}
-                    block
+                    fill
                     control={
                         <SegmentedControl<DrillTimeScale>
                             label={tr("Time limits")}

@@ -56,8 +56,7 @@ interface Props<T extends string | number> {
      *
      * The row is the PARENT element, so the parent must be the line: a block,
      * or a flex column. In a flex row or a grid the switch shares its line,
-     * and it keeps its own width there whatever the width (a settings row
-     * that puts the switch beside its sentence from `sm:` up). A parent that
+     * and it keeps its own width there whatever the width. A parent that
      * shrinks to its content (a cell of a centred column) measures narrow
      * always and gives the fill no room to take: wrap it in a block that
      * spans the line, or leave the prop off.

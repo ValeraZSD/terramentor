@@ -51,15 +51,29 @@ for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'N
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.requestAnimationFrame = (f) => setTimeout(() => f(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-class RO { constructor(cb) { this.cb = cb; } observe() { } unobserve() { } disconnect() { } }
+const observers = new Set();
+class RO { constructor(cb) { this.cb = cb; } observe() { observers.add(this); } unobserve() { } disconnect() { observers.delete(this); } }
 globalThis.ResizeObserver = window.ResizeObserver = RO;
 // A 340px row (a phone's card) and a 300px control: the control cannot sit
-// beside the name, so the row stacks. Every other box measures 0.
-const ROW_W = 340, CONTROL_W = 300;
+// beside the name, so the row stacks. Every other box measures 0. `rowW` is
+// what a case widens; `resize()` then fires the observers as a browser would.
+const CONTROL_W = 300;
+let rowW = 340;
+const resize = (w) => { rowW = w; for (const o of [...observers]) o.cb([]); };
 const isRow = (el) => /\bjustify-between\b/.test(el.className) && /\bgap-4\b/.test(el.className);
 const isControl = (el) => /\bshrink-0\b|\bw-max\b/.test(el.className) && el.parentElement && (isRow(el.parentElement) || el.previousElementSibling && isRow(el.previousElementSibling));
-Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return isRow(this) ? ROW_W : 0; } });
-Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return isControl(this) ? CONTROL_W : 0; } });
+// A stacked control that fills its line (`fill`): a block box, as wide as the
+// row, unless it is being read at `max-content`.
+const isFilledControl = (el) => !el.className && el.previousElementSibling && isRow(el.previousElementSibling);
+Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return isRow(this) ? rowW : 0; } });
+Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get() {
+        if (isControl(this)) return CONTROL_W;
+        if (isFilledControl(this)) return this.style.width === 'max-content' ? CONTROL_W : rowW;
+        return 0;
+    },
+});
 
 // --- the real components, bundled ----------------------------------------
 // Inside node_modules, so the bundle's external `require('react')` resolves.
@@ -165,6 +179,26 @@ await mounted('SettingRow', () => h(SettingRow, { label: 'Connect a phone', cont
     await rerender(() => h(SettingRow, { label: 'Connect a phone', control: h('button', null, 'Show code') }));
     check('…and stacks again when the control comes back', row()?.classList.contains('mb-3'), row()?.className);
 });
+
+// ---------------------------------------------------------------------------
+section('a row whose control fills its line under the name comes back beside it when there is room');
+await mounted('SettingRow fill', () => h(SettingRow, { label: 'Contrast', fill: true, control: h('div', null, 'Standard | More') }), async (el) => {
+    const row = () => [...el.querySelectorAll('div')].find(isRow);
+    check('fill: a 300px switch in a 340px row goes under the name and fills its line',
+        row()?.classList.contains('mb-3') && row()?.nextElementSibling?.className === '', row()?.nextElementSibling?.outerHTML.slice(0, 120));
+    // Filled, the switch is as wide as the row; read at that width it would
+    // never fit beside the name again, however wide the row grew.
+    // 540px: 224px left for the name, past the 192px floor but inside the 48px
+    // margin a filled switch needs (it measures narrower filling its line, so
+    // coming back here would measure wider beside the name and go under again).
+    await act(async () => resize(540));
+    check('fill: at 540px it stays under the name (inside the return margin)', row()?.classList.contains('mb-3'), row()?.className);
+    await act(async () => resize(900));
+    check('fill: widened to 900px, the switch is back beside the name', row() && !row().classList.contains('mb-3'), row()?.className);
+    await act(async () => resize(340));
+    check('fill: narrowed again, it goes back under', row()?.classList.contains('mb-3'), row()?.className);
+});
+rowW = 340;
 
 // ---------------------------------------------------------------------------
 section('a switch can point at the line that explains it');
