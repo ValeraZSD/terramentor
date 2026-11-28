@@ -8,7 +8,7 @@
  * (src/utils/assistantChoices.ts) keeps to them, so the model is never told a
  * limit the app does not hold. tools/chat-choices-gates.mjs reads both.
  *
- * Two to four, as Claude's own ask-the-user options are: one answer is not a
+ * Two to four, as coding agents' ask-the-user tools offer: one answer is not a
  * choice, and past four the list is read rather than glanced at. Sixty
  * characters is two lines of a button at a phone's width.
  */
@@ -16,9 +16,11 @@ export const CHOICES_MIN = 2;
 export const CHOICES_MAX = 4;
 export const CHOICE_LABEL_MAX = 60;
 
-const plain = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+// NFKC folds full-width letters; toLowerCase, not toLocaleLowerCase, so the
+// device's language (a Turkish dotted i) never decides what counts as the same.
+const plain = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 
-/** One answer, whatever its case and spacing: "Some basics" and " some  basics". */
+/** One answer, whatever its case, spacing or width: "Some basics", " some  basics", "Ｓｏｍｅ basics". */
 export function sameAnswer(a, b) {
     const x = plain(a);
     return x !== '' && x === plain(b);

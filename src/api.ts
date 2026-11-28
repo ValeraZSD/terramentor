@@ -1471,7 +1471,7 @@ export const api = {
      */
     streamAssistant: async function* (
         message: string,
-        { conversationId, context, attachments = [] }: {
+        { conversationId, context, attachments = [], picked = false }: {
             conversationId: number | null;
             context: {
                 view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null;
@@ -1480,12 +1480,14 @@ export const api = {
             };
             /** Ids of files already uploaded from the composer (`uploadAttachment`). */
             attachments?: number[];
+            /** The message is an answer pressed under the assistant's question, not typed. */
+            picked?: boolean;
         },
         handlers: ChatStreamHandlers,
     ) {
         yield* streamChatSse(
             `${SSE_BASE}/ai/assistant/stream`,
-            { message, conversationId, context, attachments, timeZone: clientTimeZone() },
+            { message, conversationId, context, attachments, timeZone: clientTimeZone(), ...(picked ? { picked: true } : {}) },
             handlers,
         );
     },

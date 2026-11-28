@@ -76,6 +76,8 @@ const fence = (...lines) => `\`\`\`choices\n${lines.join('\n')}\n\`\`\``;
 
 // ---- 1. the parser ------------------------------------------------------------------
 section('1. the parser: lenient where a model is sloppy, strict on what becomes a button');
+// A parser that failed to build would pass every "no buttons" check vacuously.
+ok('the parser builds', typeof C.splitChoices === 'function' && typeof C.choicesAsText === 'function', Object.keys(C));
 ok('the shared limits exist and are the ones the brief names', limits.CHOICES_MIN === 2 && limits.CHOICES_MAX === 4 && limits.CHOICE_LABEL_MAX === 60, json(limits));
 {
     const r = split(`What is your level in Dutch?\n\n${fence('I am new to it', 'I know the basics', 'I can hold a conversation')}`);
@@ -88,7 +90,11 @@ ok('the shared limits exist and are the ones the brief names', limits.CHOICES_MI
     // Sent word for word, so a strip that cut into the answer changed the reply.
     const inside = split(fence('"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai'));
     ok('…but marks INSIDE a label stay, and a number stays unless the block counts 1, 2, 3', json(inside.choices) === json(['"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai']), json(inside.choices));
-    ok('…a count from 2, or the same number on every line, is a list\'s numbering', json(split(fence('2) Optics', '3) Sound')).choices) === json(['Optics', 'Sound']) && json(split(fence('1. Ja', '1. Nee')).choices) === json(['Ja', 'Nee']), json([split(fence('2) Optics', '3) Sound')).choices, split(fence('1. Ja', '1. Nee')).choices]));
+    ok('…a count from 1, or a 1 on every line, is a list\'s numbering', json(split(fence('1) Optics', '2) Sound')).choices) === json(['Optics', 'Sound']) && json(split(fence('1. Ja', '1. Nee')).choices) === json(['Ja', 'Nee']), json([split(fence('1) Optics', '2) Sound')).choices, split(fence('1. Ja', '1. Nee')).choices]));
+    // Read as a count, "5. Mai" and "6. Mai" were both "Mai", one was dropped
+    // as a duplicate and the learner saw neither date.
+    const dates = [fence('5. Mai', '6. Mai'), fence('1. Mai', '2. Mai')].map(s => split(s).choices);
+    ok('…but never when taking it off leaves two answers the same: dates stay dates', json(dates) === json([['5. Mai', '6. Mai'], ['1. Mai', '2. Mai']]), json(dates));
 }
 {
     const r = split('Klaar?\n\n```Options\n1. Ja\n2. Nee\n```');
@@ -100,6 +106,7 @@ ok('one line split on "|" is several answers', json(split(fence('Yes | No')).cho
     ok('CRLF, blank lines and outer spaces are not answers', json(r.choices) === json(['Morning', 'Evening']), json(r));
 }
 ok('the same answer twice is one button', json(split(fence('Yes', 'yes', 'No')).choices) === json(['Yes', 'No']), json(split(fence('Yes', 'yes', 'No')).choices));
+ok('…full-width letters too', json(split(fence('Yes', 'Ｙｅｓ', 'No')).choices) === json(['Yes', 'No']), json(split(fence('Yes', 'Ｙｅｓ', 'No')).choices));
 {
     // A stopped or cut-off turn is stored as far as it got: its last line may be
     // half a word, and a button would send that half as the learner's reply.
@@ -119,6 +126,24 @@ ok('the same answer twice is one button', json(split(fence('Yes', 'yes', 'No')).
     ok('…and a cut-off turn\'s half closer is not an answer', halfCloser.body === 'Q?\n\n- A\n- B', json(halfCloser.body));
     const trailing = split('Level?\n\n```choices\nNew\nBasic\n``` Hope that helps.\n\nNext paragraph.');
     ok('words after the closing fence on its line stay text, and the rest of the message with them', json(trailing.choices) === json(['New', 'Basic']) && trailing.body === 'Level?\n\nHope that helps.\n\nNext paragraph.', json(trailing));
+    // A later code block cut off or still arriving flipped a closed block to a
+    // list and left its closer behind, opening a code block over the rest.
+    const cutCode = split('Q?\n```choices\nA\nB\n```\n\nExample:\n```js\nfoo()');
+    const cutCodeArriving = split('Q?\n```choices\nA\nB\n```\nExample:\n```js\nfo', true);
+    ok('a closed block stays buttons when a later code block is unfinished, and no stray fence is left', json([cutCode.choices, cutCodeArriving.choices]) === json([['A', 'B'], ['A', 'B']]) && cutCode.body === 'Q?\n\nExample:\n```js\nfoo()', json([cutCode, cutCodeArriving]));
+    ok('…and a closer of four backticks closes it too', json(split('Q?\n```choices\nA\nB\n````').choices) === json(['A', 'B']), json(split('Q?\n```choices\nA\nB\n````')));
+    // Asked how the format looks, a model shows it inside a code block: that
+    // example drew live buttons and Copy rewrote it.
+    const tilde = 'Write it like this:\n~~~markdown\n```choices\nYes\nNo\n```\n~~~\nThat is all.';
+    const ticks = 'Write it like this:\n````md\n```choices\nYes\nNo\n```\n````';
+    ok('a block shown inside another code block is code: no buttons, the example untouched', json([split(tilde), split(ticks)]) === json([{ body: tilde, choices: [] }, { body: ticks, choices: [] }]) && C.choicesAsText?.(tilde) === tilde, json([split(tilde), split(ticks)]));
+    // Only the lines around a block are tidied: two blank lines in code before
+    // it and a Markdown hard break (two trailing spaces) are the writer's.
+    const kept = 'def a():\n    pass\n\n\ndef b():\n    pass\nLine one  \nLine two\n' + fence('Yes', 'No');
+    ok('the text away from the block is kept exactly as written', split(kept).body === 'def a():\n    pass\n\n\ndef b():\n    pass\nLine one  \nLine two', json(split(kept).body));
+    // A loose numbered list still arriving: "2. Eve" (half a label) showed.
+    const loose = split('Q?\n```choices\n1. Morning\n\n2. Eve', true);
+    ok('…while a turn streams, a block with blank lines between its answers shows nothing of them', loose.body === 'Q?', json(loose.body));
     const later = C.splitChoices?.(`Level?\n\n${fence('Low', 'High')}`, false, false) ?? { choices: ['x'], body: '' };
     ok('a piece after the one that gave the buttons turns its block into a list', later.choices?.length === 0 && later.body.includes('- Low'), json(later));
     const arriving = split('How long do you have?\n\n```choices\n10 minutes\nHalf an', true);
@@ -241,7 +266,8 @@ section('4. the buttons, mounted: labelled, real buttons, a press hands back exa
     const kb = [...k.host.querySelectorAll('button')];
     act(() => { kb[0]?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); kb[0]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })); });
     act(() => kb[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })));
-    act(() => { kb[2]?.dispatchEvent(new window.Event('pointerdown', { bubbles: true })); kb[2]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); });
+    // A key went down first and the pointer pressed before any click: only the pointer counts.
+    act(() => { kb[2]?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); kb[2]?.dispatchEvent(new window.Event('pointerdown', { bubbles: true })); kb[2]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); });
     ok('Enter on a button is a keyboard press; a click with no key or a pointer is not', json(how) === json([true, false, false]), json(how));
     // Space down, Tab away before it came up: the next screen-reader click is not the keyboard.
     act(() => { kb[0]?.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ', bubbles: true })); kb[0]?.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true })); });
@@ -261,8 +287,16 @@ section('5. the drawer: from the stored message, through the one send path');
 {
     const drawer = read('src/components/AssistantDrawer.tsx');
     ok('the body pipeline takes the block out of the text', /renderBody[\s\S]{0,400}splitChoices\(/.test(drawer));
-    ok('the buttons are drawn from the message\'s own stored text', /const choices = m\.role === 'assistant' \? splitChoices\(m\.content\)\.choices : \[\]/.test(drawer)
+    ok('the buttons are drawn from the message\'s own stored text', /const offered = m\.role === 'assistant' \? splitChoices\(m\.content\)\.choices : \[\]/.test(drawer)
         && /<ChoiceButtons\s+choices=\{choices\}/.test(drawer));
+    // A message that was only the block drew buttons under no question.
+    ok('…and only under words: a message that is only the block shows its answers as a list', /const choices = asked\.trim\(\) \? offered : \[\]/.test(drawer)
+        && /const body = choices\.length \|\| !offered\.length \? asked : renderBody\(m\.content, isStreaming, false\)/.test(drawer)
+        && /newestOffer\.choices\.length > 0 && !!newestOffer\.body\.trim\(\)/.test(drawer));
+    // Focus fell to the page after a touch or screen-reader press (the button
+    // is gone); in the modal panel that left the dialog's focus order.
+    ok('a press not from the keyboard moves focus to the conversation, never out of the panel', /if \(byKeyboard\) inputRef\.current\?\.focus\(\);\s*else scroll\.ref\.current\?\.focus\(\{ preventScroll: true \}\);/.test(drawer)
+        && /role="log"[\s\S]{0,400}tabIndex=\{-1\}/.test(drawer));
     ok('…live only by choicesLive over the messages on screen, and never while streaming', /live=\{!streaming && choicesLive\(displayMessages, index, streaming\)\}/.test(drawer));
     ok('a press goes through send(), the path a typed message takes, keeping the composer', /onPick=\{\(answer, byKeyboard\) => \{\s*send\(answer, \{ keepComposer: true \}\);/.test(drawer));
     // From the callback's head to its stream call: the whole path a message takes.
@@ -271,10 +305,20 @@ section('5. the drawer: from the stored message, through the one send path');
     ok('…which leaves a typed draft and attached files where they are', /keepComposer\s*\?\s*\[\]\s*:\s*files\.take\(\)/.test(sendFn) && /if \(!keepComposer\) setInput\(''\)/.test(sendFn), sendFn.slice(0, 200));
     ok('…and sends the answer as the message itself', /const message = text\.trim\(\);/.test(sendFn) && /api\.streamAssistant\(message,/.test(sendFn));
     ok('a message drawn in pieces gives buttons once: later pieces get buttons=false', /renderBody\(seg\.text, arriving && j === pieces\.length - 1, !choicesDrawn\)/.test(drawer) && /if \(!choicesDrawn && splitChoices\(seg\.text, arriving && j === pieces\.length - 1\)\.choices\.length > 0\) choicesDrawn = true/.test(drawer));
+    // A piece could take its block as buttons while the whole message gave
+    // none: the answers were out of the text and on no button.
+    ok('…and none unless the whole message gives buttons, so no answer is dropped', /let choicesDrawn = choices\.length === 0;/.test(drawer));
     const failAt = drawer.indexOf('} else if (failed) {', sendAt);
     const failBlock = failAt < 0 ? '' : drawer.slice(failAt, drawer.indexOf('setTurnError(', failAt) + 120);
     ok('a pressed answer that fails leaves the composer alone and says so to the retry', /if \(!keepComposer\) \{\s*setInput\(/.test(failBlock) && /keptIn: keepComposer \? 'choices'/.test(failBlock), failBlock.slice(0, 200));
-    ok('…and Try again sends it as a pressed answer again', /onRetry=\{\(\) => \{[^}]*keptIn === 'choices'[^}]*send\(t, \{ keepComposer: tapped \}\)/.test(drawer));
+    ok('…and Try again sends it as a pressed answer again', /onRetry=\{\(\) => \{[^}]*keptIn === 'choices' \|\| !!turnError\.picked[^}]*send\(t, \{ keepComposer: tapped \}\)/.test(drawer));
+    // The same press failing as a background task: the mark rides on the
+    // task (route, section 6) and both recovery paths read it back.
+    const api = read('src/api.ts');
+    ok('a pressed answer is marked on its request, and a failed task\'s retry reads the mark', /picked: keepComposer,/.test(sendFn + drawer.slice(drawer.indexOf('api.streamAssistant(', sendAt), drawer.indexOf('api.streamAssistant(', sendAt) + 900))
+        && /\.\.\.\(picked \? \{ picked: true \} : \{\}\)/.test(api)
+        && (drawer.match(/keptIn: 'chat', picked: !!(?:taskMeta|failed\.meta)\?\.picked/g) || []).length === 2,
+        (drawer.match(/keptIn: 'chat'[^}]*/g) || []).join(' | '));
     ok('a message that is only a question with answers is not "no answer"', /prepared = [\s\S]{0,400}choices\.length/.test(drawer));
     ok('while answers are live, the composer says typing still works', /placeholder=\{offering \? tr\("Or type your own answer…"\) : tr\("Ask anything…"\)\}/.test(drawer));
     const en = JSON.parse(read('src/locales/en.json') || '{}');
@@ -316,6 +360,8 @@ const stub = createServer((req, res) => {
 });
 for (;;) {
     await new Promise(r => stub.listen(0, '127.0.0.1', r));
+    // server/feedGen.js reads "502"/"503"/"504" in an error's text as a server
+    // fault, so a port holding one would turn a failure into a retry.
     if (!/50[234]/.test(String(stub.address().port))) break;
     await new Promise(r => stub.close(r));
 }
@@ -335,10 +381,10 @@ const { createApp } = await import('../server/app.js');
 const server = createServer(createApp());
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
-const turn = async (message, conversationId = null) => {
+const turn = async (message, conversationId = null, picked = false) => {
     const res = await fetch(`${base}/api/ai/assistant/stream`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message, conversationId, context: { view: 'today' }, timeZone: 'UTC' }),
+        body: JSON.stringify({ message, conversationId, context: { view: 'today' }, timeZone: 'UTC', ...(picked ? { picked: true } : {}) }),
     });
     await res.text();
 };
@@ -351,8 +397,15 @@ const offered = assistantRows()[0];
 ok('the offering message is stored with its block, so a reload draws the same buttons', offered?.content === OFFER && json(split(offered.content).choices) === json(['I am new to it', 'I know the basics', 'I can hold a conversation']), json(offered));
 const tapped = 'I know the basics';
 modelCalls.length = 0;
-await turn(tapped, offered?.conversation_id ?? null);
+await turn(tapped, offered?.conversation_id ?? null, true);
 await until(() => assistantRows().length >= 2);
+// A pressed answer that fails as a background task is retried from the task's
+// meta: without the mark its Try again cleared the learner's draft and sent
+// the files in the box with it.
+const { listTasks } = await import('../server/tasks.js');
+const chatTasks = listTasks().filter(t => t.kind === 'today_chat');
+const metaOf = (text) => chatTasks.find(t => t.meta?.message === text)?.meta;
+ok('a pressed answer\'s task says so; a typed one\'s does not', metaOf(tapped)?.picked === true && metaOf('I want to learn Dutch') && !('picked' in metaOf('I want to learn Dutch')), json(chatTasks.map(t => t.meta)));
 const users = db.prepare("SELECT content FROM chat_messages WHERE role = 'user' AND conversation_id = ? ORDER BY id").all(offered?.conversation_id ?? -1).map(r => r.content);
 ok('the tapped answer is stored as the learner\'s message, word for word', users[1] === tapped, json(users));
 const call = modelCalls.find(b => b.stream) || modelCalls[0] || {};

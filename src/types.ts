@@ -720,7 +720,7 @@ export interface AITaskSummary {
     /** Where it was started from; null from a server that predates the field. */
     origin?: AITaskOrigin | null;
     /** An assistant turn's question, and the conversation it was asked in. */
-    meta: { message?: string; conversationId?: number } | null;
+    meta: { message?: string; conversationId?: number; picked?: boolean } | null;
     /** A visual build's key (`widget:<hash>` / `visual:<hash>`); null for any other task. */
     buildKey?: string | null;
 }

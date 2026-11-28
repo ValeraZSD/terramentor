@@ -86,7 +86,9 @@ app.post('/api/ai/assistant/stream', (req, res) => {
         // question, the way a quiz's chip names its topic.
         label: title,
         origin: { surface: 'assistant' },
-        meta: { message: String(message), conversationId, attachments },
+        // `picked`: an answer pressed under the assistant's question; the
+        // drawer retries a failed one without touching the composer.
+        meta: { message: String(message), conversationId, attachments, ...(req.body.picked === true ? { picked: true } : {}) },
         run: async ({ emit, signal }) => {
             try {
                 return await runChatTurn({

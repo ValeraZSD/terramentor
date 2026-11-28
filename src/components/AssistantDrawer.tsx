@@ -365,7 +365,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // retry. Cleared on the next send, on retry, or when dismissed. `keptIn`
     // says where the question went — the composer, or the transcript as its own
     // bubble (a task that settled while unwatched) — and the card says the same.
-    const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' | 'choices' } | null>(null);
+    // `picked`: the turn was an answer pressed under a question, so Try again
+    // sends it the same way and leaves the composer's draft and files alone.
+    const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' | 'choices'; picked?: boolean } | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [streamed, setStreamedNow] = useState('');
     // The arriving answer is drawn as one markdown document, parsed whole on
@@ -894,8 +896,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // was sent with; when the LAST user row already says it, the
                     // turn was partially answered and its row survived, so
                     // nothing is spliced and the card sits under it.
-                    const question = useStore.getState().aiTasks
-                        .find(t => t.id === taskId)?.meta?.message ?? '';
+                    const taskMeta = useStore.getState().aiTasks.find(t => t.id === taskId)?.meta;
+                    const question = taskMeta?.message ?? '';
                     const lastUser = [...rows].reverse().find(m => m.role === 'user');
                     if (question && (!lastUser || lastUser.content !== question)) {
                         const bubbleId = -Date.now() - 2;
@@ -905,7 +907,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             created_at: new Date().toISOString(),
                         } as ChatMessage]);
                     }
-                    setTurnError({ message: failed, text: question, keptIn: 'chat' });
+                    setTurnError({ message: failed, text: question, keptIn: 'chat', picked: !!taskMeta?.picked });
                 }
             }
         }
@@ -1010,7 +1012,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         created_at: new Date().toISOString(),
                     } as ChatMessage]);
                 }
-                setTurnError({ message: failed.error || 'Generation failed', text: question, keptIn: 'chat' });
+                setTurnError({ message: failed.error || 'Generation failed', text: question, keptIn: 'chat', picked: !!failed.meta?.picked });
             });
     }, [open, streaming, aiTasks, loadHistory, conversationId]);
 
@@ -1096,6 +1098,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // the server holds, never a copy the client sent.
                 context: { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId, items: screenItems() },
                 attachments: sentAttachments.map(a => a.id),
+                // A pressed answer: if the turn fails as a background task, its
+                // retry must leave the composer alone too.
+                picked: keepComposer,
             }, {
                 signal: controller.signal,
                 onDone: meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; stopped = !!meta.cancelled; },
@@ -1442,8 +1447,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // The newest message offers answers to tap: the composer says that typing
     // one's own still works, rather than a line of text saying so.
     const newest = displayMessages.length - 1;
-    const offering = !showList && newest >= 0 && choicesLive(displayMessages, newest, streaming)
-        && splitChoices(displayMessages[newest].content).choices.length > 0;
+    const newestOffer = newest >= 0 ? splitChoices(displayMessages[newest].content) : null;
+    const offering = !showList && !!newestOffer && choicesLive(displayMessages, newest, streaming)
+        && newestOffer.choices.length > 0 && !!newestOffer.body.trim();
 
     const panel = (
         <aside
@@ -1557,7 +1563,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 role="log"
                 aria-live="off"
                 aria-label={tr("Conversation")}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
+                // Focus lands here (by code only) after an answer pressed by touch
+                // or a screen reader: its button is gone, and the composer would
+                // raise a phone's keyboard.
+                tabIndex={-1}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text outline-none"
             >
                 {showList ? (
                     <ConversationList
@@ -1588,7 +1598,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     const isStreaming = streaming && m.id === streamingId;
                     // One body pipeline for a streamed turn and its settled row,
                     // switched by `isStreaming`.
-                    const body = renderBody(m.content, isStreaming);
+                    // Buttons need the question they answer: a message that is
+                    // only the block shows its answers as a list instead.
+                    const offered = m.role === 'assistant' ? splitChoices(m.content).choices : [];
+                    const asked = renderBody(m.content, isStreaming);
+                    const choices = asked.trim() ? offered : [];
+                    const body = choices.length || !offered.length ? asked : renderBody(m.content, isStreaming, false);
                     // The turn in the order it happened: lookups made while the
                     // model was thinking go INSIDE the reasoning panel at their
                     // place, lookups made once the answer had begun go between
@@ -1598,12 +1613,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // A turn whose whole answer is a card or a change it prepared
                     // said something — the preview is the answer.
                     const writes = splitWriteBlocks(m.content);
-                    // …and so did one whose whole answer is the answers it offers.
-                    const choices = m.role === 'assistant' ? splitChoices(m.content).choices : [];
                     // The message is drawn in pieces (between lookups and
-                    // pictures); only the first block in the WHOLE message is
-                    // buttons, so once a piece took it the rest are lists.
-                    let choicesDrawn = false;
+                    // pictures). The WHOLE message decides whether there are
+                    // buttons; a piece may take its block out of the text only
+                    // then, and only the first, so the rest are lists and no
+                    // answer is ever left out of both.
+                    let choicesDrawn = choices.length === 0;
                     const prepared = writes.cards.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length + choices.length > 0;
@@ -1711,8 +1726,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 live={!streaming && choicesLive(displayMessages, index, streaming)}
                                                 onPick={(answer, byKeyboard) => {
                                                     send(answer, { keepComposer: true });
-                                                    // The buttons go with the press; the composer is next.
+                                                    // The buttons go with the press: from the keyboard the
+                                                    // composer is next, otherwise the conversation, so focus
+                                                    // never falls out of the panel.
                                                     if (byKeyboard) inputRef.current?.focus();
+                                                    else scroll.ref.current?.focus({ preventScroll: true });
                                                 }}
                                             />
                                             {/* Settings this answer changed, with the way
@@ -1841,7 +1859,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             silently do nothing. */
                         retryDisabled={streaming || (!turnError.text && !composer.ready.length)}
                         keptIn={turnError.keptIn}
-                        onRetry={() => { const t = turnError.text; const tapped = turnError.keptIn === 'choices'; setTurnError(null); send(t, { keepComposer: tapped }); }}
+                        onRetry={() => { const t = turnError.text; const tapped = turnError.keptIn === 'choices' || !!turnError.picked; setTurnError(null); send(t, { keepComposer: tapped }); }}
                         onDismiss={() => setTurnError(null)}
                     />
                 )}
