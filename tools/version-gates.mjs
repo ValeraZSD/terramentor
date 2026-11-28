@@ -486,7 +486,7 @@ if (changelog) {
 // sentence, never a blank release body.
 // LF whatever the checkout: a Windows clone has CRLF, and `.` stops at the `\r`.
 const workflow = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8').replace(/\r\n/g, '\n');
-const { changelogSection, releaseBody } = await import('./lib/releaseChannel.mjs');
+const { changelogSection, highlightsOf, releaseBody } = await import('./lib/releaseChannel.mjs');
 ok('the release workflow writes its notes with tools/release.mjs', /tools\/release\.mjs notes/.test(workflow));
 if (changelog) {
     const notes = changelogSection(changelog, pkgVersion);
@@ -499,6 +499,13 @@ check('the heading is matched literally: dots are not wildcards',
     changelogSection('## [1x0x0] - 2026-01-01\n\nwrong\n', '1.0.0'), '');
 check('…and brackets are not a character class',
     changelogSection('## [1.0.0] - 2026-01-01\r\n\r\nright\r\n\r\n## Before 1.0\r\n\r\nolder\r\n', '1.0.0'), 'right');
+check('a highlights list keeps the blank line that ends it, so the line after it is not folded into the last item',
+    changelogSection('## [1.6.0] - 2026-11-25\r\n\r\n**Highlights**\r\n\r\n- one\r\n- two\r\n\r\n\r\n**Line.** All of it.\r\n\r\n## [1.5.0]\r\n', '1.6.0'),
+    '**Highlights**\n\n- one\n- two\n\n**Line.** All of it.');
+check('the highlights are the list under **Highlights**, and stop at the blank line',
+    JSON.stringify(highlightsOf('**Highlights**\n\n- one\n- two\n\n**Line.** All of it.\n\n- not one')), '["one","two"]');
+check('a section that does not open with **Highlights** has none',
+    highlightsOf('**Line.** All of it.\n\n**Highlights**\n\n- one'), null);
 ok('a missing changelog section becomes a sentence, not an empty release body',
     releaseBody({ channel: 'stable', version: '9.9.9', repo: 'o/r', changelog: '## [1.0.0]\n\nx\n', nightlyText: '' })
         .startsWith('No changelog entry for 9.9.9.'));
@@ -531,6 +538,19 @@ if (changelog) {
         if (compareVersions(documented[i - 1], documented[i]) <= 0) ordered = false;
     }
     check('changelog versions run newest first', ordered, true);
+
+    // From 1.6.0 on, a release's notes open with a short list of highlights
+    // (CONTRIBUTING.md, "Releasing"). The one long line names everything, and a
+    // reader skimming the release page, person or search assistant, stops
+    // before the feature it came for.
+    for (const v of documented.filter((d) => compareVersions(d, '1.6.0') >= 0)) {
+        const items = highlightsOf(changelogSection(changelog, v));
+        ok(`CHANGELOG.md ${v} opens with 3 to 8 highlights`, items && items.length >= 3 && items.length <= 8,
+            items ? `${items.length} found` : 'no **Highlights** line first');
+        const long = (items || []).filter((h) => h.length > 140);
+        ok(`CHANGELOG.md ${v}: each highlight is one short line (140 characters at most)`, long.length === 0,
+            long.map((h) => `${h.length}: ${h.slice(0, 60)}…`).join('; '));
+    }
 }
 
 // ---------------------------------------------------------------------------

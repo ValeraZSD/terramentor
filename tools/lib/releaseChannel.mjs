@@ -514,7 +514,10 @@ export function sha256sums(files) {
 
 /**
  * The CHANGELOG.md section for `version`: the lines under `## [version]` up to
- * the next `## ` heading, blank lines dropped. '' when there is none.
+ * the next `## ` heading, with one blank line kept between blocks and none at
+ * either end. '' when there is none. The blank line is what ends a markdown
+ * list: without it, the line after the last highlight is read as part of that
+ * highlight.
  *
  * The heading is matched as a literal prefix, never as a regex built from the
  * version: that reads `[1.0.0]` as a character class and matches nothing, and a
@@ -527,7 +530,27 @@ export function changelogSection(text, version) {
     if (start === -1) return '';
     const after = lines.slice(start + 1);
     const end = after.findIndex((l) => l.startsWith('## '));
-    return (end === -1 ? after : after.slice(0, end)).filter((l) => l.trim()).join('\n');
+    return (end === -1 ? after : after.slice(0, end))
+        .map((l) => (l.trim() ? l : ''))
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/^\n+|\n+$/g, '');
+}
+
+/**
+ * The highlights a changelog section opens with: the `- ` lines under a
+ * `**Highlights**` line, up to the first line that is not one. null when the
+ * section does not open with that line.
+ */
+export function highlightsOf(section) {
+    const lines = String(section || '').split('\n');
+    if (lines[0] !== '**Highlights**') return null;
+    const items = [];
+    for (const l of lines.slice(1)) {
+        if (l.startsWith('- ')) items.push(l.slice(2).trim());
+        else if (l.trim() || items.length) break;
+    }
+    return items;
 }
 
 const NOTES_MAX = 60000;

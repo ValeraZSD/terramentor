@@ -303,9 +303,13 @@ To cut a stable release:
 1. Pick the number by one rule: if the release adds a capability or migrates the database it
    is a **minor**, and if it is fixes only it is a **patch**. Nothing derives this for you, so
    the argument to have is about the database, not about the digit.
-2. Add the `CHANGELOG.md` section by hand: the heading, then **one line**: a bold headline and
-   a sentence. If the release migrates the database, end that line with **Database:** and say
-   whether the change can be undone. That is what tells someone whether it is safe to update.
+2. Add the `CHANGELOG.md` section by hand: the heading, then a `**Highlights**` line with three
+   to eight `- ` items under it, each one short line (140 characters at most) naming a change
+   someone deciding whether to try the release would look for, then **one line**: a bold
+   headline and a sentence. If the release migrates the database, end that line with
+   **Database:** and say whether the change can be undone. That is what tells someone whether
+   it is safe to update. `tools/version-gates.mjs` fails a section from 1.6.0 on without the
+   highlights.
 3. Bump `version` in `package.json` to match, in the same pull request as the changelog line.
    CI **fails a release that disagrees with it**, because an app that reports one version while
    the update check compares another leaves every install believing it is permanently out of
