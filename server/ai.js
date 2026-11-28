@@ -3806,7 +3806,7 @@ I am new to it
 I know the basics
 I can already hold a conversation
 \`\`\`
-Each line is the whole answer as the learner would say it, in their language, at most ${CHOICE_LABEL_MAX} characters: a tap sends that line as their reply, word for word. Cover the likely answers evenly: no recommended one, none that only agrees with you, and no "Other" or "Something else", because they can still type their own answer instead. Offer answers for one question per message, and never for a question they have already answered.`;
+Each line is the whole answer as the learner would say it, in their language, at most ${CHOICE_LABEL_MAX} characters: a tap sends that line as their reply, word for word. Cover the likely answers evenly: no recommended one, none that only agrees with you, and no "Other" or "Something else", because they can still type their own answer instead. Offer answers for one question per message, and never for a question they have already answered. When you offer them, that question is the only thing you ask in the message (no second question, no "tell me that too"), and the message prepares nothing else for them to press: ask first, and prepare the course, change or card after they answer.`;
 
 // ---------------------------------------------------------------------------
 // What the assistant may change in a course, a topic or the library, and the

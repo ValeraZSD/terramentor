@@ -202,6 +202,9 @@ section('4. the buttons, mounted: labelled, real buttons, a press hands back exa
     ok('…in a group with a name a screen reader reads', !!group && !!group.getAttribute('aria-label') && buttons.every(b => group.contains(b)));
     ok('…each labelled with the answer as written, nothing added', json(buttons.map(b => b.textContent)) === json(labels), json(buttons.map(b => b.textContent)));
     ok('…the label reads in its own direction', buttons.length > 0 && buttons.every(b => b.querySelector('[dir="auto"]')));
+    // The rows under a message sit 0.75rem apart (space-y-3); at that gap a card
+    // the same message prepared read as a fifth button on a phone.
+    ok('…with more room below than between the rows under a message', /(^|\s)mb-(3|4|5|6)(\s|$)/.test(group?.className ?? ''), group?.className);
     act(() => buttons[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })));
     ok('a press hands back exactly that answer, once', json(picks) === json(['Ik ken de basis']), json(picks));
     m.done();
@@ -330,6 +333,10 @@ section('7. the prompt: an option the model may take, never a rule');
     // A real small model offered canned causes to a frustrated learner and a
     // menu of next steps with no question asked, until these two lines.
     ok('…none for how they feel or what is going wrong, and never a menu of next steps', /in their own words/i.test(guide) && /never as a menu/i.test(guide));
+    // Recorded replies asked a level with buttons AND "tell me your date too",
+    // with a draft course under the buttons: a tap answered half, and the
+    // phone showed buttons and the card as one stack of boxes.
+    ok('…with buttons, their question is the only thing asked and nothing else is prepared', /only thing you ask/i.test(guide) && /prepares nothing else/i.test(guide) && /after they answer/i.test(guide));
     ok('it asks for no "Other": typing stays open', /no "Other"/.test(guide) && /type their own answer/.test(guide));
     ok('it asks for the answers in the learner\'s language, as they would say them', /in their language/.test(guide) && /word for word/.test(guide));
     ok(`it states the parser's own limits (${CHOICES_MIN} to ${CHOICES_MAX}, ${CHOICE_LABEL_MAX} characters)`, guide.includes(`${CHOICES_MIN} to ${CHOICES_MAX} lines`) && guide.includes(`${CHOICE_LABEL_MAX} characters`));
