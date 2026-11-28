@@ -49,11 +49,8 @@ const bundle = async (entry, name) => {
 };
 
 const cb = await bundle('../src/utils/compareBlocks.ts', 'compareBlocks');
-const { parseCompare, prepareCompareFences, compareBlocksAsText, compareCard, compareTopicIds, wordDiff, sideMarkdown, MAX_COMPARES, COMPARE_SIDE_MAX } = cb;
-// Absent before the translation check: the gate reports it rather than throw.
-const isTranslation = cb.isTranslation ?? (() => null);
-const compareCheck = cb.compareCheck ?? (() => null);
-const editOrder = cb.editOrder ?? (() => undefined);
+const { parseCompare, prepareCompareFences, compareBlocksAsText, compareCard, compareTopicIds, wordDiff, sideMarkdown, MAX_COMPARES, COMPARE_SIDE_MAX,
+    isTranslation, compareCheck, editOrder } = cb;
 const F = '```';
 const block = (inner, open = `${F}compare`) => `${open}\n${inner}\n${F}`;
 
@@ -366,6 +363,11 @@ section('a translation is checked both ways before it is offered as a card');
     check('…named in the language itself', tr('side: English\nWhere is the station?\nside: Nederlands\nWaar is het station?') === true);
     check('…named in the interface language', tr('side: Русский\nГде вокзал?\nside: Нидерландский\nWaar is het station?', 'ru') === true);
     check('original:/translation: are a translation', tr('original: Where is the station?\ntranslation: Waar is het station?') === true);
+    check('…and so are sides NAMED Original and Translation', tr('side: Original\nWhere is the station?\nside: Translation\nWaar is het station?') === true);
+    const nlRoles = new Map([['origineel', 'original'], ['vertaling', 'translation']]);
+    check('…or named so in the interface language', isTranslation(parseCompare('side: Origineel\nWhere is the station?\nside: Vertaling\nWaar is het station?'), 'nl', nlRoles) === true);
+    check('a language name with a remark after it is still that language', tr('side: English\nWould you like a coffee?\nside: Dutch (formal)\nWilt u een koffie?') === true);
+    check('a language code is that language', tr('side: EN\nWhere is the station?\nside: NL\nWaar is het station?') === true);
     check('before/after is not', tr('before: Ik heb gegaan.\nafter: Ik ben gegaan.') === false);
     check('two versions in one language are not', tr('side: Direct\nWaar is het station?\nside: Polite\nWeet u waar het station is?') === false);
     check('the same language twice is not', tr('side: English\nhello\nside: English\nhi') === false);
@@ -376,6 +378,8 @@ section('a translation is checked both ways before it is offered as a card');
     check('a translation card carries its reverse: the second side asks, the first answers',
         card?.reverse?.front === '*Dutch → English*\n\nIk wil graag een koffie.' && card?.reverse?.back === 'I would like a coffee.', JSON.stringify(card?.reverse));
     check('a fix carries none', compareCard(parseCompare('before: Ik heb gegaan.\nafter: Ik ben gegaan.\ntopic: 4:17'))?.reverse === null);
+    const named = compareCard(parseCompare('before: Ik heb gegaan.\nafter: Ik ben gegaan.\ntopic: 4:17'), 'nl', undefined, s => (s.role === 'before' ? 'Ervoor' : 'Erna'));
+    check('the card front names its sides as the card shows them, in the interface language', named?.front === '*Ervoor → Erna*\n\nIk heb gegaan.', JSON.stringify(named));
 
     const ok = { verdict: 'ok', reason: null };
     const no = { verdict: 'disputed', reason: 'a second model answered “x”, and a closer look sided with it', detail: { answer: 'x' } };
@@ -389,7 +393,11 @@ section('a translation is checked both ways before it is offered as a card');
     check('…nor when the whole request failed (one verdict back for two cards)', compareCheck([unk], true)?.verdict === 'disputed');
     check('anything else that could not be checked stays offered and says so, as a prepared card', compareCheck([unk], false) === unk);
     check('still checking is still checking', compareCheck(null, true) === undefined && compareCheck([ok, undefined], true) === undefined);
-    check('Add asks for both checks in one request', /export function CompareCardAdd[\s\S]*?card\.reverse[\s\S]*?checkAssistantProposals[\s\S]*?compareCheck\(/.test(proposals));
+    const say = { reverse: (w) => `R:${w}`, unchecked: (w) => `U:${w}` };
+    check('the reasons a learner reads come from the caller, in their language',
+        compareCheck([ok, no], true, say)?.reason === `R:${no.reason}` && compareCheck([ok, unk], true, say)?.reason === `U:${unk.reason}`
+        && compareCheck([ok, { verdict: 'disputed' }], true, say)?.reason === 'R:null');
+    check('…and Add card passes translated ones', /export function CompareCardAdd[\s\S]*?compareCheck\([^;]*?t\("asked the other way round, \{\{reason\}\}"[^;]*?t\("the translation could not be checked"/.test(proposals));
 }
 
 section('what changed between two versions');
@@ -504,11 +512,24 @@ section('the drawing, in the real renderer');
         draw(`Here:\n\n${block('title: Ordering\nside: English\nI would like a coffee.\nside: Dutch\nIk wil graag een koffie.\nnote: Graag is polite.')}\n\nDone.`);
     } catch (e) { threw = e.stack; }
     check('the renderer draws an answer with a card', threw === null, threw);
+    // A group's accessible name: the words its aria-labelledby points at, else its aria-label.
+    const nameOfGroup = (el) => {
+        const ids = el?.getAttribute('aria-labelledby');
+        if (ids) return ids.split(/\s+/).map(i => doc.getElementById(i)?.textContent ?? '').join(' ').trim();
+        return el?.getAttribute('aria-label') ?? '';
+    };
     const group = root.querySelector('[role="group"][data-compare]');
-    check('the card is one labelled group, named by its title', !!group && group.getAttribute('aria-label') === 'Ordering', root.innerHTML.slice(0, 600));
+    check('the card is one labelled group, named by its title', !!group && nameOfGroup(group) === 'Ordering', root.innerHTML.slice(0, 600));
     const sides = group ? [...group.querySelectorAll('[data-compare-side]')] : [];
     check('…holding two sides, each a group named by its label', sides.length === 2 && sides[0].getAttribute('role') === 'group'
-        && /English/.test(sides[0].getAttribute('aria-label') || '') && /Dutch/.test(sides[1].getAttribute('aria-label') || ''));
+        && nameOfGroup(sides[0]) === 'English' && nameOfGroup(sides[1]) === 'Dutch', sides.map(s => s.outerHTML.slice(0, 200)).join(' | '));
+    check('…named by the words on screen, so a reader hears each name once (no aria-label beside them)',
+        !!group && !group.hasAttribute('aria-label') && sides.every(s => !s.hasAttribute('aria-label') && s.hasAttribute('aria-labelledby')));
+    draw(block('a: I would like a coffee.\nb: Ik wil graag een koffie.'));
+    const unnamed = [...root.querySelectorAll('[data-compare-side]')];
+    check('a side with no name on screen still has one for a reader', unnamed.length === 2 && nameOfGroup(unnamed[0]) !== '' && nameOfGroup(unnamed[1]) !== ''
+        && nameOfGroup(root.querySelector('[data-compare]')) !== '', unnamed.map(s => s.outerHTML.slice(0, 200)).join(' | '));
+    draw(`Here:\n\n${block('title: Ordering\nside: English\nI would like a coffee.\nside: Dutch\nIk wil graag een koffie.\nnote: Graag is polite.')}\n\nDone.`);
     const said = group ? spoken(group) : '';
     check('a screen reader reads it in order: title, first name and text, second name and text, note',
         /Ordering[\s\S]*English[\s\S]*I would like a coffee\.[\s\S]*Dutch[\s\S]*Ik wil graag een koffie\.[\s\S]*Graag is polite\./.test(said), said);
@@ -557,6 +578,117 @@ section('the drawing, in the real renderer');
     draw(block('side: English\nHello\nside: Dutch\nHallo'), 'lesson');
     check('outside the assistant the card is not drawn (lessons are a separate decision)', !root.querySelector('[data-compare]'));
     rmSync(mdScratch, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+section('Add card, mounted: what is asked, and when Add is offered');
+{
+    // The real CompareCardAdd and its shared foot, with the api answered here.
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    class Observer { observe() { } unobserve() { } disconnect() { } }
+    globalThis.ResizeObserver = globalThis.window.ResizeObserver = Observer;
+    globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
+    globalThis.cancelAnimationFrame = (h) => clearTimeout(h);
+    const consoleError = console.error;
+    console.error = (...a) => { if (!/not wrapped in act/.test(String(a[0]))) consoleError(...a); };
+    const stubs = {
+        'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });
+            export const initReactI18next = { type: '3rdParty', init() { } };`,
+        'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
+        'store': `const st = { addToast() { }, theme: 'light', projects: [], a11y: {} };
+            export const useStore = (sel) => sel(st); useStore.getState = () => st; useStore.setState = () => { }; useStore.subscribe = () => () => { };
+            export const themeKeyOf = () => 'light'; export const isDarkTheme = () => false;`,
+        'Markdown': `import { createElement } from 'react'; export default function Markdown({ content }) { return createElement('div', null, content); }`,
+        'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });
+            let seq = 0; export const newAttemptId = () => 'attempt-' + (++seq);`,
+    };
+    const addOut = join(mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'compare-card-add-')), 'add.cjs');
+    let CompareCardAdd = null, bundleError = null;
+    try {
+        await esbuild.build({
+            stdin: { contents: "export { CompareCardAdd } from './src/components/AssistantProposals';", resolveDir: repoRoot, loader: 'tsx' },
+            bundle: true, format: 'cjs', platform: 'node', outfile: addOut, jsx: 'automatic', logLevel: 'silent',
+            loader: { '.css': 'empty', '.svg': 'dataurl' }, packages: 'external',
+            define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' },
+            plugins: [{
+                name: 'stubs',
+                setup(b) {
+                    b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+                    b.onResolve({ filter: /^(\.\.\/)+(store|i18n|api)$/ }, (a) => ({ path: a.path.replace(/^(\.\.\/)+/, ''), namespace: 'stub' }));
+                    b.onResolve({ filter: /^\.\.?\/(\.\.\/)*Markdown$/ }, () => ({ path: 'Markdown', namespace: 'stub' }));
+                    b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: 'js', resolveDir: repoRoot }));
+                },
+            }],
+        });
+        ({ CompareCardAdd } = require(addOut));
+    } catch (e) { bundleError = String(e.message).split('\n').slice(0, 3).join(' | '); }
+    check('CompareCardAdd bundles for a mounted test', typeof CompareCardAdd === 'function', bundleError);
+
+    if (typeof CompareCardAdd === 'function') {
+        const React = require('react');
+        const { createRoot } = require('react-dom/client');
+        const act = (fn) => React.act(fn);
+        const settle = () => act(() => new Promise(r => setTimeout(r, 20)));
+        const doc = globalThis.document;
+        const labels = { 17: { id: 17, projectId: 4, title: 'Ordering', projectName: 'Dutch A1', projectStatus: 'active', kind: 'topic' } };
+        let turn = 0;
+        const mount = async (card, lbls = labels) => {
+            const host = doc.createElement('div');
+            doc.body.appendChild(host);
+            const r = createRoot(host);
+            await act(() => r.render(React.createElement(CompareCardAdd, { card, labels: lbls, turnKey: `t${++turn}` })));
+            return { host, done: async () => { await act(() => r.unmount()); host.remove(); } };
+        };
+        const addButton = (host) => [...host.querySelectorAll('button')].find(b => b.textContent.includes('Add card')) ?? null;
+        const ok = { verdict: 'ok', reason: null };
+        const sent = [];
+        let answer = null;
+        globalThis.__api = {
+            getFlashcards: async () => [],
+            checkAssistantProposals: (body) => { sent.push(body); return new Promise(res => { answer = res; }); },
+        };
+
+        const tr = compareCard(parseCompare('side: English\nI would like a coffee.\nside: Dutch\nIk wil graag een koffie.\ntopic: 4:17'));
+        let m = await mount(tr);
+        const body = sent.at(-1);
+        check('a translation asks both ways in ONE request', sent.length === 1 && body?.cards?.length === 2
+            && body.cards[0].front === tr.front && body.cards[1].front === tr.reverse.front && body.cards[1].back === tr.reverse.back, JSON.stringify(body));
+        check('…and Add is there but cannot be pressed while it is checked', !!addButton(m.host) && addButton(m.host).disabled === true, m.host.innerHTML.slice(0, 400));
+        await act(async () => { answer({ cards: [ok, ok] }); });
+        await settle();
+        check('both ways agree: Add can be pressed', !!addButton(m.host) && addButton(m.host).disabled === false, m.host.innerHTML.slice(0, 400));
+        await m.done();
+
+        m = await mount(tr);
+        await act(async () => { answer({ cards: [ok, { verdict: 'disputed', reason: 'a second AI answered “x”' }] }); });
+        await settle();
+        check('the way back disagrees: no Add, and the line says why', !addButton(m.host) && /other way round/.test(m.host.textContent), m.host.textContent);
+        await m.done();
+
+        m = await mount(tr);
+        await act(async () => { answer({ cards: [ok, { verdict: 'unchecked', reason: 'no usable answer' }] }); });
+        await settle();
+        check('a translation that could not be checked: no Add', !addButton(m.host) && /could not be checked/.test(m.host.textContent), m.host.textContent);
+        await m.done();
+
+        const fix = compareCard(parseCompare('before: Ik heb gegaan.\nafter: Ik ben gegaan.\ntopic: 4:17'));
+        m = await mount(fix);
+        check('a fix asks one way only', sent.at(-1)?.cards?.length === 1 && sent.at(-1).cards[0].front === fix.front, JSON.stringify(sent.at(-1)));
+        await m.done();
+
+        const before = sent.length;
+        m = await mount(tr, { 17: { ...labels[17], projectId: 5 } });
+        check('a topic that belongs to another course draws nothing and asks nothing', m.host.innerHTML === '' && sent.length === before, m.host.innerHTML.slice(0, 300));
+        await m.done();
+        delete globalThis.__api;
+    }
+    console.error = consoleError;
+}
+
+{
+    const drawer = readFileSync(join(repoRoot, 'src/components/AssistantDrawer.tsx'), 'utf8');
+    check('the drawer looks up a card\'s topic only once its message has settled (`4:1` may still become `4:17`)',
+        /m\.id === streamingId \? \[\] : compareTopicIds\(m\.content\)/.test(drawer) && /\[open, messages, streamingId\]\)/.test(drawer));
 }
 
 rmSync(scratch, { recursive: true, force: true });

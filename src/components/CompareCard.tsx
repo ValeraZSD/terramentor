@@ -1,4 +1,4 @@
-import { createContext, Fragment, memo, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowRight, Check, Copy } from 'lucide-react';
 import { IconButton } from './ui/Button';
@@ -68,6 +68,8 @@ interface CompareCardProps {
 const CompareCard = memo(function CompareCard({ block, renderText, renderCode }: CompareCardProps) {
     const { t, i18n } = useTranslation();
     const ref = useRef<HTMLDivElement>(null);
+    // The group names point at the visible words, so they are read once.
+    const id = useId();
     const width = useElementWidth(ref);
     const rem = useRootFontSize();
     const footFor = useContext(CompareFootContext);
@@ -96,7 +98,10 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     );
     const diff = useMemo(() => wordDiff(block.sides[0], block.sides[1]), [block]);
     const order = useMemo(() => editOrder(block, roleWords), [block, roleWords]);
-    const card = useMemo(() => compareCard(block, i18n.language, roleWords), [block, i18n.language, roleWords]);
+    const card = useMemo(
+        () => compareCard(block, i18n.language, roleWords, s => s.label || (s.role ? t(ROLE_LABELS[s.role]) : '')),
+        [block, i18n.language, roleWords, t],
+    );
     const foot = card && footFor ? footFor(card) : null;
 
     const names = block.sides.map((s, i) => s.label || (s.role ? t(ROLE_LABELS[s.role]) : (i === 0 ? t("First side") : t("Second side"))));
@@ -111,7 +116,7 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
 
     const head = (i: number) => (
         <div className="not-prose flex items-center justify-between gap-2 min-h-8">
-            <span className="min-w-0 text-xs font-medium text-slate-500 dark:text-slate-400 break-words">{shown[i]}</span>
+            <span id={`${id}-side-${i}`} className="min-w-0 text-xs font-medium text-slate-500 dark:text-slate-400 break-words">{shown[i]}</span>
             <CopySide side={block.sides[i]} name={names[i]} />
         </div>
     );
@@ -119,7 +124,7 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     const side = (i: number, className: string) => {
         const s = block.sides[i];
         return (
-            <div role="group" aria-label={names[i]} data-compare-side={i} className={`min-w-0 ${className}`}>
+            <div role="group" {...(shown[i] ? { 'aria-labelledby': `${id}-side-${i}` } : { 'aria-label': names[i] })} data-compare-side={i} className={`min-w-0 ${className}`}>
                 {head(i)}
                 {/* Code reads left to right in every interface language. A
                     text too wide for the phone scrolls inside its side, never
@@ -137,7 +142,7 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     };
 
     const title = block.title && (
-        <p className="not-prose text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{block.title}</p>
+        <p id={`${id}-title`} className="not-prose text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{block.title}</p>
     );
     const note = block.note && (
         <div className="text-sm leading-6 text-slate-600 dark:text-slate-300">{renderText(block.note)}</div>
@@ -192,7 +197,7 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     }
 
     return (
-        <div ref={ref} role="group" aria-label={block.title || t("Comparison")} data-compare={variant} className="my-4">
+        <div ref={ref} role="group" {...(block.title ? { 'aria-labelledby': `${id}-title` } : { 'aria-label': t("Comparison") })} data-compare={variant} className="my-4">
             {inner}
         </div>
     );

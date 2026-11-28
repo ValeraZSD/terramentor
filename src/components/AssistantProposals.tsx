@@ -305,12 +305,16 @@ function CardPreview({ card, label, turnKey, index, check }: { card: CardProposa
 export function CompareCardAdd({ card, labels, turnKey }: { card: CompareCardProposal; labels: Record<number, TopicLabel>; turnKey: string }) {
     const { t } = useTranslation();
     const resolved = labels[card.nodeId];
-    const label = resolved?.kind === 'topic' || resolved?.kind === 'stage' ? resolved : null;
+    // `topic: 4:17` names the course too: a node of another course is no card.
+    const label = (resolved?.kind === 'topic' || resolved?.kind === 'stage') && resolved.projectId === card.projectId ? resolved : null;
     const key = `${turnKey}:compare:${card.nodeId}:${card.front}`;
     const asked = [{ nodeId: card.nodeId, front: card.front, back: card.back }];
     if (card.reverse) asked.push({ nodeId: card.nodeId, ...card.reverse });
     const checks = useChecks(`${key}:check`, () => api.checkAssistantProposals({ cards: asked }).then(r => r.cards), label != null);
-    const check = compareCheck(checks, card.reverse !== null) as AssistantCheck | undefined;
+    const check = compareCheck(checks, card.reverse !== null, {
+        reverse: why => (why ? t("asked the other way round, {{reason}}", { reason: why }) : t("asked the other way round, a second AI disagreed")),
+        unchecked: why => (why ? t("the translation could not be checked ({{reason}})", { reason: why }) : t("the translation could not be checked")),
+    }) as AssistantCheck | undefined;
     const state = useCardAdd(key, card, label);
     if (!label) return null;
     return (

@@ -310,7 +310,9 @@ const langNames = new Map<string, Map<string, string>>();
  * in a French interface), or undefined for a name that is not a language.
  */
 export function langOfLabel(label: string, ui = 'en'): string | undefined {
-    const name = label.trim().toLowerCase();
+    // "Dutch (formal)" is still Dutch; "NL" is the code itself.
+    const name = label.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+    if ((LANG_CODES as readonly string[]).includes(name)) return name;
     if (!name || name.length > 30 || typeof Intl === 'undefined' || !('DisplayNames' in Intl)) return undefined;
     let names = langNames.get(ui);
     if (!names) {
@@ -333,10 +335,11 @@ export function langOfLabel(label: string, ui = 'en'): string | undefined {
  * or after two different languages. A learner cannot judge a sentence in a
  * language they cannot read yet, so Add card checks such a pair both ways.
  */
-export function isTranslation(block: CompareBlock, ui = 'en'): boolean {
+export function isTranslation(block: CompareBlock, ui = 'en', roleWords?: ReadonlyMap<string, SideRole>): boolean {
     const [a, b] = block.sides;
     if (a.kind !== 'text' || b.kind !== 'text') return false;
-    const roles = new Set([a.role, b.role]);
+    // By key (`original:`) or by name (`side: Original`, "Vertaling").
+    const roles = new Set([sideRole(a, roleWords), sideRole(b, roleWords)]);
     if (roles.has('original') && roles.has('translation')) return true;
     const la = langOfLabel(a.label, ui);
     const lb = langOfLabel(b.label, ui);
@@ -381,19 +384,33 @@ export interface CompareCardProposal {
  * wrong or earlier version wherever the model put it, so the answer is the
  * fix. Null when the pair has no topic, or is too long for a card.
  */
-export function compareCard(block: CompareBlock, ui = 'en', roleWords?: ReadonlyMap<string, SideRole>): CompareCardProposal | null {
+export function compareCard(
+    block: CompareBlock, ui = 'en', roleWords?: ReadonlyMap<string, SideRole>,
+    /** A side's name as the card shows it (a role word in the interface language). */
+    nameOf: (s: CompareSide) => string = sideName,
+): CompareCardProposal | null {
     if (!block.topic) return null;
     const [a, b] = editOrder(block, roleWords) === 1 ? [block.sides[1], block.sides[0]] : block.sides;
-    const way = (x: CompareSide, y: CompareSide) => (sideName(x) && sideName(y) ? `*${sideName(x)} → ${sideName(y)}*\n\n` : '');
+    const way = (x: CompareSide, y: CompareSide) => (nameOf(x) && nameOf(y) ? `*${nameOf(x)} → ${nameOf(y)}*\n\n` : '');
     const front = `${way(a, b)}${sideMarkdown(a)}`;
     const back = sideMarkdown(b);
     if (front.length > CARD_SIDE_MAX || back.length > CARD_SIDE_MAX) return null;
-    const reverse = isTranslation(block, ui) ? { front: `${way(b, a)}${sideMarkdown(b)}`, back: sideMarkdown(a) } : null;
+    const reverse = isTranslation(block, ui, roleWords) ? { front: `${way(b, a)}${sideMarkdown(b)}`, back: sideMarkdown(a) } : null;
     return { ...block.topic, front, back, extra: block.note, reverse };
 }
 
 /** A check's verdict, as `/api/assistant/checks` returns it. */
 export interface CheckVerdict { verdict: string; reason?: string | null; detail?: unknown }
+
+/** The words a learner reads when a translation is not offered, in their language. */
+export interface CompareCheckWords {
+    reverse: (why: string | null) => string;
+    unchecked: (why: string | null) => string;
+}
+const CHECK_WORDS_EN: CompareCheckWords = {
+    reverse: why => `asked the other way round, ${why ?? 'a second AI disagreed'}`,
+    unchecked: why => `the translation could not be checked${why ? ` (${why})` : ''}`,
+};
 
 /**
  * The one verdict Add card shows for a pair: the card's own check, and for a
@@ -402,18 +419,23 @@ export interface CheckVerdict { verdict: string; reason?: string | null; detail?
  * cannot catch a wrong sentence and the reviews would bring it back for
  * months. Anything else that could not be checked stays offered and says so,
  * as a prepared card does. Undefined while a check is still running.
+ *
+ * The reverse check decides what the app offers; `POST /api/assistant/cards`
+ * re-checks the forward card only, as it does for every assistant card.
  */
-export function compareCheck<T extends CheckVerdict>(checks: readonly (T | undefined)[] | null, translation: boolean): T | CheckVerdict | undefined {
+export function compareCheck<T extends CheckVerdict>(
+    checks: readonly (T | undefined)[] | null, translation: boolean, say: CompareCheckWords = CHECK_WORDS_EN,
+): T | CheckVerdict | undefined {
     if (!checks || !checks.length) return undefined;
     const forward = checks[0];
     // A failed request answers with one verdict for every card it asked about.
     const back = translation ? (checks.length > 1 ? checks[1] : forward) : null;
     if (!forward || (translation && !back)) return undefined;
     if (forward.verdict === 'disputed') return forward;
-    if (back?.verdict === 'disputed') return { verdict: 'disputed', reason: `asked the other way round, ${back.reason ?? 'a second model disagreed'}` };
+    if (back?.verdict === 'disputed') return { verdict: 'disputed', reason: say.reverse(back.reason ?? null) };
     if (translation && (forward.verdict !== 'ok' || back?.verdict !== 'ok')) {
         const why = forward.verdict !== 'ok' ? forward.reason : back?.reason;
-        return { verdict: 'disputed', reason: `the translation could not be checked${why ? ` (${why})` : ''}` };
+        return { verdict: 'disputed', reason: say.unchecked(why ?? null) };
     }
     return forward;
 }

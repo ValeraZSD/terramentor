@@ -683,7 +683,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 ...writes.topics.map(c => c.nodeId),
                 ...writes.links.map(c => c.nodeId),
                 ...writes.saves.flatMap(s => (s.to.kind === 'topic' ? [s.to.nodeId] : [])),
-                ...compareTopicIds(m.content),
+                // A card's `topic: 4:17` may still be arriving as `4:1`.
+                ...(m.id === streamingId ? [] : compareTopicIds(m.content)),
             ];
             for (const id of ids) {
                 if (askedRef.current.has(id)) continue;
@@ -701,7 +702,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // No button beats a button that lies — but a network blip shouldn't
             // retire these ids for good, so let the next message try again.
             .catch(() => { for (const id of pending) askedRef.current.delete(id); });
-    }, [open, messages]);
+    }, [open, messages, streamingId]);
 
     // Opening lands on the newest message. `loadingHistory` is in the deps
     // because the first open paints an empty box and *then* fills it — sticking
