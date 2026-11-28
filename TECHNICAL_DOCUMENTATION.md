@@ -712,6 +712,16 @@ locale settings at once, each with an Undo (`server/assistantSettings.js`,
 `SETTABLE_KEYS`), and nothing that changes what the engine measures. Undo on an
 added card removes it only while it has no review history.
 
+It may draw **two related texts as one card** (a ```compare block,
+`src/utils/compareBlocks.ts`, drawn by `src/components/CompareCard.tsx`): a
+sentence and its translation, a sentence before and after a fix, the same code in
+two languages. The parser is lenient about how the sides are named and turns
+anything that is not two sides back into prose. Each side has its own Copy; the
+words a fix changed are marked by which side is the wrong one, not by position.
+A pair that names a topic may become a flashcard through the same
+`POST /api/assistant/cards`; a translation is checked both ways first, and Add is
+offered only when both agree. The guide is in the assistant's prompt only.
+
 It may also prepare **changes to the library**, each drawn as before → after with
 an Apply button and an Undo: a course's name, icon, colour, description, status
 (active, finished, archived) or daily new cards (a ```project block), a topic's
