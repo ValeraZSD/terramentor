@@ -327,6 +327,9 @@ section('7. the prompt: an option the model may take, never a rule');
     ok('it says the model MAY, when the answer is one of a few short options', /\bmay\b/.test(guide) && /when[^.]{0,80}the answer is one of a few short options/i.test(guide), guide.slice(0, 300));
     ok('…and never that it must, or each time', !/\bmust\b|\bhave to\b|\brequired\b|\beach time\b|\bevery time\b|\balways (add|offer|end|use)\b/i.test(guide), (guide.match(/\bmust\b|\bhave to\b|\brequired\b|\beach time\b|\bevery time\b|\balways (add|offer|end|use)\b/i) || [])[0]);
     ok('it says most questions stay open, and none that tests what they know', /better left open/i.test(guide) && /tests what they know/i.test(guide));
+    // A real small model offered canned causes to a frustrated learner and a
+    // menu of next steps with no question asked, until these two lines.
+    ok('…none for how they feel or what is going wrong, and never a menu of next steps', /in their own words/i.test(guide) && /never as a menu/i.test(guide));
     ok('it asks for no "Other": typing stays open', /no "Other"/.test(guide) && /type their own answer/.test(guide));
     ok('it asks for the answers in the learner\'s language, as they would say them', /in their language/.test(guide) && /word for word/.test(guide));
     ok(`it states the parser's own limits (${CHOICES_MIN} to ${CHOICES_MAX}, ${CHOICE_LABEL_MAX} characters)`, guide.includes(`${CHOICES_MIN} to ${CHOICES_MAX} lines`) && guide.includes(`${CHOICE_LABEL_MAX} characters`));
