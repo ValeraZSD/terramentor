@@ -574,7 +574,7 @@ const STATUS_IN_TEXT = new RegExp(
  * 502/503/504 in its text (`STATUS_IN_TEXT`).
  */
 export function isTransient(err, signal) {
-    if (signal?.aborted) return false;
+    if (signal?.aborted || err?.final === true) return false;
     const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
     // The Ollama client says it as `status_code` (as server/ai.js reads it).
     const tagged = Number(err?.httpStatus ?? err?.status_code);
@@ -1029,6 +1029,11 @@ async function generateOne(f, missing, signal) {
             // about the SPEC: write nothing, and the next burst retries it.
             // Recording it as failed made one outage a permanent verdict on
             // every widget the burst happened to reach.
+            // A final refusal (aiJobs.js fallsOver) stays unrecorded too, but
+            // ends the burst, which backs off: the next burst would pick this
+            // same widget at once, and nothing else asks a model while it
+            // stands.
+            if (err?.final === true) throw err;
             if (isUnavailable(err)) {
                 console.warn(`[FeedGen] Widget pre-build deferred for "${f.title}" (model unavailable): ${err.message}`);
                 return;
@@ -1726,13 +1731,14 @@ async function runBurst() {
             emptyReply: err?.emptyReply === true ? true : null,
             reasoningTokens: err?.reasoningTokens ?? null,
             thinkingChars: err?.thinkingChars ?? null,
+            ...tasks.finalSentence(err),
         };
         // A topic page still waits on its lesson: try again when the backoff
         // ends, or the page would say "couldn't be written" (or keep its
         // slot spinning) until something else happened to kick the writer.
         kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
-        if (handle) handle.fail(err.message);
+        if (handle) handle.fail(err.message, tasks.finalSentence(err));
     }
 }
 

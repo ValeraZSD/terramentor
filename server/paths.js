@@ -96,17 +96,6 @@ export function secretsFileFor(dbPath) {
 }
 
 /**
- * A site's layout (server/site/): its folder (SITE_DIR) holds the accounts
- * database and one folder per library, which is that library's DATA_DIR.
- * Pure, like `resolveDataPaths`.
- */
-export function sitePaths(siteDir) {
-    const root = resolve(String(siteDir));
-    const libraries = join(root, 'libraries');
-    return { root, db: join(root, 'site.db'), libraries, library: (id) => join(libraries, id) };
-}
-
-/**
  * Resolve the database file and the blob-store root from an environment.
  *
  * Returns `{ dataDir, dbPath, vaultRoot, secretsPath, source }` where `source`

@@ -137,6 +137,24 @@ function discoverLoaders(): Record<string, () => Promise<{ default: Record<strin
 }
 const loaders = discoverLoaders();
 
+/** Texts a client extension adds or replaces (src/clientExtension.ts), one
+ *  file per language in src/extensions/texts/. Small, so read with the app. */
+function discoverExtensionTexts(): Record<string, Record<string, string>> {
+    try {
+        const files = import.meta.glob<{ default: Record<string, string> }>('../extensions/texts/*.json', { eager: true });
+        return Object.fromEntries(Object.entries(files).map(([path, mod]) => [path.replace(/^.*\/([^/]+)\.json$/, '$1'), mod.default]));
+    } catch {
+        return {};
+    }
+}
+const extensionTexts = discoverExtensionTexts();
+
+/** Laid over a language's own file, so an extension's text wins over the app's. */
+function addExtensionTexts(code: string) {
+    const texts = extensionTexts[code];
+    if (texts) i18next.addResourceBundle(code, 'translation', texts, true, true);
+}
+
 const loaded = new Set<string>([DEFAULT_LANGUAGE]);
 
 /** Which `setUiLanguage` call is the newest; an older one that finishes later
@@ -150,6 +168,7 @@ async function ensureLoaded(code: string): Promise<void> {
     try {
         const mod = await load();
         i18next.addResourceBundle(code, 'translation', mod.default, true, true);
+        addExtensionTexts(code);
         loaded.add(code);
     } catch {
         // A missing or broken chunk means English for that reader, not a broken app.
@@ -188,6 +207,7 @@ void i18next.use(initReactI18next).init({
     // which render synchronously after import, would show as "{{cards}} cards".
     initAsync: false,
 });
+addExtensionTexts(DEFAULT_LANGUAGE);
 
 /**
  * Switch the interface language. Loads the locale if needed, then changes it

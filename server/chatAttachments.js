@@ -306,7 +306,7 @@ export function rememberPicturesRefused(key) { picturesRefused.add(key); }
 export async function chatModelSees() {
     // The conversation's first choice: with a model per job, that is who reads them.
     const s = firstChoice('conversation');
-    if (!s.enabled || !s.model || picturesRefused.has(endpointKey(s))) return false;
+    if (s.unavailable || !s.enabled || !s.model || picturesRefused.has(endpointKey(s))) return false;
     return (await visionAvailability(s.model, s)) !== 'no';
 }
 

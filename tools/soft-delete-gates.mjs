@@ -43,8 +43,6 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 let pass = 0, fail = 0;
@@ -792,25 +790,6 @@ console.log('\n--- what a deleted course or topic holds is sent, served and expo
         && (await call('GET', `/api/media/${hCourse}`)).status === 200);
     set.run('embedding_enabled', 'false');
     stub.close();
-}
-
-// ============================================================================
-console.log('\n--- the operator\'s tool on a library from before soft delete ---');
-{
-    // hostedCli opens the file raw, without the migrations: a library no newer
-    // build has opened yet has no live_ views.
-    const dir = mkdtempSync(join(tmpdir(), 'soft-delete-cli-'));
-    const oldDb = join(dir, 'old.db');
-    const Database = createRequire(join(repoRoot, 'package.json'))('better-sqlite3');
-    const o = new Database(oldDb);
-    o.exec("CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO projects (name) VALUES ('a'), ('b');");
-    o.close();
-    const env = { ...process.env, DB_PATH: oldDb, VAULT_ROOT: join(dir, 'vault') };
-    const cli = (...args) => spawnSync(process.execPath, [join(repoRoot, 'server', 'hostedCli.js'), ...args], { cwd: repoRoot, env, encoding: 'utf8', timeout: 60_000 });
-    const backup = cli('backup', join(dir, 'b1'));
-    ok('a backup of it succeeds and counts its courses', backup.status === 0 && /backup ok: 2 project/.test(backup.stdout), `${backup.status} ${backup.stdout} ${backup.stderr}`);
-    const restored = cli('restore', join(dir, 'b1'));
-    ok('…and so does a restore of that backup', restored.status === 0, `${restored.status} ${restored.stdout} ${restored.stderr}`);
 }
 
 server.close();

@@ -452,7 +452,7 @@ export default function TopicEvidence({ nodeId, refreshKey }: { nodeId: number; 
 
     if (!trail || trail.nodeId !== nodeId) return null;
     const held = trail.count;
-    // Absent from a server older than this client (a phone on the hosted copy).
+    // Absent from a server older than this client.
     const shakyCount = trail.shakyCount ?? 0;
     return (
         <div className="space-y-2 rounded-lg border border-slate-200/60 bg-slate-50 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">

@@ -2,7 +2,7 @@
 import db from '../database.js';
 import { isSecretSettingKey, ownerPresent } from '../auth.js';
 import { SettingValueError, settingSpec } from '../settingsSchema.js';
-import { hostedSettingRefusal } from '../hosted.js';
+import { extension } from '../extension.js';
 import {
     activityStats, clearActivityLog, invalidateActivityLogSetting, logActivity, readActivity,
 } from '../activityLog.js';
@@ -62,10 +62,9 @@ app.put('/api/settings/:key', (req, res) => {
     if (spec.sensitivity === 'network' && !ownerPresent(req)) {
         return res.status(403).json(keyed('Only on the computer itself, or with the password'));
     }
-    // On a hosted copy the server's network is not the learner's: those rows
-    // are the operator's, set in the environment (server/hosted.js).
-    const hostedWhy = hostedSettingRefusal(spec, req.params.key);
-    if (hostedWhy) return res.status(403).json({ ...keyed(hostedWhy), hosted: true });
+    // An extension may keep rows of its own out of this writer (server/extension.js `settingRefusal`).
+    const refusal = extension().settingRefusal?.(spec, req.params.key);
+    if (refusal) return res.status(403).json(keyed(String(refusal)));
     let value;
     try {
         value = spec.validate(req.body?.value);

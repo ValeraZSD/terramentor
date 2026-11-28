@@ -217,13 +217,6 @@ const fromTag = (refName, tags = [...TAGS, refName]) => releasePlan({ event: 'pu
 check('a pushed plain tag: stable, published, Latest, moving latest and its minor and major lines',
     (({ channel, version, publish, prerelease, latest, movingTags }) => ({ channel, version, publish, prerelease, latest, movingTags }))(fromTag('v1.2.0')),
     { channel: 'stable', version: '1.2.0', publish: true, prerelease: false, latest: true, movingTags: ['latest', '1.2', '1'] });
-{
-    // The image tag the hosting guide tells an operator to pin is one a stable release moves.
-    const pinned = readFileSync(join(repoRoot, 'hosted', 'example.env'), 'utf8').match(/^TM_IMAGE=[^\s:]+:(\S+)$/m)?.[1];
-    const guide = [...readFileSync(join(repoRoot, 'docs', 'HOSTING.md'), 'utf8').matchAll(/ghcr\.io\/valerazsd\/terramentor:(\S+)/g)].map(m => m[1]);
-    check('the image tags hosted/example.env and docs/HOSTING.md pin are published by a stable release',
-        [pinned, ...guide].every(t => t && fromTag('v1.2.0').movingTags.includes(t)), true);
-}
 check('a pushed suffixed tag: a prerelease, never Latest, moves no image tag',
     [fromTag('v1.3.0-rc.1').prerelease, fromTag('v1.3.0-rc.1').latest, fromTag('v1.3.0-rc.1').movingTags], [true, false, []]);
 const hotfix = fromTag('v1.0.1', ['v1.0.0', 'v1.1.0', 'v1.0.1']);

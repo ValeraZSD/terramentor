@@ -373,11 +373,15 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   file checked against the release manifest) and installed by a separate
   process the launcher starts after the app has exited (`desktop/updater.js`):
   swap, start, roll back if the new version does not come up.
-- **The one extension point runs no code.** Search providers are declarative
+- **Nothing a user installs runs code.** Search providers are declarative
   manifests describing *what*; the host decides *how*. An extension system with
   host privileges would void the claim for every user, not just the one who
   installed the add-on, which is why real add-ons are still a design
-  (`docs/ADDONS.md`) rather than a feature.
+  (`docs/ADDONS.md`) rather than a feature. The one place code can be added is
+  for whoever runs the server, before it starts: a server module named in its
+  environment (`server/extension.js`) and client modules built into its copy
+  (`src/clientExtension.ts`). The app ships none, and no setting, library or
+  request can add one (SECURITY.md, "The extension point").
 
 ## 10. How to verify a change
 

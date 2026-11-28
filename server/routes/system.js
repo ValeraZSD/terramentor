@@ -5,7 +5,7 @@ import { setSettingValue } from '../settingsStore.js';
 import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
 import { mayPressUpdates } from '../auth.js';
-import { isHosted } from '../hosted.js';
+import { extension } from '../extension.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 import { apiError, errorFields, keyed } from '../clientError.js';
@@ -42,8 +42,9 @@ app.get('/api/updates', (req, res) => {
  *  device asking may press anything on the panel (server/app.js): on every
  *  answer, because the page replaces its whole status with whichever came last. */
 function withInstall(req, state) {
-    // A hosted copy is updated by whoever runs it (server/hosted.js refuses the writes).
-    return { ...state, install: installState({ latest: state.latest }), controls: !isHosted() && mayPressUpdates(req) };
+    // An extension may take the controls away (server/extension.js `serverControls`).
+    const offered = extension().serverControls !== false;
+    return { ...state, install: installState({ latest: state.latest }), controls: offered && mayPressUpdates(req) };
 }
 
 /**

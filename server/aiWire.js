@@ -29,6 +29,7 @@
 import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
 import { assertNotMetadata } from './netSafety.js';
+import { extension } from './extension.js';
 import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText, secretsOf, withoutSecret } from './httpBody.js';
 
 const HOST_WIRES = {
@@ -288,8 +289,18 @@ export function modelFetch(fetchImpl = fetch) {
 const guardedFetch = modelFetch(fetch);
 const anthropicFetch = createAnthropicFetch({ fetchImpl: guardedFetch });
 
-/** The fetch an OpenAI-shaped request to this settings object's endpoint goes through. */
-export function wireFetch(settings, { fetchImpl = fetch } = {}) {
+/**
+ * The fetch an OpenAI-shaped request to this settings object's endpoint goes
+ * through. An extension may wrap it (server/extension.js `modelFetch`): it sees
+ * the OpenAI-shaped request and answer whatever wire carries them.
+ */
+export function wireFetch(settings, options = {}) {
+    const inner = wireFetchOf(settings, options);
+    const wrap = extension().modelFetch;
+    return typeof wrap === 'function' ? wrap(inner, settings) : inner;
+}
+
+function wireFetchOf(settings, { fetchImpl = fetch } = {}) {
     const send = fetchImpl === fetch ? guardedFetch : modelFetch(fetchImpl);
     switch (wireOf(settings)) {
         case 'anthropic': return fetchImpl === fetch ? anthropicFetch : createAnthropicFetch({ fetchImpl: send });

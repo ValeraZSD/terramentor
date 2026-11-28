@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { constants as fsConstants, closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -74,23 +74,43 @@ export function secretsFile() {
     return dataPaths().secretsPath;
 }
 
-/** A hosted copy's backup (hostedCli.js): the file as it is, to `to`, owner-only. False when there is none. */
+// Backup and restore of the credentials file for a start-up extension
+// (server/extension.js): this is the only module that may name the file. A
+// credentials file that is a link is read and replaced where the link points,
+// as every other write here does (writtenPath); neither helper writes through
+// a link at the other end.
+
+/** A backup of the credentials, to `to`, a name nothing holds yet, owner-only. False when there is none. */
 export function copyCredentialsTo(to) {
+    let bytes;
     try {
-        copyFileSync(secretsFile(), to);
+        bytes = readFileSync(writtenPath(secretsFile()));
     } catch (e) {
         if (e.code === 'ENOENT') return false;
         throw e;
+    }
+    // Created owner-only, and only where nothing stands yet (a link included).
+    const fd = openSync(to, 'wx', 0o600);
+    try {
+        writeFileSync(fd, bytes);
+        fsyncSync(fd);
+    } finally {
+        closeSync(fd);
     }
     chmodSync(to, 0o600);
     return true;
 }
 
-/** A hosted copy's restore: `from` replaces the file whole, copied beside it first. */
+/** Restoring that backup: `from` (a file, not a link) replaces the file whole, copied beside it first. */
 export function replaceCredentialsFrom(from) {
-    const to = secretsFile();
+    if (lstatSync(from).isSymbolicLink()) throw new Error(`${from} is a link, not a backup file`);
+    const to = writtenPath(secretsFile());
     const incoming = `${to}.restoring`;
-    copyFileSync(from, incoming);
+    // A link or a file at that name (one a killed restore left) is removed,
+    // not written through: the new file is made fresh. A folder there stops
+    // the restore.
+    rmSync(incoming, { force: true });
+    copyFileSync(from, incoming, fsConstants.COPYFILE_EXCL);
     chmodSync(incoming, 0o600);
     renameSync(incoming, to);
     cache = null;

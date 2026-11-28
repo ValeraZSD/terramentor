@@ -216,6 +216,16 @@ function isActive(task) {
  */
 const CAP = { message: 500, stack: 4000, body: 2000, causes: 5 };
 
+/** `{ final, messageKey, params }` of a final refusal; nothing for any other error. */
+export function finalSentence(err) {
+    if (err?.final !== true) return {};
+    return {
+        final: true,
+        ...(typeof err.messageKey === 'string' ? { messageKey: err.messageKey } : {}),
+        ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}),
+    };
+}
+
 function describeFailure(err, task) {
     const e = err || {};
     const causes = [];
@@ -275,6 +285,9 @@ function describeFailure(err, task) {
         emptyReply: e.emptyReply === true ? true : null,
         reasoningTokens: e.reasoningTokens ?? null,
         finishReason: e.finishReason || null,
+        // A refusal that says it is final (aiJobs.js fallsOver) carries its
+        // own sentence, keyed, for the page to show as the cause.
+        ...finalSentence(e),
 
         // --- the raw evidence
         responseBody: e.responseBody ? String(e.responseBody).slice(0, CAP.body) : null,

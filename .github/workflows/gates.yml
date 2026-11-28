@@ -238,10 +238,7 @@ jobs:
   # The image, built and started on every pull request. Before this job only
   # the release workflow built it, so a change that broke the Dockerfile or the
   # build context was found when a release failed. Then the container is held
-  # to the README's first visit, and hosted mode (docs/HOSTING.md) to its
-  # promises: it refuses to start unlocked, and two copies behind the HTTPS
-  # proxy are created, kept apart, backed up, restored and removed by
-  # hosted/copy.sh exactly as on a server.
+  # to the README's first visit.
   docker:
     name: Docker image
     runs-on: ubuntu-latest
@@ -258,20 +255,3 @@ jobs:
           bash tools/first-visit-smoke.sh http://127.0.0.1:3001 "docker logs smoke"
           docker rm -f smoke
 
-      - name: Hosted mode refuses to start without a password
-        run: |
-          set +e
-          out="$(docker run --rm -e TERRAMENTOR_HOSTED=1 terramentor:ci 2>&1)"
-          code=$?
-          set -e
-          echo "$out" | tail -5
-          echo "exit code: $code"
-          test "$code" = 1
-          echo "$out" | grep -q 'Refusing to start: bound to 0.0.0.0 with no password'
-          if echo "$out" | grep -q 'Server running at'; then echo 'it listened'; exit 1; fi
-
-      - name: Two hosted copies behind the proxy
-        run: TM_IMAGE=terramentor:ci bash hosted/rehearse.sh
-
-      - name: Site libraries are kept apart, wake fast and spend nothing
-        run: docker run --rm --user 0 -v "$PWD/tools:/app/tools:ro" terramentor:ci node tools/site-proofs.mjs

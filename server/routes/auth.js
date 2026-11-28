@@ -1,7 +1,7 @@
 // /api/auth: the single-user password gate. Registered before the gate itself.
 import {
     MIN_PASSWORD_LENGTH, announceSetupCode, checkSetupCode, clearAuth, clearSessionCookie, clearSetupCode,
-    deleteApiKey, endEverySession, endRequestSession, exposedWithoutPassword, getApiKey, hasPasswordCredential, isAuthEnabled,
+    deleteApiKey, endEverySession, endRequestSession, exposedWithoutPassword, extensionAuth, getApiKey, hasPasswordCredential, isAuthEnabled,
     isLocalRequest, isRequestAuthenticated, isSecureRequest, issueToken, loginBlocked, passwordThroughThrottle,
     recordLoginFailure, recordLoginSuccess, regenerateApiKey, remoteSetupRequired, renewSessionCookie, setDeviceCookie,
     setPassword, setSessionCookie,
@@ -9,7 +9,6 @@ import {
 import {
     addDevice, claimPairingOffer, deviceName, removeDevicesExcept, tailscaleLoginOf, tailscaleOwner, tailscaleTrustOn,
 } from '../devices.js';
-import { isSiteLibrary } from '../siteLibrary.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 import { k, keyed } from '../clientError.js';
@@ -24,8 +23,9 @@ const app = routeTable('auth');
 // Unauthenticated-safe: tells the client whether a gate exists and whether this
 // caller is already past it, so the UI can decide to show the login screen.
 app.get('/api/auth/status', async (req, res) => {
-    // A site library: the front desk signed this person in, and signs them out.
-    if (isSiteLibrary()) return res.json({ enabled: true, authenticated: !!req.sitePerson, site: true });
+    // An extension that signs people in itself answers for them (server/extension.js `authenticate`).
+    const ext = extensionAuth(req);
+    if (ext) return res.json({ ...ext.fields, enabled: true, authenticated: ext.signedIn });
     const enabled = isAuthEnabled();
     // Another machine reaching an app with no password meets a gate too: the
     // screen it is shown says how to connect it (server/devices.js), with the
@@ -220,7 +220,14 @@ app.post('/api/auth/disable', wrap(async (req, res) => {
 // must not be able to turn itself into a bearer credential that works from
 // anywhere. Refused with 403 and no `authRequired`, which would lock the page.
 function apiKeyRefused(req, res) {
-    if (!isAuthEnabled() || !isRequestAuthenticated(req)) {
+    // An extension that signs people in itself stands for the password here
+    // too (server/extension.js), with or without a password of the app's own.
+    const ext = extensionAuth(req);
+    if (ext && !ext.signedIn) {
+        res.status(401).json({ ...ext.fields, ...keyed('Sign in again'), authRequired: true });
+        return true;
+    }
+    if ((!ext && !isAuthEnabled()) || !isRequestAuthenticated(req)) {
         res.status(401).json({ ...keyed('Authentication required'), authRequired: true });
         return true;
     }

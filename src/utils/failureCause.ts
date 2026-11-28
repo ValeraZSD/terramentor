@@ -18,6 +18,8 @@ const TOO_LONG = /context[_ -]?(length|size|window)|maximum context|prompt (is )
  *  offers first. */
 export function retryMayHelp(f: FailureFacts | null): boolean {
     if (!f) return false;
+    // A refusal that says it is final: sending it again changes nothing.
+    if (f.final) return false;
     const msg = (f.message || '').toLowerCase();
     if (f.looped || f.emptyReply) return true;
     if (TOO_LONG.test(msg)) return false;
@@ -42,6 +44,10 @@ export function retryMayHelp(f: FailureFacts | null): boolean {
  *  (`rawShown: false`). */
 export function plainCause(f: FailureFacts, { rawShown = true }: { rawShown?: boolean } = {}): { messageKey: string; params?: Record<string, unknown> } | null {
     const msg = (f.message || '').toLowerCase();
+    // A final refusal names its own cause (server/tasks.js finalSentence).
+    if (f.final && f.messageKey) {
+        return { messageKey: f.messageKey, ...(f.params ? { params: f.params } : {}) };
+    }
     if (f.looped) {
         return { messageKey: k('The model went round in circles in its reasoning — the same few lines over and over — and was stopped. Local models do this most on long lists of instructions; a shorter question, or a different model in Settings → AI & Models, usually avoids it.') };
     }
@@ -116,6 +122,9 @@ export function lessonFailureFacts(write: LessonWrite): FailureFacts {
         looped: write.looped ?? null,
         emptyReply: write.emptyReply ?? null,
         reasoningTokens: write.reasoningTokens ?? null,
+        final: write.final ?? null,
+        messageKey: write.messageKey ?? null,
+        params: write.params ?? null,
         // Only an empty reply says what it spent; nothing else is claimed.
         ...(write.thinkingChars != null ? { produced: { thinkingChars: write.thinkingChars, contentChars: 0, percent: null } } : {}),
     };

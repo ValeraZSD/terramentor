@@ -556,7 +556,7 @@ section('the screen');
         const fileButton = () => [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Move it to Completed');
         check('the screen is up, offering "Move it to Completed"', !!fileButton(), doc.body.textContent.slice(0, 120));
 
-        // Filing is a write that can fail (the server restarting, a hosted copy
+        // Filing is a write that can fail (the server restarting, a phone
         // offline): `updateProject` toasts and answers false. Closing anyway
         // marked a screen shown only once as seen and left the project Active.
         await view.act(async () => { fileButton()?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await settle();

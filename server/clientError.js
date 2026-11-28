@@ -162,7 +162,8 @@ const AI_OTHER = k("The AI model's endpoint answered {{status}}. (ref {{ref}})")
 
 /** A model endpoint's refusal (tagged by ai.js), said without its address or body. */
 function aiSentence(err) {
-    if (err.emptyReply === true) return ownWords(err);
+    // An extension's final refusal (server/extension.js) is its own sentence.
+    if (err.emptyReply === true || err.final === true) return ownWords(err);
     const status = Number(err.httpStatus);
     if (!Number.isInteger(status)) return null;
     const { ref } = referenced(err).params;
@@ -237,6 +238,7 @@ const REACH_ENDPOINT = {
  */
 export function endpointBody(who, err) {
     const status = Number(err?.status);
+    if (err?.final === true) return ownWords(err);
     if (err?.expose === true || (status >= 400 && status < 500 && err?.httpStatus == null)) return publicBody(err);
     const { kind, ...params } = reachOf(err);
     return who ? keyed(REACH_NAMED[kind], { who, ...params }) : keyed(REACH_ENDPOINT[kind], Object.keys(params).length ? params : undefined);

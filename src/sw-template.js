@@ -95,9 +95,6 @@ function isBypassed(url) {
         url.pathname === '/sandbox.html' ||
         // The frame a learner's code runs behind (server/runnerFrame.js), the same way.
         url.pathname === '/runner.html' ||
-        // A site's own pages (server/site/): sign-in, devices. They name the
-        // person, so one must never become the cached shell the next one sees.
-        url.pathname === '/site' || url.pathname.startsWith('/site/') ||
         url.pathname.startsWith('/@') ||        // /@vite, /@react-refresh, /@fs/...
         url.pathname.startsWith('/src/') ||     // dev: unbundled source modules
         url.pathname.startsWith('/node_modules') ||
@@ -127,7 +124,10 @@ self.addEventListener('fetch', (event) => {
                 const cache = await caches.open(CACHE);
                 try {
                     const res = await fetchWithTimeout(req, 3500);
-                    cache.put('/', res.clone()).catch(() => { });
+                    // A page that is not the app's own (one a deployment serves
+                    // beside it, server/extension.js) says so, and never becomes
+                    // the cached shell the next visitor sees.
+                    if (!res.headers.has('X-Not-App-Shell')) cache.put('/', res.clone()).catch(() => { });
                     return res;
                 } catch {
                     return (await cache.match('/')) || (await cache.match('/index.html')) || Response.error();

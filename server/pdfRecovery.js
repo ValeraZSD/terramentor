@@ -269,7 +269,7 @@ async function decideVision() {
     // learner gave that job one, else the recovery model on the connection in use.
     const head = firstChoice('vision', { model: getRecoveryVisionModel() || null });
     const model = head.model;
-    if (!model || mode === 'never') return { use: 'no', model };
+    if (!model || head.unavailable || mode === 'never') return { use: 'no', model };
     // 'always' = the user takes responsibility (they know their endpoint/model
     // serves images) — force it, don't second-guess the probe.
     if (mode === 'always') return { use: 'yes', model };
