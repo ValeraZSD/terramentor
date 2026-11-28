@@ -1819,9 +1819,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             until the reader acts; the ring is the same colour
                             and only widens it past the text, so nothing
                             moves, and the outline round it keeps it visible
-                            on any accent. */}
-                        <div className={`${m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} rounded-lg outline outline-2 outline-offset-[6px] transition-[background-color,box-shadow,outline-color] duration-700 ${foundMessageId === savedId
-                            ? 'bg-accent/15 ring-[6px] ring-accent/15 outline-accent/70 dark:bg-accent/25 dark:ring-accent/25 dark:outline-accent' : 'outline-transparent'}`} data-read-turn>
+                            on any accent and in forced colours (which drop
+                            the fill). Only the found row has an outline at
+                            all: forced colours paint a transparent one solid. */}
+                        <div className={`${m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} rounded-lg transition-[background-color,box-shadow] duration-700 ${foundMessageId === savedId
+                            ? 'bg-accent/15 ring-[6px] ring-accent/15 outline outline-2 outline-offset-[6px] outline-accent/70 dark:bg-accent/25 dark:ring-accent/25 dark:outline-accent' : ''}`} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">
