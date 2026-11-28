@@ -360,8 +360,9 @@ ok('the model gets it as the learner\'s message', asText(lastUser).trim().endsWi
 ok('…with its own offer in the history, so it knows what was asked', msgs.some(m => m.role === 'assistant' && asText(m.content).includes('```choices')), json(msgs.map(m => m.role)));
 const sys = asText(msgs.find(m => m.role === 'system')?.content);
 ok('the assistant is told it may offer answers', sys.includes('ANSWERS THEY CAN TAP'), sys.slice(0, 120));
-server.close();
-stub.close();
+// Closed and awaited: process.exit while a socket is still closing aborts
+// Node on Windows (libuv UV_HANDLE_CLOSING) after every assertion passed.
+await Promise.all([server, stub].map(s => new Promise(r => { s.closeAllConnections(); s.close(() => r()); })));
 
 // ---- 7. the prompt -------------------------------------------------------------------
 section('7. the prompt: an option the model may take, never a rule');
@@ -391,4 +392,4 @@ section('7. the prompt: an option the model may take, never a rule');
 try { db.close(); } catch { /* closed */ }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* Windows may hold the WAL a moment */ }
 console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+process.exitCode = fail ? 1 : 0;
