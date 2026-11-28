@@ -70,7 +70,9 @@ export function withCodeProtected(content: string, fn: (text: string) => string)
         const open = lines[i].match(FENCE_OPEN);
         if (!open) { lifted.push(lines[i]); i += 1; continue; }
         const [, indent, marker] = open;
-        const closer = new RegExp(`^[ \\t]*${marker[0]}{3,}\\s*$`);
+        // As long as the opener or longer (CommonMark): a shorter run inside
+        // a long fence is the fence's text, as in a side-by-side card.
+        const closer = new RegExp(`^[ \\t]*${marker[0]}{${marker.length},}\\s*$`);
         const block = [lines[i]];
         i += 1;
         while (i < lines.length) {
