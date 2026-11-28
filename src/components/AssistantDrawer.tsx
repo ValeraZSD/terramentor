@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -24,7 +24,7 @@ import { speakable } from '../utils/speakable';
 import { createPaintCoalescer } from '../utils/paintCoalescer';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
-import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } from '../types';
+import { AIStatus, ChatConversation, ChatConversationHit, ChatMessage, AiAction, ChatAttachment } from '../types';
 import AiModelBadge from './AiModelBadge';
 import AiDisclosure from './AiDisclosure';
 import AIUnavailableNotice from './AIUnavailableNotice';
@@ -35,14 +35,18 @@ import ReasoningPanel from './ReasoningPanel';
 import { splitTurnTimeline } from '../utils/turnTimeline';
 import { useAutoGrow } from '../hooks/useAutoGrow';
 import { useStickToBottom } from '../hooks/useStickToBottom';
+import { useElementHeight } from '../hooks/useElementWidth';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
-import { ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, History, Loader2, Paperclip, RefreshCw, RotateCcw, Search, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { Chip } from './ui/Chip';
+import { TextInput } from './ui/Field';
+import { searchFieldEscape } from '../utils/escapeKey';
 import type { TFunction } from 'i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
@@ -98,6 +102,10 @@ const MAX_REATTACH = 3;
 const REATTACH_DELAY_MS = 1500;
 /** How often an arriving answer is redrawn (see `setStreamed`). */
 const STREAM_PAINT_MS = 80;
+/** How long the message a search opened at stays marked if the reader does nothing. */
+const FOUND_MARK_MS = 10_000;
+/** Below this much room the search field scrolls with the list, so a whole result shows. */
+const PIN_FIELD_REM = 20;
 
 const QUICK_PROMPTS = [
     k('What should I do today?'),
@@ -208,48 +216,183 @@ function TargetButtons({ targets, onOpen }: { targets: ResolvedTarget[]; onOpen:
  * topic is a label, never a scope; the assistant reads where the learner is
  * from the page on every turn.
  */
-function ConversationList({ conversations, currentId, disabled, onOpen, onDelete }: {
+function ConversationList({ conversations, currentId, disabled, onOpen, onDelete, search }: {
     conversations: ChatConversation[];
     currentId: number | null;
     disabled: boolean;
-    onOpen: (c: ChatConversation) => void;
+    onOpen: (c: ChatConversation, messageId?: number) => void;
     onDelete: (c: ChatConversation) => void;
+    search: ConversationSearch;
 }) {
     const { t } = useTranslation();
+    // The room the list scrolls in, read off the panel itself: a phone held
+    // sideways, or a banner above, leaves too little to pin the field over
+    // it, so there the field scrolls away and a whole result shows.
+    const rootRef = useRef<HTMLDivElement>(null);
+    // Read when the hook measures, after the list is drawn: the scroller.
+    const scrollerRef = useMemo(() => ({ get current() { return rootRef.current?.parentElement ?? null; } }), []);
+    const room = useElementHeight(scrollerRef);
+    const rootPx = useRootFontSize();
+    const pinField = room === 0 || room >= PIN_FIELD_REM * rootPx;
+    // Nothing to search yet: no field.
     if (conversations.length === 0) {
-        return <p className="text-sm text-slate-500 dark:text-slate-400">{t("No conversations yet.")}</p>;
+        return <p className="px-3 text-sm text-slate-500 dark:text-slate-400">{t("No conversations yet.")}</p>;
+    }
+    const q = search.query.trim();
+    // Waiting for the answer to these words. The last answer stays while a
+    // newer one runs, dimmed after a moment, so typing never blanks it.
+    const pending = Boolean(q) && !search.failed && search.found?.q !== q;
+    const results = Boolean(q) && !search.failed && search.found != null;
+    const rows: (ChatConversation | ChatConversationHit)[] = results ? search.found!.rows : conversations;
+    let body: React.ReactNode;
+    if (results && rows.length === 0) {
+        // Names the words that found nothing: newer ones may still be running.
+        body = (
+            <p className={`px-3 text-sm text-slate-500 dark:text-slate-400 transition-opacity ${pending ? 'opacity-50 delay-300' : ''}`}>
+                {t("No conversation mentions “{{query}}”.", { query: search.found!.q })}
+            </p>
+        );
+    } else {
+        // Before the first answer the list on screen is not an answer at all:
+        // a quick search simply replaces it, a slow one fades it out after a
+        // moment and says it is searching, rather than showing unrelated rows.
+        const first = pending && !results;
+        body = (
+            <div className="relative">
+                <ul
+                    className={`space-y-1 transition-opacity ${first ? 'opacity-0 delay-300 pointer-events-none' : pending ? 'opacity-50 delay-300' : ''}`}
+                    aria-busy={pending || undefined}
+                    aria-label={results ? t("Conversations found") : t("Conversations")}
+                >
+                    {rows.map(c => (
+                        <ConversationRow key={c.id} c={c} current={c.id === currentId} disabled={disabled} onOpen={onOpen} onDelete={results ? null : onDelete} />
+                    ))}
+                </ul>
+                {first && (
+                    <p className="absolute inset-x-0 top-0 px-3 text-sm text-slate-500 dark:text-slate-400 animate-[fade-in_0.2s_ease-out_0.3s_both]">
+                        {t("Searching…")}
+                    </p>
+                )}
+            </div>
+        );
     }
     return (
-        <ul className="space-y-1" aria-label={t("Conversations")}>
-            {conversations.map(c => (
-                <li key={c.id} className="group flex items-center gap-1">
-                    <button
-                        type="button"
-                        data-row="conversation"
-                        onClick={() => onOpen(c)}
-                        disabled={disabled}
-                        aria-current={c.id === currentId ? 'true' : undefined}
-                        className={`flex-1 min-w-0 text-start px-3 py-2 min-h-11 rounded-xl transition disabled:opacity-50 ${c.id === currentId
-                            ? 'bg-accent/10 text-slate-900 dark:text-slate-100'
-                            : 'hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200'}`}
-                    >
-                        <span className="block text-sm font-medium truncate">{c.title || t("Untitled conversation")}</span>
-                        <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
-                            {/* The topic, unless the title already is it (a
-                                tutor conversation filed by the migration). */}
-                            {[dayLabel(c.updatedAt, t), c.nodeTitle !== c.title ? c.nodeTitle : null].filter(Boolean).join(' · ')}
-                        </span>
-                    </button>
-                    <IconButton
-                        onClick={() => onDelete(c)}
-                        disabled={disabled}
-                        label={t("Delete conversation “{{title}}”", { title: c.title })}
-                        title={t("Delete conversation")}
-                        icon={<Trash2 className="w-4 h-4" />}
-                    />
-                </li>
-            ))}
-        </ul>
+        <div ref={rootRef} className="space-y-2">
+            {/* Stays in view over a long list of results, while the panel is
+                tall enough that it leaves room for them. */}
+            <div className={`${pinField ? 'sticky -top-4 z-10' : ''} -mx-4 -mt-4 px-4 pt-4 pb-2 bg-white dark:bg-slate-800`}>
+                <TextInput
+                    type="search"
+                    value={search.query}
+                    onChange={e => search.setQuery(e.target.value)}
+                    // Escape takes the text back first; only an empty field
+                    // lets it close the panel.
+                    onKeyDown={e => {
+                        if (!searchFieldEscape({ key: e.key, isComposing: e.nativeEvent.isComposing, query: search.query, sheet: false })) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        search.setQuery('');
+                    }}
+                    placeholder={t("Search conversations")}
+                    aria-label={t("Search conversations")}
+                    icon={pending
+                        ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        : <Search className="w-4 h-4" aria-hidden="true" />}
+                />
+            </div>
+            <div className="sr-only" aria-live="polite">
+                {results && !pending ? t("{{count}} conversations found", { count: rows.length }) : ''}
+            </div>
+            {q && search.failed && (
+                // The server's words are for the log, not the learner. The
+                // whole list stays under it, so nothing is out of reach.
+                <div role="alert" className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/25 text-sm">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" aria-hidden="true" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                        <p className="text-slate-900 dark:text-white">{t("The search didn’t work. All your conversations are below.")}</p>
+                        <Button size="sm" onClick={search.retry} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Try again")}
+                        </Button>
+                    </div>
+                </div>
+            )}
+            {body}
+        </div>
+    );
+}
+
+/** The search's state, held by the drawer so it outlives a trip into a result. */
+interface ConversationSearch {
+    query: string;
+    setQuery: (q: string) => void;
+    /** The answer to the last query that came back. */
+    found: { q: string; rows: ChatConversationHit[] } | null;
+    /** The last query failed twice; `retry` asks again. */
+    failed: boolean;
+    retry: () => void;
+}
+
+/** A snippet with its matched words marked. */
+function MarkedSnippet({ text, ranges }: { text: string; ranges: [number, number][] }) {
+    const parts: React.ReactNode[] = [];
+    let at = 0;
+    for (const [a, b] of ranges) {
+        if (a < at || b > text.length) continue;
+        if (a > at) parts.push(text.slice(at, a));
+        // The app's search mark (SearchBar), not the accent: the accent already
+        // marks the open conversation's row.
+        parts.push(<mark key={a} className="rounded-sm bg-yellow-200 dark:bg-yellow-800/60 text-yellow-900 dark:text-yellow-100">{text.slice(a, b)}</mark>);
+        at = b;
+    }
+    parts.push(text.slice(at));
+    return <>{parts}</>;
+}
+
+/** One conversation in the list, or in a search's answer with the words that matched. */
+function ConversationRow({ c, current, disabled, onOpen, onDelete }: {
+    c: ChatConversation | ChatConversationHit;
+    current: boolean;
+    disabled: boolean;
+    onOpen: (c: ChatConversation, messageId?: number) => void;
+    /** Null in a search's answer: a result is for finding, the list is for tidying. */
+    onDelete: ((c: ChatConversation) => void) | null;
+}) {
+    const { t } = useTranslation();
+    const match = 'match' in c ? c.match : null;
+    return (
+        <li className="group flex items-center gap-1">
+            <button
+                type="button"
+                data-row="conversation"
+                onClick={() => onOpen(c, match?.messageId)}
+                disabled={disabled}
+                aria-current={current ? 'true' : undefined}
+                className={`flex-1 min-w-0 text-start px-3 py-2 min-h-11 rounded-xl transition disabled:opacity-50 ${current
+                    ? 'bg-accent/10 text-slate-900 dark:text-slate-100'
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200'}`}
+            >
+                <span className="block text-sm font-medium truncate">{c.title || t("Untitled conversation")}</span>
+                {match?.snippet && (
+                    <span className="block mt-0.5 text-sm text-slate-600 dark:text-slate-300 line-clamp-2 break-words">
+                        <MarkedSnippet text={match.snippet} ranges={match.ranges} />
+                    </span>
+                )}
+                <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
+                    {/* The topic, unless the title already is it (a
+                        tutor conversation filed by the migration). */}
+                    {[dayLabel(c.updatedAt, t), c.nodeTitle !== c.title ? c.nodeTitle : null].filter(Boolean).join(' · ')}
+                </span>
+            </button>
+            {onDelete && (
+                <IconButton
+                    onClick={() => onDelete(c)}
+                    disabled={disabled}
+                    label={t("Delete conversation “{{title}}”", { title: c.title })}
+                    title={t("Delete conversation")}
+                    icon={<Trash2 className="w-4 h-4" />}
+                />
+            )}
+        </li>
     );
 }
 
@@ -335,6 +478,35 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const refreshList = useCallback(() => {
         api.getConversations().then(setConversations).catch(() => { /* the list keeps what it had */ });
     }, []);
+    // Searching the list. The words stay while a found conversation is open,
+    // so the list comes back with the same answer; a query is sent once the
+    // learner pauses, and a newer one cancels the one in flight.
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchFound, setSearchFound] = useState<{ q: string; rows: ChatConversationHit[] } | null>(null);
+    /** The words whose search failed twice in a row; Try again bumps `searchAttempt`. */
+    const [searchFailedQ, setSearchFailedQ] = useState<string | null>(null);
+    const [searchAttempt, setSearchAttempt] = useState(0);
+    useEffect(() => {
+        const q = searchQuery.trim();
+        if (!q) { setSearchFound(null); setSearchFailedQ(null); return; }
+        if (!showList) return;
+        const ctrl = new AbortController();
+        // One quiet second try: a library busy for a moment (a backup, a sync)
+        // answers the next request.
+        const ask = (tries: number): Promise<void> => api.searchConversations(q, ctrl.signal)
+            .then(rows => { setSearchFound({ q, rows }); setSearchFailedQ(null); })
+            .catch(() => {
+                if (ctrl.signal.aborted) return;
+                if (tries > 1) return new Promise<void>(r => setTimeout(r, 600)).then(() => (ctrl.signal.aborted ? undefined : ask(tries - 1)));
+                setSearchFailedQ(q);
+            });
+        const timer = setTimeout(() => { void ask(2); }, 200);
+        return () => { clearTimeout(timer); ctrl.abort(); };
+    }, [searchQuery, showList, searchAttempt]);
+    /** The message a search result opens at, until the conversation is on screen. */
+    const jumpToRef = useRef<number | null>(null);
+    /** The message just jumped to, marked for a moment so the eye finds it. */
+    const [foundMessageId, setFoundMessageId] = useState<number | null>(null);
     // Whether "I'm behind" is offered: only when an active project's plan is at
     // least BEHIND_POINTS ahead of where the learner is, read off the schedule
     // overview's own pace (drift = expected − actual, in points).
@@ -698,6 +870,45 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (showList) { if (scroll.ref.current) scroll.ref.current.scrollTop = 0; }
         else scroll.stick();
     }, [open, loadingHistory, showList, scroll]);
+
+    // A search result opens at the message that matched, once it is drawn:
+    // after the landing above, so this wins, and the reader is reading there,
+    // so new content does not pull the view away. The scroll box is moved by
+    // hand (scrollIntoViewWithin has no "a third of the way down"), and
+    // scrollIntoView would also scroll the page behind an overlay. A message
+    // that fits sits a third of the way down, so the turn before it (usually
+    // the question it answers) shows above it; a taller one starts at the top.
+    // Rows carry their saved id (`data-message-id`), so a message sent this
+    // session is found under the id the search returns. Once the conversation
+    // is drawn the jump is spent, found or not: a pending jump must never
+    // fire later and pull the reader away from where they are.
+    useEffect(() => {
+        const id = jumpToRef.current;
+        const box = scroll.ref.current;
+        if (id == null || !open || showList || loadingHistory || !box) return;
+        jumpToRef.current = null;
+        const el = box.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+        if (!el) return;
+        scroll.stuckRef.current = false;
+        const at = el.getBoundingClientRect();
+        const room = box.clientHeight - at.height;
+        const offset = Math.max(16, Math.min(box.clientHeight / 3, room / 2));
+        box.scrollTop += at.top - box.getBoundingClientRect().top - offset;
+        setFoundMessageId(id);
+    }, [open, showList, loadingHistory, messages, scroll]);
+    // The mark stays until the reader does something (scrolls, taps, types),
+    // or FOUND_MARK_MS pass: long enough to find it after looking away.
+    useEffect(() => {
+        if (foundMessageId == null) return;
+        const clear = () => setFoundMessageId(null);
+        const timer = setTimeout(clear, FOUND_MARK_MS);
+        const events = ['pointerdown', 'keydown', 'wheel', 'touchmove'] as const;
+        for (const e of events) window.addEventListener(e, clear, { passive: true });
+        return () => {
+            clearTimeout(timer);
+            for (const e of events) window.removeEventListener(e, clear);
+        };
+    }, [foundMessageId]);
 
     // A turn the LEARNER just started re-arms following — you always want to see
     // the answer to the question you just asked. Everything else respects
@@ -1269,6 +1480,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setTurnError(null);
         setStoppedPartial(false);
         setShowList(false);
+        jumpToRef.current = null;
+        setFoundMessageId(null);
     };
 
     const newChat = () => {
@@ -1278,11 +1491,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         if (typingIsCheap()) requestAnimationFrame(() => inputRef.current?.focus());
     };
 
-    const openConversation = (c: ChatConversation) => {
+    const openConversation = (c: ChatConversation, messageId?: number) => {
         if (streaming) return;
-        if (c.id === conversationIdRef.current) { setShowList(false); return; }
+        if (c.id === conversationIdRef.current) {
+            jumpToRef.current = messageId ?? null;
+            setShowList(false);
+            // A message sent this session is drawn under a stand-in id until
+            // the conversation is read back; read it back to jump to it.
+            if (messageId != null && !messagesRef.current.some(m => (dbIdRef.current.get(m.id) ?? m.id) === messageId)) {
+                setLoadingHistory(true);
+                loadHistory(c.id)
+                    .catch(e => addToast('error', tr("Could not open the conversation"), e.message))
+                    .finally(() => setLoadingHistory(false));
+            }
+            return;
+        }
         switchTo(c.id);
         resetView();
+        jumpToRef.current = messageId ?? null;
         setLoadingHistory(true);
         loadHistory(c.id)
             .catch(e => addToast('error', tr("Could not open the conversation"), e.message))
@@ -1301,6 +1527,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         try {
             await api.deleteConversation(c.id);
             setConversations(prev => prev.filter(x => x.id !== c.id));
+            setSearchFound(prev => (prev ? { ...prev, rows: prev.rows.filter(x => x.id !== c.id) } : prev));
             if (c.id === conversationIdRef.current) { switchTo(null); resetView(); setShowList(true); }
         } catch (e: any) {
             addToast('error', tr("Could not delete the conversation"), e.message);
@@ -1548,6 +1775,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         disabled={streaming}
                         onOpen={openConversation}
                         onDelete={removeConversation}
+                        search={{
+                            query: searchQuery, setQuery: setSearchQuery, found: searchFound,
+                            failed: searchFailedQ != null && searchFailedQ === searchQuery.trim(),
+                            retry: () => { setSearchFailedQ(null); setSearchAttempt(n => n + 1); },
+                        }}
                     />
                 ) : (<>
                 {loadingHistory && messages.length === 0 && (
@@ -1583,14 +1815,25 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     const prepared = writes.cards.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
-                    const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
+                    // The row the server wrote: what a search names, and what
+                    // a repair or a report is keyed on.
+                    const savedId = dbIdRef.current.get(m.id) ?? m.id;
+                    const turnKey = String(savedId);
                     return (
-                    <div key={m.id} className="space-y-4">
+                    <div key={m.id} className="space-y-4" data-message-id={savedId}>
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
                         {/* `relative`: "You said:" / "Assistant said:" are
                             `sr-only` (absolute); placed against the turn they
-                            stay inside the list's scroller. */}
-                        <div className={m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} data-read-turn>
+                            stay inside the list's scroller. A tint across
+                            the row marks the message a search opened at,
+                            until the reader acts; the ring is the same colour
+                            and only widens it past the text, so nothing
+                            moves, and the outline round it keeps it visible
+                            on any accent and in forced colours (which drop
+                            the fill). Only the found row has an outline at
+                            all: forced colours paint a transparent one solid. */}
+                        <div className={`${m.role === 'user' ? 'relative flex justify-end' : 'group relative space-y-3'} rounded-lg transition-[background-color,box-shadow] duration-700 ${foundMessageId === savedId
+                            ? 'bg-accent/15 ring-[6px] ring-accent/15 outline outline-2 outline-offset-[6px] outline-accent/70 dark:bg-accent/25 dark:ring-accent/25 dark:outline-accent' : ''}`} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">

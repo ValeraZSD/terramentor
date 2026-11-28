@@ -1974,6 +1974,40 @@ try {
   console.error('[db] could not file chat messages into conversations:', e.message);
 }
 
+// Searching the conversations (server/chatSearch.js). `chat_messages_fts`
+// holds each message's words as the learner reads them, which only JavaScript
+// can work out, so these triggers are plain SQL that keep the index honest: a
+// written or edited message is queued in `chat_search_stale` and indexed by
+// the next search, and an edit or a delete takes the old words out AT ONCE, so
+// a deleted message's text never waits in the index. Plain SQL, not a function
+// the app registers: a connection without it (a tool, an older build opening
+// this library) would fail every chat write. Each start queues any message the
+// index lacks (every one, the first time) and drops rows whose message is gone.
+// The tokenizer folds case and Latin accents ("creme" finds "crème"); it
+// leaves Russian ё alone, so chatSearch.js stores and asks ё as е.
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
+    CREATE TABLE IF NOT EXISTS chat_search_stale (message_id INTEGER PRIMARY KEY);
+    CREATE TRIGGER IF NOT EXISTS chat_messages_search_ai AFTER INSERT ON chat_messages BEGIN
+      INSERT OR IGNORE INTO chat_search_stale (message_id) VALUES (new.id);
+    END;
+    CREATE TRIGGER IF NOT EXISTS chat_messages_search_au AFTER UPDATE OF content ON chat_messages BEGIN
+      DELETE FROM chat_messages_fts WHERE rowid = old.id;
+      INSERT OR IGNORE INTO chat_search_stale (message_id) VALUES (new.id);
+    END;
+    CREATE TRIGGER IF NOT EXISTS chat_messages_search_ad AFTER DELETE ON chat_messages BEGIN
+      DELETE FROM chat_messages_fts WHERE rowid = old.id;
+      DELETE FROM chat_search_stale WHERE message_id = old.id;
+    END;
+    INSERT OR IGNORE INTO chat_search_stale (message_id)
+      SELECT id FROM chat_messages WHERE id NOT IN (SELECT rowid FROM chat_messages_fts);
+    DELETE FROM chat_messages_fts WHERE rowid NOT IN (SELECT id FROM chat_messages);
+  `);
+} catch (e) {
+  console.error('[db] chat search index unavailable:', e.message);
+}
+
 // Time actually spent studying (server/studyTime.js): milliseconds per topic,
 // per UTC hour, per activity, counted by the page's study clock. By the hour
 // so a day can be any reader's day. Goes with its topic. `study_time_flushes`

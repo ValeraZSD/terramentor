@@ -8,6 +8,7 @@ import * as tasks from '../tasks.js';
 import { runChatTurn, withActions } from '../chatTurn.js';
 import { buildPageContext } from '../pageContext.js';
 import { conversationTitle } from '../chatConversations.js';
+import { listConversations, searchConversations } from '../chatSearch.js';
 import {
     ATTACH_MAX_FILES, attachmentsByMessage, deleteConversationAttachments, getAttachment, unavailableAttachments,
 } from '../chatAttachments.js';
@@ -101,18 +102,11 @@ app.post('/api/ai/assistant/stream', (req, res) => {
     attachTaskStream(req, res, task.id);
 });
 
-// Newest first. `nodeTitle` is read through the node, so a renamed topic is
-// named as it is now, and a deleted one is simply absent.
+// Newest first; with `?q=`, the conversations that hold its words, best first
+// (server/chatSearch.js). A search is a read: nothing goes to the activity log.
 app.get('/api/ai/conversations', (req, res) => {
-    const rows = db.prepare(`
-        SELECT c.id, c.title, c.node_id AS nodeId, n.title AS nodeTitle, n.project_id AS projectId,
-               c.created_at AS createdAt, c.updated_at AS updatedAt,
-               (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS messageCount
-        FROM chat_conversations c
-        LEFT JOIN live_nodes n ON n.id = c.node_id
-        ORDER BY c.updated_at DESC, c.id DESC
-    `).all();
-    res.json(rows);
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    res.json(q.trim() ? searchConversations(q) : listConversations());
 });
 
 app.get('/api/ai/conversations/:id/messages', (req, res) => {
