@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, EyeOff, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button, IconButton } from '../ui/Button';
 import { FOCUS_RING } from '../ui/vocabulary';
 import { useElementWidth } from '../../hooks/useElementWidth';
-import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { readRootFontSize, useRootFontSize } from '../../hooks/useRootFontSize';
 import { motionReduced } from '../../utils/accessibility';
 import { inlineArrow, isRtl, scrolledFromStart } from '../../utils/direction';
 import OwnLine from '../ui/OwnLine';
@@ -116,6 +116,29 @@ export function cellName(t: (k: string, o?: Record<string, unknown>) => string, 
     ].filter(Boolean).join(', ');
 }
 
+/**
+ * "Come back to this" on the question card: an outlined button, so it reads as
+ * one at rest (a quiet one beside an amber dot read as the grid's legend). The
+ * label is the same in both states, so pressing it moves nothing; marked, the
+ * whole button turns amber and its bookmark fills with a tick, as on the
+ * test-delivery apps' "mark for review", and the question's cell gets the
+ * amber dot. The `!` holds the amber over the `neutral` fill's own border,
+ * text and hover colours, which a later stylesheet rule would otherwise win.
+ */
+const MARKED = '!border-amber-500 !bg-amber-100 !text-amber-900 dark:!border-amber-400 dark:!bg-amber-500/25 dark:!text-amber-100';
+
+export function ComeBackToggle({ marked, onToggle }: { marked: boolean; onToggle: () => void }) {
+    const { t } = useTranslation();
+    const Icon = marked ? BookmarkCheck : Bookmark;
+    return (
+        <Button size="sm" aria-pressed={marked} onClick={onToggle}
+            wrap className={marked ? MARKED : undefined}
+            icon={<Icon aria-hidden="true" className={`w-4 h-4 ${marked ? 'fill-amber-400 text-amber-900 dark:text-amber-950' : ''}`} />}>
+            {t("Come back to this")}
+        </Button>
+    );
+}
+
 /** The amber dot of "Come back to this", on the cell's corner so it reads on any fill. */
 function MarkDot() {
     return <span aria-hidden="true" className="absolute -top-1 -end-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-800" />;
@@ -155,7 +178,9 @@ export function QuestionStrip({ items, current, onGo }: {
         return () => { el.removeEventListener('scroll', measure); ro.disconnect(); };
     }, [items.length]);
 
-    // The current question is kept in view, centred when the row overflows.
+    // The current question is kept in view: the row moves only when its cell
+    // is out of sight, and then centres it. Re-centring on every Next slid the
+    // whole row under the learner's thumb at each step.
     useLayoutEffect(() => {
         const el = scroller.current;
         const cell = cells.current[current];
@@ -163,6 +188,9 @@ export function QuestionStrip({ items, current, onGo }: {
         // From the two boxes, not offsetLeft: in right to left the row's
         // scrollLeft runs from 0 into the negatives, and the browser clamps.
         const box = el.getBoundingClientRect(), at = cell.getBoundingClientRect();
+        // In sight = clear of the faded edges (`.rail-scroll`, 1.75rem each).
+        const fade = 1.75 * readRootFontSize();
+        if (at.left >= box.left + fade && at.right <= box.right - fade) return;
         el.scrollBy({ left: (at.left + at.width / 2) - (box.left + box.width / 2) });
     }, [current, items.length]);
 
