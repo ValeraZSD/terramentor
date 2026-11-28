@@ -14,7 +14,9 @@
 //   1. The REAL WelcomeFlow, every step: no sentence frames memory as loss, and the
 //      first step still says the app checks what you have really learned.
 //   2. A failed update check beside a good version answer keeps the version.
-// Red on the pre-fix code: 1 (step 1) and 2.
+//   3-6. An update read older than a toggle or a Download press, pressed before the
+//      load or during it, does not undo what the press wrote.
+// Red on the pre-fix code: 1 (step 1) and 2; 5 and 6 on 88ee6ffa.
 // No model, no network.
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
