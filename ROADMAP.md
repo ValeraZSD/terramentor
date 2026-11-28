@@ -23,7 +23,7 @@ Recall questions will get better at finding what you have started to forget. A t
 talk to is planned too, one that follows your accent and pronunciation and hears how you are
 doing from your voice.
 
-**More languages.** The interface comes in twelve languages, all machine-translated first. Next
+**More languages.** The interface comes in fourteen languages, all machine-translated first. Next
 are more languages, the server's messages in yours, and native speakers reading the translations.
 
 **Courses you can share.** A course can already be exported as one file, and each question and
