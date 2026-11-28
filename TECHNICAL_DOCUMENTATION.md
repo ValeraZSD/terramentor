@@ -718,6 +718,8 @@ sentence and its translation, a sentence before and after a fix, the same code i
 two languages. The parser is lenient about how the sides are named and turns
 anything that is not two sides back into prose. Each side has its own Copy; the
 words a fix changed are marked by which side is the wrong one, not by position.
+An arrow between the sides (`flowOf`) appears only when one was made from the
+other: a fix, or a translation the model marks with `original:`/`translation:`.
 A pair that names a topic may become a flashcard through the same
 `POST /api/assistant/cards`; a translation is checked both ways first, and Add is
 offered only when both agree. The guide is in the assistant's prompt only.
