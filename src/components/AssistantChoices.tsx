@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
 
@@ -23,12 +24,22 @@ export function ChoiceButtons({ choices, live, onPick }: {
     onPick: (answer: string, byKeyboard: boolean) => void;
 }) {
     const { t } = useTranslation();
+    const byKey = useRef(false);
     if (!live || choices.length === 0) return null;
     return (
         <div role="group" aria-label={t("Answers to choose from")} data-row="choices" className="mb-3 flex w-full max-w-sm flex-col gap-1.5">
             {choices.map(answer => (
-                // A click with no pointer behind it (detail 0) came from the keyboard.
-                <Button key={answer} block wrap onClick={e => onPick(answer, e.detail === 0)}>
+                // Keyboard only when Enter or Space went down on the button itself:
+                // a screen reader's activation also clicks with no pointer, and on
+                // a phone focusing the composer would raise the on-screen keyboard.
+                <Button
+                    key={answer}
+                    block
+                    wrap
+                    onKeyDown={e => { byKey.current = e.key === 'Enter' || e.key === ' '; }}
+                    onPointerDown={() => { byKey.current = false; }}
+                    onClick={() => { const k = byKey.current; byKey.current = false; onPick(answer, k); }}
+                >
                     <span dir="auto" className="min-w-0 break-words">{answer}</span>
                 </Button>
             ))}

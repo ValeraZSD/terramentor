@@ -365,7 +365,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // retry. Cleared on the next send, on retry, or when dismissed. `keptIn`
     // says where the question went — the composer, or the transcript as its own
     // bubble (a task that settled while unwatched) — and the card says the same.
-    const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' } | null>(null);
+    const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' | 'choices' } | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [streamed, setStreamedNow] = useState('');
     // The arriving answer is drawn as one markdown document, parsed whole on
@@ -1205,9 +1205,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // ours would leave a reasoning panel hanging under no question.
                 setReasoningByMsg(prev => { const next = { ...prev }; delete next[assistantId]; return next; });
                 trackActions([]);
-                setInput(cur => (cur.trim() ? cur : message));
-                composerRef.current.restore(sentFiles, missing);
-                setTurnError({ message: failed, text: message });
+                // A pressed answer never left the composer: its button is back
+                // with the question, and the draft and files there stay theirs.
+                if (!keepComposer) {
+                    setInput(cur => (cur.trim() ? cur : message));
+                    composerRef.current.restore(sentFiles, missing);
+                }
+                setTurnError({ message: failed, text: message, keptIn: keepComposer ? 'choices' : undefined });
             }
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
@@ -1371,9 +1375,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // nothing draws them any more.
     // The answers offered under a question come out last: drawn as buttons
     // below the answer, or put back as a list when they are not buttons.
-    const renderBody = (content: string, streaming = false) =>
+    // `buttons` false: an earlier piece of the same message gave the buttons,
+    // so a block here is a list.
+    const renderBody = (content: string, streaming = false, buttons = true) =>
         stripCitationMarkers(splitChoices(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
-            splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
+            splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming, buttons).body);
 
     // Every file this conversation holds, by id: what a `[[img:…]]` in an
     // answer and a prepared Save may name. An id from anywhere else draws nothing.
@@ -1594,6 +1600,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     const writes = splitWriteBlocks(m.content);
                     // …and so did one whose whole answer is the answers it offers.
                     const choices = m.role === 'assistant' ? splitChoices(m.content).choices : [];
+                    // The message is drawn in pieces (between lookups and
+                    // pictures); only the first block in the WHOLE message is
+                    // buttons, so once a piece took it the rest are lists.
+                    let choicesDrawn = false;
                     const prepared = writes.cards.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length + choices.length > 0;
@@ -1652,7 +1662,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                     if (seg.kind === 'image') {
                                                         return <AttachmentFigure key={j} marker={seg} attachment={conversationFiles.get(seg.attachmentId)} />;
                                                     }
-                                                    const shown = renderBody(seg.text, arriving && j === pieces.length - 1);
+                                                    const shown = renderBody(seg.text, arriving && j === pieces.length - 1, !choicesDrawn);
+                                                    if (!choicesDrawn && splitChoices(seg.text, arriving && j === pieces.length - 1).choices.length > 0) choicesDrawn = true;
                                                     return shown.trim() ? (
                                                         <Markdown
                                                             key={j}
@@ -1830,7 +1841,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             silently do nothing. */
                         retryDisabled={streaming || (!turnError.text && !composer.ready.length)}
                         keptIn={turnError.keptIn}
-                        onRetry={() => { const t = turnError.text; setTurnError(null); send(t); }}
+                        onRetry={() => { const t = turnError.text; const tapped = turnError.keptIn === 'choices'; setTurnError(null); send(t, { keepComposer: tapped }); }}
                         onDismiss={() => setTurnError(null)}
                     />
                 )}

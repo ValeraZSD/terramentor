@@ -83,8 +83,11 @@ ok('the shared limits exist and are the ones the brief names', limits.CHOICES_MI
     ok('…and leaves the question and no fence in the text', r.body === 'What is your level in Dutch?', json(r.body));
 }
 {
-    const r = split('Which first?\n```choices\n- **Waves**\n2) "Optics"\n* «Sound»\n```');
-    ok('bullets, numbers, quotes and bold come off a label', json(r.choices) === json(['Waves', 'Optics', 'Sound']), json(r.choices));
+    const r = split('Which first?\n```choices\n- **Waves**\n• "Optics"\n* «Sound»\n```');
+    ok('bullets, and quotes or bold around a whole label, come off it', json(r.choices) === json(['Waves', 'Optics', 'Sound']), json(r.choices));
+    // Sent word for word, so a strip that cut into the answer changed the reply.
+    const inside = split(fence('"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai'));
+    ok('…but marks INSIDE a label stay, and a number stays unless the block counts 1, 2, 3', json(inside.choices) === json(['"Yes" or "No"', '**a** and **b**', '5. Mai', '12. Mai']), json(inside.choices));
 }
 {
     const r = split('Klaar?\n\n```Options\n1. Ja\n2. Nee\n```');
@@ -97,8 +100,18 @@ ok('one line split on "|" is several answers', json(split(fence('Yes | No')).cho
 }
 ok('the same answer twice is one button', json(split(fence('Yes', 'yes', 'No')).choices) === json(['Yes', 'No']), json(split(fence('Yes', 'yes', 'No')).choices));
 {
+    // A stopped or cut-off turn is stored as far as it got: its last line may be
+    // half a word, and a button would send that half as the learner's reply.
     const settled = split('How long do you have?\n\n```choices\n10 minutes\nHalf an hour');
-    ok('a block never closed is read once the turn has settled', json(settled.choices) === json(['10 minutes', 'Half an hour']) && settled.body === 'How long do you have?', json(settled));
+    ok('a block never closed is no buttons: its answers stay in the text as a list', settled.choices?.length === 0 && settled.body.includes('- 10 minutes') && settled.body.includes('- Half an hour'), json(settled));
+    const stopped = split('Level?\n```choices\nNew\nBasic\nFlue');
+    ok('…so a stopped turn never offers its half-written last line', stopped.choices?.length === 0 && !stopped.body.includes('```'), json(stopped));
+    const bounded = split('Level?\n```choices\nNew\nBasic\n\nRun this:\n```python\nprint(1)\n```');
+    ok('…and it ends at a blank line or the next fence: the text and code after it stay as they were', bounded.choices?.length === 0 && bounded.body.includes('- Basic') && bounded.body.includes('\n\nRun this:\n```python\nprint(1)\n```') && !bounded.body.includes('- Run'), json(bounded.body));
+    const trailing = split('Level?\n\n```choices\nNew\nBasic\n``` Hope that helps.\n\nNext paragraph.');
+    ok('words after the closing fence on its line stay text, and the rest of the message with them', json(trailing.choices) === json(['New', 'Basic']) && trailing.body === 'Level?\n\nHope that helps.\n\nNext paragraph.', json(trailing));
+    const later = C.splitChoices?.(`Level?\n\n${fence('Low', 'High')}`, false, false) ?? { choices: ['x'], body: '' };
+    ok('a piece after the one that gave the buttons turns its block into a list', later.choices?.length === 0 && later.body.includes('- Low'), json(later));
     const arriving = split('How long do you have?\n\n```choices\n10 minutes\nHalf an', true);
     ok('…but while it streams it draws nothing and shows no fence or half a label', arriving.body === 'How long do you have?', json(arriving.body));
     const closedArriving = split(`How long?\n\n${fence('Ten', 'Twenty')}\n\nThen we`, true);
@@ -208,6 +221,17 @@ section('4. the buttons, mounted: labelled, real buttons, a press hands back exa
     act(() => buttons[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })));
     ok('a press hands back exactly that answer, once', json(picks) === json(['Ik ken de basis']), json(picks));
     m.done();
+    // Keyboard is only Enter or Space on the button: a screen reader's activation
+    // clicks with no pointer too (detail 0), and on a phone focusing the composer
+    // would raise the on-screen keyboard.
+    const how = [];
+    const k = mount({ choices: labels, live: true, onPick: (_text, byKeyboard) => how.push(byKeyboard) });
+    const kb = [...k.host.querySelectorAll('button')];
+    act(() => { kb[0]?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); kb[0]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })); });
+    act(() => kb[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 0 })));
+    act(() => { kb[2]?.dispatchEvent(new window.Event('pointerdown', { bubbles: true })); kb[2]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); });
+    ok('Enter on a button is a keyboard press; a click with no key or a pointer is not', json(how) === json([true, false, false]), json(how));
+    k.done();
     const gone = mount({ choices: labels, live: false, onPick: (text) => picks.push(text) });
     ok('no longer live: nothing is drawn, so nothing can be pressed', gone.host.querySelectorAll('button').length === 0 && gone.host.textContent === '', gone.host.innerHTML);
     gone.done();
@@ -230,6 +254,11 @@ section('5. the drawer: from the stored message, through the one send path');
     const sendFn = sendAt < 0 ? '' : drawer.slice(sendAt, drawer.indexOf('api.streamAssistant(', sendAt) + 40);
     ok('…which leaves a typed draft and attached files where they are', /keepComposer\s*\?\s*\[\]\s*:\s*files\.take\(\)/.test(sendFn) && /if \(!keepComposer\) setInput\(''\)/.test(sendFn), sendFn.slice(0, 200));
     ok('…and sends the answer as the message itself', /const message = text\.trim\(\);/.test(sendFn) && /api\.streamAssistant\(message,/.test(sendFn));
+    ok('a message drawn in pieces gives buttons once: later pieces get buttons=false', /renderBody\(seg\.text, arriving && j === pieces\.length - 1, !choicesDrawn\)/.test(drawer) && /if \(!choicesDrawn && splitChoices\(seg\.text, arriving && j === pieces\.length - 1\)\.choices\.length > 0\) choicesDrawn = true/.test(drawer));
+    const failAt = drawer.indexOf('} else if (failed) {', sendAt);
+    const failBlock = failAt < 0 ? '' : drawer.slice(failAt, drawer.indexOf('setTurnError(', failAt) + 120);
+    ok('a pressed answer that fails leaves the composer alone and says so to the retry', /if \(!keepComposer\) \{\s*setInput\(/.test(failBlock) && /keptIn: keepComposer \? 'choices'/.test(failBlock), failBlock.slice(0, 200));
+    ok('…and Try again sends it as a pressed answer again', /onRetry=\{\(\) => \{[^}]*keptIn === 'choices'[^}]*send\(t, \{ keepComposer: tapped \}\)/.test(drawer));
     ok('a message that is only a question with answers is not "no answer"', /prepared = [\s\S]{0,400}choices\.length/.test(drawer));
     ok('while answers are live, the composer says typing still works', /placeholder=\{offering \? tr\("Or type your own answer…"\) : tr\("Ask anything…"\)\}/.test(drawer));
     const en = JSON.parse(read('src/locales/en.json') || '{}');
@@ -239,7 +268,7 @@ section('5. the drawer: from the stored message, through the one send path');
         const file = JSON.parse(read(`src/locales/${l}.json`) || '{}');
         for (const key of ['Or type your own answer…', 'Answers to choose from']) if (!file[key] || file[key] === key) missing.push(`${l}: ${key}`);
     }
-    ok('every new line is in every shipped language', missing.length === 0 && en !== null, missing.join(', '));
+    ok('every new line is in every shipped language', missing.length === 0 && ['Or type your own answer…', 'Answers to choose from'].every(key => en[key]), missing.join(', '));
 }
 
 // ---- 6. the real route ---------------------------------------------------------------

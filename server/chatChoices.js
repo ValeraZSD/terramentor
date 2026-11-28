@@ -1,7 +1,7 @@
 /**
  * The answers the assistant may offer under a question it asks, for the
- * learner to tap instead of typing: their limits, and when an answer the
- * learner sent is one of them.
+ * learner to tap instead of typing: their limits, and when two lines of a
+ * block are the same answer.
  *
  * One module for both sides: the assistant's prompt (`CHOICES_GUIDE` in
  * server/ai.js) states these numbers, and the client's parser

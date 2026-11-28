@@ -15,13 +15,16 @@
  * A FENCE rather than a `[[…]]` marker because a label is content in the
  * learner's language: a `:` or a `]]` in it would end a marker early.
  *
- * Lenient where a small local model is sloppy: bullets, numbers, quotes and
- * bold come off a line, one line is split on `|`, `options` is the same block,
- * and a block never closed is read once the turn has settled. Strict about what
- * becomes a button (server/chatChoices.js): 2 to 4 distinct answers, each
- * short. Outside that, and for a second block in one message, the answers go
- * back into the text as a list: the learner still reads every option the model
- * wrote and types one, and no option is silently dropped.
+ * Lenient where a small local model is sloppy: bullets, a 1-2-3 numbering, and
+ * quotes or bold around a whole line come off it, one line is split on `|`,
+ * `options` is the same block, and words after the closing fence on its line
+ * stay in the text. Strict about what becomes a button (server/chatChoices.js):
+ * a CLOSED block of 2 to 4 distinct answers, each short. Outside that, for a
+ * second block in one message, and for a block never closed (a stopped or
+ * cut-off turn, whose last line may be half a word), the answers go back into
+ * the text as a list: the learner still reads every option the model wrote and
+ * types one, and no option is silently dropped. A block never closed ends at
+ * the next fence or the first blank line, so the text after it stays text.
  *
  * Live only on the newest message (`choicesLive`): a button under an older one
  * would answer a question the conversation has moved past.
@@ -30,9 +33,11 @@
 import { CHOICE_LABEL_MAX, CHOICES_MAX, CHOICES_MIN, sameAnswer } from '../../server/chatChoices.js';
 
 const KINDS = 'choices|choice|options';
-const BLOCK_RE = new RegExp(`(^|\\n)[ \\t]*\`\`\`[ \\t]*(?:${KINDS})[ \\t]*\\n([\\s\\S]*?)\\n?[ \\t]*\`\`\`[ \\t]*(?=\\n|$)`, 'gi');
-/** An opener with no closer after it: still arriving, or never closed. */
-const OPEN_RE = new RegExp(`(^|\\n)[ \\t]*\`\`\`[ \\t]*(?:${KINDS})[ \\t]*(?:\\n([\\s\\S]*))?$`, 'i');
+const OPENER = new RegExp(`^[ \\t]*\`\`\`[ \\t]*(?:${KINDS})[ \\t]*$`, 'i');
+/** Any fence line: a closer, or another block's opener. */
+const FENCE = /^[ \t]*```/;
+/** A closer, bare or with words after it on its line (`\`\`\` Hope that helps.`); `\`\`\`python` opens a block instead. */
+const CLOSER = /^[ \t]*```(?:[ \t]+(.*))?$/;
 
 /** Line ends as `\n` only, so a block a model wrote with CRLF is still found. */
 const unix = (s: string) => s.replace(/\r\n?/g, '\n');
@@ -41,29 +46,72 @@ const tidy = (s: string) => s.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n'
 
 /** Pairs a label may be wrapped in, as a model quotes it. */
 const QUOTES: [string, string][] = [['"', '"'], ["'", "'"], ['“', '”'], ['„', '“'], ['«', '»'], ['‘', '’'], ['`', '`']];
+const NUMBERED = /^(\d{1,2})[.)]\s+/;
 
-function label(line: string): string {
-    let s = line.replace(/\s+/g, ' ').trim()
-        // "- ", "* ", "• ", "1. ", "2) ", "[ ] " before the answer.
-        .replace(/^(?:[-*•–]|\d{1,2}[.)]|\[[ xX]?\])\s+/, '');
+/**
+ * One line as the answer it sends. Only what wraps the WHOLE line comes off:
+ * `"Yes" or "No"` and `**a** and **b**` keep their marks, and a number only in
+ * a block numbered 1, 2, 3…, so "5. Mai" stays a date.
+ */
+function label(line: string, numbered: boolean): string {
+    let s = line.replace(/\s+/g, ' ').trim();
+    s = numbered ? s.replace(NUMBERED, '') : s.replace(/^(?:[-*•–]|\[[ xX]?\])\s+/, '');
     const bold = s.match(/^(\*\*|__)(.+)\1$/);
-    if (bold) s = bold[2].trim();
+    if (bold && !bold[2].includes(bold[1])) s = bold[2].trim();
     for (const [open, close] of QUOTES) {
-        if (s.length > 2 && s.startsWith(open) && s.endsWith(close)) { s = s.slice(open.length, -close.length).trim(); break; }
+        if (s.length > 2 && s.startsWith(open) && s.endsWith(close)) {
+            const inner = s.slice(open.length, -close.length);
+            if (!inner.includes(open) && !inner.includes(close)) s = inner.trim();
+            break;
+        }
     }
     return s;
 }
 
 /** The lines of a block, as answers, in order, each once. */
-function answersOf(inner: string): string[] {
-    const lines = inner.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
-    const raw = lines.length === 1 && lines[0].includes('|') ? lines[0].split('|') : lines;
+function answersOf(lines: string[]): string[] {
+    let raw = lines.map(l => l.trim()).filter(Boolean);
+    if (raw.length === 1 && raw[0].includes('|')) raw = raw[0].split('|').map(l => l.trim());
+    const numbered = raw.length > 1 && raw.every((l, n) => Number(NUMBERED.exec(l)?.[1]) === n + 1);
     const out: string[] = [];
     for (const piece of raw) {
-        const s = label(piece);
+        const s = label(piece, numbered);
         if (s && !out.some(o => sameAnswer(o, s))) out.push(s);
     }
     return out;
+}
+
+/**
+ * How a block was found: `closed` by its fence; `unclosed`, ended by another
+ * fence or a blank line; `open` to the end of the text (still arriving while
+ * the turn streams, or cut off).
+ */
+type BlockEnd = 'closed' | 'unclosed' | 'open';
+
+/** The text with every choices block replaced by `render`'s output; null when there is none. */
+function rewrite(text: string, render: (answers: string[], end: BlockEnd) => string): string | null {
+    const lines = text.split('\n');
+    const out: string[] = [];
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+        if (!OPENER.test(lines[i])) { out.push(lines[i]); continue; }
+        found = true;
+        let j = i + 1;
+        while (j < lines.length && !FENCE.test(lines[j])) j++;
+        const close = j < lines.length ? CLOSER.exec(lines[j]) : null;
+        if (close) {
+            out.push(render(answersOf(lines.slice(i + 1, j)), 'closed'));
+            if (close[1]?.trim()) out.push(close[1].trim());
+            i = j;
+            continue;
+        }
+        // Never closed: it ends at the next fence or the first blank line after an answer.
+        let k = i + 1;
+        while (k < j && !(lines[k].trim() === '' && lines.slice(i + 1, k).some(l => l.trim()))) k++;
+        out.push(render(answersOf(lines.slice(i + 1, k)), k === lines.length ? 'open' : 'unclosed'));
+        i = k - 1;
+    }
+    return found ? out.join('\n') : null;
 }
 
 /** Code points, so a label in any script is measured the same. */
@@ -79,34 +127,30 @@ const asList = (answers: string[]) => (answers.length ? `\n\n${answers.map(a => 
  *
  * @param streaming true while the text is still arriving: a block not closed
  *        yet is hidden, so neither its fence nor half a label flashes
+ * @param buttons false when an earlier piece of the same message already gave
+ *        the buttons, so every block here goes back as a list
  */
-export function splitChoices(content: string, streaming = false): { body: string; choices: string[] } {
+export function splitChoices(content: string, streaming = false, buttons = true): { body: string; choices: string[] } {
     if (typeof content !== 'string' || !content.includes('```')) return { body: content, choices: [] };
-    const text = unix(content);
     let choices: string[] = [];
-    let taken = false;
-    const take = (inner: string) => {
-        const answers = answersOf(inner);
-        if (!taken && fits(answers)) {
+    let taken = !buttons;
+    const body = rewrite(unix(content), (answers, end) => {
+        if (end === 'open' && streaming) return '';
+        if (end === 'closed' && !taken && fits(answers)) {
             taken = true;
             choices = answers;
             return '';
         }
         return asList(answers);
-    };
-    let body = text.replace(BLOCK_RE, (_m, lead: string, inner: string) => lead + take(inner));
-    body = body.replace(OPEN_RE, (_m, lead: string, inner = '') => (streaming ? lead : lead + take(inner)));
-    return { body: body === text ? content : tidy(body), choices };
+    });
+    return { body: body === null ? content : tidy(body), choices };
 }
 
 /** The answers as a person would paste them: a list under the question. */
 export function choicesAsText(content: string): string {
     if (typeof content !== 'string' || !content.includes('```')) return content;
-    const text = unix(content);
-    const out = text
-        .replace(BLOCK_RE, (_m, lead: string, inner: string) => lead + asList(answersOf(inner)))
-        .replace(OPEN_RE, (_m, lead: string, inner = '') => lead + asList(answersOf(inner)));
-    return out === text ? content : tidy(out);
+    const out = rewrite(unix(content), answers => asList(answers));
+    return out === null ? content : tidy(out);
 }
 
 /**
