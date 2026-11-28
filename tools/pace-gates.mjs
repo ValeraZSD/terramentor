@@ -571,6 +571,48 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     }
 }
 
+// ---------------------------------------------------------------------------
+// 3. The panel's words (src/components/plan/verdict.tsx): the best month's rate
+// is read once in every band, in the sentences or in the chart's key under
+// them, never twice and never only by a screen reader.
+{
+    console.log('\nthe plan panel says the best month\'s rate once:');
+    const { createRequire } = await import('node:module');
+    const { pathToFileURL } = await import('node:url');
+    const esbuild = createRequire(import.meta.url)('esbuild');
+    const out = join(scratch, 'verdict.mjs');
+    await esbuild.build({
+        entryPoints: [join(root, 'src', 'components', 'plan', 'verdict.tsx')],
+        bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent', jsx: 'automatic',
+        // The words only: i18next is not started, the key is the English text.
+        plugins: [{
+            name: 'stub-i18n',
+            setup(build) {
+                build.onResolve({ filter: /\/i18n$/ }, () => ({ path: 'i18n-stub', namespace: 'stub' }));
+                build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+                    contents: `export const k = (s) => s; export const currentLocale = () => 'en';`, loader: 'js',
+                }));
+            },
+        }],
+    });
+    const panel = await import(pathToFileURL(out).href);
+    const t = (key, p = {}) => key.replace(/\{\{(\w+)\}\}/g, (_, name) => String(p[name]));
+    const num = (v, { decimals = 0 } = {}) => v.toFixed(decimals);
+    const BEST = 2.6; // a rate no other number in the panel reads as
+    for (const band of ['on_pace', 'under_pace', 'tight', 'out_of_reach', 'passed', 'learning', 'done']) {
+        const v = {
+            band, unit: 'topics', open: 13, needed: band === 'out_of_reach' ? 3.4 : 1.1, recent: 1.4, best: BEST,
+            quietWeeks: 0, early: false, fits: 9, deadline: ahead(60), ranges: { recent: null, best: null },
+        };
+        const sentences = panel.verdictSentences(v, t, num, TODAY).join(' ');
+        const key = typeof panel.bestKeyName === 'function' ? panel.bestKeyName(band, BEST, t, num) : 'Your best month';
+        const times = `${sentences} | ${key}`.split('2.6').length - 1;
+        check(`${band}: once, in the ${sentences.includes('2.6') ? 'sentences' : 'key'}`, times === 1, show({ sentences, key }));
+    }
+    const chart = readFileSync(join(root, 'src', 'components', 'plan', 'WeeklyChart.tsx'), 'utf8');
+    check('the chart\'s key names the best line with it', /\{bestKeyName\(band, best, t, num\)\}<\/span>/.test(chart));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 // Ended, not killed: process.exit() while the app's handles are still closing
 // aborts node on Windows with a libuv assertion (exit 127) after a green run.

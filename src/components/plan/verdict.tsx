@@ -97,6 +97,17 @@ export function VerdictPill({ verdict, t, className = '' }: {
 }
 
 /**
+ * The band's icon in its colour, for beside a sentence that already names the
+ * band in words (the plan's headline): a pill there said "On pace" twice.
+ */
+export function VerdictIcon({ verdict, className = '' }: { verdict: PaceVerdict; className?: string }) {
+    const Icon = ICON[verdict.band];
+    // The pill's text colour only: no tint behind a bare icon.
+    const colour = TONE[verdict.band].split(' ').filter(c => c.startsWith('text-') || c.startsWith('dark:text-')).join(' ');
+    return <Icon className={`shrink-0 ${colour} ${className}`} aria-hidden="true" />;
+}
+
+/**
  * A weekly amount as it is read: whole numbers from 3 up ("25 a week"), one
  * decimal below that, where "0.4 a week" and "0 a week" say different things.
  * Anything above zero stays above it: one topic left in half a year is 0.1, not
@@ -131,6 +142,23 @@ const rate = (num: Num, x: number | null | undefined) => {
     return num(r, { decimals: Number.isInteger(r) ? 0 : 1 });
 };
 
+/**
+ * Whether the panel's sentences give the best month's rate. Done, passed and
+ * learning stop before it, and on pace has no use for it; there the chart's
+ * key gives the rate instead, so it shows once in every band.
+ */
+export function sentencesGiveBest(band: VerdictBand): boolean {
+    return band !== 'done' && band !== 'passed' && band !== 'learning' && band !== 'on_pace';
+}
+
+/**
+ * The best line's name in the chart's key: the name alone where the sentences
+ * above already give the rate, the name with the rate where they do not.
+ */
+export function bestKeyName(band: VerdictBand, best: number, t: TFunction, num: Num): string {
+    return sentencesGiveBest(band) ? t("Your best month") : t("Your best month: {{n}} a week", { n: rate(num, best) });
+}
+
 /** The panel's headline: the date and the verdict in one line. */
 export function verdictHeadline(v: PaceVerdict, t: TFunction, today: string): string {
     const date = v.deadline ? shortDay(v.deadline, today) : '';
@@ -151,7 +179,6 @@ export function verdictHeadline(v: PaceVerdict, t: TFunction, today: string): st
  */
 export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: string): string[] {
     const cards = v.unit === 'cards';
-    const date = v.deadline ? shortDay(v.deadline, today) : '';
     const out: string[] = [];
     if (v.band === 'done') {
         out.push(cards ? t("Every card in it has been met.") : t("Every topic in it is closed."));
@@ -167,7 +194,8 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
             : t("After two weeks of study the app compares this date with your own pace."));
         return out;
     }
-    out.push(t("That is {{n}} a week until {{date}}.", { n: rate(num, v.needed), date }));
+    // No date: the headline above names it.
+    out.push(t("That is {{n}} a week.", { n: rate(num, v.needed) }));
     if (v.quietWeeks >= 2) {
         out.push(cards
             ? t("No new card met for {{n}} weeks.", { count: v.quietWeeks, n: num(v.quietWeeks) })
@@ -175,7 +203,7 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
     } else {
         out.push(t("Your recent pace is {{n}} a week.", { n: rate(num, v.recent) }));
     }
-    if (v.band !== 'on_pace') out.push(t("Your best month was {{n}} a week.", { n: rate(num, v.best) }));
+    if (sentencesGiveBest(v.band)) out.push(t("Your best month was {{n}} a week.", { n: rate(num, v.best) }));
     if (v.band === 'out_of_reach' && v.fits != null) {
         // "You finish", so the verb never agrees with the number.
         out.push(t("At that pace you finish {{fits}} of the {{open}} in time.", { fits: num(v.fits), open: num(v.open) }));

@@ -7,7 +7,7 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { dateRangeLabel, uiLocale } from '../../utils/locale';
 import { parseDate } from '../../utils/tree';
 import { MENU_SURFACE } from '../ui/Popover';
-import { perWeek } from './verdict';
+import { bestKeyName, perWeek } from './verdict';
 
 /** How far back the chart reaches: half a year of weeks. */
 export const CHART_WEEKS = 26;
@@ -22,8 +22,8 @@ const NEEDED_STROKE: Partial<Record<VerdictBand, string>> = {
 /**
  * The learner's own weeks as bars, with the two numbers the verdict compares
  * drawn across them: the pace the date needs (dashed, in the verdict's colour)
- * and the best four weeks ever (solid grey). One series, so no legend: each
- * line carries its name at its right end. Drawn in pixels from the measured
+ * and the best four weeks ever (solid grey). The lines are named above the
+ * drawing, each beside a sample of itself. Drawn in pixels from the measured
  * width, like the evidence chart, so text never stretches.
  *
  * Hover, a tap or the arrow keys name one week; the bars themselves are hidden
@@ -55,7 +55,7 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
 
     const height = Math.round(9 * rem);
     const gutter = Math.round(2 * rem);
-    const padTop = Math.round(1.25 * rem); // room for the needed line's name
+    const padTop = Math.round(0.5 * rem); // the top bar clear of the box's edge
     const left = gutter;
     const right = Math.max(left + 1, width);
     const bottom = height;
@@ -122,17 +122,35 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
     const tipOnLeft = tipX > width / 2;
 
     const r = (x: number) => { const v = perWeek(x); return num(v, { decimals: Number.isInteger(v) ? 0 : 1 }); };
-    // The two names sit above their lines, unless the lines are so close that
-    // the lower name would sit on the upper line: then it goes under its own.
-    const close = need > 0 && Math.abs(yOf(need) - yOf(best)) < 1.1 * rem;
-    const bestBelow = close && best <= need;
-    const neededBelow = close && need < best;
+    const neededName = need > 0 ? t("Needed: {{n}} a week", { n: r(need) }) : null;
+    const bestName = best > 0 ? t("Your best month: {{n}} a week", { n: r(best) }) : null;
+    // A sample of each line beside its name, drawn like the line itself.
+    const sample = (stroke: string, dashed: boolean) => (
+        <svg width={Math.round(1.5 * rem)} height={6} className="shrink-0" aria-hidden="true">
+            <line x1={0} x2={Math.round(1.5 * rem)} y1={3} y2={3} className={stroke}
+                strokeWidth={dashed ? 2 : 1.5} strokeDasharray={dashed ? '6 4' : undefined} />
+        </svg>
+    );
 
     return (
         <figure className="relative m-0">
             <figcaption className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {unit === 'cards' ? t("New cards you met each week, in all your courses") : t("Topics you closed each week, in all your courses")}
             </figcaption>
+            {/* The lines' names sit above the drawing, not at the lines' ends:
+                there they covered the newest weeks, the bars read first. */}
+            {/* A number only where the sentences above leave it out: the
+                needed rate is always there, the best month's not in every band. */}
+            {(neededName || bestName) && (
+                <div aria-hidden="true" className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-700 dark:text-slate-200">
+                    {neededName && (
+                        <span className="inline-flex items-center gap-1.5">{sample(NEEDED_STROKE[band]!, true)}{t("Pace needed")}</span>
+                    )}
+                    {bestName && (
+                        <span className="inline-flex items-center gap-1.5">{sample('stroke-slate-500 dark:stroke-slate-400', false)}{bestKeyName(band, best, t, num)}</span>
+                    )}
+                </div>
+            )}
             <div
                 ref={box}
                 // Weeks run left to right in every interface language: the
@@ -172,25 +190,11 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                 )}
                 {grid.map(v => (
                     <span key={v} aria-hidden="true"
-                        className="absolute -translate-y-1/2 pe-1.5 text-end text-2xs tabular-nums text-slate-500 dark:text-slate-400"
+                        className="absolute -translate-y-1/2 pe-1.5 text-end text-xs tabular-nums text-slate-500 dark:text-slate-400"
                         style={{ top: yOf(v), left: 0, width: gutter }}>
                         {num(Math.round(v))}
                     </span>
                 ))}
-                {need > 0 && NEEDED_STROKE[band] && (
-                    <span aria-hidden="true"
-                        className={`absolute end-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${neededBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
-                        style={{ top: yOf(need) }}>
-                        {t("Needed: {{n}} a week", { n: r(need) })}
-                    </span>
-                )}
-                {best > 0 && (
-                    <span aria-hidden="true"
-                        className={`absolute end-0 top-0 text-2xs font-medium text-slate-700 dark:text-slate-200 ${bestBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
-                        style={{ top: yOf(best) }}>
-                        {t("Your best month: {{n}} a week", { n: r(best) })}
-                    </span>
-                )}
                 {shown && active != null && (
                     <div
                         aria-hidden="true"
@@ -203,18 +207,15 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                     </div>
                 )}
             </div>
-            {/* The two lines' names, which the drawing hides: the weeks are
-                read against them. */}
+            {/* The two lines' names, read with the weeks: the weeks are read
+                against them. */}
             <p id={lineNamesId} className="sr-only">
-                {[
-                    need > 0 && NEEDED_STROKE[band] ? t("Needed: {{n}} a week", { n: r(need) }) : null,
-                    best > 0 ? t("Your best month: {{n}} a week", { n: r(best) }) : null,
-                ].filter(Boolean).join('. ')}
+                {[neededName, bestName].filter(Boolean).join('. ')}
             </p>
             <p className="sr-only" aria-live="polite">
                 {shown && active != null ? `${weekLabel(active)}: ${countLabel(shown.count)}` : ''}
             </p>
-            <div aria-hidden="true" dir="ltr" className="relative mt-1 h-4 text-2xs text-slate-500 dark:text-slate-400">
+            <div aria-hidden="true" dir="ltr" className="relative mt-1 h-4 text-xs text-slate-500 dark:text-slate-400">
                 {ticks.map(tk => (
                     <span key={`${tk.x}`} className="absolute top-0" style={{ left: tk.x }}>{tk.label}</span>
                 ))}

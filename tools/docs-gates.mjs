@@ -33,7 +33,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = join(ROOT, 'docs', 'screenshots');
@@ -195,6 +195,20 @@ for (const [f, s] of entries) {
     }
 }
 for (const name of linked) ok(`docs/screenshots/${name}, linked from the docs, exists`, existsSync(join(SHOTS, name)));
+
+// A cropped picture is refused when part of it scrolls inside itself, either
+// way: a box that scrolls sideways hides its right side as surely as one that
+// scrolls down hides its foot.
+console.log('\na crop that scrolls inside itself is refused:');
+const { scrollsInside } = await import(pathToFileURL(join(ROOT, 'tools', 'docs-shots.mjs')).href);
+const box = (sh, ch, sw, cw) => ({ scrollHeight: sh, clientHeight: ch, scrollWidth: sw, clientWidth: cw });
+const scrolls = (n, overflowX, overflowY) => typeof scrollsInside === 'function' && scrollsInside(n, { overflowX, overflowY });
+ok('a box that scrolls down is refused', scrolls(box(900, 600, 600, 600), 'visible', 'auto'));
+ok('a box that scrolls sideways is refused', scrolls(box(600, 600, 900, 600), 'auto', 'visible'));
+ok('...with a scroll bar shown always, too', scrolls(box(600, 600, 900, 600), 'scroll', 'visible'));
+ok('a box whose content fits is kept', !scrolls(box(600, 600, 600, 600), 'auto', 'auto'));
+ok('a box that hides what is past its edge, with no scroll bar, is kept', !scrolls(box(900, 600, 900, 600), 'hidden', 'hidden'));
+ok('the crop checks every element with it', /const scrolls = \$\{scrollsInside\}.*scrolls\(n, getComputedStyle\(n\)\)/.test(shotsSource));
 
 // ---------------------------------------------------------------------------
 // The words.

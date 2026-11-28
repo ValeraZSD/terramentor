@@ -205,6 +205,7 @@ const ADJACENT_LABELS = new Set([
     'ProjectsGrid.tsx:Activity log',                 // a heading beside a status
     'AnkiImportModal.tsx:{{cards}} cards',           // "N cards" · "from M decks"
     'GlobalFlashcardReview.tsx:{{min}} of {{length}} cards', // a row of facts: position · skipped · deleted
+    'WeeklyChart.tsx:Pace needed',                   // two line names in the chart's key
 ]);
 /**
  * Split sentences that are known and not yet rewritten. They
