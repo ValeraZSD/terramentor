@@ -2,11 +2,10 @@
 // exam-mark-gates.mjs — on the question screen of a mock or a look back,
 // nothing moves unless the learner moved it.
 //
-// "Come back to this" used to be a quiet button with an amber dot, the same
-// look as the grid's legend, so it read as plain text; pressing it swapped the
-// label for a longer one, so the button grew and slid, and on a narrow card it
-// wrapped and pushed the question down. Mounted in jsdom from the real
-// `ExamFrame.tsx`:
+// A quiet button beside an amber dot has the look of the grid's legend and
+// reads as plain text; a label that grows when pressed slides the button and,
+// on a narrow card, wraps it and pushes the question down. Mounted in jsdom
+// from the real `ExamFrame.tsx`:
 //
 //   1. the toggle is a framed button (the outlined `neutral` fill), its label
 //      is the same marked and not, `aria-pressed` carries the state, a press
