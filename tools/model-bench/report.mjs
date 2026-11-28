@@ -2,7 +2,7 @@
 /**
  * Turns a results folder from run.mjs into a table and a chart.
  *
- *   node tools/model-bench/report.mjs --out <dir> [--md report.md] [--png chart.png]
+ *   node tools/model-bench/report.mjs --out <dir> [--suite hard] [--md report.md] [--png chart.png]
  *        [--noise <label>]      compare <model>.jsonl with <model>@<label>.jsonl
  *        [--profile file.json]  calls per active day by category, for $/month
  *        [--title text]         the chart's title
@@ -13,6 +13,7 @@
  * `errors` column, because a learner would have seen that failure too.
  */
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { loadSuite, suiteName } from './suites.mjs';
 import path from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -20,16 +21,23 @@ const opt = (k, d = '') => { const i = argv.indexOf(`--${k}`); return i >= 0 ? a
 const OUT = opt('out');
 if (!OUT) { console.error('--out <dir> is required'); process.exit(2); }
 
-const { loadFamilies } = await import('./cases/index.mjs');
+const suiteArg = opt('suite');
+if (argv.includes('--suite') && (!suiteArg || suiteArg.startsWith('--'))) { console.error('--suite needs a name'); process.exit(2); }
+let suite;
+try { suite = suiteName(suiteArg); } catch (e) { console.error(e.message); process.exit(2); }
+const { loadFamilies } = await loadSuite(suite);
 const families = await loadFamilies();
 const caseCount = families.reduce((n, f) => n + f.cases.length, 0);
 const label = Object.fromEntries(families.map(f => [f.category, f.label]));
+const caseIds = new Set(families.flatMap(f => f.cases.map(c => c.id)));
 
+// Only this suite's cases count: a folder that also holds another suite's
+// rows (same file name per model) must not mix into the score.
 const readRows = (file) => {
     const rows = new Map();
     for (const line of readFileSync(file, 'utf8').split('\n')) {
         if (!line.trim()) continue;
-        try { const r = JSON.parse(line); rows.set(r.case, r); } catch { /* torn line */ }
+        try { const r = JSON.parse(line); if (caseIds.has(r.case)) rows.set(r.case, r); } catch { /* torn line */ }
     }
     return [...rows.values()];
 };
@@ -77,7 +85,7 @@ const models = files.map((f) => {
 
 const cats = families.map(f => f.category);
 const fmt = (x, d = 1) => x == null ? '–' : Number(x).toFixed(d);
-let md = `# Model benchmark results\n\n${caseCount} cases in ${families.length} categories. Score = cases passed / cases the model could take x 100.\n\n`;
+let md = `# Model benchmark results (${suite} suite)\n\n${caseCount} cases in ${families.length} categories. Score = cases passed / cases the model could take x 100.\n\n`;
 md += 'Seconds are the time the app waited on the model per case.\n\n';
 md += '| model | ZDR | score | done | median s | p90 s | first token s | $ total | $/case | errors |\n|---|---|---|---|---|---|---|---|---|---|\n';
 for (const m of models) {
@@ -132,16 +140,18 @@ try {
     const cv = createCanvas(W, H); const g = cv.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#111827'; g.font = 'bold 30px sans-serif';
-    g.fillText(opt('title', `Terramentor model benchmark (${caseCount} cases)`), 30, 50);
+    g.fillText(opt('title', `Terramentor model benchmark, ${suite} suite (${caseCount} cases)`), 30, 50);
     g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
     g.fillText('Bar: score out of 100.   Right: median seconds the app waited per case (p90), then $ per 100 cases.', 30, 84);
     const x0 = 520, barW = 520;
     models.forEach((m, i) => {
         const y = top + i * rowH;
         g.fillStyle = '#111827'; g.font = '20px sans-serif';
-        g.fillText(m.id.length > 44 ? m.id.slice(0, 43) + '…' : m.id, 30, y + 28);
+        const mark = m.zdr == null ? ' (ZDR?)' : m.zdr ? '' : ' (no ZDR)';
+        const name = m.id.length + mark.length > 44 ? m.id.slice(0, 43 - mark.length) + '…' : m.id;
+        g.fillText(name + mark, 30, y + 28);
         g.fillStyle = '#e5e7eb'; g.fillRect(x0, y + 8, barW, 28);
-        g.fillStyle = m.zdr == null ? '#6b7280' : m.zdr ? '#0f766e' : '#2563eb'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
+        g.fillStyle = '#0f766e'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
         g.fillStyle = '#111827'; g.font = 'bold 20px sans-serif';
         g.fillText(m.score == null ? '–' : String(Math.round(m.score)), x0 + barW + 14, y + 30);
         g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
@@ -150,7 +160,15 @@ try {
         g.fillText(per100 === 0 ? '$0' : `$${per100 < 1 ? per100.toFixed(2) : per100.toFixed(1)}`, x0 + barW + 290, y + 30);
     });
     g.fillStyle = '#4b5563'; g.font = '18px sans-serif';
-    g.fillText('Teal: has a zero-data-retention endpoint.   Blue: has none.   Grey: called on the vendor\'s own API, retention per that account.', 30, H - 22);
+    const note = !models.length ? ''
+        : models.every(m => m.zdr) ? 'Every model shown can be used with zero data retention (ZDR) on OpenRouter.'
+        : [
+            'ZDR = zero data retention on OpenRouter.',
+            models.some(m => m.zdr) && 'No mark: available with ZDR.',
+            models.some(m => m.zdr === false) && '(no ZDR): no such route.',
+            models.some(m => m.zdr == null) && '(ZDR?): not checked.',
+        ].filter(Boolean).join('   ');
+    g.fillText(note, 30, H - 22);
     writeFileSync(pngOut, cv.toBuffer('image/png'));
     console.log(`chart: ${pngOut}`);
 } catch (e) { console.error(`no chart: ${e.message}`); }

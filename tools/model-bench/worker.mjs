@@ -10,6 +10,7 @@
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs, isDirect } from './harness.mjs';
+import { loadSuite } from './suites.mjs';
 
 const MODEL = process.env.BENCH_MODEL;
 const FILE = process.env.BENCH_FILE;
@@ -41,7 +42,7 @@ installFetch({
 });
 
 const app = await loadApp(MODEL);
-const { loadCases } = await import('./cases/index.mjs');
+const { loadCases } = await loadSuite(process.env.BENCH_SUITE);
 const cases = await loadCases(app);
 
 const done = new Map();
