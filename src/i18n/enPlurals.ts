@@ -60,6 +60,8 @@ const enPlurals: Record<string, string> = {
     "{{count}} cards_other": "{{count}} cards",
     "{{count}} chapters_one": "{{count}} chapter",
     "{{count}} chapters_other": "{{count}} chapters",
+    "{{count}} conversations found_one": "{{count}} conversation found",
+    "{{count}} conversations found_other": "{{count}} conversations found",
     "{{count}} could not be matched and stay as they are_one": "{{count}} could not be matched and stays as it is",
     "{{count}} could not be matched and stay as they are_other": "{{count}} could not be matched and stay as they are",
     "{{count}} days to the project deadline_one": "{{count}} day to the project deadline",

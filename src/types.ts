@@ -600,6 +600,19 @@ export interface ChatConversation {
     messageCount: number;
 }
 
+/** A conversation found by a search (server/chatSearch.js). */
+export interface ChatConversationHit extends ChatConversation {
+    /** The message that matched best, or null when only the title did. */
+    match: {
+        messageId: number;
+        role: 'user' | 'assistant' | 'system';
+        /** A few of its words around the match, as the learner reads them. */
+        snippet: string;
+        /** `[start, end)` of each matched word in `snippet`. */
+        ranges: [number, number][];
+    } | null;
+}
+
 // BACKGROUND AI TASKS (server/tasks.js registry)
 
 // Every kind the server can put on the dock. `KIND_LABEL` in TaskDock.tsx is
