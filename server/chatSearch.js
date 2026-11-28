@@ -73,7 +73,7 @@ const ID_VALUE_RE = /^[\s\d:,#-]*$/;
 const texWords = (math) => math.replace(/\\[a-zA-Z]+/g, ' ');
 
 /** Markdown syntax out of prose, its words kept; TeX only inside `$…$`, so a
- *  path like `C:\Users\Ana` keeps its words. */
+ *  path like `notes\physics\waves.md` keeps its words. */
 function proseWords(text) {
     return text
         .replace(MARKER_RE, ' ')

@@ -312,8 +312,8 @@ ok("a card's snippet reads as words, without its field names", /standing wave/i.
 if (search?.searchableText) {
     const t = search.searchableText('See [[src:2]] and [[open:3:41]].\n```smiles\nCCO\n```\n**Bold** `code`');
     ok('searchableText keeps the words and drops what the app draws', !/\[\[|src|CCO|\*\*|`/.test(t) && /See/.test(t) && /Bold/.test(t) && /code/.test(t), t);
-    const path = search.searchableText(String.raw`Saved in C:\Users\Ana\notes, where $\lambda = 2L$ holds.`);
-    ok('a Windows path in prose keeps its words; TeX commands go only inside $…$', /Users/.test(path) && /Ana/.test(path) && /notes/.test(path) && !/lambda/.test(path) && /2L/.test(path), path);
+    const path = search.searchableText(String.raw`Saved in notes\physics\waves.md, where $\lambda = 2L$ holds.`);
+    ok('a Windows path in prose keeps its words; TeX commands go only inside $…$', /physics/.test(path) && /waves/.test(path) && /notes/.test(path) && !/lambda/.test(path) && /2L/.test(path), path);
     const crlf = search.searchableText('Here:\r\n```card\r\nfront: Ohm law\r\nback: V = IR\r\n```\r\nafter');
     ok("a message with Windows line ends still closes its fences (no field names indexed)", !/front|back/.test(crlf) && /Ohm law/.test(crlf) && /after/.test(crlf), crlf);
     const inCode = search.searchableText('```python\nrow = grid[[1]]\n```');
