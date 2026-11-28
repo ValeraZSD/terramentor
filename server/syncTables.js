@@ -105,6 +105,9 @@ const TABLE_LIST = [
     ['document_chunks', { class: 'index' }],
     ['node_embeddings', { class: 'index' }],
     ['documents_fts', { class: 'index' }],
+    // The conversations' search index and the messages it has yet to read.
+    ['chat_messages_fts', { class: 'index' }],
+    ['chat_search_stale', { class: 'index' }],
     ['vec_chunks', { class: 'index' }],
     ['vec_nodes', { class: 'index' }],
 
