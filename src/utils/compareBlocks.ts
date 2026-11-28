@@ -40,7 +40,8 @@ export type SideRole = typeof SIDE_ROLES[number];
 export interface CompareSide {
     /** As the model wrote it; empty when it named none. */
     label: string;
-    /** When the side was named by what it is (`before:`), and no label given. */
+    /** The key that named the side by what it is (`before:`, `original:`),
+     *  kept beside a label (`original: English`); the label is what it shows. */
     role: SideRole | null;
     kind: 'text' | 'code';
     /** The code's language, as written (`py`, `JavaScript`); null for text. */
@@ -220,12 +221,12 @@ function sideOf(field: Field): CompareSide | null {
             const lang = open[2].trim().split(/\s+/)[0] || CODE_LABELS[label.toLowerCase()] || null;
             const text = code.join('\n').replace(/^\n+|\s+$/g, '');
             if (!text.trim()) return null;
-            return { label, role: label ? null : role, kind: 'code', lang, text };
+            return { label, role, kind: 'code', lang, text };
         }
     }
     const named = CODE_LABELS[label.toLowerCase()];
-    if (named) return { label, role: null, kind: 'code', lang: named, text: dedent(lines).join('\n').replace(/^\n+|\s+$/g, '') };
-    return { label, role: label ? null : role, kind: 'text', lang: null, text: content.trim() };
+    if (named) return { label, role, kind: 'code', lang: named, text: dedent(lines).join('\n').replace(/^\n+|\s+$/g, '') };
+    return { label, role, kind: 'text', lang: null, text: content.trim() };
 }
 
 const asId = (raw: string): number | null => {
@@ -370,6 +371,21 @@ export function editOrder(block: CompareBlock, roleWords?: ReadonlyMap<string, S
     return null;
 }
 
+/**
+ * Which side the other was MADE from (0 or 1): the earlier version of a fix,
+ * or the original of a translation the model was asked for. Null when the two
+ * only stand side by side (two registers, Python and JavaScript, two
+ * languages named and no more): an arrow there would say one became the other.
+ */
+export function flowOf(block: CompareBlock, roleWords?: ReadonlyMap<string, SideRole>): 0 | 1 | null {
+    const edit = editOrder(block, roleWords);
+    if (edit !== null) return edit;
+    const [a, b] = block.sides.map(s => sideRole(s, roleWords));
+    const fromFirst = a === 'original' || b === 'translation';
+    const fromSecond = b === 'original' || a === 'translation';
+    return fromFirst === fromSecond ? null : fromFirst ? 0 : 1;
+}
+
 export interface CompareCardProposal {
     projectId: number; nodeId: number; front: string; back: string; extra: string | null;
     /** A translation asked the other way round, for the check only: the
@@ -380,9 +396,9 @@ export interface CompareCardProposal {
 /**
  * The card a pair makes, through the assistant's ONE card door
  * (`POST /api/assistant/cards`): the first side asks, the second answers, and
- * the side names say which way ("English → Dutch"). An edit asks with its
- * wrong or earlier version wherever the model put it, so the answer is the
- * fix. Null when the pair has no topic, or is too long for a card.
+ * the side names say which way ("English → Dutch"). A pair where one side was
+ * made from the other asks with the one it was made from (the wrong version,
+ * the original) wherever the model put it, so the answer is the fix. Null when the pair has no topic, or is too long for a card.
  */
 export function compareCard(
     block: CompareBlock, ui = 'en', roleWords?: ReadonlyMap<string, SideRole>,
@@ -390,7 +406,7 @@ export function compareCard(
     nameOf: (s: CompareSide) => string = sideName,
 ): CompareCardProposal | null {
     if (!block.topic) return null;
-    const [a, b] = editOrder(block, roleWords) === 1 ? [block.sides[1], block.sides[0]] : block.sides;
+    const [a, b] = flowOf(block, roleWords) === 1 ? [block.sides[1], block.sides[0]] : block.sides;
     const way = (x: CompareSide, y: CompareSide) => (nameOf(x) && nameOf(y) ? `*${nameOf(x)} → ${nameOf(y)}*\n\n` : '');
     const front = `${way(a, b)}${sideMarkdown(a)}`;
     const back = sideMarkdown(b);

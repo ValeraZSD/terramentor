@@ -1,12 +1,12 @@
 import { createContext, Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowRight, Check, Copy } from 'lucide-react';
+import { ArrowRight, Check, Copy } from 'lucide-react';
 import { IconButton } from './ui/Button';
 import { copyText } from '../utils/clipboard';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import {
-    compareCard, editOrder, langOfLabel, sideMarkdown, wordDiff, SIDE_ROLES,
+    compareCard, editOrder, flowOf, langOfLabel, sideMarkdown, wordDiff, SIDE_ROLES,
     type CompareBlock, type CompareCardProposal, type CompareSide, type DiffRun, type SideRole,
 } from '../utils/compareBlocks';
 import { k } from '../i18n';
@@ -29,6 +29,10 @@ import { k } from '../i18n';
  * which side is the fix comes from what the sides are called, not their
  * order. Two versions that are both right (two registers, two spellings) get
  * the same highlight on both sides, never "removed" and "added".
+ *
+ * An arrow on the line between the sides only when one was made from the
+ * other (a fix, a translation the learner asked for), never for two that only
+ * stand side by side: it would say one became the other.
  */
 
 export type { CompareCardProposal };
@@ -48,15 +52,6 @@ const ROLE_LABELS: Record<SideRole, string> = {
 const SPLIT_TEXT_REM = 28;
 const SPLIT_CODE_REM = 44;
 
-/** A layout under review: shown as three directions, one is kept. */
-type Variant = 'split' | 'tiles' | 'rows';
-function variantOf(): Variant {
-    try {
-        const v = typeof localStorage !== 'undefined' ? localStorage.getItem('compare-card-variant') : null;
-        return v === 'tiles' || v === 'rows' ? v : 'split';
-    } catch { return 'split'; }
-}
-
 interface CompareCardProps {
     block: CompareBlock;
     /** A text side's markdown, drawn by the renderer that holds this card. */
@@ -73,7 +68,6 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     const width = useElementWidth(ref);
     const rem = useRootFontSize();
     const footFor = useContext(CompareFootContext);
-    const variant = variantOf();
 
     const hasCode = block.sides.some(s => s.kind === 'code');
     // Columns that turned out too narrow for what is in them (an equation, a
@@ -98,6 +92,7 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
     );
     const diff = useMemo(() => wordDiff(block.sides[0], block.sides[1]), [block]);
     const order = useMemo(() => editOrder(block, roleWords), [block, roleWords]);
+    const flow = useMemo(() => flowOf(block, roleWords), [block, roleWords]);
     const card = useMemo(
         () => compareCard(block, i18n.language, roleWords, s => s.label || (s.role ? t(ROLE_LABELS[s.role]) : '')),
         [block, i18n.language, roleWords, t],
@@ -141,64 +136,43 @@ const CompareCard = memo(function CompareCard({ block, renderText, renderCode }:
         );
     };
 
-    const title = block.title && (
-        <p id={`${id}-title`} className="not-prose text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{block.title}</p>
-    );
-    const note = block.note && (
-        <div className="text-sm leading-6 text-slate-600 dark:text-slate-300">{renderText(block.note)}</div>
+    // The line between the sides; an arrow on it only when one side was made
+    // from the other, pointing from that one, whichever side it stands on.
+    const turn = wide
+        ? (flow === 0 ? 'rtl:rotate-180' : 'rotate-180 rtl:rotate-0')
+        : (flow === 0 ? 'rotate-90' : '-rotate-90');
+    const seam = (
+        <div aria-hidden="true" data-compare-seam={flow === null ? '' : 'flow'} className={`relative bg-slate-200 dark:bg-slate-700 ${wide ? 'w-px' : 'h-px'}`}>
+            {flow !== null && (
+                <span className="not-prose absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                    <ArrowRight className={`h-3.5 w-3.5 ${turn}`} />
+                </span>
+            )}
+        </div>
     );
 
-    let inner: ReactNode;
-    if (variant === 'tiles') {
-        const tile = 'rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 pb-3 pt-1';
-        inner = (
-            <div className="space-y-2">
-                {title}
-                <div className={wide ? 'flex items-stretch gap-1.5' : 'flex flex-col gap-1.5'}>
-                    {side(0, `${tile} ${wide ? 'flex-1 basis-0' : ''}`)}
-                    <div className={`not-prose flex justify-center text-slate-400 dark:text-slate-500 ${wide ? 'items-center' : ''}`} aria-hidden="true">
-                        {wide ? <ArrowRight className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-                    </div>
-                    {side(1, `${tile} ${wide ? 'flex-1 basis-0' : ''}`)}
-                </div>
-                {note}
-                {foot && <div className="empty:hidden" data-read-skip>{foot}</div>}
-            </div>
-        );
-    } else if (variant === 'rows') {
-        const row = 'px-3 pb-3 pt-1';
-        inner = (
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-                {title && <div className="px-3 pt-2.5">{title}</div>}
-                <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {side(0, row)}
-                    {side(1, row)}
-                </div>
-                {note && <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2">{note}</div>}
-                {foot && <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 empty:hidden" data-read-skip>{foot}</div>}
-            </div>
-        );
-    } else {
-        inner = (
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-                {title && <div className="px-3 pt-2.5">{title}</div>}
-                <div className={wide
-                    ? 'grid grid-cols-2 divide-x divide-slate-200 dark:divide-slate-700 rtl:divide-x-reverse'
-                    : 'divide-y divide-slate-200 dark:divide-slate-700'}>
-                    {side(0, 'px-3 pb-3 pt-1')}
-                    {side(1, 'px-3 pb-3 pt-1')}
-                </div>
-                {note && <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2">{note}</div>}
-                {/* The foot is the app's, not the answer's: Read aloud skips it,
-                    and a topic that does not resolve leaves no empty strip. */}
-                {foot && <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 empty:hidden" data-read-skip>{foot}</div>}
-            </div>
-        );
-    }
-
+    // One box holds the two sides and the note that explains them; the title
+    // names the box from above, and Add card (the app's, not the answer's:
+    // Read aloud skips it) sits under it.
     return (
-        <div ref={ref} role="group" {...(block.title ? { 'aria-labelledby': `${id}-title` } : { 'aria-label': t("Comparison") })} data-compare={variant} className="my-4">
-            {inner}
+        <div ref={ref} role="group" {...(block.title ? { 'aria-labelledby': `${id}-title` } : { 'aria-label': t("Comparison") })} data-compare className="my-4">
+            {block.title && (
+                <p id={`${id}-title`} className="not-prose mb-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{block.title}</p>
+            )}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
+                <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]' : ''}>
+                    {side(0, 'px-3 pb-3 pt-1')}
+                    {seam}
+                    {/* Room under a stacked arrow, so a long name never runs under it. */}
+                    {side(1, `px-3 pb-3 ${!wide && flow !== null ? 'pt-3' : 'pt-1'}`)}
+                </div>
+                {block.note && (
+                    <div data-compare-note className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                        {renderText(block.note)}
+                    </div>
+                )}
+            </div>
+            {foot && <div className="mt-1.5 empty:hidden" data-read-skip>{foot}</div>}
         </div>
     );
 });

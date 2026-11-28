@@ -50,7 +50,7 @@ const bundle = async (entry, name) => {
 
 const cb = await bundle('../src/utils/compareBlocks.ts', 'compareBlocks');
 const { parseCompare, prepareCompareFences, compareBlocksAsText, compareCard, compareTopicIds, wordDiff, sideMarkdown, MAX_COMPARES, COMPARE_SIDE_MAX,
-    isTranslation, compareCheck, editOrder } = cb;
+    isTranslation, compareCheck, editOrder, flowOf } = cb;
 const F = '```';
 const block = (inner, open = `${F}compare`) => `${open}\n${inner}\n${F}`;
 
@@ -95,7 +95,8 @@ section('…and the names a model reaches for');
         fix && fix.sides[0].role === 'before' && fix.sides[0].label === '' && fix.sides[0].text === 'Ik heb gisteren naar huis gegaan.'
         && fix.sides[1].role === 'after' && fix.note === '"gaan" takes "zijn" in the perfect.', JSON.stringify(fix));
     const tr = parseCompare('original: English\nGood morning\ntranslation: Dutch\nGoedemorgen');
-    check('original: / translation: with a name on the key line take the name', tr && tr.sides[0].label === 'English' && tr.sides[1].label === 'Dutch' && tr.sides[1].role === null, JSON.stringify(tr));
+    check('original: / translation: with a name on the key line take the name, and keep what the side is', tr && tr.sides[0].label === 'English' && tr.sides[1].label === 'Dutch'
+        && tr.sides[0].role === 'original' && tr.sides[1].role === 'translation', JSON.stringify(tr));
     const wr = parseCompare('wrong: 2 + 2 = 5\ncorrect: 2 + 2 = 4');
     check('wrong: / correct:', wr && wr.sides[0].role === 'wrong' && wr.sides[1].role === 'correct', JSON.stringify(wr));
     const one = parseCompare('side: English: I would like a coffee\nside: Dutch: Ik wil graag een koffie');
@@ -313,6 +314,26 @@ section('a fix goes by what its sides are');
         card?.front.endsWith('She go to school.') && card?.back === 'She goes to school.' && /Wrong → Correct/.test(card?.front || ''), JSON.stringify(card));
 }
 
+section('an arrow only where one text was made from the other');
+{
+    const p = s => parseCompare(s);
+    check('a fix flows from its wrong or earlier side, wherever it stands',
+        flowOf(p('before: I goed\nafter: I went')) === 0 && flowOf(p('correct: She goes.\nwrong: She go.')) === 1);
+    check('a translation the model marks flows from its original, keeping the language names',
+        flowOf(p('original: English\nGood morning\ntranslation: Dutch\nGoedemorgen')) === 0
+        && flowOf(p('translation: Dutch\nGoedemorgen\noriginal: English\nGood morning')) === 1
+        && flowOf(p('original: Good morning\nside: Dutch\nGoedemorgen')) === 0);
+    check('two texts that only stand side by side do not flow: two languages named, two registers, two programming languages',
+        flowOf(p('side: English\nhello\nside: Dutch\nhallo')) === null
+        && flowOf(p('side: Informal\nWil je?\nside: Formal\nWilt u?')) === null
+        && flowOf(p('side: Python\nprint(1)\nside: JavaScript\nconsole.log(1)')) === null);
+    check('two sides that both claim to be the original do not flow', flowOf(p('original: a\noriginal: b')) === null
+        && flowOf(p('translation: a\ntranslation: b')) === null);
+    const tc = compareCard(p('translation: Dutch\nGoedemorgen\noriginal: English\nGood morning\ntopic: 1:2'));
+    check('a translation written target-first still asks with the original', tc?.front.endsWith('Good morning') && tc?.back === 'Goedemorgen'
+        && /English → Dutch/.test(tc?.front || ''), JSON.stringify(tc));
+}
+
 section('Copy and Add card');
 {
     const ans = `Say it like this:\n\n${block('title: Ordering\nside: English\nI would like a coffee.\nside: Dutch\nIk wil graag een koffie.\nnote: Graag is polite.\ntopic: 4:17')}\n\nGood luck.`;
@@ -474,7 +495,10 @@ section('the drawing, in the real renderer');
     await esbuild.build({
         stdin: {
             contents: "import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server'; import Markdown from './src/components/Markdown';"
-                + 'export const render = (content, surface) => renderToStaticMarkup(createElement(Markdown, { content, surface }));',
+                + " import { CompareFootContext } from './src/components/CompareCard';"
+                + ' export const render = (content, surface, foot) => renderToStaticMarkup(foot'
+                + " ? createElement(CompareFootContext.Provider, { value: () => createElement('button', { 'data-test-foot': '' }, 'Add card') }, createElement(Markdown, { content, surface }))"
+                + ' : createElement(Markdown, { content, surface }));',
             resolveDir: repoRoot, loader: 'js',
         },
         bundle: true, format: 'cjs', platform: 'node', outfile: mdOut, jsx: 'automatic', logLevel: 'silent',
@@ -492,7 +516,7 @@ section('the drawing, in the real renderer');
     const { render } = createRequire(import.meta.url)(mdOut);
     const doc = dom.window.document;
     const root = doc.getElementById('root');
-    const draw = (content, surface = 'assistant') => { root.innerHTML = render(content, surface); return root; };
+    const draw = (content, surface = 'assistant', foot = false) => { root.innerHTML = render(content, surface, foot); return root; };
     // What a screen reader reads, in order: every text node not hidden from it.
     const spoken = (el) => {
         const parts = [];
@@ -563,6 +587,36 @@ section('the drawing, in the real renderer');
     draw(block('side: Informal\nWil je een koffie?\nside: Formal\nWilt u een koffie?'));
     check('two right versions get one highlight on both sides, never removed or added',
         root.querySelectorAll('mark').length >= 2 && !root.querySelector('del, ins'), root.innerHTML.slice(0, 900));
+
+    // The layout he chose: one box for the two sides and the note, the title
+    // above it and Add card under it; an arrow only on a made-from pair.
+    draw(block('title: Ordering\nside: English\nI would like a coffee.\nside: Dutch\nIk wil graag een koffie.\nnote: Graag is polite.\ntopic: 1:2'), 'assistant', true);
+    const card = root.querySelector('[data-compare]');
+    const box = card?.querySelector('[data-compare-side]')?.closest('.rounded-xl');
+    const titleEl = card?.querySelector('p[id$="-title"]');
+    const noteEl = card?.querySelector('[data-compare-note]');
+    const footEl = card?.querySelector('[data-test-foot]');
+    check('the title stands above the box, not inside it', !!box && !!titleEl && !box.contains(titleEl)
+        && !!(titleEl.compareDocumentPosition(box) & 4), card?.innerHTML.slice(0, 700));
+    check('Add card stands under the box, not inside it', !!box && !!footEl && !box.contains(footEl)
+        && !!(box.compareDocumentPosition(footEl) & 4) && !!footEl.closest('[data-read-skip]'), card?.innerHTML.slice(-500));
+    check('the note sits inside the box under the sides, on its own background', !!box && !!noteEl && box.contains(noteEl)
+        && /\bbg-slate-50\b/.test(noteEl.className) && /dark:bg-slate-900/.test(noteEl.className)
+        && !!(box.querySelectorAll('[data-compare-side]')[1].compareDocumentPosition(noteEl) & 4), noteEl?.outerHTML);
+    const arrowOf = (src) => { draw(block(src)); return root.querySelector('[data-compare-seam] svg'); };
+    check('two languages named side by side get a plain line, no arrow', !arrowOf('side: English\nHello\nside: Dutch\nHallo')
+        && root.querySelector('[data-compare-seam]')?.getAttribute('data-compare-seam') === '');
+    check('…nor do two registers, or the same thing in two programming languages',
+        !arrowOf('side: Informal\nWil je een koffie?\nside: Formal\nWilt u een koffie?')
+        && !arrowOf(`side: Python\n${F}python\nprint(1)\n${F}\nside: JavaScript\n${F}js\nconsole.log(1)\n${F}`));
+    const down = arrowOf('before: Ik heb gegaan.\nafter: Ik ben gegaan.');
+    check('a fix gets an arrow from the old side to the new one, hidden from a reader', !!down && /(^|\s)rotate-90\b/.test(down.getAttribute('class') || '')
+        && down.closest('[aria-hidden="true"]') !== null, down?.outerHTML);
+    const up = arrowOf('correct: She goes.\nwrong: She go.');
+    check('…pointing back at the first side when the fix was written first', !!up && /(^|\s)-rotate-90\b/.test(up.getAttribute('class') || ''), up?.outerHTML);
+    const tr = arrowOf('original: English\nGood morning\ntranslation: Dutch\nGoedemorgen');
+    check('a translation the model marks gets the arrow and still shows the language names', !!tr && /English/.test(root.textContent) && /Dutch/.test(root.textContent)
+        && !/Original|Translation/.test(root.textContent), root.textContent.slice(0, 200));
 
     draw(block(`side: Python\n${F}python\nprint("hi")\n${F}\nside: JavaScript\n${F}js\nconsole.log("hi")\n${F}`));
     check('code sides are drawn as code, with no second card of their own inside', root.querySelectorAll('[data-compare] code, [data-compare] pre, [data-compare] [class*="language-"]').length > 0
