@@ -1,7 +1,7 @@
 {
   "name": "Terramentor",
   "short_name": "Terramentor",
-  "description": "An AI tutor for a whole subject. Plan it, study it, prove it, remember it.",
+  "description": "Learn almost anything, from scratch to proven mastery. AI gets better, so do you.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
