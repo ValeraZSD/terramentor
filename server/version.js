@@ -362,7 +362,9 @@ function plainLine(s) {
  *     nightlies and "Changes since …" are the page's, not news.
  *   A full release: a paragraph that opens with a bold headline. The headline
  *     is kept as one; the rest is split into its sentences, so a dense
- *     paragraph reads as a list.
+ *     paragraph reads as a list. From 1.6.0 the headline stands alone and a
+ *     list of highlights follows it: then the highlights are the list, and the
+ *     paragraph's sentences are counted with the rest on the release page.
  *
  * Library bumps are counted, not listed: `libraries` says how many.
  */
@@ -380,13 +382,16 @@ export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
     }
     let title = null;
     const lines = [];
+    let unlisted = 0;
     if (!release?.prerelease && prose.length) {
         let text = prose.join(' ');
         const head = /^\*\*([^*]+)\*\*\s*/.exec(text);
         if (head) { title = plainLine(head[1]).replace(/[.:]$/, ''); text = text.slice(head[0].length); }
         // At a sentence end followed by a capital (or a bold label such as
         // "**Database:**"). Not at "e.g. a", nor inside "1.2.0".
-        lines.push(...text.split(/(?<=[.!?])\s+(?=\*\*|[A-Z])/));
+        const sentences = text.split(/(?<=[.!?])\s+(?=\*\*|[A-Z])/).filter((s) => plainLine(s));
+        if (head && bullets.length) unlisted = sentences.length;
+        else lines.push(...sentences);
     }
     lines.push(...bullets);
     let libraries = 0;
@@ -402,7 +407,7 @@ export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
         publishedAt: typeof release?.published_at === 'string' ? release.published_at : null,
         title,
         items: items.slice(0, cap),
-        more: Math.max(0, items.length - cap),
+        more: Math.max(0, items.length - cap) + unlisted,
         libraries,
     };
 }
@@ -427,7 +432,7 @@ export function notesSince(releases, current, { nightly = false } = {}) {
     const notes = newer.map((r) => releaseNote(r, { cap: Infinity })).map((n) => {
         const fresh = n.items.filter((line) => !seen.has(line));
         fresh.forEach((line) => seen.add(line));
-        return { ...n, items: fresh.slice(0, NOTES_ITEMS), more: Math.max(0, fresh.length - NOTES_ITEMS) };
+        return { ...n, items: fresh.slice(0, NOTES_ITEMS), more: n.more + Math.max(0, fresh.length - NOTES_ITEMS) };
     }).filter((n) => n.title || n.items.length || n.libraries);
     return { releases: notes.slice(0, NOTES_RELEASES), omitted: Math.max(0, notes.length - NOTES_RELEASES) };
 }

@@ -538,18 +538,23 @@ export function changelogSection(text, version) {
 }
 
 /**
- * The highlights a changelog section opens with: the `- ` lines under a
- * `**Highlights**` line, up to the first line that is not one. null when the
- * section does not open with that line.
+ * The highlights a changelog section opens with: the section's bold headline,
+ * a sentence on a line of its own, a blank line, then the `- ` lines, then a
+ * blank line and the rest of the release's line. null when the section is not
+ * shaped so (a `**Highlights**` label is not a headline).
+ *
+ * The headline stays first because an installed app reads the published body
+ * with the parser of its own version (`releaseNote` in `server/version.js`):
+ * every version takes the first bold run of the body's prose as the title, so
+ * any other first line becomes the title of the release it is told about.
  */
 export function highlightsOf(section) {
     const lines = String(section || '').split('\n');
-    if (lines[0] !== '**Highlights**') return null;
+    if (!/^\*\*[^*]+[.!?]\*\*$/.test(lines[0] || '') || lines[1] !== '') return null;
     const items = [];
-    for (const l of lines.slice(1)) {
-        if (l.startsWith('- ')) items.push(l.slice(2).trim());
-        else if (l.trim() || items.length) break;
-    }
+    let i = 2;
+    for (; i < lines.length && lines[i].startsWith('- '); i++) items.push(lines[i].slice(2).trim());
+    if (!items.length || lines[i] !== '' || !(lines[i + 1] || '').trim()) return null;
     return items;
 }
 
