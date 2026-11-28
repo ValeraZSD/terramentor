@@ -1218,8 +1218,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 }
                 setTurnError({ message: failed, text: message, keptIn: keepComposer ? 'choices' : undefined });
             }
+            // Stopped before a word came back: the server dropped the question
+            // with the empty turn (runChatTurn), so the history is read again
+            // rather than leaving its bubble standing, and a pressed answer's
+            // buttons come back under the question it was asked under.
+            const unanswered = !dropped && !failed && !full.trim();
             // What the outdated load came to read; a dropped turn reads it above.
-            if (outdated && !dropped) loadHistory().catch(() => { });
+            if ((outdated || unanswered) && !dropped) loadHistory().catch(() => { });
         }
     }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
 
@@ -1448,8 +1453,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // one's own still works, rather than a line of text saying so.
     const newest = displayMessages.length - 1;
     const newestOffer = newest >= 0 ? splitChoices(displayMessages[newest].content) : null;
+    // The same test the message's own buttons pass below (a question left once
+    // the body pipeline has run), so the composer never says "or type your
+    // own" over a message that shows no buttons.
     const offering = !showList && !!newestOffer && choicesLive(displayMessages, newest, streaming)
-        && newestOffer.choices.length > 0 && !!newestOffer.body.trim();
+        && newestOffer.choices.length > 0 && !!renderBody(displayMessages[newest].content).trim();
 
     const panel = (
         <aside
@@ -1859,7 +1867,16 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             silently do nothing. */
                         retryDisabled={streaming || (!turnError.text && !composer.ready.length)}
                         keptIn={turnError.keptIn}
-                        onRetry={() => { const t = turnError.text; const tapped = turnError.keptIn === 'choices' || !!turnError.picked; setTurnError(null); send(t, { keepComposer: tapped }); }}
+                        onRetry={() => {
+                            const t = turnError.text;
+                            const tapped = turnError.keptIn === 'choices' || !!turnError.picked;
+                            setTurnError(null);
+                            // A pressed answer is sent again only while its question
+                            // is still the one asked: a newer message (another tab's
+                            // turn finishing) asks something else.
+                            if (turnError.keptIn === 'choices' && !(offering && newestOffer?.choices.includes(t))) return;
+                            send(t, { keepComposer: tapped });
+                        }}
                         onDismiss={() => setTurnError(null)}
                     />
                 )}

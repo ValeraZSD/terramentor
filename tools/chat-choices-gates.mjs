@@ -108,6 +108,26 @@ ok('one line split on "|" is several answers', json(split(fence('Yes | No')).cho
 ok('the same answer twice is one button', json(split(fence('Yes', 'yes', 'No')).choices) === json(['Yes', 'No']), json(split(fence('Yes', 'yes', 'No')).choices));
 ok('…full-width letters too', json(split(fence('Yes', 'Ｙｅｓ', 'No')).choices) === json(['Yes', 'No']), json(split(fence('Yes', 'Ｙｅｓ', 'No')).choices));
 {
+    // Folded with NFKC, "x²" was "x2": one of two different answers was dropped
+    // and the block fell back to a list showing only the first.
+    const sup = split(fence('x²', 'x2', 'H₂O', 'H2O')).choices;
+    ok('…but a superscript or subscript is a different answer', json(sup) === json(['x²', 'x2', 'H₂O', 'H2O']), json(sup));
+    ok('…the server\'s sameAnswer agrees', limits.sameAnswer?.('x²', 'x2') === false && limits.sameAnswer?.('Ｓｏｍｅ basics', ' some  basics') === true);
+}
+{
+    // A button sends its text as the learner's own message: characters that
+    // draw nothing would send words the learner never saw.
+    const cp = (...n) => String.fromCodePoint(...n);
+    const hidden = split(fence(`Yes${cp(0x200B)}`, `No${cp(0xE0041, 0xE0042)}`, `${cp(0x202E)}Maybe`)).choices;
+    ok('zero-width, tag and direction-override characters come off a label', json(hidden) === json(['Yes', 'No', 'Maybe']), json(hidden.map(s => Array.from(s, c => c.codePointAt(0).toString(16)))));
+    const persian = `می${cp(0x200C)}خواهم`;
+    ok('…but the joiners a script spells with stay', json(split(fence(persian, 'نه')).choices) === json([persian, 'نه']));
+    const blank = split(fence(cp(0x200B, 0x200B), 'Yes', 'No')).choices;
+    ok('…and a line of nothing but them is no answer', json(blank) === json(['Yes', 'No']), json(blank));
+    const cited = split(fence('Optics [[src:1]]', '[[src:2]] Sound')).choices;
+    ok('source markers come off a label, as they come off the text', json(cited) === json(['Optics', 'Sound']), json(cited));
+}
+{
     // A stopped or cut-off turn is stored as far as it got: its last line may be
     // half a word, and a button would send that half as the learner's reply.
     const settled = split('How long do you have?\n\n```choices\n10 minutes\nHalf an hour');
@@ -292,7 +312,7 @@ section('5. the drawer: from the stored message, through the one send path');
     // A message that was only the block drew buttons under no question.
     ok('…and only under words: a message that is only the block shows its answers as a list', /const choices = asked\.trim\(\) \? offered : \[\]/.test(drawer)
         && /const body = choices\.length \|\| !offered\.length \? asked : renderBody\(m\.content, isStreaming, false\)/.test(drawer)
-        && /newestOffer\.choices\.length > 0 && !!newestOffer\.body\.trim\(\)/.test(drawer));
+        && /newestOffer\.choices\.length > 0 && !!renderBody\(displayMessages\[newest\]\.content\)\.trim\(\)/.test(drawer));
     // Focus fell to the page after a touch or screen-reader press (the button
     // is gone); in the modal panel that left the dialog's focus order.
     ok('a press not from the keyboard moves focus to the conversation, never out of the panel', /if \(byKeyboard\) inputRef\.current\?\.focus\(\);\s*else scroll\.ref\.current\?\.focus\(\{ preventScroll: true \}\);/.test(drawer)
@@ -311,7 +331,16 @@ section('5. the drawer: from the stored message, through the one send path');
     const failAt = drawer.indexOf('} else if (failed) {', sendAt);
     const failBlock = failAt < 0 ? '' : drawer.slice(failAt, drawer.indexOf('setTurnError(', failAt) + 120);
     ok('a pressed answer that fails leaves the composer alone and says so to the retry', /if \(!keepComposer\) \{\s*setInput\(/.test(failBlock) && /keptIn: keepComposer \? 'choices'/.test(failBlock), failBlock.slice(0, 200));
-    ok('…and Try again sends it as a pressed answer again', /onRetry=\{\(\) => \{[^}]*keptIn === 'choices' \|\| !!turnError\.picked[^}]*send\(t, \{ keepComposer: tapped \}\)/.test(drawer));
+    const retryAt = drawer.indexOf('onRetry={() => {');
+    const retry = retryAt < 0 ? '' : drawer.slice(retryAt, drawer.indexOf('onDismiss=', retryAt));
+    ok('…and Try again sends it as a pressed answer again', /const tapped = turnError\.keptIn === 'choices' \|\| !!turnError\.picked;/.test(retry) && /send\(t, \{ keepComposer: tapped \}\);/.test(retry), retry.slice(0, 200));
+    // A newer message (another tab's turn) asks something else: the old
+    // answer went into a question it was never offered under.
+    const staleAt = retry.indexOf("if (turnError.keptIn === 'choices' && !(offering && newestOffer?.choices.includes(t))) return;");
+    ok('…but only while its question is still the one asked', staleAt > 0 && staleAt < retry.indexOf('send(t,'), retry.slice(0, 300));
+    // Stopped before a word: the server dropped the question, the bubble stayed
+    // and the buttons were gone until a reload.
+    ok('a turn stopped before a word re-reads the history, so a pressed answer\'s buttons come back', /const unanswered = !dropped && !failed && !full\.trim\(\);/.test(drawer) && /if \(\(outdated \|\| unanswered\) && !dropped\) loadHistory\(\)/.test(drawer));
     // The same press failing as a background task: the mark rides on the
     // task (route, section 6) and both recovery paths read it back.
     const api = read('src/api.ts');

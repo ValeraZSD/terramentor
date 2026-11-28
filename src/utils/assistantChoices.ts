@@ -32,6 +32,7 @@
  */
 
 import { CHOICE_LABEL_MAX, CHOICES_MAX, CHOICES_MIN, sameAnswer } from '../../server/chatChoices.js';
+import { stripCitationMarkers } from './citations';
 
 const KINDS = 'choices|choice|options';
 const OPENER = new RegExp(`^[ \\t]*\`\`\`[ \\t]*(?:${KINDS})[ \\t]*$`, 'i');
@@ -64,6 +65,19 @@ function allClosed(lines: string[], from: number): boolean {
     return true;
 }
 
+/** Zero-width non-joiner and joiner: scripts such as Persian and Hindi spell words with them. */
+const JOINERS = new Set([0x200C, 0x200D]);
+
+/**
+ * A label without the characters that draw nothing (control and format
+ * characters: zero-width spaces, direction overrides, tag characters). The
+ * button sends its text as the learner's own message, so what it sends must be
+ * what it shows: a page the assistant read could otherwise hide words in it.
+ */
+function visible(s: string): string {
+    return s.replace(/[\p{Cc}\p{Cf}]/gu, ch => (JOINERS.has(ch.codePointAt(0) ?? 0) ? ch : ch === '\t' ? ' ' : ''));
+}
+
 /** Pairs a label may be wrapped in, as a model quotes it. */
 const QUOTES: [string, string][] = [['"', '"'], ["'", "'"], ['“', '”'], ['„', '“'], ['«', '»'], ['‘', '’'], ['`', '`']];
 const NUMBERED = /^(\d{1,2})[.)]\s+/;
@@ -74,7 +88,7 @@ const NUMBERED = /^(\d{1,2})[.)]\s+/;
  * a block numbered 1, 2, 3…, so "5. Mai" stays a date.
  */
 function label(line: string, numbered: boolean): string {
-    let s = line.replace(/\s+/g, ' ').trim();
+    let s = visible(stripCitationMarkers(line)).replace(/\s+/g, ' ').trim();
     s = numbered ? s.replace(NUMBERED, '') : s.replace(/^(?:[-*•–]|\[[ xX]?\])\s+/, '');
     const bold = s.match(/^(\*\*|__)(.+)\1$/);
     if (bold && !bold[2].includes(bold[1])) s = bold[2].trim();

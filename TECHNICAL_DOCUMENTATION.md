@@ -732,9 +732,9 @@ a course's lesson language and closing a topic are deliberately not on the list.
 
 **Answers to tap** (`server/chatChoices.js`, `src/utils/assistantChoices.ts`). When
 its question has a few short answers, the assistant may end the message with a
-```choices block of 2 to 4 lines (`CHOICES_GUIDE` in `server/ai.js`); it is an
+`choices` block of 2 to 4 lines (`CHOICES_GUIDE` in `server/ai.js`); it is an
 option, never a rule. Under the newest message only, each line is a button that
-sends it, word for word, as the learner's reply through the ordinary send path,
+sends the button's text, exactly as shown, as the learner's reply through the ordinary send path,
 leaving the composer's draft and files alone. A block that is not closed, out of
 limits, a second one, or shown inside another code block stays in the text as a
 list or as code. A press changes nothing but the conversation: it is only a reply.
