@@ -185,5 +185,55 @@ section('4. a toggle already on the wire when the load starts also wins');
     v.close();
 }
 
+// A Download press answered with "downloading"; the read the load sent earlier says "available".
+const DOWNLOADING = { enabled: true, install: { phase: 'downloading' } };
+const STALE = { enabled: true, install: { phase: 'available' } };
+
+section('5. a download pressed and answered during the load keeps its answer');
+{
+    let releaseRead;
+    const v = page();
+    v.fetch = (url) => {
+        const u = String(url);
+        const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        if (u.includes('/api/version')) return Promise.resolve(json(VERSION));
+        if (u.includes('/api/updates/download')) return Promise.resolve(json(DOWNLOADING));
+        if (u.includes('/api/updates')) return new Promise((r) => { releaseRead = () => r(json(STALE)); });
+        return new Promise(() => { });
+    };
+    const { act, useStore } = v.__gate;
+    let loading;
+    await act(async () => { loading = useStore.getState().loadVersion(); await settle(); });
+    await act(async () => { await useStore.getState().downloadUpdate(); await settle(); });
+    check('the download answer is in before the read lands', useStore.getState().updateStatus?.install?.phase === 'downloading', JSON.stringify(useStore.getState().updateStatus));
+    await act(async () => { releaseRead(); await loading; await settle(); });
+    check('the older read does not undo the download', useStore.getState().updateStatus?.install?.phase === 'downloading', JSON.stringify(useStore.getState().updateStatus));
+    check('the version answer is still kept', useStore.getState().appVersion?.version === VERSION.version);
+    v.close();
+}
+
+section('6. a download already on the wire when the load starts keeps its answer');
+{
+    let releaseRead, releaseDownload;
+    const v = page();
+    v.fetch = (url) => {
+        const u = String(url);
+        const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        if (u.includes('/api/version')) return Promise.resolve(json(VERSION));
+        if (u.includes('/api/updates/download')) return new Promise((r) => { releaseDownload = () => r(json(DOWNLOADING)); });
+        if (u.includes('/api/updates')) return new Promise((r) => { releaseRead = () => r(json(STALE)); });
+        return new Promise(() => { });
+    };
+    const { act, useStore } = v.__gate;
+    let pressing, loading;
+    await act(async () => { pressing = useStore.getState().downloadUpdate(); await settle(); });
+    await act(async () => { loading = useStore.getState().loadVersion(); await settle(); });
+    check('the press and the read are both on the wire', typeof releaseDownload === 'function' && typeof releaseRead === 'function');
+    await act(async () => { releaseDownload(); await pressing; await settle(); });
+    await act(async () => { releaseRead(); await loading; await settle(); });
+    check('the older read does not undo the earlier download', useStore.getState().updateStatus?.install?.phase === 'downloading', JSON.stringify(useStore.getState().updateStatus));
+    v.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
