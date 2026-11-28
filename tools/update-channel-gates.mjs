@@ -504,6 +504,16 @@ console.log('\n--- what changed, from the release bodies ---');
     check('…and lists its paragraph sentence by sentence, never inside a version number',
         s.items, ['The assistant can now prepare a change to a course; each is a preview.', 'New course asks for a name first, in version 1.2.0 of the dialog.', 'Database: adds a record of the assistant\'s applied changes.']);
     check('nothing below the rule (the download instructions) is read', [...n.items, ...s.items].some((x) => /Desktop app|not a change/.test(x)), false);
+    // From 1.6.0: the headline alone, the highlights, then the paragraph.
+    const highlightsBody = '**Mock exams and evidence.**\n\n- A timed mock exam.\n- What the app thinks you know.\n\nEach topic shows its evidence. Today shows one course. **Database:** adds tables.\n\n---\n\n- not a change';
+    const h = releaseNote(rel('v1.6.0', { body: highlightsBody }));
+    check('a release with highlights lists them under its headline, and counts the paragraph\'s sentences as more',
+        [h.title, h.items, h.more], ['Mock exams and evidence', ['A timed mock exam.', 'What the app thinks you know.'], 3]);
+    check('…and still counts them when it is one of several releases the app reports',
+        notesSince([rel('v1.6.0', { body: highlightsBody })], '1.5.0').releases[0]?.more, 3);
+    const stray = releaseNote(rel('v1.6.1', { body: '**A fix.** One thing works again.\n\n- A list further down.\n\nAnother thing too.' }));
+    check('a list that does not follow the headline straight away is no highlights: the sentences are still listed',
+        [stray.items, stray.more], [['One thing works again.', 'Another thing too.', 'A list further down.'], 0]);
 
     const list = [rel('v1.3.0-nightly.20261022.3', { body: '- Older change (#1)' }), rel('v1.3.0-nightly.20261026.1', { body: nightlyBody }),
         rel('v1.3.0-nightly.20261022.2', { body: '- Already installed' }), rel('v1.3.0-rc.1', { body: '- A candidate' }), rel('v1.3.0-nightly.20261027.1', { draft: true, body: '- A draft' })];

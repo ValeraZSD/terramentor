@@ -1,7 +1,7 @@
 {
   "name": "terramentor",
   "version": "1.6.0",
-  "description": "An AI tutor for a whole subject: the model you connect writes every lesson and question, and it plans the course against your deadline, asks you to prove each topic before it closes, and brings back what you are forgetting.",
+  "description": "An open-source AI tutor. Learn complex subjects from scratch: the model you connect writes the course, Terramentor plans it to your deadline, asks you to prove each topic and schedules reviews with FSRS-7.",
   "license": "AGPL-3.0-or-later",
   "author": "ValeraZSD <valerazsd@gmail.com>",
   "repository": {

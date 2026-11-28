@@ -514,7 +514,10 @@ export function sha256sums(files) {
 
 /**
  * The CHANGELOG.md section for `version`: the lines under `## [version]` up to
- * the next `## ` heading, blank lines dropped. '' when there is none.
+ * the next `## ` heading, with one blank line kept between blocks and none at
+ * either end. '' when there is none. The blank line is what ends a markdown
+ * list: without it, the line after the last highlight is read as part of that
+ * highlight.
  *
  * The heading is matched as a literal prefix, never as a regex built from the
  * version: that reads `[1.0.0]` as a character class and matches nothing, and a
@@ -527,7 +530,32 @@ export function changelogSection(text, version) {
     if (start === -1) return '';
     const after = lines.slice(start + 1);
     const end = after.findIndex((l) => l.startsWith('## '));
-    return (end === -1 ? after : after.slice(0, end)).filter((l) => l.trim()).join('\n');
+    return (end === -1 ? after : after.slice(0, end))
+        .map((l) => (l.trim() ? l : ''))
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/^\n+|\n+$/g, '');
+}
+
+/**
+ * The highlights a changelog section opens with: the section's bold headline,
+ * a sentence on a line of its own, a blank line, then the `- ` lines, then a
+ * blank line and the rest of the release's line. null when the section is not
+ * shaped so (a `**Highlights**` label is not a headline).
+ *
+ * The headline stays first because an installed app reads the published body
+ * with the parser of its own version (`releaseNote` in `server/version.js`):
+ * every version takes the first bold run of the body's prose as the title, so
+ * any other first line becomes the title of the release it is told about.
+ */
+export function highlightsOf(section) {
+    const lines = String(section || '').split('\n');
+    if (!/^\*\*[^*]+[.!?]\*\*$/.test(lines[0] || '') || lines[1] !== '') return null;
+    const items = [];
+    let i = 2;
+    for (; i < lines.length && lines[i].startsWith('- '); i++) items.push(lines[i].slice(2).trim());
+    if (!items.length || lines[i] !== '' || !(lines[i + 1] || '').trim()) return null;
+    return items;
 }
 
 const NOTES_MAX = 60000;
