@@ -459,6 +459,8 @@ async function saveSetting<T>(
 let taskFeedStarted = false;
 /** Download presses whose answer has not come back (see refreshUpdates). */
 let downloadPressesInFlight = 0;
+/** Every Download press started: a read sent before one carries the state from before it (loadVersion). */
+let downloadPressesStarted = 0;
 /** Changes to the update toggle or channel not answered yet, and a count of
  *  every one started: a background re-read sent before a change, or answered
  *  while one is on the wire, carries the state from before it (refreshUpdates). */
@@ -1639,12 +1641,20 @@ export const useStore = create<AppState>((set, get) => ({
         // Two calls, both local: identity never changes, and the update verdict
         // is whatever the last check stored. Neither reaches the network, so
         // this is safe to fire on every app start regardless of the setting.
-        try {
-            const [appVersion, updateStatus] = await Promise.all([api.getVersion(), api.getUpdates()]);
-            set({ appVersion, updateStatus });
-        } catch {
-            // Identity is a nicety, not a dependency. A server too old to serve
-            // /api/version simply shows nothing in About.
+        // Settled one by one: a failed update verdict must not drop the identity.
+        // A server too old to serve /api/version simply shows nothing in About.
+        // A toggle pressed while these were on the wire wins, as in refreshUpdates.
+        // A toggle already on the wire when the load starts wins too: the read may
+        // have been answered before that toggle reached the server.
+        // A Download press works the same way, before or during the load.
+        const writePending = updateWritesInFlight > 0 || downloadPressesInFlight > 0;
+        const startedBefore = updateWritesStarted;
+        const downloadsBefore = downloadPressesStarted;
+        const [version, updates] = await Promise.allSettled([api.getVersion(), api.getUpdates()]);
+        if (version.status === 'fulfilled') set({ appVersion: version.value });
+        if (updates.status === 'fulfilled' && !writePending && downloadPressesInFlight === 0 && updateWritesInFlight === 0
+            && updateWritesStarted === startedBefore && downloadPressesStarted === downloadsBefore) {
+            set({ updateStatus: updates.value });
         }
     },
 
@@ -1706,7 +1716,7 @@ export const useStore = create<AppState>((set, get) => ({
         // in flight finds a download running instead of sending another.
         const prev = get().updateStatus;
         if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
-        downloadPressesInFlight++;
+        downloadPressesInFlight++; downloadPressesStarted++;
         let failed = false;
         try {
             set({ updateStatus: await api.downloadUpdate() });
