@@ -239,9 +239,8 @@ function ConversationList({ conversations, currentId, disabled, onOpen, onDelete
         return <p className="px-3 text-sm text-slate-500 dark:text-slate-400">{t("No conversations yet.")}</p>;
     }
     const q = search.query.trim();
-    // Waiting for the answer to these words. What was on screen stays, dimmed
-    // after a moment: the whole list before the first answer, the last answer
-    // while a newer one runs, so typing never blanks it.
+    // Waiting for the answer to these words. The last answer stays while a
+    // newer one runs, dimmed after a moment, so typing never blanks it.
     const pending = Boolean(q) && !search.failed && search.found?.q !== q;
     const results = Boolean(q) && !search.failed && search.found != null;
     const rows: (ChatConversation | ChatConversationHit)[] = results ? search.found!.rows : conversations;
@@ -254,16 +253,27 @@ function ConversationList({ conversations, currentId, disabled, onOpen, onDelete
             </p>
         );
     } else {
+        // Before the first answer the list on screen is not an answer at all:
+        // a quick search simply replaces it, a slow one fades it out after a
+        // moment and says it is searching, rather than showing unrelated rows.
+        const first = pending && !results;
         body = (
-            <ul
-                className={`space-y-1 transition-opacity ${pending ? 'opacity-50 delay-300' : ''}`}
-                aria-busy={pending || undefined}
-                aria-label={results ? t("Conversations found") : t("Conversations")}
-            >
-                {rows.map(c => (
-                    <ConversationRow key={c.id} c={c} current={c.id === currentId} disabled={disabled} onOpen={onOpen} onDelete={results ? null : onDelete} />
-                ))}
-            </ul>
+            <div className="relative">
+                <ul
+                    className={`space-y-1 transition-opacity ${first ? 'opacity-0 delay-300 pointer-events-none' : pending ? 'opacity-50 delay-300' : ''}`}
+                    aria-busy={pending || undefined}
+                    aria-label={results ? t("Conversations found") : t("Conversations")}
+                >
+                    {rows.map(c => (
+                        <ConversationRow key={c.id} c={c} current={c.id === currentId} disabled={disabled} onOpen={onOpen} onDelete={results ? null : onDelete} />
+                    ))}
+                </ul>
+                {first && (
+                    <p className="absolute inset-x-0 top-0 px-3 text-sm text-slate-500 dark:text-slate-400 animate-[fade-in_0.2s_ease-out_0.3s_both]">
+                        {t("Searching…")}
+                    </p>
+                )}
+            </div>
         );
     }
     return (
