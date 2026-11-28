@@ -369,6 +369,79 @@ try {
         await v.unmount();
 
         // -------------------------------------------------------------------
+        section('a speaker never takes a row of its own');
+        // On a phone a line that just fills the width wrapped, and its speaker
+        // dropped onto a row alone, where it reads as the next line's. Browsers
+        // keep a break opportunity before every inline box, a button too, even
+        // after a no-break character; they take none inside a `white-space:
+        // nowrap` element, and a word joiner (U+2060) allows none between itself
+        // and the letter before it. So a speaker holds to its line when the run
+        // from the line's last letter to the button is [letter][nowrap: joiner,
+        // button], with no space before the joiner and the letter on the same
+        // drawn line (a multi-line text draws each line as a block).
+        const WJ = String.fromCharCode(0x2060);
+        const gluedToLine = (btn) => {
+            const line = btn.closest('p, div');
+            const nowrap = btn.parentElement?.closest('.whitespace-nowrap');
+            if (!nowrap || !line.contains(nowrap)) return 'no nowrap span holds it';
+            const walker = doc.createTreeWalker(line, window.NodeFilter.SHOW_TEXT);
+            const before = [];
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                if (btn.contains(n) || !(n.compareDocumentPosition(btn) & window.Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                before.push(n);
+            }
+            const inside = before.filter(n => nowrap.contains(n)).map(n => n.data).join('');
+            if (inside !== WJ) return `nowrap span holds ${JSON.stringify(inside)} before it, not one word joiner`;
+            const words = before.filter(n => !nowrap.contains(n) && n.data.length);
+            const last = words.at(-1);
+            if (!last) return 'no text before it';
+            if (/\s$/.test(last.data)) return 'a space before the joiner';
+            if (last.parentElement.closest('.block') !== btn.closest('.block')) return 'the last word is on another drawn line';
+            return null;
+        };
+        const glueCase = async (name, projectId, props) => {
+            const view = await mount(card(projectId, props));
+            const buttons = [...view.host.querySelectorAll('button[data-media-control]')];
+            const loose = buttons.map(b => [b.getAttribute('aria-label'), gluedToLine(b)]).filter(([, why]) => why);
+            ok(`${name}: ${buttons.length} speaker(s), each on its line's last row`, buttons.length > 0 && !loose.length,
+                buttons.length ? JSON.stringify(loose) : 'no speaker drawn');
+            await view.unmount();
+        };
+        await glueCase('question side, the word', 3, { flipped: false, front: 'de kwaliteit', back: 'Een goede eigenschap.' });
+        await glueCase('answer side: word, answer and each supporting line', 3, { front: 'de kwaliteit', back: 'Een goede eigenschap.',
+            extra: 'Voorbeeld: Mijn kwaliteit is geduld.\nde kwaliteit, meervoud: de kwaliteiten' });
+        await glueCase('the example line under the question', 4, { ...twinCard, flipped: false,
+            say: JSON.stringify([{ at: '**Ik maak mijn huiswerk.**', text: 'Ik maak mijn huiswerk.', voices: 1 }]) });
+        await glueCase('the example line kept on the answer side', 4, { ...twinCard,
+            say: JSON.stringify([{ at: 'Ik maak mijn huiswerk.', text: 'Ik maak mijn huiswerk.', voices: 1 }]) });
+        await glueCase('an answer written on two lines', 4, { front: 'yes, please', back: 'Ja, graag.\n(Yes, please.)',
+            say: JSON.stringify([{ at: 'Ja, graag.\n(Yes, please.)', text: 'Ja, graag.', voices: 1 }]) });
+        await glueCase('a line ending in bold and trailing spaces', 4, { ...enCard, extra: 'Example: Het huis is **groot**.  \nEnglish: the house is big',
+            say: JSON.stringify([{ at: 'Example: Het huis is **groot**.', text: 'Het huis is groot.', voices: 1 }]) });
+        await glueCase('a recorded line', 1, { ...ruCard, media: { front: [], back: [{ kind: 'audio', hash, at: 'het huiswerk' }] } });
+        globalThis.__st.state = { ...globalThis.__st.state, projects: [...globalThis.__st.state.projects, course(5, 'en', 'ja')] };
+        engine.voices = [voice('en-US', 'English'), voice('ja-JP', 'Japanese')];
+        await glueCase('a word with its reading above it', 5, { front: '先生', back: 'teacher', extra: 'せんせい' });
+        // A line drawn plain on the question side and richer on the answer side
+        // (a reading on the word, the example's bold copy) is the same line: its
+        // speaker is the same button after the flip. A new one would cut the line
+        // mid-speech and restart a two-voice line at its first voice.
+        const keptOnFlip = async (name, projectId, props, label) => {
+            const view = await mount(card(projectId, { ...props, flipped: false }));
+            const asked = view.host.querySelector(`button[aria-label="${label}"]`);
+            await view.render(card(projectId, { ...props, flipped: true }));
+            const shown = view.host.querySelector(`button[aria-label="${label}"]`);
+            ok(`${name}: the speaker is the same button after the flip`, !!asked && asked === shown,
+                !asked ? 'no speaker on the question side' : !shown ? 'no speaker on the answer side' : 'a new button');
+            await view.unmount();
+        };
+        engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch'), voice('ja-JP', 'Japanese')];
+        await keptOnFlip('a word that gains its reading', 5, { front: '先生', back: 'teacher', extra: 'せんせい' }, 'Play: 先生');
+        await keptOnFlip('an example that gains its bold copy', 4, { ...twinCard,
+            say: JSON.stringify([{ at: 'Ik maak mijn huiswerk.', text: 'Ik maak mijn huiswerk.', voices: 1 }]) }, 'Play: Ik maak mijn huiswerk.');
+        engine.voices = [voice('en-US', 'English'), voice('nl-NL', 'Dutch')];
+
+        // -------------------------------------------------------------------
         section('a line recorded in two voices: one button, the voices take turns');
         const plays = [];
         window.HTMLMediaElement.prototype.play = function () { plays.push(this.getAttribute('src')); return Promise.resolve(); };

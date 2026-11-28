@@ -58,8 +58,7 @@ export default function CardExtra({ text, size = 'review', className = '', sound
                 if (!line.trim()) return <div key={i} className="h-3" aria-hidden="true" />;
                 return (
                     <div key={i}>
-                        <span><CardText content={line} /></span>
-                        {soundFor(line)}
+                        <span><CardText content={line} tail={soundFor(line)} /></span>
                     </div>
                 );
             })}

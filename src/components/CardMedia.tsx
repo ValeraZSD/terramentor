@@ -321,9 +321,9 @@ const soundFill = (on: boolean) => (on
  * The round button after a card line, one look whatever makes the sound: a
  * recording the card carries, or the device's own voice. A learner hears "this
  * line, said"; which of the two is behind it is not theirs to tell apart.
- * It flows inline after the line's last word, so a line that wraps on a
- * narrow card keeps its button on its own last row, never on a row between
- * two lines. On touch the press area grows to 44 px through an invisible ring
+ * It flows inline after the line's last word, and is held to that word's row
+ * only when mounted as `CardText`'s `tail` (see `LineTail`): on its own a
+ * button may wrap onto a row between two lines. On touch the press area grows to 44 px through an invisible ring
  * (`before:`), not the circle: a 44 px circle inside a line of text would push
  * that row half a line away from the one above it. (With "Larger text and
  * buttons" on, every button's floor is 44 px, this one too: that setting asks
