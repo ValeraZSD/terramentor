@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { LessonWrite } from '../../types';
 import { lessonFailureFacts, plainCause, retryMayHelp } from '../../utils/failureCause';
 import { Button } from '../ui/Button';
@@ -37,7 +37,7 @@ export function LessonBeingWritten({ title }: { title?: string }) {
  */
 export function LessonWriteFailed({ write, title, onRetry }: { write: LessonWrite; title?: string; onRetry: () => Promise<void> }) {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const [busy, setBusy] = useState(false);
     const facts = lessonFailureFacts(write);
     const cause = write.reason ? plainCause(facts, { rawShown: false }) : null;

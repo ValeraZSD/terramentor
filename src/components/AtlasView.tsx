@@ -20,7 +20,7 @@ import { TextInput } from './ui/Field';
 import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Globe2, Loader2, Map as MapIcon, RefreshCw, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useElementHeight, useElementWidth } from '../hooks/useElementWidth';
 import { CHROME_SURFACE } from './atlas/chromeSurface';
@@ -171,7 +171,7 @@ export default function AtlasView() {
     const num = useNumberFormat();
     const theme = useStore(s => s.theme);
     const accentColor = useStore(s => s.accentColor);
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const openProjectNode = useStore(s => s.openProjectNode);
     const addToast = useStore(s => s.addToast);
     const colorMode = useStore(s => s.atlasColorMode);

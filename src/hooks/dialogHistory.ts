@@ -50,6 +50,9 @@ function depthOf(state: unknown): number {
     return typeof d === 'number' && d > 0 ? d : 0;
 }
 
+/** How many dialog marks an entry's state carries; 0 = the page itself. */
+export const dialogDepthOf = depthOf;
+
 function withoutMark(state: unknown): Record<string, unknown> {
     if (!state || typeof state !== 'object') return {};
     const { [KEY]: _mark, ...rest } = state as Record<string, unknown>;
@@ -173,4 +176,18 @@ export function useBackClose(isOpen: boolean, close: () => void) {
  *  the next Back is measured from. */
 export function dialogHistoryRouteChanged() {
     schedule();
+}
+
+/**
+ * Someone else's `history.go` is about to run (`placeHistory.ts` stepping
+ * back to a page already behind): its popstate is a move, not a Back, and
+ * until it lands the entry the browser reports is the one being left. A
+ * dialog closed in the same tick (its button went to that page) must not
+ * step back over its mark as well: the two traversals would add up and land
+ * one entry short. The rule runs again once the move lands.
+ */
+export function dialogHistoryTraversing() {
+    traversing = true;
+    if (traverseTimer) clearTimeout(traverseTimer);
+    traverseTimer = setTimeout(() => { traversing = false; traverseTimer = null; schedule(); }, 1000);
 }

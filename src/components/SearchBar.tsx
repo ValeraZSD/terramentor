@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { useStore } from '../store';
 import { isAppleOS, modShortcut, usePhysicalKeyboard } from '../utils/platform';
 import { shortcutLetter } from '../utils/escapeKey';
@@ -226,7 +226,7 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
     // landscape clears `sm:` but still has no keys to press.
     const hasKeyboard = usePhysicalKeyboard();
 
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const projects = useStore(s => s.projects);
     const nodes = useStore(s => s.nodes);
     const currentProjectId = useStore(s => s.currentProjectId);

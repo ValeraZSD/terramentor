@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { useLocation, useNavigate, matchPath } from 'react-router-dom';
+import { useLocation, matchPath } from 'react-router-dom';
+import { useAppNavigate } from './useAppNavigate';
 import { useStore, RouteState, WorkspaceView } from '../store';
 import { dialogHistoryRouteChanged } from './dialogHistory';
 
@@ -39,7 +40,9 @@ function decodeRoute(pathname: string): RouteState {
  *  actions can drive the URL, and reconciles the store to the URL on every
  *  location change. Mount once, high in the tree (inside the Router). */
 export function useRouterStoreSync() {
-    const navigate = useNavigate();
+    // The store's moves (the header's tabs and gear, opening a course) keep
+    // one entry per place, as every screen's do.
+    const navigate = useAppNavigate();
     const { pathname, key } = useLocation();
     const setNavigate = useStore(s => s.setNavigate);
     const applyRoute = useStore(s => s.applyRoute);

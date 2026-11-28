@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsSnapshot } from './settings/settingsSnapshot';
@@ -39,7 +40,7 @@ import { useAppBack } from '../utils/appBack';
 export default function Settings() {
     const { t: tr } = useTranslation();
     const location = useLocation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
 
     const scrollerRef = useRef<HTMLDivElement>(null);
     const width = useElementWidth(scrollerRef);

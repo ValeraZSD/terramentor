@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { History, Timer } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
@@ -24,7 +24,7 @@ export default function LookBackCard({ card, done, onDone, onOpen }: {
     onOpen: (sittingId: number, projectId: number) => void;
 }) {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const addToast = useStore(s => s.addToast);
     const [busy, setBusy] = useState<'start' | 'skip' | null>(null);
     const { offer } = card;

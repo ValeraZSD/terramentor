@@ -21,7 +21,7 @@
  * what is inside it and nothing else.
  */
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../Modal';
@@ -66,7 +66,7 @@ const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home
 
 export default function CreationRunView() {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const openProject = useStore(s => s.openProject);
     const showConfirm = useStore(s => s.showConfirm);
     const viewing = useCreationRuns(s => s.viewing);

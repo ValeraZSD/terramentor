@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { ArrowLeft, Check, Minus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
@@ -55,7 +55,7 @@ function readStep(): number {
 
 export default function WelcomeFlow() {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const finishWelcome = useStore(s => s.finishWelcome);
     const theme = useStore(s => s.theme);
     const uiLanguage = useStore(s => s.uiLanguage);

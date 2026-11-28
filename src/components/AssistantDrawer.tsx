@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAppNavigate } from '../hooks/useAppNavigate';
 import { api } from '../api';
 import { useStore } from '../store';
 import Markdown from './Markdown';
@@ -294,7 +294,7 @@ function DestinationButtons({ destinations, onGo }: { destinations: Destination[
  */
 export default function AssistantDrawer({ open, onClose, docked, width, onResize }: Props) {
     const { t: tr } = useTranslation();
-    const navigate = useNavigate();
+    const navigate = useAppNavigate();
     const num = useNumberFormat();
     const view = useStore(s => s.view);
     const currentProjectId = useStore(s => s.currentProjectId);
