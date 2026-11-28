@@ -48,6 +48,9 @@ on:
   # and the release workflow takes a push run that passed as its own.
   push:
     branches: [main, 'release/**']
+  # A merge made with a workflow's own token (tools/merge-robot.mjs) pushes to
+  # main without starting this workflow; the robot dispatches it on main instead.
+  workflow_dispatch:
 
 # A newer push to a pull request replaces the run of the older one. Runs on
 # main are never cancelled: each has a group of its own.

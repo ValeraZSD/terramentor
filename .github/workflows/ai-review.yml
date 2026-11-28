@@ -1,0 +1,71 @@
+# The code review that decides: one model call per pull request head, no tools.
+#
+# tools/ai-review.mjs sends the head's diff (against the merge base, minus the
+# paths .coderabbit.yaml filters out) and the review rules to the Messages API,
+# posts the findings as one pull request review and sets the commit status
+# `ai-review`: success with no blocker or major finding, failure otherwise and
+# for anything that is not a review (API error, refusal, malformed output, a
+# diff over the size cap). A head whose diff an earlier green review already saw
+# (main merged in, nothing else changed) passes without a model call.
+#
+# Trust: `pull_request`, never `pull_request_target`, so a fork's pull request
+# gets no secret and is skipped here. The script and the rules are read from
+# the BASE commit, not the pull request: a change to either is reviewed under
+# the version already on main. The head is checked out only as git objects to
+# diff; nothing from it is installed or run. The token can comment and set
+# statuses; it cannot push.
+#
+# Before the ANTHROPIC_API_KEY secret exists the job prints a notice and posts
+# no status, so nothing waits on it.
+name: AI review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+# A newer push supersedes the review of the older head.
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Review the head
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          AI_REVIEW_MODEL: ${{ vars.AI_REVIEW_MODEL }}
+          AI_REVIEW_EFFORT: ${{ vars.AI_REVIEW_EFFORT }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA:tools/ai-review.mjs" 2>/dev/null; then
+            echo "::notice::The base commit has no tools/ai-review.mjs yet; nothing to run."
+            exit 0
+          fi
+          git show "$BASE_SHA:tools/ai-review.mjs" > "$RUNNER_TEMP/ai-review.mjs"
+          node "$RUNNER_TEMP/ai-review.mjs"

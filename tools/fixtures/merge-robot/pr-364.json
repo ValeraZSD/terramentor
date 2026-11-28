@@ -1,0 +1,1330 @@
+{
+ "repo": "ValeraZSD/terramentor",
+ "number": 364,
+ "recorded_at": "2026-11-25T22:45:52.126Z",
+ "book": {
+  "/repos/ValeraZSD/terramentor/pulls/364": {
+   "number": 364,
+   "title": "Keep the assistant still while an answer streams",
+   "draft": false,
+   "state": "open",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "changed_files": 21,
+   "html_url": "https://github.com/ValeraZSD/terramentor/pull/364",
+   "created_at": "2026-11-24T15:55:56Z",
+   "user": {
+    "login": "ValeraZSD"
+   },
+   "labels": [
+    {
+     "name": "visual-seen"
+    }
+   ],
+   "head": {
+    "sha": "007e35c50280b3b05773592799d7c85054332bf3",
+    "ref": "assistant-read-like-a-book",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   },
+   "base": {
+    "ref": "main",
+    "repo": {
+     "full_name": "ValeraZSD/terramentor"
+    }
+   }
+  },
+  "/repos/ValeraZSD/terramentor/pulls/364/files?per_page=100&page=1": [
+   {
+    "filename": "src/components/AssistantDrawer.tsx",
+    "status": "modified"
+   },
+   {
+    "filename": "src/hooks/useReadingScroll.ts",
+    "status": "added"
+   },
+   {
+    "filename": "src/hooks/useStickToBottom.ts",
+    "status": "removed"
+   },
+   {
+    "filename": "src/locales/ar.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/de.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/en.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/es.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/fr.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/it.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/ja.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/nl.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/pl.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/pt.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/ru.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/tr.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/uk.json",
+    "status": "modified"
+   },
+   {
+    "filename": "src/locales/zh.json",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/accessibility-settings-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/assistant-gates.mjs",
+    "status": "modified"
+   },
+   {
+    "filename": "tools/assistant-scroll-gates.mjs",
+    "status": "added"
+   },
+   {
+    "filename": "tools/run-gates.mjs",
+    "status": "modified"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/commits/007e35c50280b3b05773592799d7c85054332bf3/check-runs?filter=all&per_page=100&page=1": {
+   "check_runs": [
+    {
+     "id": 139272282132,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T14:22:43Z",
+     "completed_at": "2026-11-25T14:27:48Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139235759609,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "neutral",
+     "started_at": "2026-11-25T13:22:55Z",
+     "completed_at": "2026-11-25T13:22:55Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139181125959,
+     "name": "CodeRabbit",
+     "status": "completed",
+     "conclusion": "neutral",
+     "started_at": "2026-11-25T11:44:28Z",
+     "completed_at": "2026-11-25T11:44:28Z",
+     "app": "coderabbitai"
+    },
+    {
+     "id": 139181039464,
+     "name": "Node 24 on ubuntu-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T12:02:31Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181039461,
+     "name": "Docker image",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:47:37Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181039013,
+     "name": "Node 24 on windows-latest",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T12:18:06Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181038770,
+     "name": "signoff",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:44:34Z",
+     "app": "github-actions"
+    },
+    {
+     "id": 139181038708,
+     "name": "check",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-11-25T11:44:20Z",
+     "completed_at": "2026-11-25T11:44:39Z",
+     "app": "github-actions"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/commits/007e35c50280b3b05773592799d7c85054332bf3/statuses?per_page=100&page=1": [
+   {
+    "context": "license/cla",
+    "state": "success",
+    "description": "Contributor License Agreement is signed.",
+    "created_at": "2026-11-25T11:44:17Z",
+    "creator": {
+     "login": "ValeraZSD"
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/issues/364/events?per_page=100&page=1": [
+   {
+    "event": "ready_for_review",
+    "created_at": "2026-11-24T18:05:10Z"
+   },
+   {
+    "event": "mentioned",
+    "created_at": "2026-11-24T18:05:32Z"
+   },
+   {
+    "event": "mentioned",
+    "created_at": "2026-11-24T19:16:19Z"
+   },
+   {
+    "event": "labeled",
+    "label": {
+     "name": "visual-seen"
+    },
+    "created_at": "2026-11-25T11:48:51Z"
+   },
+   {
+    "event": "mentioned",
+    "created_at": "2026-11-25T13:22:39Z"
+   },
+   {
+    "event": "mentioned",
+    "created_at": "2026-11-25T14:22:29Z"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/pulls/364/commits?per_page=100&page=1": [
+   {
+    "sha": "f36e1bd528640f9a8a103551aefee828b7330da3",
+    "parents": [
+     {
+      "sha": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b"
+     }
+    ],
+    "commit": {
+     "message": "Keep the assistant still while an answer streams\n\nThe assistant's log followed every streamed token, so the line being\nread moved up the screen several times a second. Now Send scrolls the\nquestion to the top of the log once, the answer is written below it,\nand the log never moves on its own while the reply arrives.\n\nuseReadingScroll replaces useStickToBottom: the content box gets a\nmin-height so a short answer still leaves room for the question to sit\nat the top, measured again when the panel resizes, docks or undocks.\nOpening the panel or a conversation still lands on the newest message;\na reload that only swaps a question's provisional id does not move it.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T15:17:25Z"
+     }
+    }
+   },
+   {
+    "sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210",
+    "parents": [
+     {
+      "sha": "f36e1bd528640f9a8a103551aefee828b7330da3"
+     }
+    ],
+    "commit": {
+     "message": "Show when the answer continues below\n\nA small button at the foot of the log says the answer goes on below (or is still being written there) and scrolls to its end when pressed. It shows only while text is hidden below the visible part.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T15:55:35Z"
+     }
+    }
+   },
+   {
+    "sha": "49a4961f43b6da240c09b78735236e05c2e11db0",
+    "parents": [
+     {
+      "sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210"
+     }
+    ],
+    "commit": {
+     "message": "Keep the log still when More below appears\n\nThe scroll object the panel's effects depend on carried the 'text below' flag, so the open effect re-ran and sent the log to the bottom whenever the flag changed. The flag now comes back beside a stable object. Also: the room under a question follows its stored copy and goes when a failed turn removes it, a rebuilt log (docking) keeps its place, the last message is watched for growth outside a render, and a keyboard press leaves focus on the log.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T16:18:50Z"
+     }
+    }
+   },
+   {
+    "sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443",
+    "parents": [
+     {
+      "sha": "49a4961f43b6da240c09b78735236e05c2e11db0"
+     }
+    ],
+    "commit": {
+     "message": "Measure the still assistant log in a browser\n\nassistant-scroll-gates.mjs streams a long answer from a stub model into the built app at desktop and phone size and asserts the question goes to the top, the log does not move while or after it is written, and the More below button shows and works by mouse and keyboard. It fails on the previous commit.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T16:18:51Z"
+     }
+    }
+   },
+   {
+    "sha": "2a5c036fdc53ad4c51c53984a72876c3618b521d",
+    "parents": [
+     {
+      "sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443"
+     }
+    ],
+    "commit": {
+     "message": "Move the view only for a question sent here\n\nA stored row no longer moves the log, so opening a conversation whose last row is a question lands on it instead of anchoring (a loading flag could not tell, since React renders the rows and the flag's reset together). The stored copy of a placed question is the newest stored question with its text, never an earlier one with the same words. A rebuilt log keeps how far the reader had read past the question, the content box is watched for growth as well as the last message, and the log shows a focus ring when it takes focus.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T16:51:20Z"
+     }
+    }
+   },
+   {
+    "sha": "4b510bbf69cf088097f44a57acc672368e0882b6",
+    "parents": [
+     {
+      "sha": "2a5c036fdc53ad4c51c53984a72876c3618b521d"
+     }
+    ],
+    "commit": {
+     "message": "Cover re-reading, reopening and refusals\n\nThe browser gate now also scrolls up mid-answer, closes and reopens the panel, presses More below from the keyboard, finds the answer's last paragraph by its words rather than the hook's measure, and has the model refuse a question. Waits are on what the page shows; --only runs one size.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T16:51:20Z"
+     }
+    }
+   },
+   {
+    "sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2",
+    "parents": [
+     {
+      "sha": "4b510bbf69cf088097f44a57acc672368e0882b6"
+     }
+    ],
+    "commit": {
+     "message": "Turn one page per More below press\n\nA press moved straight to the last line, so a reader halfway down a long\nanswer skipped everything between. It now moves on by four fifths of the\nview, keeping the lines the button sat over in sight, and keyboard focus\nstays on the button until the last press.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T17:48:13Z"
+     }
+    }
+   },
+   {
+    "sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89",
+    "parents": [
+     {
+      "sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2"
+     }
+    ],
+    "commit": {
+     "message": "Stop a page turn at the button, focus on leave\n\nOn a short view a fifth of the page is less than the button covers, so\nthe step now stops at the button's top edge. Focus moves to the log when\nthe button goes, not at a press judged to be the last: a streaming answer\ncan grow again. A closed panel forgets the button, and the call list and\nthe browser walk pin the page turn.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T17:57:45Z"
+     }
+    }
+   },
+   {
+    "sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa",
+    "parents": [
+     {
+      "sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89"
+     }
+    ],
+    "commit": {
+     "message": "Fill the More below button\n\nThe outline look has no fill, so the line under the floating button showed\nthrough its label. The filled subtle look hides it.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T18:05:04Z"
+     }
+    }
+   },
+   {
+    "sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6",
+    "parents": [
+     {
+      "sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa"
+     }
+    ],
+    "commit": {
+     "message": "Match CRLF in the new-chat scroll check\n\nA Windows checkout has CRLF line ends, so the regex that finds the reset\nfunction's body found nothing there.\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T18:32:42Z"
+     }
+    }
+   },
+   {
+    "sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6",
+    "parents": [
+     {
+      "sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6"
+     }
+    ],
+    "commit": {
+     "message": "Keep the place through a load or a failed repeat\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T19:29:34Z"
+     }
+    }
+   },
+   {
+    "sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec",
+    "parents": [
+     {
+      "sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6"
+     },
+     {
+      "sha": "624513a68c81bf31833cfb5ebe5c208437426305"
+     }
+    ],
+    "commit": {
+     "message": "Merge main into assistant-read-like-a-book\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-24T21:38:41Z"
+     }
+    }
+   },
+   {
+    "sha": "007e35c50280b3b05773592799d7c85054332bf3",
+    "parents": [
+     {
+      "sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec"
+     }
+    ],
+    "commit": {
+     "message": "Leave the view for another device's failed turn\n\nSigned-off-by: ValeraZSD <owner@example.test>",
+     "committer": {
+      "date": "2026-11-25T11:44:06Z"
+     }
+    }
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/actions/runs?event=pull_request&branch=assistant-read-like-a-book&per_page=100&page=1": {
+   "workflow_runs": [
+    {
+     "id": 45607199208,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "007e35c50280b3b05773592799d7c85054332bf3",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:44:17Z"
+    },
+    {
+     "id": 45607199207,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "007e35c50280b3b05773592799d7c85054332bf3",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:44:17Z"
+    },
+    {
+     "id": 45607199244,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "007e35c50280b3b05773592799d7c85054332bf3",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:44:17Z"
+    },
+    {
+     "id": 45603495796,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:20:18Z"
+    },
+    {
+     "id": 45603495862,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:20:18Z"
+    },
+    {
+     "id": 45603496048,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "bdd158722f73d7c7bf61c36a3e576585a3bd97ec",
+     "event": "pull_request",
+     "created_at": "2026-11-25T11:20:18Z"
+    },
+    {
+     "id": 45470797476,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T19:29:46Z"
+    },
+    {
+     "id": 45470797496,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T19:29:46Z"
+    },
+    {
+     "id": 45470797732,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "94782ca7d37011b563879d9e8dc2ac9aa893efe6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T19:29:46Z"
+    },
+    {
+     "id": 45460702788,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:32:54Z"
+    },
+    {
+     "id": 45460704192,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:32:54Z"
+    },
+    {
+     "id": 45460703070,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "f772c69325dc676c8a7dcc3f8dc1332d0cb84cf6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:32:54Z"
+    },
+    {
+     "id": 45455647180,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:05:12Z"
+    },
+    {
+     "id": 45455647631,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:05:12Z"
+    },
+    {
+     "id": 45455647255,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "834d6ac02ecf63c0557f1be8d88133539ac11faa",
+     "event": "pull_request",
+     "created_at": "2026-11-24T18:05:12Z"
+    },
+    {
+     "id": 45454304781,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:57:55Z"
+    },
+    {
+     "id": 45454304817,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:57:55Z"
+    },
+    {
+     "id": 45454304804,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "a60b2fb02efd4971e420284fe2e4ed7c79dd1a89",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:57:55Z"
+    },
+    {
+     "id": 45452612829,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:48:28Z"
+    },
+    {
+     "id": 45452612880,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:48:28Z"
+    },
+    {
+     "id": 45452612840,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "4006f3634a5bacb94a263e42c43b66ed2c000ae2",
+     "event": "pull_request",
+     "created_at": "2026-11-24T17:48:28Z"
+    },
+    {
+     "id": 45441979591,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "4b510bbf69cf088097f44a57acc672368e0882b6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:51:31Z"
+    },
+    {
+     "id": 45441979552,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "4b510bbf69cf088097f44a57acc672368e0882b6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:51:31Z"
+    },
+    {
+     "id": 45441979589,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "4b510bbf69cf088097f44a57acc672368e0882b6",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:51:31Z"
+    },
+    {
+     "id": 45435866745,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:19:54Z"
+    },
+    {
+     "id": 45435866182,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:19:54Z"
+    },
+    {
+     "id": 45435865833,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "8f3fbb55ac3b05255ef5284f426ba1cbed41f443",
+     "event": "pull_request",
+     "created_at": "2026-11-24T16:19:54Z"
+    },
+    {
+     "id": 45431212222,
+     "name": "Gates",
+     "path": ".github/workflows/gates.yml",
+     "head_sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210",
+     "event": "pull_request",
+     "created_at": "2026-11-24T15:56:02Z"
+    },
+    {
+     "id": 45431212016,
+     "name": "DCO",
+     "path": ".github/workflows/dco.yml",
+     "head_sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210",
+     "event": "pull_request",
+     "created_at": "2026-11-24T15:56:02Z"
+    },
+    {
+     "id": 45431212287,
+     "name": "No AI attribution",
+     "path": ".github/workflows/no-ai-attribution.yml",
+     "head_sha": "dd089a5c02ff9dcf10e19ddbf8900ecd3ced8210",
+     "event": "pull_request",
+     "created_at": "2026-11-24T15:56:02Z"
+    }
+   ]
+  },
+  "/repos/ValeraZSD/terramentor/activity?ref=refs/heads/main&per_page=100": [
+   {
+    "before": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+    "after": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0",
+    "timestamp": "2026-11-25T21:52:18Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+    "after": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957",
+    "timestamp": "2026-11-25T20:57:20Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "624513a68c81bf31833cfb5ebe5c208437426305",
+    "after": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c",
+    "timestamp": "2026-11-25T16:55:51Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+    "after": "624513a68c81bf31833cfb5ebe5c208437426305",
+    "timestamp": "2026-11-24T21:36:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+    "after": "c378d6e03fe760bf0b1f62c2d4457e55727ed11b",
+    "timestamp": "2026-11-24T11:40:24Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9d909e16806bca641f196c880565c40013b08b81",
+    "after": "998c88641c40b287dbedcaa3a31aa3d852ba7793",
+    "timestamp": "2026-11-24T10:46:19Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+    "after": "9d909e16806bca641f196c880565c40013b08b81",
+    "timestamp": "2026-11-24T07:01:24Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+    "after": "95a401ffefdab9c5a59a14a627a010686c2b4ea8",
+    "timestamp": "2026-11-23T14:55:36Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+    "after": "2126d2f1ff5213e2b5a9507d0984889ade86aadb",
+    "timestamp": "2026-11-23T11:51:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+    "after": "a862bbea973d5fedcfe6c2ffe65bb08616e7b0e4",
+    "timestamp": "2026-11-23T10:25:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+    "after": "2f8c559a994d6dd84423068f4ac13bddf1f1e09f",
+    "timestamp": "2026-11-23T09:46:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+    "after": "dfdecdf336096bd11b103e75c4dad773b7cd7ea5",
+    "timestamp": "2026-11-23T08:21:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+    "after": "de57110570a9e65b484a1dbfaf5a91bd40e3ea21",
+    "timestamp": "2026-11-23T06:54:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+    "after": "b4c2c0025f502d9b2c0167d598546df8dee0f923",
+    "timestamp": "2026-11-22T14:56:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+    "after": "11a6ce45c8e7e82e361143b4a471d1abeea64ae7",
+    "timestamp": "2026-11-22T14:02:25Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+    "after": "b577b669718cd50d072c3bd9ffe2d3a26b7a9226",
+    "timestamp": "2026-11-22T13:05:45Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "c82ef280039bc8faff9d003984f1ca590e98e04c",
+    "after": "50d390412069de6c37b4f85aa5fcf8d5bf9fe65e",
+    "timestamp": "2026-11-21T23:12:00Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9b284d303ce602e1554a6c09aebc8660e522b064",
+    "after": "c82ef280039bc8faff9d003984f1ca590e98e04c",
+    "timestamp": "2026-11-21T13:01:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f92d5632a16533f161b391ffc3b51876507cd5af",
+    "after": "9b284d303ce602e1554a6c09aebc8660e522b064",
+    "timestamp": "2026-11-20T22:28:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7dfed1e9cf4ad3a45433f6ab1d4958a23954bdd8",
+    "after": "f92d5632a16533f161b391ffc3b51876507cd5af",
+    "timestamp": "2026-11-20T21:12:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "967abed53125722f83151a925bc8aaf571fbcca8",
+    "after": "7dfed1e9cf4ad3a45433f6ab1d4958a23954bdd8",
+    "timestamp": "2026-11-20T20:40:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7956f0326a8e9b2ea1513b538bd96d89529a0427",
+    "after": "967abed53125722f83151a925bc8aaf571fbcca8",
+    "timestamp": "2026-11-20T19:54:15Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7087fbd554af75606fc56113431418ad10858a53",
+    "after": "7956f0326a8e9b2ea1513b538bd96d89529a0427",
+    "timestamp": "2026-11-20T19:25:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "95502365012d87a5b0d24a5d9bec7e5c3f8f7892",
+    "after": "7087fbd554af75606fc56113431418ad10858a53",
+    "timestamp": "2026-11-20T18:59:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "fa556b2e1c8fd9253b47be79abb4ee93d509c0dd",
+    "after": "95502365012d87a5b0d24a5d9bec7e5c3f8f7892",
+    "timestamp": "2026-11-20T18:33:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bee39d10f5dd08e64a363d69f153d1fa07d624bb",
+    "after": "fa556b2e1c8fd9253b47be79abb4ee93d509c0dd",
+    "timestamp": "2026-11-20T18:27:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e4a09ef619e05b58f477acc8d589b3a69c2be4ce",
+    "after": "bee39d10f5dd08e64a363d69f153d1fa07d624bb",
+    "timestamp": "2026-11-20T17:05:27Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "be2af5f8cb4f685e0fadf5208fe11ca77206e790",
+    "after": "e4a09ef619e05b58f477acc8d589b3a69c2be4ce",
+    "timestamp": "2026-11-20T15:23:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0972e506381c08c17b9cac85af13fae0f7bae48c",
+    "after": "be2af5f8cb4f685e0fadf5208fe11ca77206e790",
+    "timestamp": "2026-11-20T14:58:49Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3f4598954dae5423baded0ba2b5bf71f2188d75d",
+    "after": "0972e506381c08c17b9cac85af13fae0f7bae48c",
+    "timestamp": "2026-11-20T14:27:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5614f6e6b3a6d033eb709f7224c996303f59a522",
+    "after": "3f4598954dae5423baded0ba2b5bf71f2188d75d",
+    "timestamp": "2026-11-20T13:20:18Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dba8f114f6223cea418f007d90c717b9b9d77d26",
+    "after": "5614f6e6b3a6d033eb709f7224c996303f59a522",
+    "timestamp": "2026-11-20T10:48:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "380c181d3b2e7773aa3002d3834c401ee59e8015",
+    "after": "dba8f114f6223cea418f007d90c717b9b9d77d26",
+    "timestamp": "2026-11-20T10:16:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5f2e2a4254e16fd8f447d6a49d17a0eda512bc94",
+    "after": "380c181d3b2e7773aa3002d3834c401ee59e8015",
+    "timestamp": "2026-11-19T23:13:40Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bbce304fd34d6bf4906eb20d602fb43b631a4f62",
+    "after": "5f2e2a4254e16fd8f447d6a49d17a0eda512bc94",
+    "timestamp": "2026-11-19T22:17:17Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9a42dabb84bea06824692976b85663673c1e128e",
+    "after": "bbce304fd34d6bf4906eb20d602fb43b631a4f62",
+    "timestamp": "2026-11-19T22:17:12Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "908cd3cc8f9096400e1bff05cd642e595073c7f0",
+    "after": "9a42dabb84bea06824692976b85663673c1e128e",
+    "timestamp": "2026-11-19T22:17:08Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0e83cf98b9450b5a62d76795f28e7f30b39fe728",
+    "after": "908cd3cc8f9096400e1bff05cd642e595073c7f0",
+    "timestamp": "2026-11-19T22:17:03Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2afd666ee7f1a89779e0457c42b63617c1b05b48",
+    "after": "0e83cf98b9450b5a62d76795f28e7f30b39fe728",
+    "timestamp": "2026-11-19T22:16:58Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0a45200437a347e2fdb765a760ef7a22a6b177c7",
+    "after": "2afd666ee7f1a89779e0457c42b63617c1b05b48",
+    "timestamp": "2026-11-19T21:28:33Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dd16c1d6bdb111a7be6e7ef9e98f0bbd6a4b04ce",
+    "after": "0a45200437a347e2fdb765a760ef7a22a6b177c7",
+    "timestamp": "2026-11-19T19:49:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b038638018cb120d9aa2bda23aa1de1fb9b79873",
+    "after": "dd16c1d6bdb111a7be6e7ef9e98f0bbd6a4b04ce",
+    "timestamp": "2026-11-19T17:24:56Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7fb934933564928e2e0578c67a1ab566355de9cf",
+    "after": "b038638018cb120d9aa2bda23aa1de1fb9b79873",
+    "timestamp": "2026-11-19T17:20:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3e92385ff6985479f7a69984dc62ce1a67cfaebd",
+    "after": "7fb934933564928e2e0578c67a1ab566355de9cf",
+    "timestamp": "2026-11-19T16:35:59Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5ee6d3a45d0471c5c73a7d9646695bf9b27ea84b",
+    "after": "3e92385ff6985479f7a69984dc62ce1a67cfaebd",
+    "timestamp": "2026-11-19T16:25:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4bd131fb594dffd5b86ad1f8d14748fb76f0025f",
+    "after": "5ee6d3a45d0471c5c73a7d9646695bf9b27ea84b",
+    "timestamp": "2026-11-19T12:51:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bddfffa7c4751a157fa5e282e168ad9510747a95",
+    "after": "4bd131fb594dffd5b86ad1f8d14748fb76f0025f",
+    "timestamp": "2026-11-19T11:02:33Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "215dc8a5f185511d52de84f562108338f2577312",
+    "after": "bddfffa7c4751a157fa5e282e168ad9510747a95",
+    "timestamp": "2026-11-18T23:42:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "395e76b1b0edea7dc6176339909da2b5f8eba6ce",
+    "after": "215dc8a5f185511d52de84f562108338f2577312",
+    "timestamp": "2026-11-18T22:20:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9b18b50e6a3a9af163fae2a37679f505a28c64e2",
+    "after": "395e76b1b0edea7dc6176339909da2b5f8eba6ce",
+    "timestamp": "2026-11-18T22:20:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "99d10110189108927b6425e5fb37aaa497f02446",
+    "after": "9b18b50e6a3a9af163fae2a37679f505a28c64e2",
+    "timestamp": "2026-11-18T21:30:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "3a0a48115bef763d1d1d4e0c3db53a92c7e44754",
+    "after": "99d10110189108927b6425e5fb37aaa497f02446",
+    "timestamp": "2026-11-18T21:24:26Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "6f96df189e6ec4aaf0331c5d4ab60136c8851a8a",
+    "after": "3a0a48115bef763d1d1d4e0c3db53a92c7e44754",
+    "timestamp": "2026-11-18T21:19:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "88b7f98c9a1288b57bac985f052d75ba78ea88bd",
+    "after": "6f96df189e6ec4aaf0331c5d4ab60136c8851a8a",
+    "timestamp": "2026-11-18T20:04:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "d84782b2d6e3f44689f23827780257a90346a916",
+    "after": "88b7f98c9a1288b57bac985f052d75ba78ea88bd",
+    "timestamp": "2026-11-18T19:10:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "ece4b2aec5b9da9907b8cd9f7e95f5b5d001667c",
+    "after": "d84782b2d6e3f44689f23827780257a90346a916",
+    "timestamp": "2026-11-18T15:45:38Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f2526e2c9f83f399dc761d7bbf8d21517c4c621d",
+    "after": "ece4b2aec5b9da9907b8cd9f7e95f5b5d001667c",
+    "timestamp": "2026-11-18T13:35:23Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "eaac1a6d45e11488cbb9f7d6df1c7f29ebaa61f2",
+    "after": "f2526e2c9f83f399dc761d7bbf8d21517c4c621d",
+    "timestamp": "2026-11-18T13:02:56Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "a2bbb0d9df25910ac67c6f0da765b73c9130e640",
+    "after": "eaac1a6d45e11488cbb9f7d6df1c7f29ebaa61f2",
+    "timestamp": "2026-11-18T11:33:45Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "265eecfbcf160d88315770e0c02550339b3510e2",
+    "after": "a2bbb0d9df25910ac67c6f0da765b73c9130e640",
+    "timestamp": "2026-11-18T11:33:08Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bff0a4836cec177842f7efcb013a1e1e682db583",
+    "after": "265eecfbcf160d88315770e0c02550339b3510e2",
+    "timestamp": "2026-11-18T11:06:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "73c259937d7a742cc85014d6ea59711a419576c5",
+    "after": "bff0a4836cec177842f7efcb013a1e1e682db583",
+    "timestamp": "2026-11-18T11:06:16Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f9ca6c62fa90d48affebf5043a7b14f22336b65c",
+    "after": "73c259937d7a742cc85014d6ea59711a419576c5",
+    "timestamp": "2026-11-18T11:05:43Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "729e2567ede4179bf48297d9a1c4740abd2449e2",
+    "after": "f9ca6c62fa90d48affebf5043a7b14f22336b65c",
+    "timestamp": "2026-11-18T11:05:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "27ef69a3391f5e551006d6affe321621dbc260f9",
+    "after": "729e2567ede4179bf48297d9a1c4740abd2449e2",
+    "timestamp": "2026-11-18T11:04:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "96af2e3b3753d0123ba39ca8971a88af789b96b1",
+    "after": "27ef69a3391f5e551006d6affe321621dbc260f9",
+    "timestamp": "2026-11-18T10:19:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0fb44c30bc79304d863a628f2e3adeea6f08c73d",
+    "after": "96af2e3b3753d0123ba39ca8971a88af789b96b1",
+    "timestamp": "2026-11-18T10:18:09Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2ab691e90b58fe093687a22cb2774ce31bf5582f",
+    "after": "0fb44c30bc79304d863a628f2e3adeea6f08c73d",
+    "timestamp": "2026-11-18T10:15:58Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "0a73a0bff4e7c68fd24aa888602e54401d72044a",
+    "after": "2ab691e90b58fe093687a22cb2774ce31bf5582f",
+    "timestamp": "2026-11-18T10:14:11Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "451ea8e1ed3128b464dcc90d9793ab2685b46932",
+    "after": "0a73a0bff4e7c68fd24aa888602e54401d72044a",
+    "timestamp": "2026-11-18T10:12:57Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "70bf07144feb173b2f49bbcaafc69c0969828e71",
+    "after": "451ea8e1ed3128b464dcc90d9793ab2685b46932",
+    "timestamp": "2026-11-18T10:12:25Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "ec4d527e5f7465402e3112591513d1a4a083e36b",
+    "after": "70bf07144feb173b2f49bbcaafc69c0969828e71",
+    "timestamp": "2026-11-18T10:11:22Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "126d0ad07e6a486f3ff393ed261b59f2c1495276",
+    "after": "ec4d527e5f7465402e3112591513d1a4a083e36b",
+    "timestamp": "2026-11-18T10:10:48Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5ddb8b08fc82e5153c9491f8ba45fb508a859a91",
+    "after": "126d0ad07e6a486f3ff393ed261b59f2c1495276",
+    "timestamp": "2026-11-18T10:10:13Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "1cb6f551e9ba3e543ffb369685832466fda694ed",
+    "after": "5ddb8b08fc82e5153c9491f8ba45fb508a859a91",
+    "timestamp": "2026-11-18T10:09:38Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e1da1fcea818e2afad589ff6064fb37545febc7e",
+    "after": "1cb6f551e9ba3e543ffb369685832466fda694ed",
+    "timestamp": "2026-11-18T09:41:30Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "1976a3621c646178dc620bdb6031f45cda5a1dcf",
+    "after": "e1da1fcea818e2afad589ff6064fb37545febc7e",
+    "timestamp": "2026-11-18T08:44:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "65ce05f3f23644273eac3cd63df4a57ddb263484",
+    "after": "1976a3621c646178dc620bdb6031f45cda5a1dcf",
+    "timestamp": "2026-11-17T19:45:51Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7e814779daf8162541f1e7e58f429e9962783858",
+    "after": "65ce05f3f23644273eac3cd63df4a57ddb263484",
+    "timestamp": "2026-11-17T19:45:19Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4ac1836ffc21198ab34ece7dc77530398eb3c25e",
+    "after": "7e814779daf8162541f1e7e58f429e9962783858",
+    "timestamp": "2026-11-17T19:44:47Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "9288550e6e4f38045edf2771bac8d06353244e21",
+    "after": "4ac1836ffc21198ab34ece7dc77530398eb3c25e",
+    "timestamp": "2026-11-17T18:26:37Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "5f3cfbee3d6607bee0919c8538e0d8a4550b131e",
+    "after": "9288550e6e4f38045edf2771bac8d06353244e21",
+    "timestamp": "2026-11-17T18:26:03Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "431052fac56a991bafe450537913604d188d77e2",
+    "after": "5f3cfbee3d6607bee0919c8538e0d8a4550b131e",
+    "timestamp": "2026-11-17T18:24:55Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "b44e79210c676d9ef7562f239d76e3baf0a4d0ba",
+    "after": "431052fac56a991bafe450537913604d188d77e2",
+    "timestamp": "2026-11-17T17:51:17Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "41e122b9023f380b1255413eb638bc7c372fae08",
+    "after": "b44e79210c676d9ef7562f239d76e3baf0a4d0ba",
+    "timestamp": "2026-11-17T17:50:43Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4a79046ffff9bc8f9b857936acb40e2d9b8c9b19",
+    "after": "41e122b9023f380b1255413eb638bc7c372fae08",
+    "timestamp": "2026-11-17T17:50:10Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "cab107a0c5a47990f84d045529e10a5a3480453e",
+    "after": "4a79046ffff9bc8f9b857936acb40e2d9b8c9b19",
+    "timestamp": "2026-11-17T17:41:26Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bbba7b150da96eb703c4af92b584a6729effc346",
+    "after": "cab107a0c5a47990f84d045529e10a5a3480453e",
+    "timestamp": "2026-11-17T17:40:54Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "dd2a0f1535dbaea9b7cef54093f1a76b26da653a",
+    "after": "bbba7b150da96eb703c4af92b584a6729effc346",
+    "timestamp": "2026-11-17T17:40:20Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "01c6eb95a6e1a704c38c89a8fe052885c90a695f",
+    "after": "dd2a0f1535dbaea9b7cef54093f1a76b26da653a",
+    "timestamp": "2026-11-17T17:39:46Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "2cfd050c7bec74ed5cd0bf715cbf18ec896cd523",
+    "after": "01c6eb95a6e1a704c38c89a8fe052885c90a695f",
+    "timestamp": "2026-11-17T17:39:14Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "7c7da9093effb9d14c8db36ec5cfc30c9f8662e0",
+    "after": "2cfd050c7bec74ed5cd0bf715cbf18ec896cd523",
+    "timestamp": "2026-11-17T17:38:39Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "4c36848914ff0eff3515a4add3ca707e73a715ac",
+    "after": "7c7da9093effb9d14c8db36ec5cfc30c9f8662e0",
+    "timestamp": "2026-11-17T17:38:07Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "bd3f6b9b147cf81606c86e72bd16ecc15f6f3dd6",
+    "after": "4c36848914ff0eff3515a4add3ca707e73a715ac",
+    "timestamp": "2026-11-17T17:37:35Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "76f578b9e0319539ec23b8c14640629371a8aa40",
+    "after": "bd3f6b9b147cf81606c86e72bd16ecc15f6f3dd6",
+    "timestamp": "2026-11-17T17:37:01Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "43516cf7eae67d9a5bc36e6e2a150b0fb8da9d32",
+    "after": "76f578b9e0319539ec23b8c14640629371a8aa40",
+    "timestamp": "2026-11-17T17:36:28Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "e98c0faddf46a8f5b07831607d6fc5277f19ff4f",
+    "after": "43516cf7eae67d9a5bc36e6e2a150b0fb8da9d32",
+    "timestamp": "2026-11-17T17:35:31Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f3560c3e82ca264da05391282416f680fdb4d6b2",
+    "after": "e98c0faddf46a8f5b07831607d6fc5277f19ff4f",
+    "timestamp": "2026-11-17T17:34:05Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "f429eb3f8d87cbe3ceb584fa22e7a4f796c90ee8",
+    "after": "f3560c3e82ca264da05391282416f680fdb4d6b2",
+    "timestamp": "2026-11-17T17:18:02Z",
+    "activity_type": "pr_merge"
+   },
+   {
+    "before": "58b768b5672f40b2d8348f82dd59df00f6e0ed5a",
+    "after": "f429eb3f8d87cbe3ceb584fa22e7a4f796c90ee8",
+    "timestamp": "2026-11-17T16:07:18Z",
+    "activity_type": "pr_merge"
+   }
+  ],
+  "/repos/ValeraZSD/terramentor/compare/624513a68c81bf31833cfb5ebe5c208437426305...main": {
+   "status": "ahead",
+   "ahead_by": 3,
+   "commits": [
+    {
+     "sha": "e6f6945f3d649b54bbfebd24bc928d1a3f59f10c"
+    },
+    {
+     "sha": "1d894c4a64bd9ea549fa3b437c7a30d22e9c4957"
+    },
+    {
+     "sha": "b5839f27aa1ebaa2f8860ffc7fecafc6583ba7c0"
+    }
+   ],
+   "files": [
+    {
+     "filename": "CHANGELOG.md"
+    },
+    {
+     "filename": "README.md"
+    },
+    {
+     "filename": "docs/ACCESSIBILITY.md"
+    },
+    {
+     "filename": "docs/ARCHITECTURE.md"
+    },
+    {
+     "filename": "docs/GETTING_STARTED.md"
+    },
+    {
+     "filename": "docs/screenshots/hero.webp"
+    },
+    {
+     "filename": "package-lock.json"
+    },
+    {
+     "filename": "package.json"
+    },
+    {
+     "filename": "server/routes/studyDashboard.js"
+    },
+    {
+     "filename": "src/components/Sidebar.tsx"
+    },
+    {
+     "filename": "src/types.ts"
+    },
+    {
+     "filename": "src/utils/tree.ts"
+    },
+    {
+     "filename": "tools/one-level-course-gates.mjs"
+    }
+   ]
+  }
+ }
+}

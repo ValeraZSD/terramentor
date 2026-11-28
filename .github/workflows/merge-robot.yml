@@ -1,0 +1,58 @@
+# Squash-merges the oldest pull request that passes every rule in
+# tools/merge-robot.mjs: `automerge` label, required checks and the `ai-review`
+# status green on the head, `visual-seen` for a visual change, mergeable, and
+# main unchanged on its files since its checks ran. No model, no pull request
+# code: it checks out main and reads the pull requests through the API.
+#
+# Dry run until the repository variable MERGE_ROBOT is `on`: the job summary
+# then lists what it would merge and why the rest wait, and nothing is written.
+#
+# It runs from main's copy of this file and of the script whatever the event
+# (`workflow_run` and `schedule` always do), and a pull request that changes
+# either is never merged by it.
+name: Merge robot
+
+on:
+  schedule:
+    # Every 12 minutes, off the hour: scheduled runs at :00 are the ones GitHub delays most.
+    - cron: '7-59/12 * * * *'
+  workflow_run:
+    workflows: [Gates, AI review]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, never cancelled mid-merge; a run that arrives meanwhile waits.
+concurrency:
+  group: merge-robot
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # the squash merge
+      pull-requests: write   # the merge endpoint
+      issues: write          # needs-visual-seen / needs-main-merge labels
+      actions: write         # dispatch Gates on main after a merge
+      checks: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Judge the open pull requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MERGE_ROBOT: ${{ vars.MERGE_ROBOT }}
+          MERGE_ROBOT_REQUIRED: ${{ vars.MERGE_ROBOT_REQUIRED }}
+        run: node tools/merge-robot.mjs
