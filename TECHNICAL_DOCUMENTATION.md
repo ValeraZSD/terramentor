@@ -1225,7 +1225,8 @@ The modules the sections above do not cover, one line each.
   the server, then waits for Settings → "Re-index all" or a restart; one whose
   index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` probes the model live by default; `?probe=false` skips
-  the probe, which matters behind a model-swapping proxy.
+  the probe. Settings paints from a `?probe=false` call and then probes behind it, so
+  behind a model-swapping proxy opening Settings can still swap a model in.
 - Recall difficulty comes from the question log alone, which began in September 2026:
   a library answered before then has no per-question record, so its recalls start
   from the format prior until new answers arrive.

@@ -1,6 +1,6 @@
 # Add-ons: the design, and what "extend the app" can mean
 
-**A design; what ships today is [search providers](SEARCH_PROVIDERS.md).** It exists so the shape is
+**This document is the design.** It exists so the shape is
 decided before the first piece is written, and so a contributor can see *why* a proposed add-on
 is a yes or a no before building it.
 
@@ -430,5 +430,5 @@ wants the second before building it.
 - **No credentials, ever.** A manifest is stored in plain text.
 - **Name it for what it does**, not for a brand.
 - **Adding a kind or a capability is a change to this document first** and to
-  the add-on gate suite second (`tools/addon-gates.mjs`, written with the first kind), and the gate must
+  the add-on gate suite second (`tools/addon-gates.mjs`, to be written with the first kind), and the gate must
   include a hostile bundle for the new thing.

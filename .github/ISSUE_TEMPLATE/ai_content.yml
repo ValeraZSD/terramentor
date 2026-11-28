@@ -24,7 +24,7 @@ body:
       value: |
         This is one of the most useful reports there is. Every piece of generated
         content passes a set of automatic checks before it is shown to you, so a
-        report of something wrong tells us which check to add next. You do not need
+        report of something wrong helps decide which check to add next. You do not need
         to know how to fix it.
 
         **Shortcut:** in the app, **Settings → Library & about → Report a problem**

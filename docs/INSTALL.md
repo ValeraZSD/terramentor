@@ -96,7 +96,7 @@ from 1.2.0 or older, Docker and a source checkout are updated by hand. Nightly b
 on the releases page as pre-releases, and the desktop app's *Channel* setting follows them. Before a
 new version migrates your database, it copies it to
 `terramentor.db.pre-<the version you are leaving>.bak` (updating from 1.2.0 writes
-`terramentor.db.pre-1.2.0.bak`), so you can always go back. The copy holds the library
+`terramentor.db.pre-1.2.0.bak`), so you can restore the library as it was before the upgrade. The copy holds the library
 only: keys and sign-ins live in `terramentor.secrets.json` beside it. A minor version may migrate
 the database and a patch never does; every [changelog](../CHANGELOG.md) entry says which.
 

@@ -18,7 +18,7 @@ weak is used only when no better one gets written, and its weakness is recorded.
 fails is rewritten, and if every rewrite fails, the last one is shown with the fault recorded
 against it. Anything the check could not read is marked unchecked, and an unchecked question
 never counts as proof that you know a topic. Anything wrong that gets through can be flagged
-where it appears, and each kind of mistake that gets through becomes a new check.
+where it appears, and each kind of mistake that gets through can become a new check.
 Recall questions will get better at finding what you have started to forget. A tutor you can
 talk to is planned too, one that follows your accent and pronunciation and hears how you are
 doing from your voice.

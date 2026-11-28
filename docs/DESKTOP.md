@@ -291,7 +291,7 @@ Design decisions worth knowing before changing it:
   taskbar entry and icon, no address bar, a remembered size, and independent
   of the person's daily browser. When no Chromium exists it opens the default
   browser as a tab and everything still works. The 1.6.0 zips are 117 MB
-  (Windows), 119 MB (macOS) and 125 MB (Linux), a Node runtime included, and
+  (Windows), 120 MB (macOS) and 126 MB (Linux), a Node runtime included, and
   `better-sqlite3` needs no Electron-ABI rebuild.
 - **The window is not the process.** A native app dies with its window; a
   server does not know a tab closed. So the page heartbeats
