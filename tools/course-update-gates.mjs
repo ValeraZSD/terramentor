@@ -702,7 +702,7 @@ if (!OLD) {
         // One card gains a picture, and a card the update adds brings its own.
         topic(f, 'Lidwoorden').flashcards[0].media = { front: [{ name: 'krant.png', kind: 'image' }] };
         unit1(f).push({ title: 'Werkwoorden', uuid: u(mtag2, 'C'), description: 'Overview C.',
-            flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(mtag2, 'C3'), media: { back: [{ name: 'lopen.png', kind: 'image' }] } }] });
+            flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(mtag2, 'C3'), media: { back: [{ name: 'lopen.png', kind: 'image', at: 'to walk' }] } }] });
     })));
     mediaZip.file('media/krant.png', pngOld);
     mediaZip.file('media/lopen.png', pngNew);
@@ -716,6 +716,8 @@ if (!OLD) {
     const cardMedia = (front) => JSON.parse(db.prepare('SELECT f.media FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? AND f.front = ?').get(mpid2, front)?.media || 'null');
     check('commit: the cards name those same hashes',
         [cardMedia('de krant')?.front?.[0]?.hash, cardMedia('lopen')?.back?.[0]?.hash], [hashOf(pngOld), hashOf(pngNew)]);
+    check('commit: a file that names the line an item belongs to keeps it, one that names none stores none',
+        [cardMedia('lopen')?.back?.[0]?.at, (m => (m ? 'at' in m : 'no item'))(cardMedia('de krant')?.front?.[0])], ['to walk', false]);
     check('commit: the picture is served', (await call(`/api/media/${hashOf(pngOld)}`)).status, 200);
     const { sweepOrphanMedia } = await import(B + 'ankiImport.js');
     sweepOrphanMedia();
@@ -730,6 +732,15 @@ if (!OLD) {
     const withMedia = await upload('/api/course-updates/inspect', await mzip.generateAsync({ type: 'nodebuffer' }));
     const mediaDiff = (withMedia.body?.items?.changed || []).flatMap(it => it.diff || []).find(d => d.field === 'media');
     check('the media change reads "krant.png", not "[object Object]"', [withMedia.status, mediaDiff?.to ?? null], [200, 'krant.png']);
+
+    // An edition that only names the line a card's clip belongs to changes
+    // that card's media, so the line reaches an installed copy.
+    const { readFileCourse } = await import(B + 'courseUpdate.js');
+    const clipFile = (clip) => readFileCourse({ name: 'C' }, [{ uuid: 'n1', title: 'N', flashcards: [{ uuid: 'k3', front: 'de krant', back: 'b', media: { front: [clip] } }] }], { withMedia: true })
+        .entities.find(e => e.kind === 'card')?.fields.media;
+    const [plainClip, lineClip] = [clipFile({ name: 'krant.mp3', kind: 'audio' }), clipFile({ name: 'krant.mp3', kind: 'audio', at: 'de krant' })];
+    check('a file that only adds a clip\'s line changes the card\'s media hash',
+        [!!plainClip && !!lineClip, plainClip && lineClip && fieldHash(plainClip) !== fieldHash(lineClip)], [true, true]);
 
     console.log('\n--- the write paths reuse their statements ---');
     const { markLearnerEdit } = await import(B + 'courseUpdate.js');

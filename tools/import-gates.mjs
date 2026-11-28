@@ -577,6 +577,12 @@ check('a card is the row: the supporting lines keep their column names',
 check('an absent supporting line is null, never the empty string', cardsOk.nodes[0].flashcards[0].extra_front, null);
 check('media travels by NAME, on the side it was written on',
     cardsOk.nodes[0].flashcards[1].media, { front: [{ name: 'nl_9b8ab8622aef7747.mp3', kind: 'audio' }] });
+// `at` is the card line a clip belongs to; the card draws the clip beside it.
+const anchored = (at) => withCards([{ ...LISTEN, media: { front: [{ name: 'a.mp3', kind: 'audio', at }] } }]).nodes[0].flashcards[0].media;
+check('a clip keeps the line it belongs to', anchored('het huis'), { front: [{ name: 'a.mp3', kind: 'audio', at: 'het huis' }] });
+check('...a line longer than a card side is dropped whole, never cut, and the clip kept',
+    anchored('x'.repeat(LIMITS.cardSide + 1)), { front: [{ name: 'a.mp3', kind: 'audio' }] });
+check('...and an `at` that is not text is dropped', [anchored(42), anchored('  ')], [{ front: [{ name: 'a.mp3', kind: 'audio' }] }, { front: [{ name: 'a.mp3', kind: 'audio' }] }]);
 check('a topic with no cards gets an empty array, never undefined', tree(leaf()).nodes[0].flashcards, []);
 check('a node with cards is not a leaf with more children — the cards are not nodes',
     tree(leaf({ flashcards: [CARD] })).count, 1);
