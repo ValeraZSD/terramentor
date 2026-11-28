@@ -13,8 +13,9 @@ import { Button } from './ui/Button';
  * theirs the same way, so an old one is never pressed by mistake).
  *
  * One column of equal buttons, so no answer looks recommended by its place or
- * size, capped at a reading width when the drawer is wide, with room below so
- * a card under them does not read as one more answer. Every label is the
+ * size, as wide as the message above them (a cap left a dead strip at their
+ * right edge), with room below so a card under them does not read as one more
+ * answer. Every label is the
  * model's, in the conversation's language, and reads in its own direction.
  */
 export function ChoiceButtons({ choices, live, onPick }: {
@@ -27,7 +28,7 @@ export function ChoiceButtons({ choices, live, onPick }: {
     const byKey = useRef(false);
     if (!live || choices.length === 0) return null;
     return (
-        <div role="group" aria-label={t("Answers to choose from")} data-row="choices" className="mb-3 flex w-full max-w-sm flex-col gap-1.5">
+        <div role="group" aria-label={t("Answers to choose from")} data-row="choices" className="mb-3 flex w-full flex-col gap-1.5">
             {choices.map(answer => (
                 // Keyboard only when Enter or Space went down on the button itself:
                 // a screen reader's activation also clicks with no pointer, and on

@@ -227,6 +227,9 @@ section('4. the buttons, mounted: labelled, real buttons, a press hands back exa
     // The rows under a message sit 0.75rem apart (space-y-3); at that gap a card
     // the same message prepared read as a fifth button on a phone.
     ok('…with more room below than between the rows under a message', /(^|\s)mb-(3|4|5|6)(\s|$)/.test(group?.className ?? ''), group?.className);
+    // A cap stopped the buttons short of the message's right edge: a dead strip
+    // beside them on any drawer wider than the cap.
+    ok('…as wide as the message: no width cap leaves a strip beside them', /(^|\s)w-full(\s|$)/.test(group?.className ?? '') && !/(^|\s)max-w-/.test(group?.className ?? ''), group?.className);
     act(() => buttons[1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })));
     ok('a press hands back exactly that answer, once', json(picks) === json(['Ik ken de basis']), json(picks));
     m.done();
