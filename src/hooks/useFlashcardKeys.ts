@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { singleKeyShortcutsOn } from '../utils/escapeKey';
+import { shortcutLetter, singleKeyShortcutsOn } from '../utils/escapeKey';
 
 /**
  * The review keyboard: Space flips, 1-4 rate.
@@ -82,7 +82,9 @@ export function useFlashcardKeys({ enabled = true, onFlip, onRate, onUndo, flipp
             // Before the modifier bail-out: this is the one key that wants them.
             // Bare `z` is a single-key shortcut; Ctrl/Cmd+Z stays when those are off.
             const withModifier = e.ctrlKey || e.metaKey;
-            if (undo && !e.altKey && (e.key === 'z' || e.key === 'Z') && (withModifier || singleKeyShortcutsOn())) {
+            // `shortcutLetter`: on a Russian or Greek layout the key printed Z
+            // types "я" or "ζ", and it is still the undo key.
+            if (undo && !e.altKey && shortcutLetter(e) === 'z' && (withModifier || singleKeyShortcutsOn())) {
                 claim();
                 undo();
                 return;

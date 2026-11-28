@@ -16,7 +16,11 @@
 //   - an undo names the review it takes back (`undo_of`, the stamp the rating
 //     wrote), and when the server refuses it because the card was rated since
 //     (another tab or device), the step is dropped with a toast rather than
-//     pretending to have worked — and the step before it still undoes.
+//     pretending to have worked — and the step before it still undoes;
+//   - in the session: 1-4 on the Paused screen rate nothing (End session
+//     leaves the queue on a flipped card), undo is the key printed Z on any
+//     layout, a failed load says so with a retry instead of "No Cards Due",
+//     and Review Again does not carry the last round's deleted count.
 
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -63,14 +67,15 @@ await require('esbuild').build({
             import GlobalFlashcardReview from '../src/components/GlobalFlashcardReview';
             const act = React.act || domAct;
             globalThis.__act = act;
-            globalThis.__mount = (kind, cards) => {
+            // fetchCards: how the session loads its cards (default: these cards).
+            globalThis.__mount = (kind, cards, fetchCards) => {
                 const el = document.createElement('div');
                 document.body.appendChild(el);
                 const root = createRoot(el);
                 act(() => {
                     root.render(kind === 'view'
                         ? React.createElement(FlashcardView, { flashcards: cards, onClose: () => { }, onDelete: () => { } })
-                        : React.createElement(GlobalFlashcardReview, { fetchCards: async () => cards, title: 'Gate', onClose: () => { }, onComplete: () => { } }));
+                        : React.createElement(GlobalFlashcardReview, { fetchCards: fetchCards || (async () => cards), title: 'Gate', onClose: () => { }, onComplete: () => { } }));
                 });
                 return { el, unmount: () => { act(() => root.unmount()); el.remove(); } };
             };
@@ -103,7 +108,7 @@ export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16,
 });
 
 const toasts = [];
-globalThis.__store = { addToast: (...a) => toasts.push(a), a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } };
+globalThis.__store = { addToast: (...a) => toasts.push(a), showConfirm: async () => true, a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } };
 /** What the next updateFlashcard call does: a function (id, data) => Promise. */
 let respond = null;
 const calls = [];
@@ -120,7 +125,7 @@ const text = (root) => root.textContent || '';
 // A control that is not on screen is a missed press, not a crash: the checks
 // after it say what is wrong.
 const click = async (el) => { if (!el) return; await act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await flush(); };
-const key = async (k) => { await act(async () => { window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true })); }); await flush(); };
+const key = async (k, code) => { await act(async () => { window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, code, bubbles: true })); }); await flush(); };
 const button = (root, label) => $$(root, 'button').find(b => (b.textContent || '').trim().startsWith(label));
 const undoButton = (doc) => doc.querySelector('button[aria-label="Undo the last rating"]');
 const ratingCalls = () => calls.filter(c => c.data.rating != null);
@@ -248,6 +253,100 @@ console.log('\n--- GlobalFlashcardReview: the same three rules ---');
     check('refused: still on the next card, a toast, and no undo left to offer',
         text(doc.body).includes('Question 2') && toasts.some(t => t[0] === 'error') && !undoButton(doc),
         `undo button ${!!undoButton(doc)}, ${JSON.stringify(toasts)}`);
+    m.unmount();
+}
+
+console.log('\n--- GlobalFlashcardReview: no card on screen, nothing rated ---');
+{
+    reset();
+    respond = saved;
+    const m = globalThis.__mount('global', mkCards());
+    await flush();
+    const doc = window.document;
+    await key(' ');
+    await key('4');
+    await key(' ');
+    await click(button(doc.body, 'End session'));
+    check('End session on a flipped card shows the Paused screen', text(doc.body).includes('Session Paused'), text(doc.body).slice(0, 120));
+    await key('1');
+    await key('4');
+    // End session leaves the queue on the flipped card; the keys rated it unseen.
+    check('…and 1-4 there rate nothing', ratingCalls().length === 1, `${ratingCalls().length - 1} ratings sent from Paused`);
+    await key('z');
+    check('…nor does z take back a rating the screen does not show', undoCalls().length === 0, `${undoCalls().length} undos`);
+    await click(button(doc.body, 'Resume session'));
+    check('Resume brings the same card back unrated', text(doc.body).includes('Question 2') && ratingCalls().length === 1);
+    m.unmount();
+}
+{
+    reset();
+    respond = saved;
+    const m = globalThis.__mount('global', mkCards());
+    await flush();
+    const doc = window.document;
+    for (let i = 0; i < 3; i++) { await key(' '); await key('4'); }
+    check('every card rated: Session Complete', text(doc.body).includes('Session Complete'));
+    await key('z');
+    // The Complete screen has no Undo button: z is the way back from a
+    // mis-tap on the last card.
+    check('z there still takes back the last rating', undoCalls().length === 1 && text(doc.body).includes('Question 3'),
+        `${undoCalls().length} undos`);
+    m.unmount();
+}
+
+console.log('\n--- GlobalFlashcardReview: undo is the key printed Z on any layout ---');
+{
+    reset();
+    respond = saved;
+    const m = globalThis.__mount('global', mkCards());
+    await flush();
+    const doc = window.document;
+    await key(' ');
+    await key('4');
+    check('rated: the next card is shown', text(doc.body).includes('Question 2'));
+    // Dvorak types ";" where QWERTY has Z: the letter the layout types wins.
+    await key(';', 'KeyZ');
+    check('Dvorak: ";" on the key printed Z is not an undo', undoCalls().length === 0 && text(doc.body).includes('Question 2'),
+        `${undoCalls().length} undos`);
+    await key('я', 'KeyZ');
+    check('Russian layout: "я" on the key printed Z undoes', undoCalls().length === 1 && text(doc.body).includes('Question 1'),
+        `${undoCalls().length} undos`);
+    m.unmount();
+}
+
+console.log('\n--- GlobalFlashcardReview: a failed load is not an empty deck ---');
+{
+    reset();
+    let attempts = 0;
+    const flaky = async () => { if (attempts++ === 0) throw new Error('API error: 500'); return mkCards(); };
+    const m = globalThis.__mount('global', null, flaky);
+    await flush();
+    const doc = window.document;
+    check('a failed load does not say "No Cards Due"', !text(doc.body).includes('No Cards Due'), text(doc.body).slice(0, 120));
+    check('…it says the cards could not be loaded', text(doc.body).includes('Failed to load flashcards'));
+    const retry = button(doc.body, 'Try again');
+    check('…and offers to try again', !!retry);
+    await click(retry);
+    check('trying again loads the session', attempts === 2 && text(doc.body).includes('Question 1'), `${attempts} loads`);
+    m.unmount();
+}
+
+console.log('\n--- GlobalFlashcardReview: Review Again starts its counts from zero ---');
+{
+    reset();
+    respond = saved;
+    const m = globalThis.__mount('global', mkCards());
+    await flush();
+    const doc = window.document;
+    await click(doc.querySelector('button[aria-label="Edit or delete this card"]'));
+    await click(doc.querySelector('button[aria-label="Delete this card"]'));
+    await flush();
+    for (let i = 0; i < 2; i++) { await key(' '); await key('4'); }
+    check('a card deleted in the session is counted on its summary', /deleted 1/.test(text(doc.body)), text(doc.body).slice(0, 200));
+    await click(button(doc.body, 'Review Again'));
+    for (let i = 0; i < 3; i++) { await key(' '); await key('4'); }
+    const summary = text(doc.body);
+    check('the next round\'s summary does not repeat it', summary.includes('Session Complete') && !/deleted/.test(summary), summary.slice(0, 200));
     m.unmount();
 }
 

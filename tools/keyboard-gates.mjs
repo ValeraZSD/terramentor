@@ -381,6 +381,11 @@ section('a letter shortcut is the same letter on any keyboard layout');
     // Settings → Keyboard shortcuts, and must work on the same keyboards.
     check('Ctrl/⌘+K reads the letter on any layout',
         /shortcutLetter\(e\) === 'k'/.test(read('src/components/SearchBar.tsx')));
+    // The review's undo key: "я" on a Russian layout. Pressed in jsdom by
+    // review-integrity-gates; this pins that the hook asks the shared rule.
+    const cardKeys = read('src/hooks/useFlashcardKeys.ts');
+    check('z / Ctrl+Z (review undo) reads the letter on any layout',
+        /shortcutLetter\(e\) === 'z'/.test(cardKeys) && !/e\.key === 'z'/.test(cardKeys));
 }
 
 section('one press, one layer: the selection, then the trace, then full screen');

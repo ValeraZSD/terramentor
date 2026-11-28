@@ -17,7 +17,7 @@ import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew
 import {
     ArrowLeft, RotateCcw, Brain,
     BookOpen, ChevronRight, CheckCircle2, Check,
-    Loader2, SkipForward, Pencil, Undo2, CircleStop
+    Loader2, SkipForward, Pencil, Undo2, CircleStop, AlertCircle
 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
@@ -224,6 +224,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     const [cards, setCards] = useState<EnrichedFlashcard[]>([]);
     const [loading, setLoading] = useState(true);
+    /** The due cards could not be fetched: said as such, never as an empty deck. */
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [skipped, setSkipped] = useState(0);
     const [removed, setRemoved] = useState(0);
     const [editing, setEditing] = useState(false);
@@ -258,6 +260,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     const loadDueCards = async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const dueCards = fetchCards
                 ? await fetchCards()
@@ -266,13 +269,36 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                     : await api.getAllDueFlashcards();
             setCards(dueCards);
         } catch (e: any) {
-            addToast('error', t("Failed to load flashcards"), e.message);
+            // On screen, with a way to try again. A toast alone left `cards`
+            // empty, and an empty session reads as "No Cards Due".
+            setLoadError(e?.message || '');
         } finally {
             setLoading(false);
         }
     };
 
     const currentCard = cards[queue.index];
+    const sessionComplete = !loading && !loadError && (cards.length === 0 || queue.isComplete || endedEarly);
+    /**
+     * Every card has been answered and the only ones left are further out than
+     * the learn-ahead window. This is neither "finished" nor a stuck screen, and
+     * showing either of those would be a lie — so it gets its own state, with
+     * the two things the learner can actually do about it.
+     *
+     * With the default 1m/10m ladder against a 20-minute window this is
+     * unreachable; it is what a longer ladder degrades into. See
+     * `LEARN_AHEAD_MS` in useReviewQueue.
+     */
+    const waiting = !loading && !loadError && !sessionComplete && queue.waitingUntil !== null;
+    /**
+     * A card is on screen to flip, rate or undo. The Paused, Complete, waiting
+     * and error screens still hold `cards[queue.index]` (End session leaves the
+     * queue where it was), so the keys and the rating check this rather than
+     * whether a card exists.
+     */
+    const cardOnScreen = !!currentCard && !loading && !loadError && !sessionComplete && !waiting;
+    /** Finished, not paused: the last rating can still be taken back. */
+    const undoFromComplete = sessionComplete && queue.isComplete && !endedEarly && queue.canGoBack;
     // Each card on its own course's target: a mixed session holds several.
     const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
@@ -316,7 +342,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     }, [queue.flipped, currentCard?.id]);
 
     const handleRate = useCallback(async (rating: ReviewRating) => {
-        if (!currentCard || writing.current || reportHolds) return;
+        if (!cardOnScreen || !currentCard || writing.current || reportHolds) return;
         writing.current = true;
         setSaving(true);
         try {
@@ -345,7 +371,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             writing.current = false;
             setSaving(false);
         }
-    }, [currentCard, queue, addToast, reportHolds, retention]);
+    }, [cardOnScreen, currentCard, queue, addToast, reportHolds, retention]);
 
     /**
      * Take back the last rating — the one control that makes a mis-tap
@@ -436,32 +462,23 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
     useFlashcardKeys({
         // The editor owns the keyboard while it is open, or typing a card's
-        // answer would flip the card under the dialog and rate it "1".
-        enabled: !editing,
+        // answer would flip the card under the dialog and rate it "1". With no
+        // card on screen (Paused, Complete, waiting, an error), Space and 1-4
+        // would act on the hidden card End session left the queue on. Undo
+        // alone stays on the Complete screen of a session that ran out: it is
+        // the only way back from a mis-tap on the last card.
+        enabled: !editing && (cardOnScreen || undoFromComplete),
         flipped: queue.flipped,
-        onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
+        onFlip: () => { if (cardOnScreen) queue.setFlipped(f => !f); },
+        onRate: cardOnScreen ? (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])) : undefined,
         onUndo: handleUndo,
     });
-
-    const sessionComplete = !loading && (cards.length === 0 || queue.isComplete || endedEarly);
-    /**
-     * Every card has been answered and the only ones left are further out than
-     * the learn-ahead window. This is neither "finished" nor a stuck screen, and
-     * showing either of those would be a lie — so it gets its own state, with
-     * the two things the learner can actually do about it.
-     *
-     * With the default 1m/10m ladder against a 20-minute window this is
-     * unreachable; it is what a longer ladder degrades into. See
-     * `LEARN_AHEAD_MS` in useReviewQueue.
-     */
-    const waiting = !loading && !sessionComplete && queue.waitingUntil !== null;
 
     // The session is a screen of its own over whatever opened it: it owns the
     // study clock while it is up, card by card, and its summary (or the wait
     // for a card on the ladder) is on screen but studies nothing.
     useStudyClock(
-        currentCard && !sessionComplete && !waiting ? { nodeId: currentCard.node_id, activity: 'cards' } : null,
+        cardOnScreen && currentCard ? { nodeId: currentCard.node_id, activity: 'cards' } : null,
         { layer: 'session' },
     );
 
@@ -472,6 +489,30 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                     <div className="text-center">
                         <Loader2 className="w-10 h-10 text-accent-fg animate-spin mx-auto mb-4" />
                         <p className="text-slate-600 dark:text-slate-300 font-medium">{t("Loading due flashcards…")}</p>
+                    </div>
+                </div>
+            </SessionSurface>
+        );
+    }
+
+    if (loadError !== null) {
+        return (
+            <SessionSurface label={sessionLabel} className="items-center justify-center safe-p-8">
+                <div role="alert" className="max-w-sm w-full text-center space-y-5">
+                    <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-700">
+                        <AlertCircle className="w-10 h-10 text-slate-400" aria-hidden="true" />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{t("Failed to load flashcards")}</h2>
+                        {loadError && <p className="mt-2 text-slate-600 dark:text-slate-300 break-words">{loadError}</p>}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <Button {...SESSION_ACTION} variant="primary" onClick={() => void loadDueCards()}>
+                            {t("Try again")}
+                        </Button>
+                        <Button {...SESSION_ACTION} onClick={onClose}>
+                            {t("Close")}
+                        </Button>
                     </div>
                 </div>
             </SessionSurface>
@@ -598,6 +639,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                     undoSteps.current = [];
                                     queue.reset();
                                     setSkipped(0);
+                                    setRemoved(0);
                                     setEndedEarly(false);
                                     setResults({ again: 0, hard: 0, good: 0, easy: 0 });
                                     loadDueCards();

@@ -109,7 +109,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
         <FeedCardShell
             projectColor={fc.project_color}
             projectName={fc.project_name}
-            nodeTitle={fc.node_title || 'Flashcard'}
+            nodeTitle={fc.node_title || t("Flashcard")}
             // A card met twice in one scroll needs to say WHY, or the second
             // copy reads as a duplicate the feed failed to dedupe rather than as
             // the repetition that was just asked for.

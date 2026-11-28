@@ -49,13 +49,12 @@ const check = (name, ok, detail = '') => {
 const section = (name) => console.log(`\n${name}`);
 
 /**
- * Mount the real DrillPlayer in jsdom, start a timed round, let `elapsed` ms of
- * the first item pass, press a wrong option, and read the countdown label and
- * the bar's width before the press, right after it, and a second later. The
- * clock is moved through `Date.now` (what the player measures with); real
- * timers run, so its 100 ms tick fires.
+ * Bundle the real DrillPlayer, mount a root in jsdom and hand it to `body`.
+ * The translator stub interpolates the key itself, or the word set in
+ * `globalThis.__drillWords[key]`, so a check can tell a keyed text from a
+ * literal one.
  */
-async function answerPartWay({ seconds, elapsed }) {
+async function withPlayer(body) {
     const { JSDOM } = require('jsdom');
     const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true, url: 'http://localhost/' });
     Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -68,7 +67,7 @@ async function answerPartWay({ seconds, elapsed }) {
     mkdirSync(cacheDir, { recursive: true });
     const dir = mkdtempSync(join(cacheDir, 'drill-gates-'));
     const stubs = {
-        'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')) });
+        'react-i18next': `export const useTranslation = () => ({ t: (k, o) => (globalThis.__drillWords?.[k] ?? k).replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')) });
             export const initReactI18next = { type: '3rdParty', init() { } };`,
         'api': 'export const api = {};',
         'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
@@ -106,16 +105,38 @@ async function answerPartWay({ seconds, elapsed }) {
         const React = require(join(cacheDir, '..', 'react'));
         const { createRoot } = require(join(cacheDir, '..', 'react-dom', 'client'));
         const DrillPlayer = require(out).default;
+        const host = document.getElementById('root');
+        const root = createRoot(host);
+        try {
+            return await body({ React, DrillPlayer, host, root });
+        } finally {
+            await React.act(() => root.unmount());
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
 
+/** The button whose text includes `label`. */
+const buttonIn = (host, label) => [...host.querySelectorAll('button')].find((b) => b.textContent.includes(label));
+
+/**
+ * Start a timed round, let `elapsed` ms of the first item pass, press a wrong
+ * option, and read the countdown label and the bar's width before the press,
+ * right after it, and a second later. The clock is moved through `Date.now`
+ * (what the player measures with); real timers run, so its 100 ms tick fires.
+ * `timer` is the countdown's whole text, whatever it says.
+ */
+async function answerPartWay({ seconds, elapsed }) {
+    return withPlayer(async ({ React, DrillPlayer, host, root }) => {
         const realNow = Date.now;
         let shift = 0;
         Date.now = () => realNow() + shift;
-        const host = document.getElementById('root');
-        const root = createRoot(host);
         const wait = (ms) => React.act(() => new Promise((r) => setTimeout(r, ms)));
         const read = () => ({
             label: [...host.querySelectorAll('span')].map((s) => s.textContent.trim()).find((t) => /^\d+s$/.test(t)) ?? null,
             width: host.querySelector('[style*="width"]')?.style.width ?? null,
+            timer: host.querySelector('span.tabular-nums svg')?.parentElement.textContent.trim() ?? null,
         });
         try {
             const spec = {
@@ -123,8 +144,7 @@ async function answerPartWay({ seconds, elapsed }) {
                 items: CLASSIFICATION.slice(0, 3).map(({ prompt, answer }) => ({ prompt, answer })),
             };
             await React.act(() => root.render(React.createElement(DrillPlayer, { spec })));
-            const start = [...host.querySelectorAll('button')].find((b) => b.textContent.includes('Start drill'));
-            await React.act(() => start.click());
+            await React.act(() => buttonIn(host, 'Start drill').click());
             shift += elapsed;
             await wait(250);
             const before = read();
@@ -139,11 +159,32 @@ async function answerPartWay({ seconds, elapsed }) {
             return { before, answered, later };
         } finally {
             Date.now = realNow;
-            await React.act(() => root.unmount());
         }
-    } finally {
-        rmSync(dir, { recursive: true, force: true });
-    }
+    });
+}
+
+/**
+ * An untimed round answered all wrong, then the "Only the N I missed" round
+ * answered all wrong too: the results line of that review round.
+ */
+async function reviewRoundResults() {
+    return withPlayer(async ({ React, DrillPlayer, host, root }) => {
+        const spec = { modes: ['choice'], items: CAPITALS.slice(0, 3) };
+        await React.act(() => root.render(React.createElement(DrillPlayer, { spec })));
+        const missAll = async () => {
+            for (let i = 0; i < spec.items.length; i++) {
+                const item = spec.items.find((it) => host.textContent.includes(it.prompt));
+                const wrong = [...host.querySelectorAll('[data-answer-option]')].find((b) => b.textContent.trim() !== item?.answer);
+                await React.act(() => wrong.click());
+                await React.act(() => (buttonIn(host, 'Next') ?? buttonIn(host, 'See results')).click());
+            }
+        };
+        await React.act(() => buttonIn(host, 'Start drill').click());
+        await missAll();
+        await React.act(() => buttonIn(host, 'I missed').click());
+        await missAll();
+        return [...host.querySelectorAll('p')].map((p) => p.textContent).find((t) => t.includes('% correct')) ?? null;
+    });
 }
 
 /** The drill from the screenshot that started this: five items, two answers. */
@@ -316,6 +357,24 @@ section('The bar under the counter — a timed drill\'s bar is its clock, and on
     const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
     check('the player draws the bar through drillBarFill, not a fallback of its own',
         /drillBarFill\(seconds, remaining, pos, order\.length\)/.test(player) && !/timerPct/.test(player));
+
+    // The countdown's unit is a word in other languages ("5 с"), so it is a key,
+    // not a letter typed after the number.
+    globalThis.__drillWords = { '{{seconds}}s': '{{seconds}} SEC' };
+    try {
+        const worded = await answerPartWay({ seconds: 5, elapsed: 0 });
+        check('the countdown is said through its "{{seconds}}s" key', /^\d+ SEC$/.test(worded.before.timer ?? ''),
+            JSON.stringify(worded.before.timer));
+    } finally {
+        delete globalThis.__drillWords;
+    }
+}
+
+section('The results line of a review round');
+{
+    const line = await reviewRoundResults();
+    check('"% correct" and "· review round" are two words apart, not run together',
+        /% correct · review round/.test(line ?? ''), JSON.stringify(line));
 }
 
 // --- how long an item may take ------------------------------------------------

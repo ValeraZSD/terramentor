@@ -11,6 +11,7 @@ import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-reac
 import { useTranslation } from 'react-i18next';
 import { useConfirmPress } from '../../hooks/useConfirmPress';
 import { usePointerVerb } from '../../utils/platform';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button } from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -42,6 +43,7 @@ type Phase = 'intro' | 'playing' | 'results';
  */
 export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     const pointerVerb = usePointerVerb();
     const bank = spec.items;
     // An item the learner reports as wrong leaves the drill: it is not dealt
@@ -395,7 +397,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         <Trophy className="h-7 w-7" aria-hidden="true" />
                     </div>
                     <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{correct}<span className="text-slate-500 dark:text-slate-400">/{total}</span></p>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("{{pct}}% correct", { pct })}{!fullRound ? t("· review round (not scored)") : ''}</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("{{pct}}% correct", { pct })}{!fullRound ? ` ${t("· review round (not scored)")}` : ''}</p>
                 </div>
 
                 <ul className="mt-5 max-h-52 overflow-y-auto space-y-1.5 pe-1">
@@ -499,7 +501,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     {seconds && (
                         <span className="inline-flex items-center gap-1 tabular-nums">
                             <Timer className="h-3.5 w-3.5" aria-hidden="true" />
-                            {Math.ceil(remaining ?? seconds)}s
+                            {t("{{seconds}}s", { seconds: num(Math.ceil(remaining ?? seconds)) })}
                         </span>
                     )}
                 </div>
