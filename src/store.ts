@@ -1435,8 +1435,10 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     setDetailPanelWidth: async (width) => {
-        const vwCap = typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.5) : 600;
-        const clamped = Math.max(300, Math.min(600, Math.max(300, vwCap), width));
+        // The learner's choice, nothing else: the room it is drawn in (the
+        // window less a docked assistant and the sidebar) is decided where it
+        // is drawn, utils/workspaceFit, and the drag already stops at it.
+        const clamped = Math.max(300, Math.min(600, Math.round(width)));
         const before = get().detailPanelWidth;
         set({ detailPanelWidth: clamped });
         await saveSetting(get, 'detailPanelWidth', String(clamped), before, clamped, value => set({ detailPanelWidth: value }));

@@ -16,7 +16,10 @@ import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { countsInCards } from '../utils/projectShape';
-import { fromInlineStart, scrolledFromStart } from '../utils/direction';
+import { isRtl, scrolledFromStart } from '../utils/direction';
+import { useElementWidth } from '../hooks/useElementWidth';
+import { useRootFontSize } from '../hooks/useRootFontSize';
+import { fitColumns, CENTER_MIN_REM, PANEL_MIN } from '../utils/workspaceFit';
 import { scrollRailTo } from '../utils/scrollWithin';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
@@ -90,6 +93,32 @@ export default function Workspace() {
         teaches: project.teaches, topics: project.topic_count, cards: project.card_count,
     });
 
+    // The columns are drawn in the room the row HAS, which is the window less a
+    // docked assistant (and nothing at all of the window's own width): see
+    // utils/workspaceFit. The stored widths stay the learner's choice.
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const panelRef = useRef<HTMLElement | null>(null);
+    const room = useElementWidth(rowRef);
+    const rootPx = useRootFontSize();
+    const sidebarWidth = useStore(s => s.sidebarWidth);
+    // "Larger text and buttons" gives the sidebar a floor in CSS (index.css,
+    // `[data-course-sidebar]`): min(17.5rem, 30% of this row). Counted here
+    // too, or the panel would be sized for a sidebar narrower than drawn.
+    const largerUi = useStore(s => s.a11y.largerUi);
+    const showSidebar = !isMobile && !studyView && !examFocus;
+    const showPanel = !!selectedNodeId && !examFocus && !isMobile;
+    const fit = fitColumns({
+        room: isMobile ? 0 : room,
+        sidebar: sidebarWidth,
+        panel: detailPanelWidth,
+        showSidebar,
+        showPanel,
+        centerMin: CENTER_MIN_REM * rootPx,
+        sidebarMin: largerUi ? Math.ceil(Math.min(17.5 * rootPx, 0.3 * room)) : 0,
+    });
+    const panelMax = useRef(fit.panelMax);
+    panelMax.current = fit.panelMax;
+
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         resizing.current = true;
@@ -99,10 +128,14 @@ export default function Workspace() {
 
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
-            if (!resizing.current) return;
-            // The panel is docked at the inline end.
-            const newWidth = window.innerWidth - fromInlineStart(e.clientX);
-            setDetailPanelWidth(newWidth);
+            if (!resizing.current || !panelRef.current) return;
+            // The panel's far edge stays put: it ends where the row ends, which
+            // is short of the window's edge while the assistant is docked.
+            const r = panelRef.current.getBoundingClientRect();
+            const wanted = isRtl() ? e.clientX - r.left : r.right - e.clientX;
+            // What you drag is what you get: never wider than the room the
+            // middle view leaves, so the stored width is the width you saw.
+            setDetailPanelWidth(Math.max(PANEL_MIN, Math.min(Math.round(wanted), Math.floor(panelMax.current))));
         };
 
         const handleMouseUp = () => {
@@ -337,10 +370,12 @@ export default function Workspace() {
             </div>
 
             {/* Main content area */}
-            <div className="flex-1 flex overflow-hidden">
+            <div ref={rowRef} className="flex-1 flex overflow-hidden">
                 {/* Sidebar: inline on desktop, off-canvas drawer on mobile —
-                    and absent on Study and during an exam either way. */}
-                {!isMobile && !studyView && !examFocus && <Sidebar />}
+                    and absent on Study and during an exam either way. On a
+                    desktop too narrow for it beside a topic's panel it steps
+                    aside until the panel closes. */}
+                {showSidebar && fit.sidebar > 0 && <Sidebar width={fit.sidebar} maxWidth={fit.sidebarMax} />}
 
                 {isMobile && !studyView && !examFocus && (
                     <>
@@ -367,7 +402,11 @@ export default function Workspace() {
                 )}
 
                 {/* Center content based on view */}
-                <div className="flex-1 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 min-w-0">
+                {/* Not drawn while a topic's panel needs its room: a sliver of
+                    a dashboard helps nobody. Kept mounted, so its React state
+                    (loaded data, open sections) survives; a scroll position
+                    inside it does not, as with any display:none box. */}
+                <div data-workspace-center="" className={`flex-1 ${fit.center ? 'flex' : 'hidden'} flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 min-w-0`}>
                     {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard paceInHeader={paceFull !== false} />)}
                     {workspaceView === 'tree' && <NodeTree />}
                     {workspaceView === 'vault' && <VaultProjectView />}
@@ -393,13 +432,19 @@ export default function Workspace() {
                         </div>
                     ) : (
                         <aside
-                            className="bg-white dark:bg-slate-800 border-s border-slate-200 dark:border-slate-700 flex flex-col shrink-0 overflow-hidden relative"
-                            style={{ width: detailPanelWidth }}
+                            ref={panelRef}
+                            className={`bg-white dark:bg-slate-800 ${fit.center ? 'border-s border-slate-200 dark:border-slate-700' : ''} flex flex-col shrink-0 overflow-hidden relative`}
+                            style={{ width: fit.panel }}
                         >
-                            <div
-                                className="absolute top-0 start-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors z-10"
-                                onMouseDown={handleMouseDown}
-                            />
+                            {/* Only while there is width to trade with the
+                                middle view: standing in its place, the panel
+                                already has the whole room. */}
+                            {fit.panelMax > PANEL_MIN && (
+                                <div
+                                    className="absolute top-0 start-0 w-1 h-full cursor-col-resize hover:bg-accent transition-colors z-10"
+                                    onMouseDown={handleMouseDown}
+                                />
+                            )}
                             <DetailPanel />
                         </aside>
                     )

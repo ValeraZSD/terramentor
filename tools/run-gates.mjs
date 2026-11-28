@@ -78,7 +78,7 @@ const WINDOWS = process.platform === 'win32';
 const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 
 /** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
-const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'page-scroll-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
+const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'page-scroll-gates.mjs', 'panel-fit-gates.mjs', 'perf-budget-gates.mjs', 'plan-views-gates.mjs'];
 
 /**
  * Suites nothing else may run beside, one by one before the pool:

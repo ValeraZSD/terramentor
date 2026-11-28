@@ -146,7 +146,7 @@ const SIZES = {
     desktop: { width: 1280, height: 800, scale: 1 },
     phone: { width: 390, height: 844, scale: 1 },
     'desktop-80%': { width: 1280, height: 800, scale: 1, uiScale: 80, screens: ['settings-accessibility', 'topic'] },
-    'narrow-160%': { width: 800, height: 800, scale: 1, uiScale: 160, screens: ['topic'] },
+    'narrow-160%': { width: 800, height: 800, scale: 1, uiScale: 160, screens: ['topic', 'outline'] },
     // A phone at the largest text: the detail header cannot fit one line
     // even with Close as the X, so Close keeps its word on the second line.
     'phone-160%': { width: 390, height: 844, scale: 1, uiScale: 160, screens: ['topic'] },
@@ -454,7 +454,10 @@ const MEASURE = `(() => {
     const header = headerOf();
     // The page between the course tree and the details pane.
     const side = document.querySelector('[data-course-sidebar]');
-    const main = side && [...side.parentElement.children].find((c) => c !== side && c.tagName === 'DIV');
+    // The first column drawn beside the tree: the page, or the details pane
+    // standing in its place when the row has no room for both
+    // (src/utils/workspaceFit.ts). A hidden page would measure 0 in both modes.
+    const main = side && [...side.parentElement.children].find((c) => c !== side && /^(DIV|ASIDE)$/.test(c.tagName) && c.getClientRects().length);
     const centre = main ? { w: Math.round(main.getBoundingClientRect().width), row: side.parentElement.clientWidth } : null;
     return { attr: document.documentElement.hasAttribute('data-larger-ui'), rem, targets, text, mins, probe, cut, titles, centre, ticks, header, examined: { controls, text: textRuns } };
 })()`;
@@ -705,9 +708,13 @@ for (const [state, m] of Object.entries(seen)) {
             const xs = at.map((r) => r.x);
             if (Math.max(...xs) - Math.min(...xs) > 1 || xs.some(Number.isNaN)) spread.push(`${name} depth ${depth}: ${at.map((r) => `${r.x}px "${r.text}"`).join(', ')}`);
         }
+        // At 160% on an 800px window the outline's 20rem does not fit beside
+        // the tree and an open topic, so the topic takes its place
+        // (src/utils/workspaceFit.ts); the outline state at that size covers it.
         const nested = m.rows.filter((r) => r.list === 'outline' && r.depth > 0).length;
+        const outlineGivesWay = state.startsWith('topic narrow-160% ');
         check(`${state}: the outline shows a nested topic and the course tree is measured (${m.rows.length} rows)`,
-            nested > 0 && (state.includes(' phone ') || m.rows.some((r) => r.list === 'tree')));
+            (nested > 0 || outlineGivesWay) && (state.includes(' phone ') || m.rows.some((r) => r.list === 'tree')));
         check(`${state}: titles at one depth start at one x`, spread.length === 0, list(spread, (x) => x));
         // Each level steps in by the column and its gap, so a sub-topic's
         // chevron or mark stands under its parent's title. A chapter's title
