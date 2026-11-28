@@ -31,8 +31,11 @@ export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabl
     onDismiss: () => void;
     /** True while another turn is in flight — retrying now would be refused anyway. */
     retryDisabled?: boolean;
-    /** Where the learner's text went: back into the composer, or kept as its own bubble above. */
-    keptIn?: 'composer' | 'chat';
+    /**
+     * Where the learner's text went: back into the composer, kept as its own
+     * bubble above, or (a pressed answer) still on its button, which needs no line.
+     */
+    keptIn?: 'composer' | 'chat' | 'choices';
 }) {
     const { t } = useTranslation();
     return (
@@ -44,11 +47,13 @@ export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabl
             <div className="flex-1 min-w-0 space-y-1.5">
                 <p className="font-medium text-slate-900 dark:text-white">{t("That didn’t send")}</p>
                 <p className="text-sm text-slate-600 dark:text-slate-300 break-words">{message}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {keptIn === 'chat'
-                        ? t("Your question is kept above.")
-                        : t("Your message is back in the box below.")}
-                </p>
+                {keptIn !== 'choices' && (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {keptIn === 'chat'
+                            ? t("Your question is kept above.")
+                            : t("Your message is back in the box below.")}
+                    </p>
+                )}
                 <Button size="sm" onClick={onRetry} disabled={retryDisabled} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}>
                     {t("Try again")}
                 </Button>

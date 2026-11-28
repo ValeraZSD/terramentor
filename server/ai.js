@@ -25,6 +25,7 @@ import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 import { endpointBody, keyed, learnerError, ownWords, publicBody } from './clientError.js';
+import { CHOICE_LABEL_MAX, CHOICES_MAX, CHOICES_MIN } from './chatChoices.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -3791,6 +3792,23 @@ undo: N
 This report stays on their machine and fixes their course; it is not the public report above. Offer it first for one wrong item, and the public report only if they also want the app's makers to hear about it. Never claim it is already reported or undone — they press.`;
 
 // ---------------------------------------------------------------------------
+// Answers the assistant may offer as buttons under a question it asks
+// (src/utils/assistantChoices.ts → components/AssistantChoices.tsx). A tap
+// sends the line as the learner's own reply; typing stays open. An OPTION the
+// model takes when it fits, never a rule, and never for a question that tests:
+// the right answer would be on a button. The limits come from
+// server/chatChoices.js, the module the client's parser keeps to, and
+// tools/chat-choices-gates.mjs holds the wording to "may".
+// ---------------------------------------------------------------------------
+export const CHOICES_GUIDE = `ANSWERS THEY CAN TAP. When you ask the learner something and the answer is one of a few short options (their level, which of two or three topics comes first, how much time they have today, yes or no), you may offer those answers as buttons, so they can reply with one tap instead of typing, which matters on a phone. It is an option, not a rule: most questions are better left open. Leave the buttons out when the honest answer could be anything, is personal, or takes a sentence; when they are telling you how they feel or what is going wrong, because they need to say it in their own words; when you are not asking them anything, so never as a menu of things they could do next; and for any question that tests what they know, because the right answer would be one of the buttons. To offer them, ask the question in your text and end the message with ONE fenced block, at most 1 per message, ${CHOICES_MIN} to ${CHOICES_MAX} lines, one answer per line:
+\`\`\`choices
+I am new to it
+I know the basics
+I can already hold a conversation
+\`\`\`
+Each line is the whole answer as the learner would say it, in their language, at most ${CHOICE_LABEL_MAX} characters: a tap sends that line as their reply, word for word. Cover the likely answers evenly: no recommended one, none that only agrees with you, and no "Other" or "Something else", because they can still type their own answer instead. Offer answers for one question per message, and never for a question they have already answered. When you offer them, that question is the only thing you ask in the message (no second question, no "tell me that too"), and the message prepares nothing else for them to press: ask first, and prepare the course, change or card after they answer.`;
+
+// ---------------------------------------------------------------------------
 // What the assistant may change in a course, a topic or the library, and the
 // new course it may draft (src/utils/assistantWrites.ts → AssistantProposals).
 // Every value is judged on both sides by `server/projectFields.js` and applied
@@ -4216,6 +4234,8 @@ ${settingsBlock}` : ''}
 TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than something you can say, end with a marker on its own line and the app draws a button to it, labelled in their language:
 [[go:SCREEN]]
 The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
+
+${CHOICES_GUIDE}
 
 THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:

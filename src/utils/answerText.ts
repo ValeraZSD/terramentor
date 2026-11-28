@@ -25,6 +25,7 @@
 import { splitTutorActions, splitOpenTargets, splitDestinations } from './tutorActions';
 import { splitSettingChanges } from './assistantSettings';
 import { splitChecks, writeBlocksAsText } from './assistantWrites';
+import { choicesAsText } from './assistantChoices';
 import { stripCitationMarkers } from './citations';
 import { splitImageMarkers } from './attachments';
 import type { AiAction } from '../types';
@@ -51,7 +52,8 @@ export function readableAnswer(content: string, streaming = false, actions?: AiA
     // A picture the answer showed is the learner's own attachment, drawn by
     // this app; a paste has no picture to draw.
     const withoutPictures = splitImageMarkers(withoutChecks, streaming).body;
-    const body = stripCitationMarkers(writeBlocksAsText(withoutPictures)).trim();
+    // Answers offered as buttons are words the learner saw: a list in a paste.
+    const body = stripCitationMarkers(choicesAsText(writeBlocksAsText(withoutPictures))).trim();
 
     // The web queries are shown in the conversation as rows, where they
     // happened — but a paste has no "inline", and this is the one thing in the
