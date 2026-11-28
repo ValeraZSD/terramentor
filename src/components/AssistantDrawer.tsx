@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -8,9 +8,11 @@ import { splitSettingChanges } from '../utils/assistantSettings';
 import { inlineArrow, isRtl } from '../utils/direction';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
-    CardProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
-    SaveProposals, TopicChangeProposals, WrongProposals,
+    CardProposals, CheckButtons, CompareCardAdd, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals,
+    ReportProposals, SaveProposals, TopicChangeProposals, WrongProposals,
 } from './AssistantProposals';
+import { CompareFootContext } from './CompareCard';
+import { compareTopicIds, type CompareCardProposal } from '../utils/compareBlocks';
 import { screenItems } from '../utils/itemReportStore';
 import AttachMenu from './attachments/AttachMenu';
 import AttachmentChips from './attachments/AttachmentChips';
@@ -426,6 +428,18 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const [loadingHistory, setLoadingHistory] = useState(false);
     /** nodeId → the row the DATABASE returned for it. Unresolved ids stay absent. */
     const [labels, setLabels] = useState<Record<number, ResolvedTarget>>({});
+    // Add card under a side-by-side pair, one function per turn while the
+    // labels stand: a new one on every paint would redraw each settled card
+    // while another answer streams.
+    const compareFoots = useMemo(() => new Map<string, (card: CompareCardProposal) => ReactNode>(), [labels]);
+    const compareFootFor = (turnKey: string) => {
+        let foot = compareFoots.get(turnKey);
+        if (!foot) {
+            foot = card => <CompareCardAdd card={card} labels={labels} turnKey={turnKey} />;
+            compareFoots.set(turnKey, foot);
+        }
+        return foot;
+    };
     /** Which model is answering, and whether it can be reached at all. */
     const [status, setStatus] = useState<AIStatus | null>(null);
     const [statusLoading, setStatusLoading] = useState(false);
@@ -669,6 +683,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 ...writes.topics.map(c => c.nodeId),
                 ...writes.links.map(c => c.nodeId),
                 ...writes.saves.flatMap(s => (s.to.kind === 'topic' ? [s.to.nodeId] : [])),
+                ...compareTopicIds(m.content),
             ];
             for (const id of ids) {
                 if (askedRef.current.has(id)) continue;
@@ -1640,8 +1655,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                     }
                                                     const shown = renderBody(seg.text, arriving && j === pieces.length - 1);
                                                     return shown.trim() ? (
+                                                        // A side-by-side card that names a topic offers
+                                                        // Add card at settle, as a prepared card does.
+                                                        <CompareFootContext.Provider key={j} value={isStreaming ? null : compareFootFor(turnKey)}>
                                                         <Markdown
-                                                            key={j}
                                                             content={shown}
                                                             // `read-answer`: what Read aloud reads.
                                                             className="read-answer text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
@@ -1652,6 +1669,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                             messageId={savedMessageId(m.id)}
                                                             onRepaired={repairHandlerFor(m.id)}
                                                         />
+                                                        </CompareFootContext.Provider>
                                                     ) : null;
                                                 })}
                                             </Fragment>
