@@ -337,7 +337,7 @@ computer and a web page from any other address, and that a check taken in a view
 graded and recorded by the app, with no key reaching the agent before you submit and only the
 questions you missed after.
 
-## Not yet
+## Clients that need a public server
 
-- **ChatGPT, and other clients that only connect to remote HTTPS servers.** They would need
-  Terramentor reachable from the internet, which this app does not do.
+- **ChatGPT, and other clients that only connect to remote HTTPS servers.** They need
+  Terramentor reachable from the internet; the app stays on your machine, so they cannot reach it.

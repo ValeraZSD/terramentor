@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for looking. This is a single-maintainer project, so read this before writing code; it will save you work.
+Thanks for looking. Read this before writing code; it will save you work.
 
 ## Licence and the CLA, up front
 
@@ -13,8 +13,8 @@ shared code under other terms for optional components built on it. Adding a CLA 
 nothing; retrofitting one after real contributions exist means tracking down every past
 contributor, and projects have been stuck for years on exactly that. If you object to a CLA on principle (a reasonable
 position), say so in the issue and we can discuss keeping your change in a separate,
-AGPL-only module. (An add-on would need no CLA at all, but the add-on system is a design and
-not something you can ship against yet; see `docs/ADDONS.md`.)
+AGPL-only module. (Add-ons will need no CLA at all once the add-on system in
+`docs/ADDONS.md` is built.)
 
 Sign through the CLA Assistant bot's one-click link on your first PR; the signature sticks to
 your GitHub account for every pull request after.
@@ -276,8 +276,8 @@ line falls, but a near miss can still show; the Windows run is the one that coun
   `tools/language-gates.mjs`. A native speaker's eye is the scarce input.
 - **Breaking the quality gates.** If you can produce feed content that is wrong and passes
   `server/feedQuality.js`, that is a valuable bug report even without a fix.
-- **Packaging**: making the desktop app easier to install. The install barrier is the single
-  biggest problem the project has.
+- **Packaging**: making the desktop app easier to install. A simpler install helps every new
+  user.
 
 ## Releasing (maintainer)
 

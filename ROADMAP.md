@@ -18,13 +18,13 @@ weak is used only when no better one gets written, and its weakness is recorded.
 fails is rewritten, and if every rewrite fails, the last one is shown with the fault recorded
 against it. Anything the check could not read is marked unchecked, and an unchecked question
 never counts as proof that you know a topic. Anything wrong that gets through can be flagged
-where it appears, and every kind of mistake that gets through is a check still to be written.
+where it appears, and each kind of mistake that gets through can become a new check.
 Recall questions will get better at finding what you have started to forget. A tutor you can
 talk to is planned too, one that follows your accent and pronunciation and hears how you are
 doing from your voice.
 
-**More languages.** The interface comes in fourteen languages, all machine-translated first. Next
-are more languages, the server's messages in yours, and native speakers reading the translations.
+**More languages.** The interface comes in fourteen languages, and the server's refusals come in
+yours. Next are more languages and native speakers reading the translations.
 
 **Courses you can share.** A course can already be exported as one file, and each question and
 card a model wrote says which model it was. Next, a course you imported can fetch its author's

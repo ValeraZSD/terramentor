@@ -219,8 +219,8 @@ of the project's own (`desktop/wrappers/Launcher.cs`, built with the C# compiler
 Windows already ships). macOS and Linux have no equivalent that costs nothing to
 ship: the window belongs to Chromium and the server is a headless Node process,
 so an icon there would mean bundling a second runtime for it to live in. On
-those systems, start-at-login plus keep-running gets most of the way: the app
-is always there, and *Quit* is in Settings.
+those systems, start-at-login plus keep-running keeps the app always there,
+and *Quit* is in Settings.
 
 ### AI
 
@@ -228,7 +228,7 @@ The model does the teaching: lessons, questions, visuals and the assistant all c
 from it. The first start opens a welcome screen that connects one. **Connect
 OpenRouter** signs you in at openrouter.ai and brings back a key, or paste a key
 for any OpenAI-compatible service. A model on this computer ([Ollama](https://ollama.com/download),
-LM Studio, llama.cpp) works too, but only teaches well on a large graphics card.
+LM Studio, llama.cpp) works too, and teaches well with 24 GB of video memory or more.
 Change it any time in Settings → AI & Models. Without a model the app still opens
 your saved courses and flashcards.
 
@@ -290,8 +290,8 @@ Design decisions worth knowing before changing it:
   launcher opens a Chromium `--app` window with a dedicated profile: its own
   taskbar entry and icon, no address bar, a remembered size, and independent
   of the person's daily browser. When no Chromium exists it opens the default
-  browser as a tab and everything still works. The 1.0.0 zips are about
-  120 MB (Windows, macOS) and 140 MB (Linux), a Node runtime included, and
+  browser as a tab and everything still works. The 1.6.0 zips are 117 MB
+  (Windows), 120 MB (macOS) and 126 MB (Linux), a Node runtime included, and
   `better-sqlite3` needs no Electron-ABI rebuild.
 - **The window is not the process.** A native app dies with its window; a
   server does not know a tab closed. So the page heartbeats
@@ -341,9 +341,8 @@ Design decisions worth knowing before changing it:
   `package.json` is rewritten to only the packages `server/**` imports and
   `npm prune` removes the rest at lockfile versions, and the client's packages are
   already inside `dist/`. 635 MB of `node_modules` becomes about 200 MB.
-- **Not code-signed.** A Windows Authenticode certificate and an Apple
-  Developer ID are recurring costs; until they exist the README and the zip's
-  README.txt say what SmartScreen and Gatekeeper will show.
+- **Not code-signed.** The README and the zip's README.txt say what
+  SmartScreen and Gatekeeper will show.
 - **One README per system.** `desktop/README.txt` is one template; lines
   between `@only <systems>` and `@end` go only into those systems' zips
   (`tools/lib/readmeForPlatform.mjs`), so a Windows zip carries no macOS or

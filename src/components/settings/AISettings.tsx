@@ -673,7 +673,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                 {tr("Age counts for as much as size. Models released in the last few months regularly beat models several times their size from a year before, so a recent small model is usually the better bet over an old large one — and a recent model in the size class above is better still.")}
                             </p>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {tr("A model that fits a typical 8 GB graphics card sits near the floor and writes slowly. The recommended size wants 24 GB or more of video memory, or a large amount of system memory for a mixture-of-experts model, which is why a hosted model is the better start for most people.")}
+                                {tr("The recommended size wants 24 GB or more of video memory, or a large amount of system memory for a mixture-of-experts model. A model that fits a typical 8 GB graphics card writes weaker lessons, more slowly, so for most people a hosted model is the quicker start.")}
                             </p>
                         </div>
                     </Explain>

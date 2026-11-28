@@ -376,8 +376,8 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
 - **The one extension point runs no code.** Search providers are declarative
   manifests describing *what*; the host decides *how*. An extension system with
   host privileges would void the claim for every user, not just the one who
-  installed the add-on, which is why real add-ons are still a design
-  (`docs/ADDONS.md`) rather than a feature.
+  installed the add-on, which is why add-ons are designed in full
+  (`docs/ADDONS.md`) before any is built.
 
 ## 10. How to verify a change
 
@@ -430,8 +430,9 @@ in its `AI_*` variables), and four can write to the library;
 what each does is in its header and in
 [CONTRIBUTING.md](../CONTRIBUTING.md#before-you-open-a-pr).
 
-The frontend linters are advisory: they report findings for a human to judge,
-which is why CI does not gate on them:
+These three frontend linters are advisory: they report findings for a human to
+judge. The accessibility rules a machine can decide are gated separately
+(`tools/a11y-lint-gates.mjs` on the JSX, `tools/axe-gates.mjs` in a browser):
 
 ```bash
 node tools/style-lint.mjs               # hardcoded colours, accent misuse

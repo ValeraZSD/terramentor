@@ -23,9 +23,9 @@ body:
     attributes:
       value: |
         This is one of the most useful reports there is. Every piece of generated
-        content passes a set of automatic checks before it is shown to you — so
-        something wrong that reached you is, by definition, something those checks
-        miss. You do not need to know how to fix it.
+        content passes a set of automatic checks before it is shown to you, so a
+        report of something wrong helps decide which check to add next. You do not need
+        to know how to fix it.
 
         **Shortcut:** in the app, **Settings → Library & about → Report a problem**
         fills in the version and which model you are using. Or tell the app's

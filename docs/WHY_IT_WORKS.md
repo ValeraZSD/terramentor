@@ -78,11 +78,13 @@ exercise of four or more questions, or once your answers so far put the estimate
 above the bar. You can always skip a topic; it is then marked as skipped, not as known. Under "Ask
 me" or "Just track" in Settings, a topic can be marked done without a pass.
 
-Two techniques with evidence of similar size are not part of the loop: prompts to explain a step
-in your own words (g = 0.55, Bisra et al., 2018) and questions asked before a lesson (g = 0.54 on
-the questions asked, 0.04 on the rest of the lesson, St Hilaire, Chan & Ahn, 2023). Terramentor's
-placement questions, taken before you study a course, look for what you already know across it;
-they are not asked to prepare you for one lesson. The stream
+Two techniques with evidence of similar size sit around a lesson. After a part, you can put it in
+your own words and the model marks your explanation against the part's text (prompts to explain
+a step in your own words: g = 0.55, Bisra et al., 2018). When the app already holds a head start
+on a topic, from placement questions for example, the topic's first part opens with one quick
+question before anything is taught (questions asked before a lesson: g = 0.54 on the questions
+asked, 0.04 on the rest of the lesson, St Hilaire, Chan & Ahn, 2023). Neither counts as proof
+that you know the topic. The stream
 does mix reviews of older topics in with new material. That is spacing. Interleaving in the
 research sense means alternating similar kinds of problem so that you learn to tell them apart,
 and its record is mixed: g = 0.42 on average, 0.34 for maths, and worse than blocked practice for
@@ -191,7 +193,7 @@ flashcards, scored quizzes, and matching and fill-in-the-blank exercises.
 
 | | ChatGPT | Gemini | Claude | Terramentor |
 | --- | --- | --- | --- | --- |
-| Asks you questions instead of answering | Yes, in study mode | Yes, in Guided Learning | Yes, in learning mode (university plans) | The assistant explains directly unless you ask it to test you; the questions come from the lessons and checks |
+| Asks you questions instead of answering | Yes, in study mode | Yes, in Guided Learning | Yes, in learning mode (university plans) | The lessons and checks ask the questions; the assistant explains directly unless you ask it to test you |
 | Quizzes | Yes, in the chat | Yes, including a diagnostic quiz and timed practice tests | When you ask in the chat | A question after each part of a lesson, and a mastery check per topic |
 | Flashcards kept between sessions | Yes, marked known or to practise again | Yes, in Gemini Notebook | Not described | Yes |
 | Reviews timed to when you are about to forget | Not described; you can ask ChatGPT to set a scheduled task | Not described | Not described | Cards scheduled with FSRS; recall questions for proven topics |

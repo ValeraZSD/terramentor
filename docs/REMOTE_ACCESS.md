@@ -45,7 +45,7 @@ when one of them does not go to plan.
 
 Download it from [tailscale.com/download](https://tailscale.com/download) and
 sign in with any account it offers (Google, Microsoft, GitHub…). The account is
-Tailscale's, not ours; Terramentor has no accounts and never will.
+Tailscale's, not ours; the app on your computer has no accounts.
 
 Your machine is now on a private network of your own devices, with an address
 only those devices can reach.

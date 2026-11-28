@@ -127,7 +127,7 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                                     It said "the only language written by a
                                     person", which claims an authorship the
                                     English text does not have either. */}
-                                {tr("English is the app’s original language. The rest were translated from it by machine and then corrected by hand where mistakes were found, so a sentence here and there may read oddly. If you spot one, corrections are welcome: each language is a single file in the app’s source.")}
+                                {tr("English is the app’s original language. The rest were translated from it by machine and then corrected by hand where mistakes were found. If you spot a sentence that reads wrong, corrections are welcome: each language is a single file in the app’s source.")}
                             </Explain>
                         }
                     />

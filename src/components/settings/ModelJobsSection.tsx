@@ -282,7 +282,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                             {([
                                 { value: 'auto', label: tr("Auto (recommended)"), desc: tr("Use a vision model when the app can confirm the model supports images (Ollama); otherwise OCR.") },
                                 { value: 'vision', label: tr("Prefer vision model"), desc: tr("Always send pages to your model as images. Choose this only if your API endpoint serves a vision model — a text-only model will invent formulas.") },
-                                { value: 'ocr', label: tr("OCR only"), desc: tr("Never use the model; recover with local OCR. Fully offline, but mangles some notation.") },
+                                { value: 'ocr', label: tr("OCR only"), desc: tr("Never use the model; recover with local OCR. Fully offline; OCR misreads some notation.") },
                                 { value: 'off', label: tr("Off"), desc: tr("Don't recover — keep the raw text layer even when formulas are missing.") },
                             ] as const).map(opt => (
                                 <label

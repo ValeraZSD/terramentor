@@ -27,14 +27,14 @@ Last reviewed: 23 November 2026. This page describes the code on `main` on that 
   for flashing.
 - **Something does not work for you?** See [Reporting a barrier](#reporting-a-barrier).
 
-The rest of this page has the detail: what helps, what does not work yet, how it is checked,
-and a report against each WCAG 2.2 rule.
+The rest of this page has the detail: what helps, how it is checked, the known gaps, and a
+report against each WCAG 2.2 rule.
 
 ## The target
 
-Terramentor aims at [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It **does not conform
-yet**: some parts of the app itself do not meet every success criterion. The report below
-records how far it has come and what is still missing.
+Terramentor aims at [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It is **partially
+conformant**: some parts of the app itself do not fully meet the standard. The report below
+gives the status of each success criterion.
 
 The main reasons, each described under [Known gaps](#known-gaps):
 
@@ -84,8 +84,8 @@ Elsewhere in the app:
   script of a course written in another script, or mostly another script in a course
   written in Latin letters. In a Latin-script course other than English it is also refused
   when it reads as English: at least two words only English uses, such as "the" or "with",
-  making up 15% or more of its words. These checks are deliberately narrow and catch the
-  common mistakes, not every wrong description: correcting one by hand is always possible.
+  making up 15% or more of its words. These checks catch the common mistakes, and any
+  description can be corrected by hand.
 - A Skip to content link leads past the header. Each area (a course, Settings, the
   dashboard) sets its own page title, each screen has one main heading, and moving to another screen is announced.
 - Back (a phone's Back button, the browser's Back, a mouse's back key) closes the topmost

@@ -1,6 +1,6 @@
-# Add-ons: the design, and what "extend the app" can honestly mean
+# Add-ons: the design, and what "extend the app" can mean
 
-**Nothing in this document is implemented.** It exists so the shape is
+**This document is the design.** It exists so the shape is
 decided before the first piece is written, and so a contributor can see *why* a proposed add-on
 is a yes or a no before building it.
 
@@ -20,7 +20,7 @@ the reasoning; this table is the decision.
 | the ask | can it be done safely? | how |
 |---|---|---|
 | "a different theme" | **yes, fully** | data: the app's own colour ladder (11 RGB triplets, an accent, a light/dark axis). No CSS. |
-| "change the interface" | **partly** | layout *options* offered as declared switches (rail order, hidden tabs, density, default views; the host has none of these yet, so each is built in the app first). Not arbitrary CSS or markup; see *what an add-on can never do*. |
+| "change the interface" | **partly** | layout *options* offered as declared switches (rail order, hidden tabs, density, default views; each is built in the app before an add-on can set it). Not arbitrary CSS or markup; see *what an add-on can never do*. |
 | "a different course structure" | **yes, fully** | data: a course template (a curriculum skeleton), a deck, a drill bank, a question bank: the import formats that already exist, minus progress. |
 | "different scheduling / feed / mastery behaviour" | **yes, as a bounded policy** | first as configuration bundled and named; where a real algorithm is wanted, pure logic in an isolate with no I/O, whose output the host re-validates. |
 | "a new kind of card, minigame, view or practice format" | **yes** | sandboxed UI: an HTML document in the same `<iframe sandbox>` + CSP the widget pipeline already runs, talking to the host over a narrow, capability-gated message API. |
@@ -36,7 +36,8 @@ worth installing add-ons into.
 
 ## The constraint everything follows from
 
-This app's core promise is that a learner's data never leaves their machine, and `SECURITY.md`
+This app's core promise is that a learner's data never leaves their machine unless they send it
+somewhere, and `SECURITY.md`
 makes that claim **falsifiable with a packet capture**. Any extension system that can break that
 promise destroys it for everyone, not just for the person who installed the add-on, because the
 claim is about the app, and "it's safe unless you installed something" is not a claim anyone can
@@ -234,7 +235,7 @@ but the Settings preview draws the ladder against real text so the learner sees 
 choosing it.
 
 Layout switches would ride on the same kind as optional booleans (rail order, default view,
-density). The host implements none of them yet, so each has to exist in the app before a theme
+density). Each has to exist in the app before a theme
 may name it; a theme is "how the app looks", and a manifest naming a switch the host does not
 have is rejected like any unknown field.
 
@@ -376,7 +377,7 @@ or lies in its description. The sandbox is what makes that a tolerable job for a
 ## The order to build it in
 
 Each step is usable on its own and none of them requires the next. Costs are estimates of
-effort, not measurements; there is nothing to measure yet.
+effort.
 
 1. **The `addons` table, the manifest validator, the install/enable/remove screen, and `theme`
    as the first kind.** Smallest visible win, zero risk, and it forces the manifest, the hashes
@@ -429,5 +430,5 @@ wants the second before building it.
 - **No credentials, ever.** A manifest is stored in plain text.
 - **Name it for what it does**, not for a brand.
 - **Adding a kind or a capability is a change to this document first** and to
-  the add-on gate suite second (`tools/addon-gates.mjs`, not written yet), and the gate must
+  the add-on gate suite second (`tools/addon-gates.mjs`, to be written with the first kind), and the gate must
   include a hostile bundle for the new thing.

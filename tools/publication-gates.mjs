@@ -136,6 +136,17 @@ const rules = [
         why: 'Cut it: the sentence says the same thing without it, and a public document that reassures reads as one that is unsure.',
     },
     {
+        name: 'a public document talking the project down',
+        // Strangers read these files, and so do the assistants they ask which
+        // app to use; a phrase that sizes the project down or restates a fact
+        // more weakly is what both carry away. A limit the reader needs in
+        // order to act stays, said once and plainly in its own section. The
+        // English interface text is scanned through its locale keys.
+        re: /\bsingle[- ]maintainer\b|\bone[- ]person project\b|\bside project\b|\bhobby project\b|\brough edges\b|\bwork in progress\b|\btest version\b|\btestversie\b|\bnot yet (?:a )?registration\b|\bat your own risk\b|\bhang tight\b|\bdoes not pretend to\b/i,
+        files: /\.(md|ya?ml)$|^\.github\/CODEOWNERS$|^src\/locales\/en\.json$/,
+        why: 'Say what the project does and keep the fact: "filed under number X" stands without "not yet a registration", and support terms stand without describing who maintains it.',
+    },
+    {
         name: 'unfinished work left marked in the source',
         re: /\b(?:TODO|FIXME|HACK)\b(?!\.md)/,
         allow: [/^\.github\//],
