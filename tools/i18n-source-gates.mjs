@@ -204,6 +204,7 @@ const ADJACENT_LABELS = new Set([
     'DeckDashboard.tsx:· {{fmt}} sections',          // a row of facts
     'ProjectsGrid.tsx:Activity log',                 // a heading beside a status
     'AnkiImportModal.tsx:{{cards}} cards',           // "N cards" · "from M decks"
+    'ProjectImportZone.tsx:{{count}} cards',         // a linked course: name · N cards · M questions
     'GlobalFlashcardReview.tsx:{{min}} of {{length}} cards', // a row of facts: position · skipped · deleted
 ]);
 /**

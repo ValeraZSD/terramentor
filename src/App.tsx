@@ -1,5 +1,6 @@
-import { useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { useEffect, useState, Suspense } from 'react';
+import { Routes, Route, Navigate, useParams, useLocation, useNavigate } from 'react-router-dom';
+import { arrivedByCourseLink, onOpenedCourseLink, openedCourseLink } from './utils/openedCourseLink';
 import { useStore } from './store';
 import { setAuthRequiredHandler } from './api';
 import { useRouterStoreSync } from './hooks/useRouterStoreSync';
@@ -93,6 +94,24 @@ export default function App() {
         return () => setAuthRequiredHandler(null);
     }, []);
 
+    // Someone who opened a course link came for that course: the welcome, which
+    // is about making courses with a model, waits for their next visit.
+    const welcomeWaits = welcome === 'needed' && arrivedByCourseLink();
+    // A course link the app was opened with is offered on Projects, where the
+    // New course dialog lives; it waits through a lock screen.
+    const appShown = authChecked && (!authEnabled || authenticated) && (welcome === 'done' || welcomeWaits) && !isOpenRouterReturn();
+    // On the entry's key, not the path: the welcome's last step navigates
+    // right after this one, and the two can land in one render with the path
+    // back where it was, which would not run this again. A link opened in this
+    // tab later changes neither, so it counts too.
+    const { pathname, key: entry } = useLocation();
+    const navigate = useNavigate();
+    const [linksOpened, setLinksOpened] = useState(0);
+    useEffect(() => onOpenedCourseLink(() => setLinksOpened(n => n + 1)), []);
+    useEffect(() => {
+        if (appShown && pathname !== '/projects' && openedCourseLink() !== null) navigate('/projects', { replace: true });
+    }, [appShown, pathname, entry, linksOpened, navigate]);
+
     // Avoid flashing the app before we know whether a login is required.
     if (!authChecked) return null;
     if (authEnabled && !authenticated) return <AuthGate />;
@@ -102,7 +121,7 @@ export default function App() {
     // A new library is set up before the app is shown; until the settings say
     // which it is, nothing is drawn rather than the wrong one (store `welcome`).
     if (welcome === 'unknown') return null;
-    if (welcome === 'needed') return <RouteChunk name={k("Welcome")} load={importWelcome} />;
+    if (welcome === 'needed' && !welcomeWaits) return <RouteChunk name={k("Welcome")} load={importWelcome} />;
 
     const workspace = (
         <RouteChunk name={k("Workspace")} load={importWorkspace} fallback={workspaceFallback} />

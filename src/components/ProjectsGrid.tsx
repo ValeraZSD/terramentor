@@ -33,6 +33,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
+import CourseLinkPage, { readLinkedCourse, type LinkedCourse } from './CourseLinkPage';
+import { useCourseFileImport } from '../hooks/useCourseFileImport';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
@@ -44,6 +46,7 @@ import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
+import { forgetOpenedCourseLink, onOpenedCourseLink, openedCourseLink } from '../utils/openedCourseLink';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
@@ -87,6 +90,16 @@ export default function ProjectsGrid() {
 
     const [showCreate, setShowCreate] = useState(false);
     const [draft, setDraft] = useState<CreationInput | null>(null);
+    // A course link the app was opened with shows its course on a page of its
+    // own (`linkPage`, `course` null while it is read). A link that cannot be
+    // read opens the dialog on Import instead (`courseLink`), with the link in
+    // its field, so the field says what is wrong with it.
+    const [linkPage, setLinkPage] = useState<{ link: string; course: LinkedCourse | null } | null>(null);
+    const pageLink = useRef<string | null>(null);
+    const [courseLink, setCourseLink] = useState<string | null>(null);
+    const { importing, importFile } = useCourseFileImport();
+    const openProject = useStore(s => s.openProject);
+    const openCourseUpdate = useStore(s => s.openCourseUpdate);
     const [activeProject, setActiveProject] = useState<Project | null>(null);
 
     // Each project's pace, open topics and topic extent (`calculatePace` and
@@ -169,9 +182,55 @@ export default function ProjectsGrid() {
         navigate(location.pathname, { replace: true, state: null });
     }, [location.state, location.pathname, navigate]);
 
+    // Read, not spent: if this page is left before the course page closes (the
+    // welcome's last step moves on), the app comes back here and offers it again.
+    // A link opened in this tab while the list shows offers itself the same way.
+    useEffect(() => {
+        const offer = () => {
+            const link = openedCourseLink();
+            if (!link) return;
+            pageLink.current = link;
+            setShowCreate(false);
+            setDraft(null);
+            setCourseLink(null);
+            setLinkPage({ link, course: null });
+            readLinkedCourse(link).then(
+                course => { if (pageLink.current === link) setLinkPage({ link, course }); },
+                () => {
+                    if (pageLink.current !== link) return;
+                    pageLink.current = null;
+                    setLinkPage(null);
+                    setCourseLink(link);
+                    setShowCreate(true);
+                },
+            );
+        };
+        offer();
+        return onOpenedCourseLink(offer);
+    }, []);
+
+    const closeLinkPage = () => {
+        pageLink.current = null;
+        setLinkPage(null);
+        forgetOpenedCourseLink();
+    };
+    const actOnLink = () => {
+        const course = linkPage?.course;
+        if (!course || importing) return;
+        const have = course.have;
+        // The import ends later: if another link was opened meanwhile, its page
+        // stays and its link is kept, rather than spent unseen.
+        const link = linkPage.link;
+        if (have === 'new') void importFile(course.file, () => { if (pageLink.current === link) closeLinkPage(); });
+        else if ('projectId' in have) { closeLinkPage(); openProject(have.projectId); }
+        else { closeLinkPage(); openCourseUpdate(course.file, have); }
+    };
+
     const closeCreate = () => {
         setShowCreate(false);
         setDraft(null);
+        if (courseLink) forgetOpenedCourseLink();
+        setCourseLink(null);
     };
 
     // Project Grid Drag
@@ -434,7 +493,9 @@ export default function ProjectsGrid() {
                     )}
                 </div>
 
-                <NewProjectModal isOpen={showCreate} draft={draft} onClose={closeCreate} />
+                {/* Keyed on the link: one opened while the dialog shows starts it afresh on that link. */}
+                <NewProjectModal key={courseLink ?? ''} isOpen={showCreate} draft={draft} courseLink={courseLink} onClose={closeCreate} />
+                {linkPage && <CourseLinkPage course={linkPage.course} busy={importing} onAct={actOnLink} onClose={closeLinkPage} />}
             </div>
         </>
     );
