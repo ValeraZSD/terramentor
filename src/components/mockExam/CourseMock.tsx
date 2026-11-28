@@ -28,7 +28,7 @@ import { PractiseWeakest } from './PractiseWeakest';
 import { openingPlace, saveState } from './courseMockState';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
-import { ClockToggle, EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
+import { ClockToggle, ComeBackToggle, EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
 import type { CourseMockDetail, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
 
 /**
@@ -354,6 +354,9 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const { sitting, course } = detail;
     const questions = course.questions;
     const timed = sitting.timeAllowed > 0;
+    // A look back is not a mock: its last button and its question say so.
+    const lookBack = !!detail.paper.lookBack;
+    const finishLabel = lookBack ? t("Finish") : t("Finish the mock");
 
     // Coming back opens the question the learner was on in this tab; on
     // another device, or a first open, the first one not answered yet.
@@ -467,7 +470,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         const open = questions.filter(x => !(answers[x.partId] ?? '').trim()).length;
         if (open > 0) {
             const ok = await showConfirm({
-                title: t("Finish the mock?"),
+                title: lookBack ? t("Finish the look back?") : t("Finish the mock?"),
                 message: t("{{count}} questions are not answered. They count as zero in the score.", { count: open }),
                 confirmLabel: t("Finish"),
                 cancelLabel: t("Keep going"),
@@ -562,7 +565,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         </Button>
     );
     const next = last
-        ? <Button block={!wide} variant="primary" busy={busy} onClick={() => void finish()}>{t("Finish the mock")}</Button>
+        ? <Button block={!wide} variant="primary" busy={busy} onClick={() => void finish()}>{finishLabel}</Button>
         : <Button block={!wide} variant="primary" trailing={<ChevronRight className="w-4 h-4" aria-hidden="true" />} onClick={() => go(index + 1)}>{t("Next")}</Button>;
     const strip = <QuestionStrip items={items} current={index} onGo={go} />;
     const expand = <GridButton onClick={() => setListOpen(true)} />;
@@ -591,16 +594,15 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                 )}
                 <Panel>
                     {/* The report flag keeps the card's top-right corner; on a
-                        narrow card "Come back to this" wraps under the number. */}
+                        narrow card "Come back to this" wraps under the number.
+                        Where it wraps depends on the width only, never on the
+                        mark, so pressing it moves nothing. */}
                     <div className="flex items-start gap-2">
-                        <div className="flex-1 min-w-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        <div className="flex-1 min-w-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                             <p className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300 tabular-nums">
                                 {t("Question {{n}} of {{total}}", { n: index + 1, total: questions.length })}
                             </p>
-                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ms-2.5 whitespace-nowrap"
-                                icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
-                                {later[q.partId] ? t("Marked to come back to") : t("Come back to this")}
-                            </Button>
+                            <ComeBackToggle marked={!!later[q.partId]} onToggle={toggleLater} />
                         </div>
                         <ReportItem key={q.partId} itemRef={q.ref} surface="mock" hideKey
                             shown={answers[q.partId] ? { answer: answers[q.partId] } : undefined} />
@@ -622,7 +624,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                     <div className="px-4 pb-4">
                         <QuestionGrid items={items} current={index} onGo={go} />
                         <div className="mt-5">
-                            <Button block busy={busy} onClick={() => { setListOpen(false); void finish(); }}>{t("Finish the mock")}</Button>
+                            <Button block busy={busy} onClick={() => { setListOpen(false); void finish(); }}>{finishLabel}</Button>
                         </div>
                     </div>
                 </BottomSheet>
